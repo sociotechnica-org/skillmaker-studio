@@ -1,0 +1,12 @@
+{
+  "name": "@skillmaker/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "skillmaker": "./src/main.ts"
+  },
+  "dependencies": {
+    "@skillmaker/core": "workspace:*"
+  }
+}

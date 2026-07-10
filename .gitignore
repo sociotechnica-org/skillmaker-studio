@@ -1,0 +1,10 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Skillmaker runtime dir: everything untracked EXCEPT the journal.
+# .skillmaker/events.jsonl is append-only shared history (merge=union in
+# .gitattributes) and must stay in git; studio.db, local.json, and claims/
+# are per-machine runtime state.
+.skillmaker/*
+!.skillmaker/events.jsonl

@@ -1,0 +1,4 @@
+# The journal is append-only shared history: union-merge so events written
+# on different branches combine instead of conflicting (idempotency keys
+# make the union safe).
+.skillmaker/events.jsonl merge=union
