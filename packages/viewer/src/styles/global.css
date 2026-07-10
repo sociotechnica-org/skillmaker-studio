@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: light-dark(#f6f6f4, #16171a);
+  --color-surface: light-dark(#ffffff, #1e2024);
+  --color-border: light-dark(#e2e2e0, #2c2e33);
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: var(--color-canvas);
+}
