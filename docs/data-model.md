@@ -4,9 +4,7 @@
 > the director's rulings; Part 2 is the concrete form — every file, every
 > schema, every journal event. Part 2 is the part under active discussion.
 >
-> **Grounding:** derived from a full read of the predecessor studio (plays,
-> sweeps library, tools, prior data-model docs). Inherited laws cited as
-> **[inherited]**.
+> **Grounding:** derived from a full study of the predecessor studio. Inherited laws cited as **[inherited]**.
 
 ## Part 1 — The model
 
@@ -81,6 +79,7 @@ are files; the DB makes both queryable.
   skills/
     <slug>/                       # one Skill Bundle — tracked
       bundle.json                 #   identity (append-slowly)
+      stations.json               #   per-state work config, copied from template (§2.13)
       design.md                   #   source: the workflow thinking
       research/                   #   source: free-form markdown
         *.md
@@ -280,7 +279,9 @@ workspace into `artifacts/`.
   "schemaVersion": 1,
   "id": "01JZX8M2E9V0Q4",               // ULID = directory name
   "bundle": "frame-the-problem",
-  "fixtureCase": "refusal-thin-input",
+  "kind": "eval",                       // eval | station — station runs do a state's work (§2.13)
+  "station": null,                      // state id when kind = "station"
+  "fixtureCase": "refusal-thin-input",  // eval runs only
   "skillVersionHash": "sha256:ab12…",
   "provider": "claude-code",
   "model": "claude-opus-4-6",           // as reported by the provider
@@ -321,8 +322,7 @@ Writes go only through the CLI/server, never freehand.
 | Type | Payload | Notes |
 |---|---|---|
 | `bundle.created` | `{bundle}` | fired by `skillmaker new` |
-| `bundle.stage_changed` | `{bundle, from, to}` | ladder moves; publish requires a prior gate decision |
-| `bundle.ready_changed` | `{bundle, ready}` | the [inherited] ready flag |
+| `bundle.stage_changed` | `{bundle, from, to, reason?, override?}` | the state-machine transition (§2.13); guards checked at append |
 | `bundle.gate_decided` | `{bundle, gate: "publish", decision: "approved"\|"declined", basis}` | `basis` = free-text evidence summary shown in history |
 | `bundle.archived` / `bundle.restored` | `{bundle}` | off/on the active board |
 | `skill.version_recorded` | §2.7 | |
@@ -333,6 +333,9 @@ Writes go only through the CLI/server, never freehand.
 | `run.started` | `{run: {…run.json minus end fields}}` | mirrors run.json for replay-completeness |
 | `run.completed` | `{id, status, endedAt}` | |
 | `run.graded` | `{id, verdict: "pass"\|"fail"\|"partial", checks?: [{text, pass}], notes?}` | regrade = new event; latest wins, history kept |
+| `station.started` | `{bundle, state, runId?}` | station work begins (§2.13); `runId` when agent-driven |
+| `review.requested` | `{bundle, state, artifacts?: string[], question?}` | agent ends its turn; bundle enters `awaiting-review` [inherited: non-blocking pair] |
+| `review.resolved` | `{bundle, state, decision: "approve"\|"revise", notes?}` | `approve` satisfies the forward guard; `revise` notes become the agent's next instruction |
 
 Not journaled: file edits to sources/outputs (git is their history; reindex
 scans them). The journal stays thin — ids and decisions, no fat content.
@@ -367,7 +370,7 @@ priority → created → id sort. Dropped: exactly-one-testing-card-per-play.
 ```sql
 -- all rebuildable from files + journal via `skillmaker reindex`
 CREATE TABLE bundles        (slug PK, name, one_liner, tags_json, created,
-                             stage, ready, archived,          -- ← journal replay
+                             stage, substate, archived,       -- ← journal fold (§2.13; substate: working | awaiting-review)
                              design_hash, output_hash,        -- ← file scan
                              drift);                          -- ← computed
 CREATE TABLE skill_versions (bundle, hash, design_hash, label, recorded_at,
@@ -402,17 +405,120 @@ transcript + artifacts inline, and offers the grading panel (verdict +
 Everything it shows is reconstructible, so nothing to keep in sync.
 [ports: dry-runs/read-out.md + risk-map results axis + Play Testing lens]
 
-## Part 3 — Open items
+### 2.13 The production state machine + stations (ruled 2026-07-10)
 
-- **G. Are `runs/` git-tracked?** Proposal in §2.1: yes by default,
-  config escape hatch.
-- **H. Journal location:** `.skillmaker/events.jsonl` (proposed) vs a more
-  visible `journal/events.jsonl`. Cosmetic but sets the "is history a
-  first-class citizen" tone.
-- **I. Fixture-file canonicity check:** should reindex *validate* (case.json
-  parses, risk ids band, answer key exists when referenced) and surface
-  violations as viewer warnings — or hard-fail? Proposal: warnings; the old
-  studio's hard CI gates were right for a monorepo, wrong for a product.
+**Two workflows, two names — never conflated** [inherited lesson: the old
+studio's Tier/Bank polysemy hot-spots]:
+
+- **The skill's workflow** — what an agent does when *running* the skill.
+  Different per skill. Lives as prose in `design.md` ("The workflow") and
+  ships in SKILL.md — including human-checkpoint steps written in prose.
+  (Existence proof: `front-of-house-walk` ran a gated, human-paired workflow
+  with no Fabro at all.)
+- **The production state machine** — how a skill gets *made*. Studio-owned,
+  agent-first. This section.
+
+**The machine is ONE — universal, defined in core.** Its shape (states,
+legal transitions, guards) is the studio's identity and crosses all
+bundles. What varies per bundle is the **station config**: how the work of
+each state gets done. Universal machine, configurable stations. (The
+example plays support the split: plays varied in how work got done per
+stage, never in the stage set itself.)
+
+**States** (= ruling F, reframed): `idea → researching → drafting →
+evaluating → published`, plus `archived`. Each state has substates
+`working | awaiting-review` — the [inherited] `ready` flag dissolved into
+a proper substate (`review.requested` enters it; `review.resolved` leaves
+it).
+
+**Transitions** — journaled as `bundle.stage_changed`, each with a guard:
+
+| Transition | Guard |
+|---|---|
+| forward one state | `review.resolved: approve` for the current state's work |
+| `evaluating → published` | additionally `bundle.gate_decided: approved` (the publish gate, ruling C) |
+| backward (any → earlier state) | always legal, journaled with a reason — regression is a modeled fact (evals regress, models change), not an embarrassment |
+| any ↔ `archived` | `bundle.archived` / `bundle.restored` |
+
+Guards are checked at append time; a manual `bundle.stage_changed` with
+`override: true` remains legal for station-less bundles (imported skills,
+quick captures).
+
+**Stations** — per-bundle work config, `stations.json` (source class),
+**copied — not referenced — from an app-level template** at
+`skillmaker new`, so a bundle's config is frozen with the bundle and
+William can hand out different templates per skill kind:
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "template": "default",                    // provenance of the copy
+  "stations": {
+    "researching": { "doer": "agent",       // agent | human  [inherited: doer honesty]
+                     "skill": "william/research-a-skill",  // skill the station-agent runs with
+                     "produces": ["research/"], "review": true },
+    "drafting":    { "doer": "agent", "skill": "william/draft-skill-md",
+                     "produces": ["design.md", "output/SKILL.md"], "review": true },
+    "evaluating":  { "doer": "agent", "produces": ["evals/", "runs/"], "review": true }
+  }
+}
+```
+
+Mechanics:
+
+- **Agent-first (ruled):** stations default to agent doers, executed as
+  ACP **station runs** (`Run.kind = "station"` — same execution record,
+  engine, and transcript capture as eval runs). A station's `skill` is
+  itself a skill bundle — the studio dogfoods its own product, and
+  **William** ships as the product's agent with his own skills for writing
+  skills (living in the self-hosted `skills/` workspace).
+- **The non-blocking review pair** [inherited]: an agent finishes a
+  station's unit of work, emits `review.requested`, and ends its turn —
+  the bundle enters `awaiting-review`. The human resolves in the viewer:
+  `approve` satisfies the forward guard; `revise` notes become the agent's
+  next instruction at the same station. Human gates are data, never a
+  blocked process.
+- Progress lives on the journal (`station.started` / `review.requested` /
+  `review.resolved` / guarded `bundle.stage_changed`); `stations.json` is
+  just the plan; current state = journal fold.
+
+### 2.14 The Skillbook — workspace-level output
+
+The workspace projects a **skillbook**: auto-generated documentation for
+the whole skill set. Same artifact class as SKILL.md (output), one level
+up. No new entities — a generator over existing facts:
+
+- Per-skill chapters from `design.md` (intent, triggers, the skill's
+  workflow, failure hypotheses) — the *why* no marketplace listing has.
+- **Receipts** from the measurements view: pass rates × n × CI per
+  provider/model pinned to version hashes, with coverage gaps shown as
+  honestly as passes [inherited: two-axis rule, now public-facing].
+- Changelogs replayed from the journal (versions, publishes, gates).
+
+Rendered two ways by one renderer: a live viewer tab (always current) and
+`skillmaker book build` → a publishable static site.
+
+## Part 3 — Further rulings (2026-07-10)
+
+- **G. `runs/` are git-tracked** (yes by default; config escape hatch
+  `trackRuns: false` retained). **Ruled.**
+- **H. Journal lives at `.skillmaker/events.jsonl`.** **Ruled.**
+- **I. Reindex validation surfaces warnings**, never hard-fails — hard CI
+  gates were right for the old monorepo, wrong for a product. **Ruled.**
+- **Self-hosting:** the skillmaker-studio repo carries its own Skillmaker
+  workspace (root `skills/` + `.skillmaker/`) — the studio's own skills are
+  developed in the studio, and its journal is real shared history from
+  day one. (The Alexandria-Prime pattern.) **Ruled.**
+- **Production is a state machine, not a step list** (§2.13): one universal
+  machine in core (states + guarded transitions, backward moves legal);
+  per-bundle variation lives only in station config (`stations.json`,
+  copied from templates). **Ruled.**
+- **Agent-first production:** stations default to agent doers driven over
+  ACP from v1; **William** ships as the product's agent, with his own
+  skill-writing skills living in the self-hosted workspace. **Ruled.**
+
+## Part 4 — Open items
+
 - Per-model output variants (ruling D extension): future `output/` gains
   named variant subtrees; versions/measurements already key on hash so no
   schema change — sketch when needed.

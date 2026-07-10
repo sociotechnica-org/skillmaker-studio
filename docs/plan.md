@@ -22,6 +22,7 @@ Alexandria org spine do not.
 - **CLI-first, bun-native.** `skillmaker` CLI written in TypeScript with
   Effect (built per the `effect-ts` skill), `bin` → `src/cli/main.ts` (bun
   runs TS directly), distributed via `bun build --compile` single binary.
+ 
 - **`skillmaker start`** serves the viewer: one `Bun.serve` on one origin
   serving the statically built Astro app (`dist/`) plus `/api/*` — SPA
   fallback, no CORS, claim-file single-instance ownership.
@@ -30,8 +31,7 @@ Alexandria org spine do not.
   hooks), Effect confined to one runtime directory. SSE for live updates.
 - **Eval engine:** drives claude-code and codex as **ACP subprocesses**
   (`@zed-industries/claude-code-acp`, `codex-acp` platform binaries —
-  downloaded, pinned, and verified). A run = skill installed into a sandbox
-  workspace +
+  downloaded, pinned, and integrity-verified). A run = skill installed into a sandbox workspace +
   fixture task given to the agent + transcript captured + graded.
 - **No Fabro in v1.** Skills are flat SKILL.md bundles; there is no workflow
   compilation, node prompts, or run projection.
@@ -56,7 +56,7 @@ the canonical-store open question: data-model.md §2.
 
 ## Repo skeleton (proposed)
 
-Monorepo, patterned on alexandria-internal (bun workspaces, package-local
+Monorepo (bun workspaces, package-local
 guidance per package):
 
 ```
@@ -66,8 +66,14 @@ skillmaker-studio/          # sociotechnica-org/skillmaker-studio (public)
   packages/core/            # shared domain: schemas, store, journal, eval engine
   packages/marketing-site/  # public landing site (Astro; later)
   docs/                     # product plans and design docs (data-model.md lives here)
-  skills/                   # dogfood: the studio's own skills as bundles
+  skills/                   # the repo's own Skillmaker workspace (self-hosted)
+  .skillmaker/              #   its journal + local index
 ```
+
+**Self-hosting (ruled 2026-07-10):** the repo carries its own Skillmaker
+workspace — the studio hosts itself. The
+studio's own skills are developed in the studio; its journal is real,
+git-tracked shared history from the first commit.
 
 ## What migrates from `studio/`
 
