@@ -8,3 +8,5 @@ dist/
 # are per-machine runtime state.
 .skillmaker/*
 !.skillmaker/events.jsonl
+
+.repos/effect
