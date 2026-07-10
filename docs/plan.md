@@ -101,6 +101,11 @@ directional; the build proceeds piece by piece.
 
 - `~/Documents/code/skillmaker-test/` — scratch git repo, studio installed;
   every phase's QA recipe runs here, never in the product repo.
+- **Fresh-install discipline (ruled):** test real installs into a brand-new
+  directory OFTEN — not just at Phase 12. Every phase's QA starts from
+  `skillmaker init` in a freshly created repo at least once, so
+  first-run experience and migration debt surface immediately instead of
+  accumulating in a long-lived test workspace.
 - Per-PR: typecheck + unit tests in CI; a scripted e2e (`bun test:e2e`)
   that drives the compiled CLI against a temp workspace.
 - Per-phase: a human/Chrome QA recipe written into the PR description and
@@ -227,8 +232,40 @@ directional; the build proceeds piece by piece.
 - **Verify:** full Phase-8→11 loop on codex; install the binary on a clean
   machine (or clean shell) and run the whole golden path from `init`.
 
+### Phase 13 — docs site
+
+- **Value:** the product explains itself publicly.
+- **Scope:** a documentation site (Astro, likely Starlight) as its own
+  package/surface: getting started, the bundle anatomy, the state machine,
+  the journal, eval methodology, CLI reference generated from the command
+  router. Deployed alongside/within the marketing site.
+- **Verify (/chrome):** browse the built site; follow the getting-started
+  page verbatim in a brand-new directory and reach a working board.
+
+### Phase 14 — migrate the studio's library (LAST)
+
+- **Value:** Skillmaker inherits the Playmaker's Studio product-knowledge
+  library — the concepts, mechanisms, and hard-won laws — as its own.
+- **Scope:** migrate the predecessor studio's product-knowledge card library into this repo and
+  **clean it up against the new, leaner data model**: Raven edits freely —
+  rename Play→Skill Bundle vocabulary throughout; retire cards for dropped
+  machinery (Fabro projection, derived renderings, Protocols A–E, resync
+  cone, org spine, face-agent-as-container, board-state mechanics);
+  rewrite the lifecycle cards to the state machine + stations model;
+  resolve the recorded hot-spots where the new model rules them (two
+  advancement mechanisms → guarded transitions; blocking vs non-blocking
+  gate → review pairs; stage/status polysemy → one state set); keep the
+  inherited laws (two-axis honesty, measurement policy, fixture kit,
+  provenance) as the library's spine.
+- **Explicitly last:** everything else ships first, so the library
+  describes the software that actually exists rather than the plan.
+- **Verify:** the cleaned library reads true against the shipped product —
+  spot-audit cards against real CLI/viewer behavior; no card references
+  retired machinery.
+
 Phases 1–7 involve zero LLM calls. Each phase is independently shippable;
-re-ordering 5/6/7 is cheap if discussion demands it.
+re-ordering 5/6/7 is cheap if discussion demands it. Phases 13–14 come
+after everything else, in that order.
 
 ## Open decisions
 
