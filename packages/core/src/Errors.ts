@@ -59,3 +59,9 @@ export class WorkspaceIOError extends Schema.TaggedErrorClass<WorkspaceIOError>(
     cause: Schema.optionalKey(Schema.Defect()),
   },
 ) {}
+
+/** `studio.db` (the rebuildable SQLite index) could not be read or written. */
+export class IndexError extends Schema.TaggedErrorClass<IndexError>()("IndexError", {
+  message: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}

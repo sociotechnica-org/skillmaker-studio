@@ -4,7 +4,8 @@
  * Translated from docs/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md.
  * The canonical-store split: content lives in files (`skills/<slug>/`), state
  * and decisions live in the append-only journal (`.skillmaker/events.jsonl`),
- * and SQLite is a rebuildable index (not built in Phase 1).
+ * and SQLite is a rebuildable index (`studio.db`, rebuilt via the journal
+ * fold + a file scan — never a source of truth).
  */
 
 export * from "./Actor.ts";
@@ -15,6 +16,7 @@ export * from "./Todo.ts";
 export * from "./Journal.ts";
 export * from "./Workspace.ts";
 export * from "./Errors.ts";
+export { foldBundleStates, bundleForEvent } from "./Fold.ts";
 
 export { Journal, layer as JournalLayer, type AppendResult } from "./JournalService.ts";
 export {
@@ -23,3 +25,9 @@ export {
   isValidSlug,
   type CreateBundleInput,
 } from "./WorkspaceService.ts";
+export {
+  IndexService,
+  layer as IndexServiceLayer,
+  type BundleRecord,
+  type RebuildResult,
+} from "./IndexService.ts";

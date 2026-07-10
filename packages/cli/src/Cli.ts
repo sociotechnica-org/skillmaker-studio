@@ -5,7 +5,10 @@
 import { Effect } from "effect";
 import { type CliResult, ok, usageError } from "./CliResult.ts";
 import { runInit } from "./commands/Init.ts";
+import { runList } from "./commands/List.ts";
 import { runNew } from "./commands/New.ts";
+import { runReindex } from "./commands/Reindex.ts";
+import { runStatus } from "./commands/Status.ts";
 
 const USAGE = `skillmaker — Skillmaker Studio CLI
 
@@ -14,6 +17,9 @@ Usage: skillmaker <command> [options]
 Commands:
   init              Initialize a skillmaker workspace in the current directory
   new <slug>        Create a new Skill Bundle under skills/<slug>/
+  list              List Skill Bundles by stage/substate (rebuilds the index first)
+  status <slug>     Show one Skill Bundle's identity, state, and event history
+  reindex           Rebuild .skillmaker/studio.db from files + the journal
 
 Options:
   --json            Emit machine-readable JSON instead of text
@@ -63,6 +69,14 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const name = flagValue(argv, "--name");
       return yield* runNew(cwd, slug, { json, name });
     }
+    case "list":
+      return yield* runList(cwd, { json });
+    case "status": {
+      const slug = positionalAfterCommand(argv);
+      return yield* runStatus(cwd, slug, { json });
+    }
+    case "reindex":
+      return yield* runReindex(cwd, { json });
     default: {
       const result: CliResult = usageError(`skillmaker: unknown command "${command}"\n\n${USAGE}`);
       return result;
