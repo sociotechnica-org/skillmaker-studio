@@ -7,6 +7,8 @@
     "skillmaker": "./src/main.ts"
   },
   "dependencies": {
-    "@skillmaker/core": "workspace:*"
+    "@effect/platform-bun": "^4.0.0-beta.97",
+    "@skillmaker/core": "workspace:*",
+    "effect": "^4.0.0-beta.97"
   }
 }

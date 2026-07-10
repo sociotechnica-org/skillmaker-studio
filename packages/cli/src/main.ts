@@ -2,70 +2,41 @@
 /**
  * skillmaker — CLI entry point.
  *
- * Walking-skeleton stub: prints name/version and the command list. Each
- * command below is a router slot only; implementations land brick by brick
- * (see docs/plan.md, "Build order").
+ * The runtime edge: this is the only file that builds the top-level layer,
+ * runs an Effect program, writes to stdout/stderr, and calls process.exit.
  */
+import { type CliResult } from "./CliResult.ts";
+import { WorkspaceLayer } from "@skillmaker/core";
+import { BunServices } from "@effect/platform-bun";
+import { Cause, Effect, Layer } from "effect";
+import { run } from "./Cli.ts";
 
-import pkg from "../package.json";
+// `provideMerge` (not `provide`): commands also need FileSystem/Path
+// directly (e.g. to build the workspace-root-dependent Journal layer), so
+// those services must stay in the output, not just satisfy Workspace's
+// construction.
+const AppLayer = Layer.provideMerge(WorkspaceLayer, BunServices.layer);
 
-type CommandName = "init" | "new" | "start" | "run" | "version" | "reindex";
+const program: Effect.Effect<CliResult> = Effect.gen(function* () {
+  const argv = process.argv.slice(2);
+  return yield* run(argv, process.cwd());
+}).pipe(
+  Effect.provide(AppLayer),
+  Effect.catchCause((cause: Cause.Cause<unknown>) =>
+    Effect.succeed<CliResult>({
+      stdout: "",
+      stderr: `skillmaker: unexpected error\n${Cause.pretty(cause)}\n`,
+      exitCode: 1,
+    }),
+  ),
+);
 
-const COMMANDS: Record<CommandName, string> = {
-  init: "Initialize a skillmaker workspace in the current directory",
-  new: "Create a new Skill Bundle under skills/<slug>/",
-  start: "Serve the viewer and /api on one origin",
-  run: "Execute a fixture case against a provider and capture the run",
-  version: "Record a skill version (content hash of output/)",
-  reindex: "Rebuild the SQLite index from files + journal",
-};
+const result = await Effect.runPromise(program);
 
-function printUsage(): void {
-  console.log(`${pkg.name} ${pkg.version} — Skillmaker Studio CLI`);
-  console.log();
-  console.log("Usage: skillmaker <command> [options]");
-  console.log();
-  console.log("Commands:");
-  for (const [name, description] of Object.entries(COMMANDS)) {
-    console.log(`  ${name.padEnd(10)} ${description}`);
-  }
+if (result.stdout.length > 0) {
+  process.stdout.write(result.stdout);
 }
-
-function main(argv: string[]): number {
-  const command = argv[0];
-
-  if (command === undefined || command === "--help" || command === "-h") {
-    printUsage();
-    return 0;
-  }
-
-  switch (command as CommandName) {
-    case "init":
-      // TODO: scaffold skillmaker.config.json, skills/, .skillmaker/
-      break;
-    case "new":
-      // TODO: create bundle dir + bundle.json, append bundle.created event
-      break;
-    case "start":
-      // TODO: Bun.serve — static viewer dist/ + /api/*, claim-file ownership
-      break;
-    case "run":
-      // TODO: fixture × version × provider via ACP subprocess, capture run
-      break;
-    case "version":
-      // TODO: hash output/ tree, append skill.version_recorded event
-      break;
-    case "reindex":
-      // TODO: rebuild SQLite index from files + journal replay
-      break;
-    default:
-      console.error(`skillmaker: unknown command "${command}"`);
-      printUsage();
-      return 1;
-  }
-
-  console.log(`skillmaker ${command}: not implemented yet (foundations only)`);
-  return 0;
+if (result.stderr.length > 0) {
+  process.stderr.write(result.stderr);
 }
-
-process.exit(main(process.argv.slice(2)));
+process.exit(result.exitCode);
