@@ -19,7 +19,7 @@
  * shown inline), instead of requiring a separate dev-only affordance.
  */
 import { type FC, useEffect, useState } from "react";
-import { getBundleFile, postEvent, recordVersion } from "../runtime/api.ts";
+import { getBundleFile, postEvent, recordVersion, triggerRun } from "../runtime/api.ts";
 import {
   STAGES,
   type BundleStage,
@@ -27,12 +27,15 @@ import {
   type Drift,
   type EventView,
   type FixtureRecord,
+  type MeasurementRecord,
   type RiskCoverageRecord,
   type RunRecord,
   type VersionRecord,
   type WarningRecord,
 } from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
+import { useWorkspace } from "../runtime/useWorkspace.ts";
+import { RunDetailModal } from "./RunDetailModal.tsx";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -222,10 +225,14 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
           )}
           {tab === "evals" && (
             <EvalsTab
+              slug={slug}
               fixtures={detail.fixtures}
               riskCoverage={detail.riskCoverage}
               warnings={detail.warnings}
               runs={detail.runs}
+              measurements={detail.measurements}
+              versions={detail.versions}
+              onChanged={refetch}
             />
           )}
         </>
@@ -608,41 +615,189 @@ const RUN_CHIP_STYLE: Record<RunRecord["status"], string> = {
   running: "animate-pulse bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300",
 };
 
-const LastRunChip: FC<{ run: RunRecord | undefined }> = ({ run }) => {
-  if (run === undefined) {
-    return <span className="text-neutral-300 dark:text-neutral-600">no runs</span>;
+/**
+ * One measurement chip per provider(+model) cell, for ONE fixture at the
+ * CURRENT latest recorded version only (data-model.md §2.11, §1.6): a new
+ * version resets validation honestly because measurements key on
+ * `versionHash` -- older cells simply stop matching. "not yet measured"
+ * when no completed+graded run exists for that fixture at that version.
+ */
+const MeasurementChips: FC<{
+  measurements: ReadonlyArray<MeasurementRecord>;
+  fixtureCase: string;
+  latestHash: string | undefined;
+}> = ({ measurements, fixtureCase, latestHash }) => {
+  const cells = measurements.filter(
+    (cell) => cell.fixtureCase === fixtureCase && cell.versionHash === latestHash,
+  );
+  if (latestHash === undefined || cells.length === 0) {
+    return <span className="text-neutral-400">not yet measured</span>;
   }
   return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${RUN_CHIP_STYLE[run.status]}`}
-      title={`run ${run.id} at ${run.startedAt}`}
-    >
-      {run.status}
+    <span className="flex flex-wrap gap-1">
+      {cells.map((cell) => {
+        const providerLabel =
+          cell.model.length > 0 && cell.model !== cell.provider
+            ? `${cell.provider}/${cell.model}`
+            : cell.provider;
+        const ci =
+          cell.ci === null
+            ? ""
+            : ` · [${Math.round(cell.ci[0] * 100)}–${Math.round(cell.ci[1] * 100)}%]`;
+        return (
+          <span
+            key={providerLabel}
+            title={`${cell.passes}/${cell.n} passes on ${providerLabel} at ${shortHash(cell.versionHash)}`}
+            className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+          >
+            {providerLabel}: n={cell.n} · {Math.round(cell.passRate * 100)}%{ci}
+          </span>
+        );
+      })}
     </span>
   );
 };
 
 /**
- * Evals tab (plan.md Phase 7): the risk-map coverage axis grouped by family,
- * the scanned fixtures, and any reindex-time warnings. The Validation column
- * always reads "not yet measured" -- actual measurement runs land in Phase
- * 9; this tab only ever reports what has been *authored*, never a result,
- * except for the per-fixture last-run chip added in Phase 8.
+ * One fixture row of the read-out: header (name, class, prompt.md,
+ * measurement chips, Run button + provider select when >1 provider) plus
+ * that fixture's runs newest-first -- each run opens the run-detail modal.
+ */
+const FixtureRow: FC<{
+  slug: string;
+  fixture: FixtureRecord;
+  runs: ReadonlyArray<RunRecord>;
+  measurements: ReadonlyArray<MeasurementRecord>;
+  latestHash: string | undefined;
+  providers: ReadonlyArray<string>;
+  onOpenRun: (runId: string) => void;
+  onChanged: () => void;
+}> = ({ slug, fixture, runs, measurements, latestHash, providers, onOpenRun, onChanged }) => {
+  const [provider, setProvider] = useState<string>(providers[0] ?? "claude-code");
+  const [pending, setPending] = useState(false);
+  const [runError, setRunError] = useState<string | undefined>(undefined);
+
+  const startRun = (): void => {
+    setPending(true);
+    setRunError(undefined);
+    triggerRun(slug, fixture.caseName, providers.length > 0 ? provider : undefined)
+      .then((result) => {
+        if (!result.ok) {
+          setRunError(result.error);
+          return;
+        }
+        // The run proceeds server-side; the SSE journal stream refreshes the
+        // panel as run.started/run.completed land. One eager refetch so the
+        // "running" chip shows up promptly.
+        onChanged();
+      })
+      .catch((cause: Error) => setRunError(cause.message))
+      .finally(() => setPending(false));
+  };
+
+  const fixtureRuns = runs.filter((run) => run.fixtureCase === fixture.caseName);
+
+  return (
+    <li className="flex flex-col gap-1 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-300">
+        <span className="font-mono font-medium text-neutral-900 dark:text-neutral-100">{fixture.caseName}</span>
+        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+          {fixture.class}
+        </span>
+        {fixture.risks.length > 0 && <span className="text-neutral-400">{fixture.risks.join(", ")}</span>}
+        <span
+          className={
+            fixture.hasPromptMd
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-neutral-300 dark:text-neutral-600"
+          }
+        >
+          {fixture.hasPromptMd ? "prompt.md" : "no prompt.md"}
+        </span>
+        <span className="ml-auto flex items-center gap-1">
+          {providers.length > 1 && (
+            <select
+              value={provider}
+              onChange={(event) => setProvider(event.target.value)}
+              className="rounded-md border border-neutral-300 px-1 py-0.5 text-[10px] dark:border-neutral-700 dark:bg-neutral-900"
+            >
+              {providers.map((candidate) => (
+                <option key={candidate} value={candidate}>
+                  {candidate}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            disabled={pending || !fixture.hasPromptMd}
+            title={fixture.hasPromptMd ? `Run ${fixture.caseName}` : "No prompt.md to run"}
+            onClick={startRun}
+            className="rounded-md bg-neutral-900 px-2 py-0.5 text-[10px] font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          >
+            Run ▸
+          </button>
+        </span>
+      </div>
+      <div className="text-[11px]">
+        <MeasurementChips measurements={measurements} fixtureCase={fixture.caseName} latestHash={latestHash} />
+      </div>
+      {runError !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {runError}
+        </p>
+      )}
+      {fixtureRuns.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {fixtureRuns.map((run) => (
+            <li key={run.id}>
+              <button
+                type="button"
+                onClick={() => onOpenRun(run.id)}
+                className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-[11px] text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
+              >
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${RUN_CHIP_STYLE[run.status]}`}>
+                  {run.status}
+                </span>
+                {run.verdict !== undefined && (
+                  <span className="font-medium">{run.verdict}</span>
+                )}
+                <span className="text-neutral-400">{formatTime(run.startedAt)}</span>
+                <span className="ml-auto font-mono text-[10px] text-neutral-300 dark:text-neutral-600">
+                  {run.id.slice(0, 8)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+};
+
+/**
+ * Evals tab: Phase 7's authored coverage axis JOINED with Phase 9's
+ * measured validation axis (data-model.md §2.12 -- the read-out). The
+ * Validation column shows real measurement chips for the current latest
+ * version; the Fixtures section lists runs (newest first) with a Run button
+ * per fixture and a run-detail modal (transcript, artifacts, grading).
  */
 const EvalsTab: FC<{
+  slug: string;
   fixtures: ReadonlyArray<FixtureRecord>;
   riskCoverage: ReadonlyArray<RiskCoverageRecord>;
   warnings: ReadonlyArray<WarningRecord>;
   runs: ReadonlyArray<RunRecord>;
-}> = ({ fixtures, riskCoverage, warnings, runs }) => {
-  const lastRunByFixture = new Map<string, RunRecord>();
-  // `runs` arrives newest-first from the server, so the first hit per
-  // fixture case is the last run -- no extra sort needed here.
-  for (const run of runs) {
-    if (run.fixtureCase !== undefined && !lastRunByFixture.has(run.fixtureCase)) {
-      lastRunByFixture.set(run.fixtureCase, run);
-    }
-  }
+  measurements: ReadonlyArray<MeasurementRecord>;
+  versions: ReadonlyArray<VersionRecord>;
+  onChanged: () => void;
+}> = ({ slug, fixtures, riskCoverage, warnings, runs, measurements, versions, onChanged }) => {
+  const { state } = useWorkspace();
+  const providers = state?.config.providers ?? [];
+  const [openRunId, setOpenRunId] = useState<string | undefined>(undefined);
+  // Versions arrive newest-first; measurements only count against the
+  // CURRENT latest recorded version (data-model.md §1.6's honest reset).
+  const latestHash = versions[0]?.hash;
   const families = RISK_FAMILY_ORDER.filter((family) => riskCoverage.some((row) => row.family === family));
   const otherFamilies = Array.from(
     new Set(riskCoverage.map((row) => row.family).filter((family) => !(RISK_FAMILY_ORDER as ReadonlyArray<string>).includes(family))),
@@ -695,7 +850,17 @@ const EvalsTab: FC<{
                         {COVERAGE_GLYPH[row.coverage]} {COVERAGE_LABEL[row.coverage]}
                       </td>
                       <td className="py-1 pr-2 font-mono">{row.fixtureCase ?? "—"}</td>
-                      <td className="py-1 pr-2 text-neutral-400">not yet measured</td>
+                      <td className="py-1 pr-2">
+                        {row.fixtureCase !== undefined ? (
+                          <MeasurementChips
+                            measurements={measurements}
+                            fixtureCase={row.fixtureCase}
+                            latestHash={latestHash}
+                          />
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -706,28 +871,32 @@ const EvalsTab: FC<{
 
       <section className="flex flex-col gap-1">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Fixtures</h4>
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-2">
           {fixtures.map((fixture) => (
-            <li
+            <FixtureRow
               key={fixture.caseName}
-              className="flex items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-300"
-            >
-              <span className="font-mono">{fixture.caseName}</span>
-              <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                {fixture.class}
-              </span>
-              {fixture.risks.length > 0 && (
-                <span className="text-neutral-400">{fixture.risks.join(", ")}</span>
-              )}
-              <span className={fixture.hasPromptMd ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-300 dark:text-neutral-600"}>
-                {fixture.hasPromptMd ? "prompt.md" : "no prompt.md"}
-              </span>
-              <LastRunChip run={lastRunByFixture.get(fixture.caseName)} />
-            </li>
+              slug={slug}
+              fixture={fixture}
+              runs={runs}
+              measurements={measurements}
+              latestHash={latestHash}
+              providers={providers}
+              onOpenRun={setOpenRunId}
+              onChanged={onChanged}
+            />
           ))}
           {fixtures.length === 0 && <li className="text-[11px] text-neutral-400">No fixtures yet.</li>}
         </ul>
       </section>
+
+      {openRunId !== undefined && (
+        <RunDetailModal
+          slug={slug}
+          runId={openRunId}
+          onClose={() => setOpenRunId(undefined)}
+          onGraded={onChanged}
+        />
+      )}
     </section>
   );
 };

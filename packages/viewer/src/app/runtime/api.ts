@@ -13,8 +13,10 @@ import {
   HealthResponse,
   PostEventResponse,
   RecordVersionResponse,
+  RunDetailResponse,
   StateResponse,
   TodosResponse,
+  TriggerRunResponse,
 } from "./schemas.ts";
 
 export const getHealth = (): Promise<HealthResponse> => fetchJson("/api/health", HealthResponse);
@@ -32,6 +34,13 @@ export const getBundleFile = (slug: string, path: string): Promise<BundleFileRes
   fetchJson(
     `/api/bundles/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`,
     BundleFileResponse,
+  );
+
+/** `GET /api/bundles/:slug/runs/:runId` -- the run-detail panel (data-model.md §2.12). */
+export const getRunDetail = (slug: string, runId: string): Promise<RunDetailResponse> =>
+  fetchJson(
+    `/api/bundles/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`,
+    RunDetailResponse,
   );
 
 /** `GET /api/todos[?all=1]` -- the todos panel's data (data-model.md §2.10/§2.11). */
@@ -61,6 +70,36 @@ export const postEvent = async (input: PostEventInput): Promise<PostEventResult>
 
   if (raw.ok) {
     const decoded = await Schema.decodeUnknownPromise(PostEventResponse)(raw.body);
+    return { ok: true, response: decoded };
+  }
+
+  const decodedError = await Schema.decodeUnknownPromise(ApiErrorResponse)(raw.body).catch(() =>
+    FALLBACK_ERROR(raw.status),
+  );
+  return { ok: false, error: decodedError.error };
+};
+
+export type TriggerRunResult =
+  | { readonly ok: true; readonly response: TriggerRunResponse }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * `POST /api/bundles/:slug/fixtures/:case/run` -- the Evals tab's "Run"
+ * button. The server forks the run engine and answers immediately with the
+ * run id; progress arrives via the SSE journal stream, not this response.
+ */
+export const triggerRun = async (
+  slug: string,
+  caseName: string,
+  provider: string | undefined,
+): Promise<TriggerRunResult> => {
+  const raw = await postJson(
+    `/api/bundles/${encodeURIComponent(slug)}/fixtures/${encodeURIComponent(caseName)}/run`,
+    { ...(provider !== undefined ? { provider } : {}) },
+  );
+
+  if (raw.ok) {
+    const decoded = await Schema.decodeUnknownPromise(TriggerRunResponse)(raw.body);
     return { ok: true, response: decoded };
   }
 

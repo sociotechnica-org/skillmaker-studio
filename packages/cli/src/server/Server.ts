@@ -850,7 +850,11 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       if (pathname === "/api/state") {
         return jsonResponse({
           workspace: { path: root, name: config.name },
-          config: { skillsDir: config.skillsDir, viewerPort: config.viewer.port },
+          config: {
+            skillsDir: config.skillsDir,
+            viewerPort: config.viewer.port,
+            providers: Object.keys(config.providers),
+          },
         });
       }
 

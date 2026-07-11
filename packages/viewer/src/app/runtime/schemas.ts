@@ -103,8 +103,8 @@ export class WarningRecord extends Schema.Class<WarningRecord>("WarningRecord")(
 export const RunStatus = Schema.Literals(["running", "completed", "failed", "infra-error"]);
 export type RunStatus = typeof RunStatus.Type;
 
-/** A grading verdict, once Phase 9's grading UI has recorded one (data-model.md §2.8). Absent on ungraded runs. */
-export const RunVerdict = Schema.Literals(["pass", "fail", "needs-review"]);
+/** A grading verdict (data-model.md §2.9): kept in lockstep with core's `RunVerdict`. Absent on ungraded runs. */
+export const RunVerdict = Schema.Literals(["pass", "fail", "partial"]);
 export type RunVerdict = typeof RunVerdict.Type;
 
 /** One eval run against a fixture case (data-model.md §2.8, §2.11, plan.md Phase 8). Grading columns are populated starting Phase 9. */
@@ -130,6 +130,8 @@ export class WorkspaceSummary extends Schema.Class<WorkspaceSummary>("WorkspaceS
 export class ConfigSummary extends Schema.Class<ConfigSummary>("ConfigSummary")({
   skillsDir: Schema.String,
   viewerPort: Schema.Number,
+  /** Configured provider names -- the run-trigger provider select (Phase 9) shows a picker only when >1. */
+  providers: Schema.Array(Schema.String),
 }) {}
 
 export class StateResponse extends Schema.Class<StateResponse>("StateResponse")({
@@ -183,6 +185,23 @@ export class EventView extends Schema.Class<EventView>("EventView")({
   payload: Schema.Unknown,
 }) {}
 
+/**
+ * One measurement cell (data-model.md §2.11): NEVER pooled -- keyed on
+ * bundle x fixture x version x provider (+model), CI computed in core at
+ * read time (rule of three when 0 failures, else Wilson).
+ */
+export class MeasurementRecord extends Schema.Class<MeasurementRecord>("MeasurementRecord")({
+  bundle: Schema.String,
+  fixtureCase: Schema.String,
+  versionHash: Schema.String,
+  provider: Schema.String,
+  model: Schema.String,
+  n: Schema.Number,
+  passes: Schema.Number,
+  passRate: Schema.Number,
+  ci: Schema.NullOr(Schema.Tuple([Schema.Number, Schema.Number])),
+}) {}
+
 export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   "BundleDetailResponse",
 )({
@@ -194,6 +213,44 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   riskCoverage: Schema.Array(RiskCoverageRecord),
   warnings: Schema.Array(WarningRecord),
   runs: Schema.Array(RunRecord),
+  measurements: Schema.Array(MeasurementRecord),
+}) {}
+
+/**
+ * The `run.json` fields the run-detail panel renders (data-model.md §2.8).
+ * Extra keys on the wire (`schemaVersion`, `actor`, `kind`, `station`) are
+ * ignored on decode, per this file's decode-what-the-wire-sends convention.
+ */
+export class RunDetailRun extends Schema.Class<RunDetailRun>("RunDetailRun")({
+  id: Schema.String,
+  bundle: Schema.String,
+  fixtureCase: Schema.optionalKey(Schema.String),
+  skillVersionHash: Schema.String,
+  provider: Schema.String,
+  model: Schema.String,
+  startedAt: Schema.String,
+  endedAt: Schema.optionalKey(Schema.String),
+  status: RunStatus,
+}) {}
+
+/**
+ * `GET /api/bundles/:slug/runs/:runId` (data-model.md §2.12). `transcript`
+ * entries stay `Schema.Unknown` -- raw ACP wire messages rendered
+ * defensively, exactly like `EventView.payload`. `gradingHistory` is newest
+ * first; `checks` is the fixture's authored `grading.checks` strings.
+ */
+export class RunDetailResponse extends Schema.Class<RunDetailResponse>("RunDetailResponse")({
+  run: RunDetailRun,
+  transcript: Schema.Array(Schema.Unknown),
+  artifacts: Schema.Array(Schema.String),
+  gradingHistory: Schema.Array(EventView),
+  checks: Schema.Array(Schema.String),
+}) {}
+
+/** `POST /api/bundles/:slug/fixtures/:case/run` response -- the run id, returned before the run finishes. */
+export class TriggerRunResponse extends Schema.Class<TriggerRunResponse>("TriggerRunResponse")({
+  runId: Schema.String,
+  status: Schema.Literal("started"),
 }) {}
 
 export class PostEventResponse extends Schema.Class<PostEventResponse>("PostEventResponse")({
