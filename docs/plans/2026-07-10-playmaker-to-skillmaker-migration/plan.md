@@ -333,3 +333,19 @@ Source: docs/research/2026-07-11-anthropic-skill-creator.md.
   own admission — validates the journal + rebuildable-index model as the
   trust wedge. The eval viewer's feedback-collection design (feedback as
   input to the next iteration) is noted for the read-out's future.
+
+### Phase 18 — installer experience (ruled 2026-07-11)
+
+- **Value:** installing by cloning the repo is a crummy experience; make
+  install one command (and one download for the app).
+- **Scope:** (a) GitHub Releases via CI: tagged builds publish
+  dist/skillmaker binaries (macOS arm64 first, then x64/linux) + the
+  Skillmaker.app bundle; (b) an install script
+  (`curl -fsSL https://skillmaker.studio/install.sh | sh`) that fetches
+  the right binary + viewer assets to ~/.skillmaker/bin and PATHs it;
+  (c) evaluate npm wrapper (`npx skillmaker`) and Homebrew tap as
+  fast-follows; (d) update docs getting-started + marketing hero CTA to
+  the real install story.
+- **Verify:** fresh machine-shaped install from the public artifact (no
+  repo clone, no bun): script → init/new/start golden path; the .app
+  opens from a plain download.
