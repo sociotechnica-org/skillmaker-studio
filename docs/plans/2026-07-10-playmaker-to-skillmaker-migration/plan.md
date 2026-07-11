@@ -298,3 +298,17 @@ outputs, grading, stage names). Product-level extras:
 - **License / public-repo hygiene** for sociotechnica-org.
 - **Marketplace packaging format** — track the emerging Claude skill
   marketplace conventions before hard-coding a publish target.
+
+### Phase 17 — UI pass: adopt the PMS Studio's nav + hierarchy (ruled 2026-07-11)
+
+- **Value:** the viewer stops being a thrown-together single board page and
+  gains the old Studio's superior navigation, organizational structure,
+  and focus (director ruling: structure yes, Alexandrian styling no).
+- **Scope:** walk the original PMS Studio viewer (`pms start`, :4322, in
+  alexandria-internal) end to end; extract its nav model, page hierarchy,
+  and focus patterns into a spec; revamp packages/viewer to match —
+  improving where the old surface was rough. Keep the existing dark
+  aesthetic and runtime-boundary architecture.
+- **Verify (/chrome):** side-by-side walk of old Studio and new viewer;
+  every existing capability (board, reviews, todos, versions, evals,
+  read-out) reachable in the new structure; full loop re-run + re-recorded.
