@@ -17,14 +17,6 @@ build log at
 
 ## What's coming
 
-- **Human grading + measurements read-out.** A viewer surface that grades
-  runs (verdict + `case.json`'s `grading.checks` checklist + notes → a
-  `run.graded` journal event) and joins graded runs into
-  *n · pass-rate · confidence-interval* measurements, per (bundle, fixture,
-  version, provider, model) — the other half of the
-  [coverage-vs-validation](/evals/coverage-vs-validation/) axis. `skillmaker
-  run` already produces real transcripts and artifacts today; this is the
-  grading layer on top.
 - **Agent-first production stations.** `stations.json` is scaffolded on
   every bundle today, but agent-driven station execution — an agent doing a
   stage's work over ACP, requesting review, a human resolving in the viewer
@@ -41,16 +33,19 @@ build log at
   `claude-code`, per-provider measurement columns, and an installable
   product (the `bun build --compile` binary described in
   [Install from source](/getting-started/install/) is the first piece of
-  this; the full tarball/install story and a marketing-site seed are
-  still ahead).
+  this; the full tarball/install story is still ahead — see
+  [Desktop app](/getting-started/desktop-app/) for the current
+  build-from-source path).
 - **The predecessor studio's library, migrated last.** The Playmaker's
   Studio product-knowledge library — its concepts, mechanisms, and
   hard-won laws — gets cleaned up against this leaner data model and
   adopted as Skillmaker's own, deliberately scheduled *after* everything
   else ships, so the library describes the software that actually exists.
-- **A desktop app.** A Tauri shell bundling the compiled CLI as a sidecar,
-  for the technical-but-app-preferring persona who doesn't want to install
-  a CLI.
+- **Desktop app: Windows/Linux and a signed, downloadable build.** The
+  macOS build-from-source shell is documented in
+  [Desktop app](/getting-started/desktop-app/); a cross-platform, installable
+  version is still ahead, along with an in-app reconnect for the
+  "attached-but-dead server" limitation noted there.
 
 ## Why nothing above has its own page yet
 

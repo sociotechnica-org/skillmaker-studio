@@ -45,11 +45,10 @@ current run history.
 
 ## Where this shows up today
 
-Coverage authoring — risk maps and fixtures — is fully built: see
-[Fixtures and risk maps](/evals/fixtures-and-risk-maps/) and
-[Running fixtures](/evals/running-fixtures/). The **measured** half of this
-axis (a graded read-out surface joining coverage × validation per
-provider/model) is planned but not yet built on this branch — see the
-[Roadmap](/roadmap/). Until then, `skillmaker run` produces real run
-records and artifacts (see [Running fixtures](/evals/running-fixtures/)),
-but there is no grading UI yet to turn a run into a pass/fail verdict.
+Both halves of the axis are built. Coverage authoring — risk maps and
+fixtures — is covered in
+[Fixtures and risk maps](/evals/fixtures-and-risk-maps/). The **measured**
+half — running fixtures, grading the runs, and the read-out surface that
+joins coverage × validation per provider/model — is covered in
+[Running fixtures](/evals/running-fixtures/) and
+[Grading and measurements](/evals/grading-and-measurements/).

@@ -45,6 +45,7 @@ export default defineConfig({
             { label: "Introduction", slug: "getting-started/introduction" },
             { label: "Install from source", slug: "getting-started/install" },
             { label: "Your first Skill Bundle", slug: "getting-started/first-bundle" },
+            { label: "Desktop app", slug: "getting-started/desktop-app" },
           ],
         },
         {
@@ -62,6 +63,7 @@ export default defineConfig({
             { label: "Fixtures and risk maps", slug: "evals/fixtures-and-risk-maps" },
             { label: "Coverage vs. validation", slug: "evals/coverage-vs-validation" },
             { label: "Running fixtures", slug: "evals/running-fixtures" },
+            { label: "Grading and measurements", slug: "evals/grading-and-measurements" },
           ],
         },
         {
@@ -80,6 +82,8 @@ export default defineConfig({
             { label: "version record", slug: "cli/version-record" },
             { label: "fixture add", slug: "cli/fixture-add" },
             { label: "run", slug: "cli/run" },
+            { label: "grade", slug: "cli/grade" },
+            { label: "measurements", slug: "cli/measurements" },
           ],
         },
         {

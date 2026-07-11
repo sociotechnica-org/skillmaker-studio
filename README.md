@@ -50,14 +50,23 @@ rebuildable index (`skillmaker reindex` reconstructs it from scratch).
   refusal / empty / rerun / hard-case), risk maps over five risk families
   (Input / Reasoning / Output / Adversarial / Chain), a coverage surface
   with validation honestly reading "not yet measured" until real runs land.
+- **Agent-driven eval runs** — `skillmaker run` drives a real coding agent
+  over ACP (claude-code today, codex configured) through a fixture case,
+  end to end, capturing the full transcript and diffing artifacts.
+- **Grading + measurements** — grade a run pass/fail/partial in the CLI
+  (`skillmaker grade`) or the board's run-detail read-out; graded runs join
+  into *n · pass-rate · confidence-interval* measurements
+  (`skillmaker measurements`), never pooled across fixture, version,
+  provider, or model.
 - **Live viewer** — Astro + React + Tailwind board on one origin, SSE
   updates on every journal change, no reload.
+- **Desktop app** — a Tauri shell (macOS, built from source) that wraps the
+  compiled `skillmaker` binary as a sidecar: the same board, no terminal.
 
 **Coming next** (see [the build plan](docs/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md)):
-agent-driven eval runs over ACP (claude-code, then codex), human grading
-with n·pass-rate·CI measurements, agent-first production stations, publish
-targets, and a generated **skillbook** — docs for your whole skill set with
-the receipts inline.
+agent-first production stations, publish targets, a generated
+**skillbook** — docs for your whole skill set with the receipts inline —
+and a second provider (codex) with real, cross-platform distribution.
 
 ## Architecture
 
@@ -80,7 +89,9 @@ Build log: [build-log.md](docs/plans/2026-07-10-playmaker-to-skillmaker-migratio
 packages/core/            # @skillmaker/core — domain: schemas, journal, fold, machine, index
 packages/cli/             # @skillmaker/cli — the skillmaker CLI + server (bin: skillmaker)
 packages/viewer/          # @skillmaker/viewer — Astro 5 + React 19 + Tailwind 4 board
-packages/marketing-site/  # @skillmaker/marketing-site — public site (placeholder)
+packages/desktop/         # @skillmaker/desktop — Tauri v2 shell wrapping the CLI as a sidecar (macOS)
+packages/docs-site/       # @skillmaker/docs-site — Starlight docs (docs.skillmaker.studio)
+packages/marketing-site/  # @skillmaker/marketing-site — public site
 docs/                     # product plans and design docs (see docs/README.md)
 test/e2e/                 # end-to-end tests that spawn the real CLI
 ```
