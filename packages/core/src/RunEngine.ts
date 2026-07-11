@@ -29,7 +29,14 @@ import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
-import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
+import {
+  ADOPT_EXCLUDED_NAMES,
+  computeBundleHashes,
+  computeDrift,
+  detectBundleLayout,
+  foldSkillVersions,
+  latestSkillVersion,
+} from "./Versions.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -68,6 +75,7 @@ export type RunProgressEvent =
   | { readonly type: "sandbox-ready" }
   | { readonly type: "session-update" }
   | { readonly type: "permission-decision" }
+  | { readonly type: "install-warning"; readonly message: string }
   | { readonly type: "done"; readonly status: RunStatus };
 
 export interface RunFixtureResult {
@@ -80,6 +88,8 @@ export interface RunFixtureResult {
   /** Relative paths (within `runs/<id>/artifacts/`) of every captured artifact. */
   readonly artifacts: ReadonlyArray<string>;
   readonly model: string;
+  /** `true` if at least one skill file was installed into the sandbox before the session ran. `false` means the agent ran naked (Fix F2's backstop signal). */
+  readonly skillInstalled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +146,7 @@ const copyPreservingPath = (srcRoot: string, destRoot: string, relPath: string):
   writeFileSync(dest, readFileSync(src));
 };
 
-const copyDirRecursive = (src: string, dest: string): void => {
+const copyDirRecursive = (src: string, dest: string, excludeTopLevel?: ReadonlySet<string>): void => {
   let names: ReadonlyArray<string>;
   try {
     names = readdirSync(src);
@@ -145,6 +155,7 @@ const copyDirRecursive = (src: string, dest: string): void => {
   }
   mkdirSync(dest, { recursive: true });
   for (const name of names) {
+    if (excludeTopLevel?.has(name)) continue;
     const s = nodeJoin(src, name);
     const d = nodeJoin(dest, name);
     const info = statSync(s);
@@ -162,6 +173,56 @@ const dirExists = (p: string): boolean => {
   } catch {
     return false;
   }
+};
+
+/** Recursively lists every file under `root` (relative paths), or `[]` if `root` doesn't exist. Used to check whether an install actually produced any files -- the empty-install-set backstop (Fix F2). */
+const listFilesRecursive = (root: string): ReadonlyArray<string> => {
+  const out: string[] = [];
+  const walk = (dir: string, relPrefix: string): void => {
+    let names: ReadonlyArray<string>;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const abs = nodeJoin(dir, name);
+      const rel = relPrefix === "" ? name : `${relPrefix}/${name}`;
+      const info = statSync(abs);
+      if (info.isDirectory()) {
+        walk(abs, rel);
+      } else if (info.isFile()) {
+        out.push(rel);
+      }
+    }
+  };
+  walk(root, "");
+  return out;
+};
+
+/**
+ * Resolves which files get installed into the sandbox as "the skill" for a
+ * run, layout-aware (Fix F2 -- adopted/in-place bundles have no `output/`,
+ * so the old `output/`-only install silently ran a naked agent with no
+ * skill at all). `"in-place"` bundles install `bundleDir` itself, minus the
+ * same `ADOPT_EXCLUDED_NAMES` studio-owned-file exclusion set
+ * `Versions.computeBundleHashes` already uses for hashing in-place bundles
+ * -- one exclusion list, shared, not reinvented here.
+ */
+const installSkill = (
+  bundleDir: string,
+  skillInstallDir: string,
+  layout: "output-dir" | "in-place",
+): ReadonlyArray<string> => {
+  if (layout === "in-place") {
+    copyDirRecursive(bundleDir, skillInstallDir, ADOPT_EXCLUDED_NAMES);
+  } else {
+    const outputDir = nodeJoin(bundleDir, "output");
+    if (dirExists(outputDir)) {
+      copyDirRecursive(outputDir, skillInstallDir);
+    }
+  }
+  return listFilesRecursive(skillInstallDir);
 };
 
 /** The `files` subdirectory a fixture case's `setup.files` points at, defaulting to `"files"` (FixtureAdd's scaffold convention) when unset or unparsable -- tolerant by design, matching `Fixtures.ts`'s scan philosophy. */
@@ -267,7 +328,8 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   const events = yield* journal.readAll();
   const versionsBySlug = foldSkillVersions(events);
   const latest = latestSkillVersion(versionsBySlug.get(input.bundle));
-  const hashes = yield* computeBundleHashes(bundleDir);
+  const bundleLayout = yield* detectBundleLayout(bundleDir);
+  const hashes = yield* computeBundleHashes(bundleDir, bundleLayout);
   const drift = computeDrift(hashes, latest);
 
   let skillVersionHash: string;
@@ -300,10 +362,15 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       copyDirRecursive(fixtureFilesDir, sandboxDir);
     }
 
-    const outputDir = nodeJoin(bundleDir, "output");
     const skillInstallDir = nodeJoin(sandboxDir, providerProfile.skillInstallDir, input.bundle);
-    if (dirExists(outputDir)) {
-      copyDirRecursive(outputDir, skillInstallDir);
+    const installedFiles = installSkill(bundleDir, skillInstallDir, bundleLayout);
+    const skillInstalled = installedFiles.length > 0;
+    if (!skillInstalled) {
+      const warning = `no skill files were installed for bundle "${input.bundle}" (layout: ${bundleLayout}) -- this run's agent has NO skill installed and is running naked`;
+      // Belt-and-suspenders backstop (Fix F2): loud regardless of caller,
+      // not just routed through onProgress, which callers can ignore.
+      process.stderr.write(`skillmaker run: WARNING: ${warning}\n`);
+      input.onProgress?.({ type: "install-warning", message: warning });
     }
 
     input.onProgress?.({ type: "sandbox-ready" });
@@ -431,6 +498,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       autoRecordedVersion,
       artifacts: changedPaths,
       model,
+      skillInstalled,
     } satisfies RunFixtureResult;
   } finally {
     // Sandbox cleanup happens on both the success and failure paths --
@@ -439,4 +507,11 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   }
 });
 
-export const _internal = { snapshotTree, diffTrees, resolveFixtureFilesDir, classifyAcpError };
+export const _internal = {
+  snapshotTree,
+  diffTrees,
+  resolveFixtureFilesDir,
+  classifyAcpError,
+  installSkill,
+  listFilesRecursive,
+};

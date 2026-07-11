@@ -77,8 +77,9 @@ export const runRun = Effect.fn("runRun")(function* (
 
   let updateCount = 0;
   const onProgress = (event: {
-    readonly type: "sandbox-ready" | "session-update" | "permission-decision" | "done";
+    readonly type: "sandbox-ready" | "session-update" | "permission-decision" | "install-warning" | "done";
     readonly status?: string;
+    readonly message?: string;
   }): void => {
     if (event.type === "sandbox-ready") {
       process.stderr.write(`skillmaker run: sandbox ready, starting "${provider}" session...\n`);
@@ -87,6 +88,8 @@ export const runRun = Effect.fn("runRun")(function* (
       process.stderr.write(".");
     } else if (event.type === "permission-decision") {
       process.stderr.write("\nskillmaker run: auto-approved a permission request\n");
+    } else if (event.type === "install-warning") {
+      process.stderr.write(`skillmaker run: WARNING: ${String(event.message)}\n`);
     } else if (event.type === "done") {
       process.stderr.write(`\nskillmaker run: ${String(event.status)} (${updateCount} session update(s))\n`);
     }
@@ -137,6 +140,7 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
     autoRecordedVersion: result.autoRecordedVersion,
     model: result.model || null,
     artifacts: result.artifacts,
+    skillInstalled: result.skillInstalled,
   };
 
   const body = json
@@ -145,6 +149,7 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
         `skillmaker run: ${result.status} (${slug}, run ${result.runId})`,
         `  version:   ${result.skillVersionHash}${result.autoRecordedVersion ? " (auto-recorded before this run)" : ""}`,
         `  model:     ${result.model || "(unknown)"}`,
+        `  skill:     ${result.skillInstalled ? "installed" : "NOT INSTALLED (naked agent -- see warning above)"}`,
         `  artifacts: ${result.artifacts.length === 0 ? "(none)" : result.artifacts.join(", ")}`,
         `  run dir:   ${result.runDir}`,
         "",

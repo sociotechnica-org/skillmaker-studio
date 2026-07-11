@@ -121,6 +121,22 @@ export interface BundleHashes {
 export type BundleLayout = "output-dir" | "in-place";
 
 /**
+ * Detects a bundle's layout by checking for the adopt marker
+ * (`ADOPT_MARKER_FILENAME`) directly in `bundleDir` -- the same test
+ * `IndexService.ts`'s `scanBundleIdentities` uses. Shared here so every
+ * caller that needs to decide "does this bundle's skill payload live at
+ * `output/` or is the bundle directory itself the payload" (`RunEngine.ts`,
+ * `StationEngine.ts`, `Publish.ts`) makes that call the same way, instead of
+ * each reimplementing the marker check.
+ */
+export const detectBundleLayout = Effect.fn("Versions.detectBundleLayout")(function* (bundleDir: string) {
+  const fs = yield* FileSystem;
+  const markerPath = join(bundleDir, ADOPT_MARKER_FILENAME);
+  const markerExists = yield* fs.exists(markerPath).pipe(Effect.mapError(toIOError(`could not check ${markerPath}`)));
+  return (markerExists ? "in-place" : "output-dir") as BundleLayout;
+});
+
+/**
  * The shared hashing entry point: given a bundle directory
  * (`skills/<slug>/`, or an adopted bundle's discovered directory), computes
  * the live `design.md` hash and output-tree hash. Called by both the CLI's

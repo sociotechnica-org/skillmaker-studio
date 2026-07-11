@@ -42,6 +42,7 @@ import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
 import { Station, StationsFile } from "./Stations.ts";
+import { ADOPT_EXCLUDED_NAMES, detectBundleLayout } from "./Versions.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -76,6 +77,7 @@ export type StationProgressEvent =
   | { readonly type: "sandbox-ready" }
   | { readonly type: "session-update" }
   | { readonly type: "permission-decision" }
+  | { readonly type: "install-warning"; readonly message: string }
   | { readonly type: "done"; readonly status: RunStatus };
 
 export interface RunStationResult {
@@ -89,6 +91,8 @@ export interface RunStationResult {
   readonly model: string;
   /** Whether `review.requested` was appended (only on a `"completed"` run). */
   readonly reviewRequested: boolean;
+  /** `true` if at least one skill file was installed into the sandbox before the session ran (Fix F2's backstop signal). */
+  readonly skillInstalled: boolean;
 }
 
 const DEFAULT_STATION_PROVIDER = "claude-code";
@@ -113,7 +117,7 @@ const fileExists = (p: string): boolean => {
   }
 };
 
-const copyDirRecursive = (src: string, dest: string): void => {
+const copyDirRecursive = (src: string, dest: string, excludeTopLevel?: ReadonlySet<string>): void => {
   let names: ReadonlyArray<string>;
   try {
     names = readdirSync(src);
@@ -122,6 +126,7 @@ const copyDirRecursive = (src: string, dest: string): void => {
   }
   mkdirSync(dest, { recursive: true });
   for (const name of names) {
+    if (excludeTopLevel?.has(name)) continue;
     const s = nodeJoin(src, name);
     const d = nodeJoin(dest, name);
     const info = statSync(s);
@@ -131,6 +136,31 @@ const copyDirRecursive = (src: string, dest: string): void => {
       writeFileSync(d, readFileSync(s));
     }
   }
+};
+
+/** Recursively lists every file under `root` (relative paths), or `[]` if `root` doesn't exist. Empty-install-set backstop (Fix F2). */
+const listFilesRecursive = (root: string): ReadonlyArray<string> => {
+  const out: string[] = [];
+  const walk = (dir: string, relPrefix: string): void => {
+    let names: ReadonlyArray<string>;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const abs = nodeJoin(dir, name);
+      const rel = relPrefix === "" ? name : `${relPrefix}/${name}`;
+      const info = statSync(abs);
+      if (info.isDirectory()) {
+        walk(abs, rel);
+      } else if (info.isFile()) {
+        out.push(rel);
+      }
+    }
+  };
+  walk(root, "");
+  return out;
 };
 
 const copyFile = (src: string, dest: string): void => {
@@ -394,11 +424,12 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       }),
     );
   }
+  const skillBundleLayout = yield* detectBundleLayout(skillBundleDir);
   const skillOutputDir = path.join(skillBundleDir, "output");
   const skillOutputExists = yield* fs
     .exists(skillOutputDir)
     .pipe(Effect.mapError(toIOError(`could not check ${skillOutputDir}`)));
-  if (!skillOutputExists) {
+  if (skillBundleLayout === "output-dir" && !skillOutputExists) {
     return yield* Effect.fail(
       StationPreconditionError.make({
         message: `the "${state}" station for "${input.bundle}" references skill "${skillSlug}", which has no output/ to install (it has not been drafted yet)`,
@@ -451,7 +482,17 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
     }
 
     const skillInstallDir = nodeJoin(sandboxDir, providerProfile.skillInstallDir, skillSlug);
-    copyDirRecursive(skillOutputDir, skillInstallDir);
+    if (skillBundleLayout === "in-place") {
+      copyDirRecursive(skillBundleDir, skillInstallDir, ADOPT_EXCLUDED_NAMES);
+    } else {
+      copyDirRecursive(skillOutputDir, skillInstallDir);
+    }
+    const skillInstalled = listFilesRecursive(skillInstallDir).length > 0;
+    if (!skillInstalled) {
+      const warning = `no skill files were installed for skill "${skillSlug}" (layout: ${skillBundleLayout}) -- this station's agent has NO skill installed and is running naked`;
+      process.stderr.write(`skillmaker station: WARNING: ${warning}\n`);
+      input.onProgress?.({ type: "install-warning", message: warning });
+    }
 
     input.onProgress?.({ type: "sandbox-ready" });
 
@@ -597,6 +638,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       changedPaths,
       model,
       reviewRequested,
+      skillInstalled,
     } satisfies RunStationResult;
   } finally {
     rmSync(sandboxDir, { recursive: true, force: true });
@@ -610,4 +652,5 @@ export const _internal = {
   snapshotFiles,
   diffFileSnapshots,
   classifyAcpError,
+  listFilesRecursive,
 };

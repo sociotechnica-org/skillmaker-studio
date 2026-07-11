@@ -141,6 +141,31 @@ describe("checkPublishable", () => {
       }),
     );
   });
+
+  // Fix F2: before this fix, checkPublishable always called
+  // computeBundleHashes(bundleDir) with the "output-dir" default, which
+  // hashes bundleDir/output -- nonexistent for an in-place (adopted)
+  // bundle, so an adopted bundle could never actually pass this guard even
+  // with a correctly-recorded "adopted" version. checkPublishable must
+  // auto-detect layout via detectBundleLayout, same as RunEngine/StationEngine.
+  test("accepts a published IN-PLACE (adopted) bundle whose recorded version matches live content", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        // An adopted bundle: no output/ subdirectory -- SKILL.md lives at
+        // the bundle root, alongside the adopt marker.
+        yield* fs.writeFileString(join(dir, ".skillmaker-adopt.json"), JSON.stringify({ skillPath: "." }));
+        yield* fs.writeFileString(join(dir, "design.md"), "# Demo\n\nAn adopted demo skill.\n");
+        yield* fs.writeFileString(join(dir, "SKILL.md"), "# Demo skill\n\nDo the thing.\n");
+
+        const { designHash, outputHash } = yield* computeBundleHashes(dir, "in-place");
+        const events = [...publishedEvents("demo"), versionRecorded("demo", outputHash, designHash, "adopted")];
+        const result = yield* checkPublishable(dir, "demo", events);
+        expect(result.bundle).toBe("demo");
+        expect(result.versionHash).toBe(outputHash);
+      }),
+    );
+  });
 });
 
 describe("publishGitDir", () => {

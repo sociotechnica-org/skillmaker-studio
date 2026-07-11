@@ -80,8 +80,9 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
 
   let updateCount = 0;
   const onProgress = (event: {
-    readonly type: "sandbox-ready" | "session-update" | "permission-decision" | "done";
+    readonly type: "sandbox-ready" | "session-update" | "permission-decision" | "install-warning" | "done";
     readonly status?: string;
+    readonly message?: string;
   }): void => {
     if (event.type === "sandbox-ready") {
       process.stderr.write(`skillmaker station run: sandbox ready, starting "${provider}" session...\n`);
@@ -90,6 +91,8 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
       process.stderr.write(".");
     } else if (event.type === "permission-decision") {
       process.stderr.write("\nskillmaker station run: auto-approved a permission request\n");
+    } else if (event.type === "install-warning") {
+      process.stderr.write(`skillmaker station run: WARNING: ${String(event.message)}\n`);
     } else if (event.type === "done") {
       process.stderr.write(`\nskillmaker station run: ${String(event.status)} (${updateCount} session update(s))\n`);
     }
@@ -139,6 +142,7 @@ const summarize = (slug: string, result: RunStationResult, json: boolean): CliRe
     model: result.model || null,
     changedPaths: result.changedPaths,
     reviewRequested: result.reviewRequested,
+    skillInstalled: result.skillInstalled,
   };
 
   const body = json
@@ -147,6 +151,7 @@ const summarize = (slug: string, result: RunStationResult, json: boolean): CliRe
         `skillmaker station run: ${result.status} (${slug}, station "${result.state}", run ${result.runId})`,
         `  skill:     ${result.skill}`,
         `  model:     ${result.model || "(unknown)"}`,
+        `  installed: ${result.skillInstalled ? "yes" : "NO -- naked agent, see warning above"}`,
         `  changed:   ${result.changedPaths.length === 0 ? "(none)" : result.changedPaths.join(", ")}`,
         `  review:    ${result.reviewRequested ? "requested -- bundle is now awaiting-review" : "not requested"}`,
         `  run dir:   ${result.runDir}`,
