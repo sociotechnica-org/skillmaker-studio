@@ -370,3 +370,41 @@ Source: docs/research/2026-07-11-anthropic-skill-creator.md.
   William skill reaches published through the full gated loop with
   measurements on claude-code + codex; the skillbook of the repo's own
   workspace renders with receipts.
+
+### Phase 20 — be the user: usage stories + improvement loop (ruled 2026-07-11)
+
+- **Value:** the product judged as a product — an opinionated external user
+  accomplishing real goals, not QA hunting bugs.
+- **Usage stories** (each: write the EXPECTED experience first from
+  marketing+docs only — no source reading; needing source to proceed is a
+  P1 finding; real git repos, pushed public to sociotechnica-org where the
+  story calls for it):
+  1. Take over an existing skills repo (adopt) and improve 1-2 skills
+     through real evals.
+  2. Port a skill across models (e.g. sonnet → fable) with measurements
+     proving the port.
+  3. Personalize skills from known repos (mattpocock/gstack/compound-eng):
+     take specific skills, adjust to my process, re-eval.
+  4. New repo from scratch: idea → research → drafting → evaling →
+     publishing loop → publish as a public marketplace repo → add the
+     marketplace to a real Claude/Codex instance → **consumer-side check**:
+     someone who didn't build it installs and uses it.
+  5. Maintain/re-earn: a green skill, a model change, honest reset,
+     re-measure, compare (the receipts thesis, lived).
+  6. Failure-iteration: a skill that fails evals; revise → re-run →
+     re-grade until green (the loop where users fall in love or quit).
+  (Deferred but listed: the two-person team story — shared repo, journal
+  union-merge in anger, split reviews.)
+- **Mechanics:** run evals FOR REAL (director ruling — usage limits are
+  themselves a finding: rate-limit UX must be communicated in-product);
+  "user" subagents are **Fable at medium effort** (models a more
+  intelligent user) with fresh-eyes constraints in the prompt; distinct
+  persona per story; friction logged as TODOS in a skillmaker workspace
+  (the improvement backlog lives on the studio's own board); each story is
+  a repeatable fixture — after improvements ship, re-run the story and
+  diff the friction (story-as-eval; the rerun is the re-earn).
+- **Scope of improvements:** onboarding, install language clarity, viewer
+  screens, empty states, error copy — ship as normal PRs from the backlog,
+  severity-ranked.
+- **Verify:** each story completed end-to-end for real; friction log +
+  improvement PRs + at least one full re-run showing reduced friction.
