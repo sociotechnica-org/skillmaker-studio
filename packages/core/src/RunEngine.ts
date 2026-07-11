@@ -55,6 +55,12 @@ export interface RunFixtureInput {
   readonly timeoutMs?: number;
   /** Progress callback, e.g. for the CLI's `--` stderr progress line. Never affects control flow. */
   readonly onProgress?: (event: RunProgressEvent) => void;
+  /**
+   * Pre-generated run id, e.g. so a caller can return it to a client before
+   * the run finishes (the server's "Run" button spawns this detached and
+   * must hand back an id synchronously). Defaults to a fresh `crypto.randomUUID()`.
+   */
+  readonly runId?: string;
 }
 
 export type RunProgressEvent =
@@ -278,7 +284,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
 
   // --- Sandbox: mkdtemp -> git init -> copy fixture files -> install output/ as the skill. ---
   const sandboxDir = mkdtempSync(nodeJoin(tmpdir(), "skillmaker-run-"));
-  const runId = crypto.randomUUID();
+  const runId = input.runId ?? crypto.randomUUID();
   const runDir = path.join(bundleDir, "runs", runId);
   const transcriptPath = path.join(runDir, "transcript.jsonl");
   const runJsonPath = path.join(runDir, "run.json");

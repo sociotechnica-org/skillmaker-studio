@@ -6,8 +6,10 @@ import { Effect } from "effect";
 import { type CliResult, ok, usageError } from "./CliResult.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
+import { runGrade } from "./commands/Grade.ts";
 import { runInit } from "./commands/Init.ts";
 import { runList } from "./commands/List.ts";
+import { runMeasurements } from "./commands/Measurements.ts";
 import { runNew } from "./commands/New.ts";
 import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
@@ -29,6 +31,8 @@ Commands:
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
+  grade <slug> <runId>    Record a run's grading verdict (data-model.md §2.9)
+  measurements <slug>     Show measurement cells: n, pass rate, CI, guidance (§2.11)
   start             Serve the viewer + API (default port from config, or 4323)
   review request <slug>   Request review of the bundle's current stage work
   advance <slug>          Move a bundle along the state machine (guarded)
@@ -62,6 +66,8 @@ Options:
   --fixture <case>  (run) the fixture case to run (required)
   --provider <id>   (run) provider id from skillmaker.config.json; defaults to "claude-code"
   --timeout <s>     (run) prompt timeout in seconds; defaults to 300
+  --verdict <v>     (grade) pass | fail | partial (required)
+  --notes <text>    (grade) free-text grading notes
   -h, --help        Show this help
 
 Exit codes (run): 0 completed, 1 failed, 2 usage error, 3 infra-error
@@ -95,6 +101,8 @@ const VALUE_FLAGS = new Set([
   "--fixture",
   "--provider",
   "--timeout",
+  "--verdict",
+  "--notes",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -188,6 +196,16 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const provider = flagValue(argv, "--provider");
       const timeout = flagValue(argv, "--timeout");
       return yield* runRun(cwd, slug, { json, fixture, provider, timeout });
+    }
+    case "grade": {
+      const [slug, runId] = twoPositionalsAfter(argv, 1);
+      const verdict = flagValue(argv, "--verdict");
+      const notes = flagValue(argv, "--notes");
+      return yield* runGrade(cwd, slug, runId, { json, verdict, notes });
+    }
+    case "measurements": {
+      const slug = positionalAfterCommand(argv);
+      return yield* runMeasurements(cwd, slug, { json });
     }
     case "start": {
       const portValue = flagValue(argv, "--port");

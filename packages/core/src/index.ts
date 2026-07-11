@@ -56,6 +56,19 @@ export {
   type RunIndexRecord,
 } from "./IndexService.ts";
 export {
+  computeMeasurements,
+  confidenceInterval,
+  ruleOfThreeCi,
+  wilsonCi,
+  guidanceForN,
+  GUIDANCE_LEVELS,
+  SMOKE_K,
+  ESTIMATE_K,
+  SHIP_GATE_K,
+  type MeasurementRecord,
+  type GuidanceLevel,
+} from "./Measurements.ts";
+export {
   scanFixtures,
   FIXTURE_CLASSES,
   FixtureClass,
