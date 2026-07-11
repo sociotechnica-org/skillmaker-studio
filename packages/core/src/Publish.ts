@@ -38,7 +38,7 @@ import {
 import { foldBundleStates } from "./Fold.ts";
 import type { JournalEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
-import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
+import { computeBundleHashes, computeDrift, detectBundleLayout, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
 import type { PublishTarget } from "./Workspace.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -74,7 +74,8 @@ export const checkPublishable = Effect.fn("Publish.checkPublishable")(function* 
     );
   }
 
-  const current = yield* computeBundleHashes(bundleDir);
+  const layout = yield* detectBundleLayout(bundleDir);
+  const current = yield* computeBundleHashes(bundleDir, layout);
   const versions = foldSkillVersions(events).get(bundle);
   const latest = latestSkillVersion(versions);
   const drift = computeDrift(current, latest);

@@ -11,7 +11,14 @@
  * Requires an existing workspace (`skillmaker init` first) -- adopt runs on
  * top of a workspace, it does not create one.
  */
-import { adoptWorkspace, computeBundleHashes, Journal, JournalLayer, Workspace } from "@skillmaker/core";
+import {
+  adoptWorkspace,
+  computeBundleHashes,
+  Journal,
+  JournalLayer,
+  recordSkillVersion,
+  Workspace,
+} from "@skillmaker/core";
 import type { AdoptedSkill, AdoptReport } from "@skillmaker/core";
 import { Effect } from "effect";
 import { Path } from "effect/Path";
@@ -66,17 +73,7 @@ export const runAdopt = Effect.fn("runAdopt")(function* (
       }
 
       const { designHash, outputHash } = yield* computeBundleHashes(skill.dir, "in-place");
-      yield* journal.append({
-        type: "skill.version_recorded",
-        actor,
-        idempotencyKey: `skill.version_recorded:${skill.slug}:${designHash}:${outputHash}`,
-        payload: {
-          bundle: skill.slug,
-          hash: outputHash,
-          designHash,
-          label: "adopted",
-        },
-      });
+      yield* recordSkillVersion(skill.slug, actor, designHash, outputHash, { label: "adopted" });
     }
   }).pipe(Effect.provide(JournalLayer(journalPath)));
 

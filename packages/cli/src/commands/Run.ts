@@ -77,8 +77,10 @@ export const runRun = Effect.fn("runRun")(function* (
 
   let updateCount = 0;
   const onProgress = (event: {
-    readonly type: "sandbox-ready" | "session-update" | "permission-decision" | "done";
+    readonly type: "sandbox-ready" | "session-update" | "permission-decision" | "install-warning" | "done";
     readonly status?: string;
+    readonly message?: string;
+    readonly skillInvoked?: boolean;
   }): void => {
     if (event.type === "sandbox-ready") {
       process.stderr.write(`skillmaker run: sandbox ready, starting "${provider}" session...\n`);
@@ -87,8 +89,16 @@ export const runRun = Effect.fn("runRun")(function* (
       process.stderr.write(".");
     } else if (event.type === "permission-decision") {
       process.stderr.write("\nskillmaker run: auto-approved a permission request\n");
+    } else if (event.type === "install-warning") {
+      process.stderr.write(`skillmaker run: WARNING: ${String(event.message)}\n`);
     } else if (event.type === "done") {
-      process.stderr.write(`\nskillmaker run: ${String(event.status)} (${updateCount} session update(s))\n`);
+      // Fix F7: surface didSkillActivate's signal on every run's CLI output,
+      // not just trigger-class fixtures.
+      const invokedNote =
+        event.skillInvoked === undefined ? "" : event.skillInvoked ? ", skill invoked" : ", skill NOT invoked";
+      process.stderr.write(
+        `\nskillmaker run: ${String(event.status)} (${updateCount} session update(s)${invokedNote})\n`,
+      );
     }
   };
 
@@ -137,6 +147,8 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
     autoRecordedVersion: result.autoRecordedVersion,
     model: result.model || null,
     artifacts: result.artifacts,
+    skillInstalled: result.skillInstalled,
+    skillInvoked: result.skillInvoked,
   };
 
   const body = json
@@ -145,6 +157,8 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
         `skillmaker run: ${result.status} (${slug}, run ${result.runId})`,
         `  version:   ${result.skillVersionHash}${result.autoRecordedVersion ? " (auto-recorded before this run)" : ""}`,
         `  model:     ${result.model || "(unknown)"}`,
+        `  skill:     ${result.skillInstalled ? "installed" : "NOT INSTALLED (naked agent -- see warning above)"}`,
+        `  invoked:   ${result.skillInvoked ? "yes (transcript shows the skill was used)" : "no (transcript shows no evidence the skill was used)"}`,
         `  artifacts: ${result.artifacts.length === 0 ? "(none)" : result.artifacts.join(", ")}`,
         `  run dir:   ${result.runDir}`,
         "",

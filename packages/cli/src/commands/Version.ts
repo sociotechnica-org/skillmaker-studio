@@ -8,8 +8,8 @@
  */
 import {
   computeBundleHashes,
-  Journal,
   JournalLayer,
+  recordSkillVersion,
   shortHash,
   Workspace,
 } from "@skillmaker/core";
@@ -65,25 +65,14 @@ export const runVersionRecord = Effect.fn("runVersionRecord")(function* (
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
 
-  const outcome: RecordOutcome = yield* Effect.gen(function* () {
-    const journal = yield* Journal;
-    const result = yield* journal.append({
-      type: "skill.version_recorded",
-      actor,
-      // Keyed on BOTH hashes, not just outputHash: "same content" means the
-      // whole recorded version (design.md AND output/), so a design-only
-      // change (output/ untouched) must NOT collide with the idempotency key
-      // of the prior version -- it's new content and should append.
-      idempotencyKey: `skill.version_recorded:${slug}:${designHash}:${outputHash}`,
-      payload: {
-        bundle: slug,
-        hash: outputHash,
-        designHash,
-        ...(options.label !== undefined ? { label: options.label } : {}),
-      },
-    });
-    return { kind: result.status, hash: outputHash, designHash, label: options.label } as const;
-  }).pipe(
+  const outcome: RecordOutcome = yield* recordSkillVersion(
+    slug,
+    actor,
+    designHash,
+    outputHash,
+    options.label !== undefined ? { label: options.label } : undefined,
+  ).pipe(
+    Effect.map((result) => ({ kind: result.status, hash: result.hash, designHash: result.designHash, label: options.label }) as const),
     Effect.provide(JournalLayer(journalPath)),
     Effect.catchTag("JournalIdempotencyConflictError", (error) =>
       Effect.succeed({ kind: "conflict" as const, message: error.message }),

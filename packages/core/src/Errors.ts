@@ -60,10 +60,19 @@ export class WorkspaceIOError extends Schema.TaggedErrorClass<WorkspaceIOError>(
   },
 ) {}
 
-/** `studio.db` (the rebuildable SQLite index) could not be read or written. */
+/**
+ * `studio.db` (the rebuildable SQLite index) could not be read or written.
+ * `eventId`/`lineNumber` (Fix F4) identify the offending journal event when
+ * a rebuild failure traces back to one specific line, so "could not write
+ * studio.db" is never the only information an operator gets -- both the
+ * human-readable message and `--json` output carry the real underlying
+ * cause plus, when known, which event/line it came from.
+ */
 export class IndexError extends Schema.TaggedErrorClass<IndexError>()("IndexError", {
   message: Schema.String,
   cause: Schema.optionalKey(Schema.Defect()),
+  eventId: Schema.optionalKey(Schema.String),
+  lineNumber: Schema.optionalKey(Schema.Number),
 }) {}
 
 /**

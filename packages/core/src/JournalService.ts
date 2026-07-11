@@ -22,7 +22,7 @@ const toReadError = (message: string) => (cause: unknown) =>
  * same `type`, same `actor`, same `payload`. Uses JSON structural equality,
  * which is sufficient since journal payloads are plain JSON-shaped data.
  */
-const sameContent = (a: JournalEvent, b: JournalEventInput): boolean =>
+export const sameContent = (a: JournalEvent, b: JournalEventInput): boolean =>
   a.type === b.type &&
   JSON.stringify(a.actor) === JSON.stringify(b.actor) &&
   JSON.stringify(a.payload) === JSON.stringify(b.payload);

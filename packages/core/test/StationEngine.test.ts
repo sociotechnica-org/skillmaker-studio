@@ -10,7 +10,14 @@ import {
   latestReviseNotes,
 } from "../src/StationEngine.ts";
 
-const { filterToProduces, matchesProduces, snapshotFiles, diffFileSnapshots, seedProducesPath } = _internal;
+const {
+  filterToProduces,
+  matchesProduces,
+  snapshotFiles,
+  diffFileSnapshots,
+  seedProducesPath,
+  listFilesRecursive,
+} = _internal;
 
 const withTempDir = <A>(fn: (dir: string) => A): A => {
   const dir = mkdtempSync(join(tmpdir(), "skillmaker-stationengine-test-"));
@@ -107,6 +114,23 @@ describe("seedProducesPath", () => {
         expect(() => seedProducesPath(srcRoot, destRoot, "output/SKILL.md")).not.toThrow();
         expect(snapshotFiles(destRoot).size).toBe(0);
       });
+    });
+  });
+});
+
+describe("listFilesRecursive (Fix F2 backstop: detecting an empty install set)", () => {
+  test("returns [] for a nonexistent directory", () => {
+    withTempDir((dir) => {
+      expect(listFilesRecursive(join(dir, "nope"))).toEqual([]);
+    });
+  });
+
+  test("returns every file recursively for a populated directory", () => {
+    withTempDir((dir) => {
+      mkdirSync(join(dir, "sub"), { recursive: true });
+      writeFileSync(join(dir, "SKILL.md"), "skill");
+      writeFileSync(join(dir, "sub", "notes.md"), "notes");
+      expect([...listFilesRecursive(dir)].sort()).toEqual(["SKILL.md", "sub/notes.md"]);
     });
   });
 });

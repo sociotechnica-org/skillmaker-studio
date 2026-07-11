@@ -1009,6 +1009,18 @@ export const layer = (
         const slugs = new Set<string>([...identities.keys(), ...states.keys()]);
         const records: BundleRecord[] = [];
         const versionRecords: VersionRecord[] = [];
+        // Fix F3/F4: `skill_versions`' PRIMARY KEY is (bundle, hash,
+        // design_hash) -- a duplicate triple in the journal (e.g. from a
+        // pre-fix run whose auto-record had no idempotencyKey guard) used
+        // to reach the INSERT below and throw a raw SQLite UNIQUE
+        // violation, wrapped into an opaque "could not write studio.db"
+        // error that bricked every index-reading command. Deduped here
+        // instead: the first occurrence of a (bundle, hash, designHash)
+        // triple wins, every later duplicate is skipped and reported as a
+        // warning (ruling I: malformed input is tolerated, never a hard
+        // failure) so `reindex`/`list`/`status` keep working for every
+        // OTHER valid event.
+        const seenVersionTriples = new Set<string>();
         const fixtureRecords: FixtureRecord[] = [];
         const riskCoverageRecords: RiskCoverageRecord[] = [];
         const runRecords: RunIndexRecord[] = [];
@@ -1031,6 +1043,16 @@ export const layer = (
 
           const versions = versionsBySlug.get(slug);
           for (const version of versions ?? []) {
+            const triple = `${slug} ${version.hash} ${version.designHash}`;
+            if (seenVersionTriples.has(triple)) {
+              warnings.push({
+                bundle: slug,
+                source: "journal",
+                message: `duplicate skill.version_recorded for "${slug}" (hash ${version.hash}, designHash ${version.designHash}) recorded at ${version.recordedAt} was skipped -- a version with this exact (bundle, hash, designHash) was already indexed`,
+              });
+              continue;
+            }
+            seenVersionTriples.add(triple);
             versionRecords.push({
               bundle: slug,
               hash: version.hash,
@@ -1231,7 +1253,12 @@ export const layer = (
               // Best-effort cleanup; the temp file is harmless orphaned
               // state and never observed by any reader.
             }
-            return toIndexError(`could not write ${dbPath}`)(cause);
+            // Fix F4: carry the real underlying reason, not just "could not
+            // write studio.db" -- every rebuild failure surfaced that one
+            // opaque line regardless of cause (a bad journal event, a full
+            // disk, a permissions error all looked identical).
+            const reason = cause instanceof Error ? cause.message : String(cause);
+            return toIndexError(`could not write ${dbPath}: ${reason}`)(cause);
           },
         });
 

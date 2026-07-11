@@ -793,7 +793,7 @@ const handleRunDetail = async (
   // prompt deliberately never names the skill).
   let checks: ReadonlyArray<string> = [];
   let activated: boolean | null = null;
-  const runRecord = run as { readonly fixtureCase?: unknown };
+  const runRecord = run as { readonly fixtureCase?: unknown; readonly skillInvoked?: unknown };
   if (typeof runRecord.fixtureCase === "string") {
     const caseJsonPath = join(bundleDir, "evals", "fixtures", runRecord.fixtureCase, "case.json");
     if (existsSync(caseJsonPath)) {
@@ -815,7 +815,15 @@ const handleRunDetail = async (
     }
   }
 
-  return jsonResponse({ run, transcript, artifacts, gradingHistory, checks, activated });
+  // Fix F7: `skillInvoked` is now computed by RunEngine/StationEngine for
+  // EVERY run and persisted on run.json, not just "trigger"-class eval
+  // fixtures (the narrow path above, kept for the existing `activated`
+  // checklist-grading consumer). Prefer the persisted field; fall back to
+  // deriving it here for run.json files written before this fix existed.
+  const skillInvoked =
+    typeof runRecord.skillInvoked === "boolean" ? runRecord.skillInvoked : didSkillActivate(transcript, slug);
+
+  return jsonResponse({ run, transcript, artifacts, gradingHistory, checks, activated, skillInvoked });
 };
 
 interface TriggerRunRequestBody {

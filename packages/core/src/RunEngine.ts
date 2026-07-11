@@ -29,7 +29,16 @@ import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
-import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
+import { didSkillActivate } from "./SkillActivation.ts";
+import {
+  ADOPT_EXCLUDED_NAMES,
+  computeBundleHashes,
+  computeDrift,
+  detectBundleLayout,
+  foldSkillVersions,
+  latestSkillVersion,
+  recordSkillVersion,
+} from "./Versions.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -68,7 +77,9 @@ export type RunProgressEvent =
   | { readonly type: "sandbox-ready" }
   | { readonly type: "session-update" }
   | { readonly type: "permission-decision" }
-  | { readonly type: "done"; readonly status: RunStatus };
+  | { readonly type: "install-warning"; readonly message: string }
+  /** Fix F7: `didSkillActivate`'s transcript signal, surfaced for EVERY run (not just "trigger"-class fixtures) so CLI output always reports it. */
+  | { readonly type: "done"; readonly status: RunStatus; readonly skillInvoked: boolean };
 
 export interface RunFixtureResult {
   readonly runId: string;
@@ -80,6 +91,10 @@ export interface RunFixtureResult {
   /** Relative paths (within `runs/<id>/artifacts/`) of every captured artifact. */
   readonly artifacts: ReadonlyArray<string>;
   readonly model: string;
+  /** `true` if at least one skill file was installed into the sandbox before the session ran. `false` means the agent ran naked (Fix F2's backstop signal). */
+  readonly skillInstalled: boolean;
+  /** Fix F7: `true` if the transcript shows evidence the agent invoked/read the bundle's skill (`SkillActivation.ts`'s `didSkillActivate`), for EVERY run -- not just "trigger"-class fixtures (the previous, narrower `handleRunDetail`-only exposure). */
+  readonly skillInvoked: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +151,7 @@ const copyPreservingPath = (srcRoot: string, destRoot: string, relPath: string):
   writeFileSync(dest, readFileSync(src));
 };
 
-const copyDirRecursive = (src: string, dest: string): void => {
+const copyDirRecursive = (src: string, dest: string, excludeTopLevel?: ReadonlySet<string>): void => {
   let names: ReadonlyArray<string>;
   try {
     names = readdirSync(src);
@@ -145,6 +160,7 @@ const copyDirRecursive = (src: string, dest: string): void => {
   }
   mkdirSync(dest, { recursive: true });
   for (const name of names) {
+    if (excludeTopLevel?.has(name)) continue;
     const s = nodeJoin(src, name);
     const d = nodeJoin(dest, name);
     const info = statSync(s);
@@ -162,6 +178,56 @@ const dirExists = (p: string): boolean => {
   } catch {
     return false;
   }
+};
+
+/** Recursively lists every file under `root` (relative paths), or `[]` if `root` doesn't exist. Used to check whether an install actually produced any files -- the empty-install-set backstop (Fix F2). */
+const listFilesRecursive = (root: string): ReadonlyArray<string> => {
+  const out: string[] = [];
+  const walk = (dir: string, relPrefix: string): void => {
+    let names: ReadonlyArray<string>;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const abs = nodeJoin(dir, name);
+      const rel = relPrefix === "" ? name : `${relPrefix}/${name}`;
+      const info = statSync(abs);
+      if (info.isDirectory()) {
+        walk(abs, rel);
+      } else if (info.isFile()) {
+        out.push(rel);
+      }
+    }
+  };
+  walk(root, "");
+  return out;
+};
+
+/**
+ * Resolves which files get installed into the sandbox as "the skill" for a
+ * run, layout-aware (Fix F2 -- adopted/in-place bundles have no `output/`,
+ * so the old `output/`-only install silently ran a naked agent with no
+ * skill at all). `"in-place"` bundles install `bundleDir` itself, minus the
+ * same `ADOPT_EXCLUDED_NAMES` studio-owned-file exclusion set
+ * `Versions.computeBundleHashes` already uses for hashing in-place bundles
+ * -- one exclusion list, shared, not reinvented here.
+ */
+const installSkill = (
+  bundleDir: string,
+  skillInstallDir: string,
+  layout: "output-dir" | "in-place",
+): ReadonlyArray<string> => {
+  if (layout === "in-place") {
+    copyDirRecursive(bundleDir, skillInstallDir, ADOPT_EXCLUDED_NAMES);
+  } else {
+    const outputDir = nodeJoin(bundleDir, "output");
+    if (dirExists(outputDir)) {
+      copyDirRecursive(outputDir, skillInstallDir);
+    }
+  }
+  return listFilesRecursive(skillInstallDir);
 };
 
 /** The `files` subdirectory a fixture case's `setup.files` points at, defaulting to `"files"` (FixtureAdd's scaffold convention) when unset or unparsable -- tolerant by design, matching `Fixtures.ts`'s scan philosophy. */
@@ -267,7 +333,8 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   const events = yield* journal.readAll();
   const versionsBySlug = foldSkillVersions(events);
   const latest = latestSkillVersion(versionsBySlug.get(input.bundle));
-  const hashes = yield* computeBundleHashes(bundleDir);
+  const bundleLayout = yield* detectBundleLayout(bundleDir);
+  const hashes = yield* computeBundleHashes(bundleDir, bundleLayout);
   const drift = computeDrift(hashes, latest);
 
   let skillVersionHash: string;
@@ -275,11 +342,15 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   if (drift === "in-sync" && latest !== undefined) {
     skillVersionHash = latest.hash;
   } else {
-    yield* journal.append({
-      actor: input.actor,
-      type: "skill.version_recorded",
-      payload: { bundle: input.bundle, hash: hashes.outputHash, designHash: hashes.designHash },
-    });
+    // Fix F3: route through the SAME idempotency-keyed recordSkillVersion
+    // path `version record`/`adopt` use, instead of appending directly with
+    // no idempotencyKey. A same-content repeat is a clean no-op; a
+    // different-content repeat under the same (bundle, hash, designHash)
+    // triple is a catchable conflict, never a raw duplicate write that
+    // could brick IndexService's skill_versions table.
+    yield* recordSkillVersion(input.bundle, input.actor, hashes.designHash, hashes.outputHash).pipe(
+      Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void),
+    );
     skillVersionHash = hashes.outputHash;
     autoRecordedVersion = true;
   }
@@ -300,11 +371,28 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       copyDirRecursive(fixtureFilesDir, sandboxDir);
     }
 
-    const outputDir = nodeJoin(bundleDir, "output");
     const skillInstallDir = nodeJoin(sandboxDir, providerProfile.skillInstallDir, input.bundle);
-    if (dirExists(outputDir)) {
-      copyDirRecursive(outputDir, skillInstallDir);
+    const installedFiles = installSkill(bundleDir, skillInstallDir, bundleLayout);
+    const skillInstalled = installedFiles.length > 0;
+    if (!skillInstalled) {
+      const warning = `no skill files were installed for bundle "${input.bundle}" (layout: ${bundleLayout}) -- this run's agent has NO skill installed and is running naked`;
+      // Belt-and-suspenders backstop (Fix F2): loud regardless of caller,
+      // not just routed through onProgress, which callers can ignore.
+      process.stderr.write(`skillmaker run: WARNING: ${warning}\n`);
+      input.onProgress?.({ type: "install-warning", message: warning });
     }
+
+    // Fix F6: point the ACP adapter subprocess's config directory at a
+    // fresh, empty, run-scoped directory (inside the disposable sandbox, so
+    // it's cleaned up with everything else) via the provider profile's
+    // `configDirEnvVar`. Without this, the subprocess inherits the
+    // operator's real $HOME and the underlying CLI reads the operator's own
+    // `~/.claude/skills` (or provider equivalent) in ADDITION to the
+    // bundle's skill installed above -- contaminating what this run
+    // actually measures.
+    const isolatedConfigDir = nodeJoin(sandboxDir, ".skillmaker-sandbox-config");
+    mkdirSync(isolatedConfigDir, { recursive: true });
+    const sessionEnv: Record<string, string> = { [providerProfile.configDirEnvVar]: isolatedConfigDir };
 
     input.onProgress?.({ type: "sandbox-ready" });
 
@@ -325,6 +413,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       startedAt,
       status: "running",
       actor: input.actor,
+      isolation: "sandbox-home",
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(runningRecord, null, 2)}\n`)
@@ -341,8 +430,13 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
 
     // --- Drive the ACP session, streaming the transcript incrementally. ---
     let entryCount = 0;
+    // Fix F7: kept alongside the incremental file write so `didSkillActivate`
+    // can be computed once the session ends without a redundant re-read/
+    // re-parse of transcript.jsonl from disk.
+    const transcriptEntries: TranscriptEntry[] = [];
     const onTranscript = (entry: TranscriptEntry): void => {
       entryCount++;
+      transcriptEntries.push(entry);
       try {
         writeFileSync(transcriptPath, `${JSON.stringify(entry)}\n`, { flag: "a" });
       } catch {
@@ -363,6 +457,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
         command: providerConfig.command,
         cwd: sandboxDir,
         prompt,
+        env: sessionEnv,
         ...(input.timeoutMs !== undefined ? { promptTimeoutMs: input.timeoutMs } : {}),
         onTranscript,
         providerProfile,
@@ -405,11 +500,21 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       }
     }
 
+    // Fix F7: `didSkillActivate` used to be computed only for "trigger"-
+    // class fixtures (Server.ts's `handleRunDetail`, a narrow viewer-only
+    // path). Every run's transcript carries the same evidence regardless of
+    // fixture class, so it's computed here unconditionally and persisted on
+    // run.json -- available to every caller (viewer, `run` CLI output,
+    // future consumers) without re-deriving it, and without depending on
+    // the fixture even having a case.json at all.
+    const skillInvoked = didSkillActivate(transcriptEntries, input.bundle);
+
     const finalRecord = RunRecord.make({
       ...runningRecord,
       endedAt,
       status,
       model,
+      skillInvoked,
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(finalRecord, null, 2)}\n`)
@@ -421,7 +526,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       payload: { id: runId, status, endedAt },
     });
 
-    input.onProgress?.({ type: "done", status });
+    input.onProgress?.({ type: "done", status, skillInvoked });
 
     return {
       runId,
@@ -431,6 +536,8 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       autoRecordedVersion,
       artifacts: changedPaths,
       model,
+      skillInstalled,
+      skillInvoked,
     } satisfies RunFixtureResult;
   } finally {
     // Sandbox cleanup happens on both the success and failure paths --
@@ -439,4 +546,11 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   }
 });
 
-export const _internal = { snapshotTree, diffTrees, resolveFixtureFilesDir, classifyAcpError };
+export const _internal = {
+  snapshotTree,
+  diffTrees,
+  resolveFixtureFilesDir,
+  classifyAcpError,
+  installSkill,
+  listFilesRecursive,
+};

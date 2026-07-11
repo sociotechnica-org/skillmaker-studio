@@ -31,6 +31,19 @@ describe("resolveProviderProfile", () => {
   test("claude-code's infra-stderr signatures are empty (its own nested-session signature lives in AcpClient.ts's provider-agnostic list)", () => {
     expect(CLAUDE_CODE_PROFILE.infraStderrSignatures).toEqual([]);
   });
+
+  // Fix F6: each profile names the env var ITS OWN CLI respects to relocate
+  // its whole config directory (including user-level skills), so
+  // RunEngine/StationEngine can point the adapter subprocess at an
+  // isolated, run-scoped directory instead of the operator's real one.
+  test('claude-code profile\'s configDirEnvVar is "CLAUDE_CONFIG_DIR" (respected by the claude CLI claude-code-acp wraps)', () => {
+    expect(CLAUDE_CODE_PROFILE.configDirEnvVar).toBe("CLAUDE_CONFIG_DIR");
+  });
+
+  test('codex profile\'s configDirEnvVar is "CODEX_HOME" (respected by the codex CLI codex-acp wraps), distinct from claude-code\'s', () => {
+    expect(CODEX_PROFILE.configDirEnvVar).toBe("CODEX_HOME");
+    expect(CODEX_PROFILE.configDirEnvVar).not.toBe(CLAUDE_CODE_PROFILE.configDirEnvVar);
+  });
 });
 
 describe("extractModel -- both session/new shapes (spike-codex/FINDINGS.md's protocol delta table)", () => {

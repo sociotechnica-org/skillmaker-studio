@@ -12,8 +12,10 @@ import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { createHash } from "node:crypto";
 import { basename, join, sep } from "node:path";
+import type { Actor } from "./Actor.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import type { JournalEvent } from "./Journal.ts";
+import { Journal } from "./JournalService.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
@@ -119,6 +121,22 @@ export interface BundleHashes {
 
 /** `"output-dir"` (default): the normal `output/` subdirectory. `"in-place"`: an adopted bundle (`Adopt.ts`) whose output IS the bundle directory itself, minus `ADOPT_EXCLUDED_NAMES`. */
 export type BundleLayout = "output-dir" | "in-place";
+
+/**
+ * Detects a bundle's layout by checking for the adopt marker
+ * (`ADOPT_MARKER_FILENAME`) directly in `bundleDir` -- the same test
+ * `IndexService.ts`'s `scanBundleIdentities` uses. Shared here so every
+ * caller that needs to decide "does this bundle's skill payload live at
+ * `output/` or is the bundle directory itself the payload" (`RunEngine.ts`,
+ * `StationEngine.ts`, `Publish.ts`) makes that call the same way, instead of
+ * each reimplementing the marker check.
+ */
+export const detectBundleLayout = Effect.fn("Versions.detectBundleLayout")(function* (bundleDir: string) {
+  const fs = yield* FileSystem;
+  const markerPath = join(bundleDir, ADOPT_MARKER_FILENAME);
+  const markerExists = yield* fs.exists(markerPath).pipe(Effect.mapError(toIOError(`could not check ${markerPath}`)));
+  return (markerExists ? "in-place" : "output-dir") as BundleLayout;
+});
 
 /**
  * The shared hashing entry point: given a bundle directory
@@ -227,3 +245,39 @@ export const shortHash = (hash: string, length = 12): string => {
   const hex = hash.slice(prefix.length);
   return `${prefix}${hex.length > length ? hex.slice(0, length) : hex}`;
 };
+
+/** The idempotency key format every `skill.version_recorded` writer must share -- keyed on both hashes so a design-only or output-only change is genuinely new content, never colliding with an unrelated prior version. */
+export const skillVersionIdempotencyKey = (bundle: string, designHash: string, outputHash: string): string =>
+  `skill.version_recorded:${bundle}:${designHash}:${outputHash}`;
+
+/**
+ * The single shared entry point for appending a `skill.version_recorded`
+ * event (Fix F3, data-model.md §2.7/§2.9): every caller -- `version record`
+ * (Version.ts), `adopt` (Adopt.ts), and `run`'s implicit auto-record
+ * (RunEngine.ts) -- goes through this function so they all share the exact
+ * same idempotency-keyed `Journal.append` guard. Before this fix,
+ * RunEngine's auto-record appended directly with NO idempotencyKey at all,
+ * bypassing the guard entirely; a duplicate `(bundle, hash, designHash)`
+ * triple could then reach `IndexService`'s `skill_versions` table (whose
+ * PRIMARY KEY is exactly that triple) and brick every command that reads
+ * the index. Routing everything through one idempotency-keyed append makes
+ * a same-content repeat a clean no-op (`"already_appended"`) and a
+ * different-content repeat under the same hashes a genuine, catchable
+ * `JournalIdempotencyConflictError` -- never a raw duplicate write.
+ */
+export const recordSkillVersion = Effect.fn("Versions.recordSkillVersion")(function* (
+  bundle: string,
+  actor: Actor,
+  designHash: string,
+  outputHash: string,
+  extraPayload?: Readonly<Record<string, unknown>>,
+) {
+  const journal = yield* Journal;
+  const result = yield* journal.append({
+    type: "skill.version_recorded",
+    actor,
+    idempotencyKey: skillVersionIdempotencyKey(bundle, designHash, outputHash),
+    payload: { bundle, hash: outputHash, designHash, ...(extraPayload ?? {}) },
+  });
+  return { status: result.status, hash: outputHash, designHash } as const;
+});
