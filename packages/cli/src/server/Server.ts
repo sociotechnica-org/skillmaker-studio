@@ -8,6 +8,7 @@ import {
   bundleForEvent,
   checkTransition,
   computeBundleHashes,
+  computeMeasurements,
   foldBundleStates,
   foldTodos,
   guardStatus,
@@ -16,9 +17,11 @@ import {
   Journal,
   JournalLayer,
   JournalEvent,
+  runFixture,
   type Actor,
   type BundleRecord,
   type FixtureRecord,
+  type MeasurementRecord,
   type RiskCoverageRecord,
   type RunIndexRecord,
   type TodoRecord,
@@ -28,7 +31,7 @@ import {
 } from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
@@ -55,6 +58,10 @@ const ALLOWED_API_EVENT_TYPES = new Set([
   "todo.opened",
   "todo.updated",
   "todo.status_changed",
+  // Phase 9's grading panel writes directly through this path -- a regrade
+  // is a brand-new event (no idempotencyKey), latest wins at fold time
+  // (data-model.md §2.9).
+  "run.graded",
 ]);
 
 const MAX_BUNDLE_DETAIL_EVENTS = 20;
@@ -137,6 +144,17 @@ const listRunRecords = (root: string, slug: string): Promise<ReadonlyArray<RunIn
       yield* index.rebuild();
       const runs = yield* index.listRuns(slug);
       return [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    }),
+  );
+
+/** Aggregated measurement cells for a bundle, never pooled (data-model.md §2.11, §1.1 laws 5-6). */
+const listMeasurementRecords = (root: string, slug: string): Promise<ReadonlyArray<MeasurementRecord>> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      return yield* index.listMeasurements(slug);
     }),
   );
 
@@ -239,7 +257,46 @@ interface PostEventRequestBody {
  * `advance` command runs, then appends. Rejections are 409s carrying a
  * human-readable reason, not silent failures.
  */
-const handlePostEvent = async (root: string, request: Request): Promise<Response> => {
+/**
+ * Scans every bundle's `runs/<runId>/run.json` to locate which bundle a run
+ * id belongs to -- `run.graded` payloads carry only `{id, ...}`, no bundle,
+ * so the server (unlike the client, which already knows its slug) has to
+ * search for it. Bundle counts are small at this scale (studio.db's own
+ * doc comments make the same tradeoff for `rebuild()`).
+ */
+const findRunLocation = (
+  root: string,
+  config: WorkspaceConfig,
+  runId: string,
+): { readonly bundle: string; readonly runDir: string; readonly status: string } | undefined => {
+  const skillsRoot = join(root, config.skillsDir);
+  if (!existsSync(skillsRoot)) return undefined;
+  let bundleSlugs: ReadonlyArray<string>;
+  try {
+    bundleSlugs = readdirSync(skillsRoot).filter((name) => statSync(join(skillsRoot, name)).isDirectory());
+  } catch {
+    return undefined;
+  }
+  for (const slug of bundleSlugs) {
+    const runDir = join(skillsRoot, slug, "runs", runId);
+    const runJsonPath = join(runDir, "run.json");
+    if (!existsSync(runJsonPath)) continue;
+    try {
+      const raw = JSON.parse(readFileSync(runJsonPath, "utf8")) as { readonly status?: unknown };
+      const status = typeof raw.status === "string" ? raw.status : "unknown";
+      return { bundle: slug, runDir, status };
+    } catch {
+      return { bundle: slug, runDir, status: "unknown" };
+    }
+  }
+  return undefined;
+};
+
+const handlePostEvent = async (
+  root: string,
+  config: WorkspaceConfig,
+  request: Request,
+): Promise<Response> => {
   let body: unknown;
   try {
     body = await request.json();
@@ -321,6 +378,21 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
     }
   }
 
+  if (eventInput.type === "run.graded") {
+    const location = findRunLocation(root, config, eventInput.payload.id);
+    if (location === undefined) {
+      return jsonResponse({ error: `no such run "${eventInput.payload.id}"` }, 409);
+    }
+    if (location.status !== "completed") {
+      return jsonResponse(
+        {
+          error: `run "${eventInput.payload.id}" cannot be graded: status is "${location.status}", not "completed" (infra-error/running runs are never graded -- they carry no task-level verdict)`,
+        },
+        409,
+      );
+    }
+  }
+
   if (eventInput.type === "review.resolved") {
     const events = await readJournalEvents(root);
     const state = foldBundleStates(events).get(eventInput.payload.bundle);
@@ -373,6 +445,7 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
   const versions = await listVersionRecords(root, slug);
   const { fixtures, riskCoverage, warnings } = await listBundleEvalDetail(root, slug);
   const runs = await listRunRecords(root, slug);
+  const measurements = await listMeasurementRecords(root, slug);
 
   return jsonResponse({
     bundle,
@@ -383,6 +456,7 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
     riskCoverage,
     warnings,
     runs,
+    measurements,
   });
 };
 
@@ -451,12 +525,22 @@ const handleRecordVersion = async (
   }
 };
 
-/** Only `design.md` or a non-empty path under `output/` may be read back over HTTP. */
+/** `runs/<runId>/artifacts/<nonempty>` -- Phase 9's run-detail artifact viewer. */
+const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
+
+/**
+ * Only `design.md`, a non-empty path under `output/`, or a run's
+ * `artifacts/` contents may be read back over HTTP (data-model.md §2.12 --
+ * artifacts listed/viewable on the run-detail panel).
+ */
 const isAllowedBundleFilePath = (relativePath: string): boolean => {
   if (relativePath === "design.md") {
     return true;
   }
-  return relativePath.startsWith("output/") && relativePath.length > "output/".length;
+  if (relativePath.startsWith("output/") && relativePath.length > "output/".length) {
+    return true;
+  }
+  return RUN_ARTIFACT_PATH.test(relativePath);
 };
 
 /**
@@ -489,6 +573,180 @@ const handleBundleFile = async (
 
   const content = readFileSync(filePath, "utf8");
   return jsonResponse({ path: relPath, content });
+};
+
+/** Recursively lists every file under `dir`, as paths relative to `dir` (posix-joined, for stable wire output). */
+const listFilesRecursive = (dir: string, relPrefix = ""): ReadonlyArray<string> => {
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const abs = join(dir, entry);
+    const rel = relPrefix.length > 0 ? `${relPrefix}/${entry}` : entry;
+    const info = statSync(abs);
+    if (info.isDirectory()) {
+      out.push(...listFilesRecursive(abs, rel));
+    } else if (info.isFile()) {
+      out.push(rel);
+    }
+  }
+  return out;
+};
+
+/**
+ * `GET /api/bundles/:slug/runs/:runId` -- the read-out's run detail panel
+ * (data-model.md §2.12): `run.json` fields, the parsed transcript, the
+ * artifact file list, the full grading history (newest first -- regrades
+ * are history, not overwrites), and the fixture's `case.json` grading
+ * checklist for the grading panel's checkboxes.
+ */
+const handleRunDetail = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  runId: string,
+): Promise<Response> => {
+  const bundleDir = join(root, config.skillsDir, slug);
+  const runDir = join(bundleDir, "runs", runId);
+  const runJsonPath = join(runDir, "run.json");
+  if (!existsSync(runJsonPath)) {
+    return jsonResponse({ error: `no such run "${runId}" in bundle "${slug}"` }, 404);
+  }
+
+  let run: unknown;
+  try {
+    run = JSON.parse(readFileSync(runJsonPath, "utf8"));
+  } catch (cause) {
+    return jsonResponse({ error: `run.json for "${runId}" is malformed: ${String(cause)}` }, 500);
+  }
+
+  // Transcript: parsed defensively, line by line -- a truncated/corrupt
+  // trailing line (e.g. a crash mid-write) never sinks the whole panel.
+  const transcriptPath = join(runDir, "transcript.jsonl");
+  const transcript: unknown[] = [];
+  if (existsSync(transcriptPath)) {
+    const lines = readFileSync(transcriptPath, "utf8").split("\n").filter((line) => line.trim().length > 0);
+    for (const line of lines) {
+      try {
+        transcript.push(JSON.parse(line));
+      } catch {
+        transcript.push({ malformed: true, raw: line });
+      }
+    }
+  }
+
+  const artifactsDir = join(runDir, "artifacts");
+  const artifacts = listFilesRecursive(artifactsDir);
+
+  const events = await readJournalEvents(root);
+  const gradingHistory = events
+    .filter((event) => event.type === "run.graded" && event.payload.id === runId)
+    .slice()
+    .reverse();
+
+  // The fixture's grading.checks (case.json), for the checklist UI -- read
+  // directly and defensively (ruling I: malformed content is tolerated, not
+  // a hard failure) rather than via `scanFixtures`, whose tolerant
+  // `FixtureCaseRecord` summary deliberately drops `grading` (it is not part
+  // of `IndexService`'s fixtures table).
+  let checks: ReadonlyArray<string> = [];
+  const runRecord = run as { readonly fixtureCase?: unknown };
+  if (typeof runRecord.fixtureCase === "string") {
+    const caseJsonPath = join(bundleDir, "evals", "fixtures", runRecord.fixtureCase, "case.json");
+    if (existsSync(caseJsonPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(caseJsonPath, "utf8")) as {
+          readonly grading?: { readonly checks?: unknown };
+        };
+        const rawChecks = parsed.grading?.checks;
+        if (Array.isArray(rawChecks)) {
+          checks = rawChecks.filter((c): c is string => typeof c === "string");
+        }
+      } catch {
+        // Malformed case.json -- checklist is just empty, not a hard failure.
+      }
+    }
+  }
+
+  return jsonResponse({ run, transcript, artifacts, gradingHistory, checks });
+};
+
+interface TriggerRunRequestBody {
+  readonly provider?: unknown;
+}
+
+/**
+ * `POST /api/bundles/:slug/fixtures/:case/run` -- the viewer's "Run" button.
+ * Spawns `RunEngine.runFixture` via `Effect.runFork` (a scheduled fiber, NOT
+ * awaited) so the HTTP request returns immediately with the run id; the run
+ * itself proceeds in the background and its progress lands via `run.started`/
+ * `run.completed` journal events, which the existing journal file watcher
+ * (`watchJournal`) already broadcasts over SSE -- the viewer's refetch-on-SSE
+ * hook picks up the new/updated run with no extra plumbing here. A
+ * pre-generated `runId` (RunEngine.ts's `RunFixtureInput.runId`) is what lets
+ * this handler know the id before the run finishes.
+ */
+const handleTriggerRun = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  caseName: string,
+  request: Request,
+): Promise<Response> => {
+  const bundleDir = join(root, config.skillsDir, slug);
+  if (!existsSync(join(bundleDir, "bundle.json"))) {
+    return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
+  }
+  const caseDir = join(bundleDir, "evals", "fixtures", caseName);
+  if (!existsSync(join(caseDir, "prompt.md"))) {
+    return jsonResponse({ error: `fixture "${caseName}" has no prompt.md (bundle "${slug}")` }, 409);
+  }
+
+  let provider = "claude-code";
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    let body: unknown;
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+    const rawProvider = (body as TriggerRunRequestBody).provider;
+    if (rawProvider !== undefined) {
+      if (typeof rawProvider !== "string") {
+        return jsonResponse({ error: "provider must be a string" }, 400);
+      }
+      provider = rawProvider;
+    }
+  }
+  if (config.providers[provider] === undefined) {
+    return jsonResponse({ error: `provider "${provider}" is not configured in skillmaker.config.json` }, 400);
+  }
+
+  const actor = await Effect.runPromise(resolveUserActor());
+  const runId = crypto.randomUUID();
+  const journalPath = join(root, ".skillmaker", "events.jsonl");
+
+  const program = runFixture({
+    root,
+    config,
+    bundle: slug,
+    fixtureCase: caseName,
+    provider,
+    actor,
+    runId,
+  }).pipe(
+    Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
+    Effect.provide(BunServices.layer),
+    // Non-blocking: this fiber's own success/failure is not observed by the
+    // request handler (the response has already gone out). RunEngine
+    // already persists the outcome (run.json + run.started/run.completed)
+    // before this Effect ever resolves, so there is nothing left to report
+    // here -- just never let an unhandled rejection surface.
+    Effect.ignore,
+  );
+  Effect.runFork(program);
+
+  return jsonResponse({ runId, status: "started" });
 };
 
 /**
@@ -607,7 +865,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       }
 
       if (pathname === "/api/events" && request.method === "POST") {
-        return handlePostEvent(root, request);
+        return handlePostEvent(root, config, request);
       }
 
       if (pathname === "/api/todos") {
@@ -637,6 +895,28 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             return jsonResponse({ error: "file requires GET" }, 405);
           }
           return handleBundleFile(root, config, slug, url.searchParams.get("path"));
+        }
+
+        if (slug !== undefined && segments.length === 3 && segments[1] === "runs") {
+          if (request.method !== "GET") {
+            return jsonResponse({ error: "runs/:runId requires GET" }, 405);
+          }
+          const runId = segments[2];
+          if (runId === undefined) {
+            return jsonResponse({ error: "missing run id" }, 404);
+          }
+          return handleRunDetail(root, config, slug, runId);
+        }
+
+        if (slug !== undefined && segments.length === 4 && segments[1] === "fixtures" && segments[3] === "run") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "fixtures/:case/run requires POST" }, 405);
+          }
+          const caseName = segments[2];
+          if (caseName === undefined) {
+            return jsonResponse({ error: "missing fixture case" }, 404);
+          }
+          return handleTriggerRun(root, config, slug, caseName, request);
         }
 
         if (slug !== undefined && segments.length === 1) {
