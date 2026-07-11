@@ -488,17 +488,135 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
   `packages/cli`; two logical commits for the William bundles, one for the
   publish traversal, one for CI.
 
+## Phase 20 — six fresh-eyes personas, six friction logs, four fix PRs (v0.2.0 → v0.2.1)
+
+Phase 19 proved the version-pinned discipline against the product's *own*
+skills; Phase 20 turns the same instrument on strangers. Six personas, each
+a genuinely different job-to-be-done, installed the released binary from
+scratch (macOS arm64, scratch `HOME`) and worked their story end to end,
+writing a friction log as they went — not a checklist walkthrough, real
+work with real skills and real failures. Findings fed back into four fix
+PRs, released as v0.2.0 then v0.2.1, and a sixth story rerun is in flight
+to confirm the fixes hold against the exact story that first hit them.
+
+**The six stories, one verdict line each:**
+
+- **Story 1 — fresh-eyes takeover of a personal skills repo.** Released
+  binary lacked `adopt` entirely and let an adopted skill run as a naked
+  agent with no eval signal; fixed in #47 (layout-aware installs, loud
+  empty-install warning). Verdict: blocked on the released binary, unblocked
+  building from source.
+- **Story 2 — porting a model-tuned skill to a new default model.** No
+  `--model` flag existed at all, and model identity recorded as the alias
+  `"default"` rather than the resolved id — a pooling hazard for exactly
+  the comparison the story needed; fixed in #51. Verdict: story completed
+  via a simulated port (same provider, two skill versions) because model
+  selection didn't exist yet to test the real thing.
+- **Story 3 — vendoring and personalizing two public skills.** `version
+  record` hashed nothing for in-place adopted bundles (silently minting
+  `sha256("[]")` receipts) and a crashed capture could strand a run in
+  `"running"` forever; fixed in #54 (unified hashing, `run repair`).
+  Verdict: adopt itself delighted; the version/grading path underneath it
+  was broken until #54.
+- **Story 4 — marketplace publisher, install → publish → teammate
+  install.** Released binary lacked `publish`, `adopt`, and `book build`;
+  no CLI path to resolve a review forced a browser round-trip for every
+  stage; fixed in #49 (`review resolve`, storefront receipts, `response.md`,
+  tightened CIs). Verdict: full public loop worked end to end once built
+  from source, consumer side flawless (skill fired unprompted, zero
+  hand-editing).
+- **Story 5 — maintaining and re-earning trust after a forced provider
+  change.** Core thesis held (per-cell measurement, old numbers untouched,
+  one-table regression answer) but auth failed out of the box on both
+  providers, and — the story's sharpest finding — a hand-rolled auth
+  workaround got live OAuth tokens copied into git-tracked run artifacts.
+  Verdict: codex did not regress the skill; the security finding mattered
+  more than the eval result.
+- **Story 6 — failure-iteration, deliberately weak v1 skill.** The inner
+  loop (fail → read artifact → understand → revise → re-measure) was
+  genuinely good, under 2 minutes per failure once running — but getting
+  the *first* run to execute at all took ~50 minutes (silent spawn
+  failures, then the same auth wall), and independently reconfirmed
+  Story 5's credential leak live, catching a real token in a commit before
+  a pre-commit grep caught it. Verdict: v1 golden 0/3 → v2 golden 3/3 in
+  one iteration; the outer loop, not the inner one, is what a fresh user
+  can't survive without reverse-engineering the product.
+- **Story 1 rerun — in flight.** Re-runs Story 1's exact scenario against
+  the now-fixed binary to confirm the F1/F2 fixes (#47) hold for the
+  persona that first hit them; expectation doc written
+  (`docs/phase20/story-1-rerun-expectation.md`), execution not yet started.
+
+**Fix PRs, findings → fixes:**
+
+- **#47 (v0.2.0)** — Story 1's F2/F3/F6 (P1) + F4/F7 (P2): layout-aware
+  skill install so an adopted bundle never evals a naked agent; run
+  auto-version through the shared idempotency guard; per-run isolated
+  `CLAUDE_CONFIG_DIR`/`CODEX_HOME`; index errors carry cause + event
+  id/line; `skillInvoked` surfaced on every run.
+- **#51** — Story 2's F1/F2 (P1) + partial-visibility/version-label gaps:
+  `--model` end to end (CLI, server, ACP `session/new`), the advertised-
+  models list on rejection, model recorded as the **resolved** id never
+  the `"default"` alias, measurements showing n/pass/partial/fail, version
+  labels rendered beside hashes.
+- **#49** — Story 4's findings: `review resolve` CLI (two doors restored
+  for solo publishers), per-bundle marketplace entries with description/
+  version-label/keywords plus a generated storefront README carrying
+  measurement receipts, `runs/<id>/response.md` so grading never needs
+  JSONL spelunking, CI = tighter of rule-of-three/Wilson with `(below
+  smoke)` explained inline.
+- **#54 (v0.2.1)** — Story 3's F1/F2 (P1) + Story 5/6's security P0 +
+  provenance gap: one unified content-hash function for version recording
+  (the empty-receipt bug is dead), ENOENT-tolerant artifact capture plus
+  `run repair` for zombie runs, and the sandbox-auth + credential-leak
+  fix below. `adopt --source/--ref` records upstream provenance.
+
+**The intercepted credential P0.** Story 5 found the leak live: the
+auth workaround it was forced into (hand-copying credentials into the
+sandbox config dir to get any run to authenticate at all) got swept up by
+`run`'s own artifact capture and written into `runs/<id>/artifacts/` — a
+git-tracked directory, `trackRuns: true` by default. A live OAuth token
+was seconds from landing in history; Story 5's own pre-commit grep caught
+it. That finding reached the in-flight #54 amendment *before* it shipped
+the vulnerable pattern as the "fix" for auth — the auth-seeding work in
+that PR was amended mid-flight to seed credentials into a location
+structurally outside the artifact surface, rather than shipping the naive
+"copy the whole sandbox config dir back" version. Story 6, run
+independently and without knowledge of Story 5's finding, hit and
+confirmed the identical leak live on its own credential workaround before
+the fix landed — two unrelated stories, one real vulnerability, corroborated
+independently. v0.2.1 fixed it structurally, not by filtering: the
+isolated config directory `AuthSeeding.ts` seeds into sits outside the OS
+temp directory a run ever diffs into `artifacts/`, so the leak is
+impossible by construction, with a redaction pass over credential-shaped
+basenames as a second, belt-and-suspenders layer.
+
+**The tightened continuous-exercise claim, extended to strangers.**
+Phase 19 established that "exercised" isn't the same claim as "version-
+pinned and measured" — a skill run many times without a hashed version
+attached to each verdict is a vibe, not evidence. Phase 20's six personas
+apply that same discipline under conditions Phase 19 couldn't produce:
+a stranger's fresh install, a stranger's real skill, a stranger's honest
+account of where the tool lied to them or made them do free labor. Every
+story's measurement table is still version-hash-pinned per the Phase 19
+rule; what Phase 20 adds is that the fixes those measurements *demanded*
+(four PRs, a structural security fix) came from friction a real outside
+user hit, not from the team's own dogfooding blind spots.
+
+**Standing chore carried forward:** `IndexService`
+(`packages/core/test/IndexService.test.ts`) has now flaked on a test
+timeout 3 times across Phase 19/20 CI runs — not investigated as a
+product bug (no story's friction log traces to it), but real enough at 3
+sightings to raise the suite's timeout rather than keep re-running red CI
+by hand. Filed as a todo, not yet fixed.
+
 ## Phase 20 — the reduced-friction verdict (Story-1 re-run vs original)
 
 Original Story 1 (v0.1.0 era): 3 P1s — adopt missing from the shipped
 binary; adopted bundles evaling a naked agent silently; a duplicate
-auto-version event bricking the journal — plus contamination and opacity
-P2s. Re-run (v0.2.1, fresh persona, same beats): **all three P1s fixed
-and none recurred; zero new P1s.** Install 0.8s; adopt 3/3 respectful;
-the eval loop measured a real skill improvement 67%→100% with honest CIs;
-the auth error now names the exact credential paths (a delight, where the
-original era had a black box). Remaining findings are ergonomic (k-runs
-flag, grading ceremony, adopted-stage placement, drift-without-design
-false green, exit-126 hint) — filed as todos on the repo's own board.
+auto-version event bricking the journal. Re-run (v0.2.1, fresh persona,
+same beats): **all three P1s fixed, none recurred, zero new P1s.**
+Install 0.8s; adopt 3/3; a real 67%→100% measured skill improvement with
+honest CIs; the auth error now names exact credential paths. Remaining
+findings ergonomic — filed as todos on the repo's own board.
 **Verdict: friction materially reduced. Story-as-eval re-earn: PASSED.**
-The plan's Phase 20 completion criteria are met.
+Phase 20 completion criteria met; the plan is complete.

@@ -4,7 +4,7 @@ description: Import pre-existing SKILL.md files as in-place Skill Bundles.
 ---
 
 ```text
-skillmaker adopt [path]
+skillmaker adopt [path] [--source <url-or-path>] [--ref <ref>]
 ```
 
 Imports pre-existing `SKILL.md` files — from a skills repo you didn't build
@@ -45,7 +45,34 @@ rather than demanding a rewrite.
 | Flag | Meaning |
 |---|---|
 | `path` | Directory to scan for `SKILL.md` files. Defaults to the current directory. |
+| `--source <url-or-path>` | Upstream repo/path this batch was imported from; recorded on each adopted skill's marker |
+| `--ref <ref>` | Ref/tag/commit alongside `--source`; ignored without `--source` |
 | `--json` | Emit a structured report instead of text |
+
+### `--source` / `--ref` (upstream provenance)
+
+`adopt`'s whole pitch is receipts, so the batch's origin is one too: pass
+`--source` (a repo URL or local path) and optionally `--ref` (a tag,
+branch, or commit) and every skill adopted **in that batch** records where
+it came from — persisted on the bundle's adopt marker and echoed by
+`--json` as `upstream: {source, ref}`. Omit it and adoption works exactly
+as before (no provenance recorded); this is opt-in, not required.
+
+```sh
+skillmaker adopt existing-skills/ --source https://github.com/mattpocock/skills --ref 391a270
+```
+
+```text
+skillmaker: adopt -- found 2 SKILL.md file(s), adopted 2, skipped 0 (already adopted)
+upstream:    https://github.com/mattpocock/skills @ 391a270
+adopted:
+  + code-review <- existing-skills/code-review
+  + house-style <- existing-skills/house-style
+```
+
+This is provenance at adopt time, not a live drift-vs-upstream check —
+"has the source repo changed since I adopted?" (`skillmaker upstream diff`
+or similar) is tracked as future work; see the [Roadmap](/roadmap/).
 
 ## Output
 
