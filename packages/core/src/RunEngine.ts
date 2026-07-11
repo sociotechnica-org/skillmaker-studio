@@ -29,6 +29,7 @@ import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
+import { responseMarkdown } from "./RunResponse.ts";
 import { didSkillActivate } from "./SkillActivation.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
@@ -95,6 +96,8 @@ export interface RunFixtureResult {
   readonly skillInstalled: boolean;
   /** Fix F7: `true` if the transcript shows evidence the agent invoked/read the bundle's skill (`SkillActivation.ts`'s `didSkillActivate`), for EVERY run -- not just "trigger"-class fixtures (the previous, narrower `handleRunDetail`-only exposure). */
   readonly skillInvoked: boolean;
+  /** Fix (finding #5): absolute path to `runs/<id>/response.md` -- the agent's final message, extracted from the transcript, so grading against an answer key never requires reading raw `transcript.jsonl`. */
+  readonly responsePath: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +512,18 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
     // the fixture even having a case.json at all.
     const skillInvoked = didSkillActivate(transcriptEntries, input.bundle);
 
+    // Fix (Phase 20 Story 4 finding #5): write the agent's final message out
+    // as its own file so grading a run against an answer key never requires
+    // reading raw `transcript.jsonl` protocol frames by hand. Best-effort --
+    // `responseMarkdown` always returns *something* (an explicit
+    // empty-with-note fallback when the transcript carries no
+    // `agent_message_chunk` text), so this file always exists for a run
+    // that reached this point.
+    const responsePath = path.join(runDir, "response.md");
+    yield* fs
+      .writeFileString(responsePath, responseMarkdown(transcriptEntries))
+      .pipe(Effect.mapError(toIOError(`could not write ${responsePath}`)));
+
     const finalRecord = RunRecord.make({
       ...runningRecord,
       endedAt,
@@ -538,6 +553,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       model,
       skillInstalled,
       skillInvoked,
+      responsePath,
     } satisfies RunFixtureResult;
   } finally {
     // Sandbox cleanup happens on both the success and failure paths --

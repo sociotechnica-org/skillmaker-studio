@@ -124,6 +124,7 @@ export {
   type SkillLifecycle,
 } from "./Adopt.ts";
 export { didSkillActivate } from "./SkillActivation.ts";
+export { extractResponseText, responseMarkdown } from "./RunResponse.ts";
 export {
   resolveProviderProfile,
   CLAUDE_CODE_PROFILE,
