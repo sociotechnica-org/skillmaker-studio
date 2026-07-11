@@ -5,7 +5,8 @@
  *
  *   run -> grade -> measurements 1/1 -> REGRADE as fail (latest wins: the
  *   regrade replaces the run's verdict, it is not a second sample) -> k=3
- *   loop all-pass (n=3, passRate 1.0, rule-of-three CI [0,1]) -> grading a
+ *   loop all-pass (n=3, passRate 1.0, Wilson CI ~[43.8%, 100%] -- the
+ *   tighter of rule-of-three/Wilson at 0 failures) -> grading a
  *   non-completed run refused (CLI exit 1 AND server 409) -> version bump
  *   resets measurements honestly (no cell for the new hash).
  *
@@ -179,7 +180,7 @@ let firstVersionHash: string;
 let infraRunId: string;
 
 describe("grade + measurements: the CLI door", () => {
-  test("a completed run grades pass; measurements shows 1/1 with rule-of-three CI [0,1]", () => {
+  test("a completed run grades pass; measurements shows 1/1 with the tighter-of-rule-of-three/Wilson CI", () => {
     setProviderCommand(["node", fakeAdapterSuccess]);
     const { result, json } = cliRun("graded-skill", "golden-basic");
     expect(result.exitCode).toBe(0);
@@ -198,8 +199,10 @@ describe("grade + measurements: the CLI door", () => {
     expect(cell?.n).toBe(1);
     expect(cell?.passes).toBe(1);
     expect(cell?.passRate).toBe(1);
-    // Rule of three at n=1: lower bound max(0, 1 - 3/1) clamps to 0.
-    expect(cell?.ci).toEqual([0, 1]);
+    // n=1 all-pass: rule-of-three clamps to [0, 1] (degenerate), Wilson's
+    // zero-failure lower bound is tighter (~0.2066) and wins.
+    expect(cell?.ci?.[0]).toBeGreaterThan(0);
+    expect(cell?.ci?.[1]).toBe(1);
   });
 
   test("a REGRADE as fail replaces the verdict -- latest wins, still n=1 (not two samples)", () => {
@@ -216,7 +219,7 @@ describe("grade + measurements: the CLI door", () => {
     expect(cells[0]?.ci?.[1]).toBeLessThan(1);
   });
 
-  test("k=3 all-pass: n=3, passRate 1.0, rule-of-three CI [0, 1]", () => {
+  test("k=3 all-pass: n=3, passRate 1.0, Wilson CI ~[43.8%, 100%] (never the degenerate [0%, 100%])", () => {
     // Regrade run 1 back to pass (a third event for the same run id), then
     // two fresh runs graded pass.
     expect(cliGrade("graded-skill", firstRunId, "pass").exitCode).toBe(0);
@@ -232,8 +235,12 @@ describe("grade + measurements: the CLI door", () => {
     expect(cell?.n).toBe(3);
     expect(cell?.passes).toBe(3);
     expect(cell?.passRate).toBe(1);
-    // Rule of three at n=3: [1 - 3/3, 1] = [0, 1].
-    expect(cell?.ci).toEqual([0, 1]);
+    // Rule of three at n=3 would be the degenerate [0, 1]; Wilson's
+    // zero-failure bound (~[0.4385, 1]) is tighter and wins (friction log
+    // finding #6 -- an interval containing 0% for an all-pass fixture reads
+    // as broken math).
+    expect(cell?.ci?.[0]).toBeCloseTo(0.4385, 3);
+    expect(cell?.ci?.[1]).toBe(1);
   });
 
   test("grading an infra-error run is refused (exit 1) and it never enters measurements", () => {

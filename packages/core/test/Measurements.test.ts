@@ -80,16 +80,34 @@ describe("wilsonCi", () => {
 });
 
 describe("confidenceInterval", () => {
-  test("0 failures dispatches to rule-of-three", () => {
-    expect(confidenceInterval(5, 5)).toEqual(ruleOfThreeCi(5));
-  });
-
   test("any failure dispatches to Wilson", () => {
     expect(confidenceInterval(4, 5)).toEqual(wilsonCi(4, 5));
   });
 
   test("n=0 -> null", () => {
     expect(confidenceInterval(0, 0)).toBeNull();
+  });
+
+  test("0 failures, small n (below the ~14 crossover): Wilson is tighter and wins, never [0%, 100%]", () => {
+    // n=5 all-pass: rule-of-three is [0.4, 1] (width 0.6); Wilson-at-zero-
+    // failures is narrower. Neither endpoint should be the degenerate [0, 1].
+    const ci = confidenceInterval(5, 5);
+    expect(ci).toEqual(wilsonCi(5, 5));
+    expect(ci?.[0]).toBeGreaterThan(0);
+  });
+
+  test("n=3 all-pass known value: Wilson ~[43.8%, 100%], not [0%, 100%] (friction log finding #6)", () => {
+    const [lo, hi] = confidenceInterval(3, 3) ?? [0, 0];
+    expect(lo).toBeCloseTo(0.4385, 3);
+    expect(hi).toBe(1);
+    expect(lo).toBeGreaterThan(0);
+  });
+
+  test("0 failures, large n (above the ~14 crossover): rule-of-three is tighter and wins", () => {
+    // n=100 all-pass: rule-of-three [0.97, 1] is narrower than Wilson's
+    // zero-failure interval at this n.
+    const ci = confidenceInterval(100, 100);
+    expect(ci).toEqual(ruleOfThreeCi(100));
   });
 });
 
@@ -167,14 +185,16 @@ describe("computeMeasurements: never pooled", () => {
     expect(measurement?.passRate).toBeCloseTo(1 / 3, 10);
   });
 
-  test("all-pass cell uses rule-of-three CI, mixed cell uses Wilson", () => {
+  test("all-pass cell uses the tighter of rule-of-three/Wilson (n=3 -> Wilson), mixed cell uses Wilson", () => {
     const allPass: ReadonlyArray<RunIndexRecord> = [
       run({ id: "r1", verdict: "pass" }),
       run({ id: "r2", verdict: "pass" }),
       run({ id: "r3", verdict: "pass" }),
     ];
     const [allPassMeasurement] = computeMeasurements(allPass);
-    expect(allPassMeasurement?.ci).toEqual(ruleOfThreeCi(3));
+    expect(allPassMeasurement?.ci).toEqual(wilsonCi(3, 3));
+    // Never the degenerate [0%, 100%] rule-of-three gives at n=3.
+    expect(allPassMeasurement?.ci).not.toEqual(ruleOfThreeCi(3));
 
     const mixed: ReadonlyArray<RunIndexRecord> = [
       run({ id: "r1", verdict: "pass" }),
