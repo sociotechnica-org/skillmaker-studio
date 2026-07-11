@@ -16,6 +16,7 @@ import { runNew } from "./commands/New.ts";
 import { runPublish } from "./commands/Publish.ts";
 import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
+import { runReviewResolve } from "./commands/ReviewResolve.ts";
 import { runRun } from "./commands/Run.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStationRun } from "./commands/StationRun.ts";
@@ -41,6 +42,7 @@ Commands:
   measurements <slug>     Show measurement cells: n, pass rate, CI, guidance (§2.11)
   start             Serve the viewer + API (default port from config, or 4323)
   review request <slug>   Request review of the bundle's current stage work
+  review resolve <slug>   Resolve a review (approve|revise) -- same journal path as the panel; no browser required
   advance <slug>          Move a bundle along the state machine (guarded)
   version record <slug>   Record a version: hash design.md + output/ (idempotent on content)
   publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
@@ -58,6 +60,7 @@ Options:
   --port <n>        (start) Port to serve on; overrides skillmaker.config.json
   --no-open         (start) Do not open a browser on startup
   --question <text> (review request) Question for the reviewer
+  --decision <d>    (review resolve) approve | revise (required)
   --label <text>    (version record) Human tag for the recorded version, e.g. "v0.3"
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
@@ -78,7 +81,7 @@ Options:
   --timeout <s>     (run, station run) prompt timeout in seconds; defaults to 300
   --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
   --verdict <v>     (grade) pass | fail | partial (required)
-  --notes <text>    (grade) free-text grading notes
+  --notes <text>    (grade, review resolve) free-text notes
   -h, --help        Show this help
 
 Exit codes (run): 0 completed, 1 failed, 2 usage error, 3 infra-error
@@ -99,6 +102,7 @@ const VALUE_FLAGS = new Set([
   "--name",
   "--port",
   "--question",
+  "--decision",
   "--to",
   "--back",
   "--reason",
@@ -248,14 +252,20 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "review": {
       const subcommand = argv[1];
-      if (subcommand !== "request") {
-        return usageError(
-          `skillmaker: unknown "review" subcommand "${String(subcommand)}"\n\nUsage: skillmaker review request <slug> [--question <text>]\n`,
-        );
+      if (subcommand === "request") {
+        const slug = positionalAfter(argv, 2);
+        const question = flagValue(argv, "--question");
+        return yield* runReviewRequest(cwd, slug, { json, question });
       }
-      const slug = positionalAfter(argv, 2);
-      const question = flagValue(argv, "--question");
-      return yield* runReviewRequest(cwd, slug, { json, question });
+      if (subcommand === "resolve") {
+        const slug = positionalAfter(argv, 2);
+        const decision = flagValue(argv, "--decision");
+        const notes = flagValue(argv, "--notes");
+        return yield* runReviewResolve(cwd, slug, { json, decision, notes });
+      }
+      return usageError(
+        `skillmaker: unknown "review" subcommand "${String(subcommand)}"\n\nUsage: skillmaker review request <slug> [--question <text>]\n       skillmaker review resolve <slug> --decision approve|revise [--notes <text>]\n`,
+      );
     }
     case "advance": {
       const slug = positionalAfterCommand(argv);

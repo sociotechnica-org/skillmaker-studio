@@ -149,6 +149,7 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
     artifacts: result.artifacts,
     skillInstalled: result.skillInstalled,
     skillInvoked: result.skillInvoked,
+    responsePath: result.responsePath,
   };
 
   const body = json
@@ -160,6 +161,7 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
         `  skill:     ${result.skillInstalled ? "installed" : "NOT INSTALLED (naked agent -- see warning above)"}`,
         `  invoked:   ${result.skillInvoked ? "yes (transcript shows the skill was used)" : "no (transcript shows no evidence the skill was used)"}`,
         `  artifacts: ${result.artifacts.length === 0 ? "(none)" : result.artifacts.join(", ")}`,
+        `  response:  ${result.responsePath}`,
         `  run dir:   ${result.runDir}`,
         "",
       ].join("\n");

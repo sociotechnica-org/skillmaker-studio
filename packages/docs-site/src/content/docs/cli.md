@@ -35,6 +35,7 @@ Usage: skillmaker <command> [options]
 | [`measurements <slug>`](/cli/measurements/) | Show measurement cells: n, pass rate, CI, guidance |
 | [`start`](/cli/start/) | Serve the viewer + API |
 | [`review request <slug>`](/cli/review-request/) | Request review of the bundle's current stage work |
+| [`review resolve <slug>`](/cli/review-resolve/) | Resolve a pending review (`approve`/`revise`) without leaving the terminal |
 | [`advance <slug>`](/cli/advance/) | Move a bundle along the state machine (guarded) |
 | [`version record <slug>`](/cli/version-record/) | Record a version: hash `design.md` + `output/` |
 | [`todo add/list/done/start/drop/reopen`](/cli/todo/) | The journal-native todo system |

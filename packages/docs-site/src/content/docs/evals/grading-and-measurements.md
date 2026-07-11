@@ -69,9 +69,14 @@ Each cell reports:
 Computed at read time, never stored, so they're always consistent with
 current run history:
 
-- **Zero observed failures** → rule of three: `[1 - 3/n, 1]`, the standard
-  small-sample substitute for a Wilson interval when a 100%-pass point
-  estimate would otherwise look more confident than `n` samples earns.
+- **Zero observed failures** → the **tighter** of rule of three
+  (`[1 - 3/n, 1]`) and a 95% Wilson score interval evaluated at
+  `passes = n`. Wilson's own zero-failure lower bound is narrower than rule
+  of three's below roughly `n = 14`, and looser above it; picking the
+  tighter one avoids a small-`n` trap. At `n = 3` all-pass, a bare rule of
+  three gives `[0%, 100%]` — an interval that *contains 0%* for a fixture
+  that never failed, which reads as broken "honest math"; the tighter pick
+  reads `[43.8%, 100%]` instead.
 - **At least one failure** → a 95% Wilson score interval on `passes / n`.
 
 ### Guidance thresholds
@@ -86,7 +91,9 @@ current run history:
 
 Below `n = 5`, both the CLI and the viewer just say so plainly (`(below
 smoke)` / `null` in `--json`) rather than implying a reliability the sample
-size doesn't support.
+size doesn't support. `skillmaker measurements` also prints a one-line
+explanation of `(below smoke)` right under the table whenever it appears,
+so the label is self-describing in CLI output, not just in these docs.
 
 ### Honest version resets
 

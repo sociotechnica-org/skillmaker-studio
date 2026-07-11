@@ -25,10 +25,11 @@
  * present on disk (the "adopt" principle, strategy-skills-repo-mode.md §3B):
  * this module only ever adds/merges the specific fields it owns.
  */
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import type { Actor } from "./Actor.ts";
+import { BundleIdentity } from "./Bundle.ts";
 import {
   PublishGuardError,
   PublishTargetNotFoundError,
@@ -36,9 +37,18 @@ import {
   WorkspaceIOError,
 } from "./Errors.ts";
 import { foldBundleStates } from "./Fold.ts";
+import { layer as IndexServiceLayer, IndexService } from "./IndexService.ts";
 import type { JournalEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
-import { computeBundleHashes, computeDrift, detectBundleLayout, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
+import { confidenceInterval, guidanceForN, type MeasurementRecord } from "./Measurements.ts";
+import {
+  computeBundleHashes,
+  computeDrift,
+  detectBundleLayout,
+  foldSkillVersions,
+  latestSkillVersion,
+  shortHash,
+} from "./Versions.ts";
 import type { PublishTarget } from "./Workspace.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -50,6 +60,8 @@ const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make
 export interface PublishGuardResult {
   readonly bundle: string;
   readonly versionHash: string;
+  /** The recorded version's human label (e.g. "v2"), when one was given at `skillmaker version record` time. */
+  readonly versionLabel?: string;
 }
 
 /**
@@ -98,7 +110,11 @@ export const checkPublishable = Effect.fn("Publish.checkPublishable")(function* 
     );
   }
 
-  const result: PublishGuardResult = { bundle, versionHash: latest.hash };
+  const result: PublishGuardResult = {
+    bundle,
+    versionHash: latest.hash,
+    ...(latest.label !== undefined ? { versionLabel: latest.label } : {}),
+  };
   return result;
 });
 
@@ -204,50 +220,205 @@ export const publishGitDir = Effect.fn("Publish.publishGitDir")(function* (
 
 export interface ClaudeMarketplacePublishResult {
   readonly manifestPath: string;
+  readonly readmePath: string;
   readonly pluginName: string;
   readonly skillPath: string;
 }
 
+/** Everything `publishClaudeMarketplace` needs about the bundle being published, beyond its output path (friction log finding #4). */
+export interface ClaudeMarketplaceBundleInfo {
+  /** The bundle's slug -- also the per-bundle plugin's `name` in the manifest. */
+  readonly slug: string;
+  readonly name: string;
+  readonly oneLiner: string;
+  readonly tags: ReadonlyArray<string>;
+  readonly versionHash: string;
+  /** The human label given at `skillmaker version record` time (e.g. `"v2"`), when there is one. */
+  readonly versionLabel?: string;
+  /** This bundle's measurement cells (data-model.md §2.11) -- feeds the README's receipts section. */
+  readonly measurements: ReadonlyArray<MeasurementRecord>;
+}
+
+/** Marker prefix on every field this module owns inside a plugin entry -- never hand-authored, always safe to overwrite/regenerate. */
+const RECEIPTS_FIELD = "skillmakerReceipts";
+
+interface StoredReceipts {
+  readonly oneLiner: string;
+  readonly tags: ReadonlyArray<string>;
+  readonly version: { readonly label: string; readonly hash: string };
+  readonly measurements: ReadonlyArray<{
+    readonly provider: string;
+    readonly model: string;
+    readonly fixtureCase: string;
+    readonly n: number;
+    readonly passes: number;
+    readonly passRate: number;
+    readonly ci: readonly [number, number] | null;
+  }>;
+}
+
+const isStoredReceipts = (value: unknown): value is StoredReceipts => isJsonRecord(value);
+
+const formatCiPercent = (ci: readonly [number, number] | null): string => {
+  if (ci === null) return "-";
+  const [lo, hi] = ci;
+  return `[${(lo * 100).toFixed(0)}%, ${(hi * 100).toFixed(0)}%]`;
+};
+
+/** Aggregates a bundle's measurement cells for its LATEST published version into one line per provider ("n · rate · CI per provider", friction log finding #4). Never mutates the underlying never-pooled `MeasurementRecord`s -- this is display-only rollup for the storefront README. */
+const receiptsByProvider = (
+  measurements: ReadonlyArray<StoredReceipts["measurements"][number]>,
+): ReadonlyArray<{ provider: string; n: number; passes: number; passRate: number; ci: readonly [number, number] | null; guidance: string }> => {
+  const byProvider = new Map<string, { n: number; passes: number }>();
+  for (const cell of measurements) {
+    const key = cell.model !== "" && cell.model !== cell.provider ? `${cell.provider}/${cell.model}` : cell.provider;
+    const existing = byProvider.get(key) ?? { n: 0, passes: 0 };
+    existing.n += cell.n;
+    existing.passes += cell.passes;
+    byProvider.set(key, existing);
+  }
+  return [...byProvider.entries()].map(([provider, agg]) => ({
+    provider,
+    n: agg.n,
+    passes: agg.passes,
+    passRate: agg.n === 0 ? 0 : agg.passes / agg.n,
+    ci: confidenceInterval(agg.passes, agg.n),
+    guidance: guidanceForN(agg.n) ?? "below smoke",
+  }));
+};
+
+const readmePluginSection = (pluginName: string, description: string | undefined, receipts: StoredReceipts | undefined): string => {
+  const lines: string[] = [`### ${pluginName}`, ""];
+  if (receipts !== undefined) {
+    lines.push(receipts.oneLiner || description || "_(no description)_", "");
+    lines.push(`- **Version:** ${receipts.version.label} (\`${shortHash(receipts.version.hash)}\`)`);
+    if (receipts.tags.length > 0) {
+      lines.push(`- **Tags:** ${receipts.tags.join(", ")}`);
+    }
+    if (receipts.measurements.length === 0) {
+      lines.push("- **Measurements:** _no graded runs yet_");
+    } else {
+      lines.push("- **Measurements:**");
+      for (const row of receiptsByProvider(receipts.measurements)) {
+        lines.push(
+          `  - **${row.provider}**: n=${row.n}, ${(row.passRate * 100).toFixed(0)}% pass, CI ${formatCiPercent(row.ci)} (${row.guidance})`,
+        );
+      }
+    }
+  } else {
+    lines.push(description ?? "_(no description)_");
+  }
+  lines.push("");
+  return lines.join("\n");
+};
+
 /**
- * Emits/updates `.claude-plugin/marketplace.json`
- * (claude-marketplace-spec.md): a single skills-only plugin entry named
- * `"skills"`, `source: "./"`, whose `skills` array accumulates every
- * published bundle's output-dir path (deduped, order-preserving). Every
- * other top-level/plugin field already on disk is preserved verbatim.
+ * Builds the marketplace README (the repo IS the storefront, friction log
+ * finding #4): one section per plugin entry in `plugins`, richest for the
+ * ones this module manages (carrying a `skillmakerReceipts` payload:
+ * oneLiner, tags, version label+hash, and per-provider measurement
+ * receipts), a plain name+description fallback for any hand-authored
+ * plugin entries this module doesn't own. Regenerated in full on every
+ * publish from the manifest's own (already lossless-round-tripped) data --
+ * never hand-edited, never stale.
+ */
+const buildMarketplaceReadme = (marketplaceName: string, ownerName: string, plugins: ReadonlyArray<JsonRecord>): string => {
+  const header = [`# ${marketplaceName}`, "", `Published by ${ownerName}.`, "", "## Skills", ""];
+  const sections = plugins.map((entry) => {
+    const name = readStringField(entry, "name") ?? "(unnamed plugin)";
+    const description = readStringField(entry, "description");
+    const receiptsRaw = entry[RECEIPTS_FIELD];
+    const receipts = isStoredReceipts(receiptsRaw) ? receiptsRaw : undefined;
+    return readmePluginSection(name, description, receipts);
+  });
+  return `${[...header, ...sections].join("\n").trimEnd()}\n`;
+};
+
+/**
+ * Emits/updates `.claude-plugin/marketplace.json` (claude-marketplace-spec.md)
+ * and refreshes the marketplace README storefront alongside it. Each
+ * published bundle gets its OWN plugin entry (`name` = the bundle's slug,
+ * `source` = the bundle's output dir) carrying `description` (the bundle's
+ * oneLiner), `version` (the recorded label, falling back to a short hash),
+ * and `keywords` (the bundle's tags) -- friction log finding #4: before
+ * this, every bundle collapsed into one generically-named `"skills"` plugin
+ * with no description or human version. A `skillmakerReceipts` field (this
+ * module's own, ignored by Claude Code's loader per the spec's "unrecognized
+ * fields ignored" rule) carries the measurement data the README renders, so
+ * the README can be regenerated in full from the manifest alone on every
+ * publish. Every other top-level/plugin field already on disk -- including
+ * unrelated hand-authored plugin entries -- is preserved verbatim.
  */
 export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketplace")(function* (
   target: PublishTarget,
   workspaceRoot: string,
   workspaceName: string,
   outputRelativePath: string,
+  bundleInfo?: ClaudeMarketplaceBundleInfo,
 ) {
   const path = yield* Path;
   const base = target.path ?? workspaceRoot;
   const manifestPath = path.join(base, ".claude-plugin", "marketplace.json");
+  const readmePath = path.join(base, "README.md");
 
   const existing = yield* readJsonRecord(manifestPath);
 
   const marketplaceName = readStringField(existing, "name") ?? kebabCase(workspaceName);
   const existingOwner = existing["owner"];
   const owner: JsonRecord = isJsonRecord(existingOwner) ? existingOwner : { name: workspaceName };
+  const ownerName = readStringField(owner, "name") ?? workspaceName;
 
   const pluginsRaw = existing["plugins"];
   const plugins: JsonRecord[] = Array.isArray(pluginsRaw) ? pluginsRaw.filter(isJsonRecord) : [];
 
-  const pluginName = "skills";
+  // Back-compat: a pre-fix manifest may still carry the old shared "skills"
+  // plugin entry (a `skills: string[]` accumulator, no per-bundle identity).
+  // Leave it exactly as found -- it round-trips like any other unowned
+  // entry -- new publishes only ever create/update per-bundle entries keyed
+  // by slug.
+  const pluginName = bundleInfo?.slug ?? "skills";
   const pluginIndex = plugins.findIndex((entry) => readStringField(entry, "name") === pluginName);
   const existingPlugin = pluginIndex === -1 ? undefined : plugins[pluginIndex];
-  const existingSkills = existingPlugin?.["skills"];
-  const skills = isStringArray(existingSkills) ? [...existingSkills] : [];
-  if (!skills.includes(outputRelativePath)) {
-    skills.push(outputRelativePath);
+
+  let updatedPlugin: JsonRecord;
+  if (bundleInfo === undefined) {
+    // No bundle metadata given (e.g. a direct call without richness data) --
+    // fall back to the old bare accumulator shape for compatibility.
+    const existingSkills = existingPlugin?.["skills"];
+    const skills = isStringArray(existingSkills) ? [...existingSkills] : [];
+    if (!skills.includes(outputRelativePath)) {
+      skills.push(outputRelativePath);
+    }
+    updatedPlugin = { source: "./", ...(existingPlugin ?? {}), name: pluginName, skills };
+  } else {
+    const versionLabel = bundleInfo.versionLabel ?? shortHash(bundleInfo.versionHash);
+    const receipts: StoredReceipts = {
+      oneLiner: bundleInfo.oneLiner,
+      tags: bundleInfo.tags,
+      version: { label: versionLabel, hash: bundleInfo.versionHash },
+      measurements: bundleInfo.measurements
+        .filter((m) => m.versionHash === bundleInfo.versionHash)
+        .map((m) => ({
+          provider: m.provider,
+          model: m.model,
+          fixtureCase: m.fixtureCase,
+          n: m.n,
+          passes: m.passes,
+          passRate: m.passRate,
+          ci: m.ci,
+        })),
+    };
+    updatedPlugin = {
+      ...(existingPlugin ?? {}),
+      name: pluginName,
+      source: outputRelativePath,
+      description: bundleInfo.oneLiner,
+      version: versionLabel,
+      keywords: [...bundleInfo.tags],
+      [RECEIPTS_FIELD]: receipts,
+    };
   }
-  const updatedPlugin: JsonRecord = {
-    source: "./",
-    ...(existingPlugin ?? {}),
-    name: pluginName,
-    skills,
-  };
+
   if (pluginIndex === -1) {
     plugins.push(updatedPlugin);
   } else {
@@ -262,7 +433,19 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
   };
 
   yield* writeJsonRecord(manifestPath, updated);
-  const result: ClaudeMarketplacePublishResult = { manifestPath, pluginName, skillPath: outputRelativePath };
+
+  const fs = yield* FileSystem;
+  const readme = buildMarketplaceReadme(marketplaceName, ownerName, plugins);
+  yield* fs
+    .writeFileString(readmePath, readme)
+    .pipe(Effect.mapError(toIOError(`could not write ${readmePath}`)));
+
+  const result: ClaudeMarketplacePublishResult = {
+    manifestPath,
+    readmePath,
+    pluginName,
+    skillPath: outputRelativePath,
+  };
   return result;
 });
 
@@ -332,12 +515,47 @@ export const publishCodexMarketplace = Effect.fn("Publish.publishCodexMarketplac
 // Orchestration
 // ---------------------------------------------------------------------------
 
+/** Best-effort read of `<bundleDir>/bundle.json`'s identity fields; never fails publish -- a missing/malformed bundle.json just yields a minimal fallback identity. */
+const readBundleIdentity = (bundleDir: string, bundle: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    const path = yield* Path;
+    const bundleJsonPath = path.join(bundleDir, "bundle.json");
+    const raw = yield* fs.readFileString(bundleJsonPath);
+    const parsed = yield* Effect.try({ try: () => JSON.parse(raw) as unknown, catch: (cause) => cause });
+    return yield* Schema.decodeUnknownEffect(BundleIdentity)(parsed);
+  }).pipe(
+    Effect.orElseSucceed(() =>
+      BundleIdentity.make({
+        schemaVersion: 1,
+        slug: bundle,
+        name: bundle,
+        oneLiner: "",
+        tags: [],
+        created: "",
+        targets: [],
+      }),
+    ),
+  );
+
+/** Best-effort read of this bundle's measurement cells via a scratch `IndexService` layer; never fails publish -- an index rebuild problem just yields an empty receipts section. */
+const gatherMeasurements = (workspaceRoot: string, bundle: string) =>
+  Effect.gen(function* () {
+    const index = yield* IndexService;
+    yield* index.rebuild();
+    return yield* index.listMeasurements(bundle);
+  }).pipe(
+    Effect.provide(IndexServiceLayer(workspaceRoot)),
+    Effect.orElseSucceed((): ReadonlyArray<MeasurementRecord> => []),
+  );
+
 const publishToTarget = Effect.fn("Publish.publishToTarget")(function* (
   workspaceRoot: string,
   bundleDir: string,
   bundle: string,
   workspaceName: string,
   target: PublishTarget,
+  guard: PublishGuardResult,
 ) {
   const path = yield* Path;
   const outputDir = path.join(bundleDir, "output");
@@ -350,7 +568,17 @@ const publishToTarget = Effect.fn("Publish.publishToTarget")(function* (
     case "claude-marketplace": {
       const base = target.path ?? workspaceRoot;
       const relOutput = normalizeRelative(path.relative(base, outputDir));
-      const result = yield* publishClaudeMarketplace(target, workspaceRoot, workspaceName, relOutput);
+      const identity = yield* readBundleIdentity(bundleDir, bundle);
+      const measurements = yield* gatherMeasurements(workspaceRoot, bundle);
+      const result = yield* publishClaudeMarketplace(target, workspaceRoot, workspaceName, relOutput, {
+        slug: bundle,
+        name: identity.name,
+        oneLiner: identity.oneLiner,
+        tags: identity.tags,
+        versionHash: guard.versionHash,
+        ...(guard.versionLabel !== undefined ? { versionLabel: guard.versionLabel } : {}),
+        measurements,
+      });
       return result.manifestPath;
     }
     case "codex-marketplace": {
@@ -426,6 +654,7 @@ export const publishBundle = Effect.fn("Publish.publishBundle")(function* (input
       input.bundle,
       input.workspaceName,
       target,
+      guard,
     );
     const appendResult = yield* journal.append({
       type: "skill.published",

@@ -10,6 +10,7 @@ import {
   IndexService,
   IndexServiceLayer,
   shortHash,
+  SMOKE_K,
   Workspace,
   type MeasurementRecord,
 } from "@skillmaker/core";
@@ -115,6 +116,15 @@ const summarize = (measurements: ReadonlyArray<MeasurementRecord>, json: boolean
     formatRow(columns.map(([header]) => header)),
     ...rows.map((row) => formatRow(columns.map(([, key]) => row[key]))),
   ];
+
+  // The `(below smoke)` guidance label is otherwise unexplained in CLI
+  // output (Phase 20 Story 4 friction log finding #6) -- make it
+  // self-describing right where it renders, instead of only in the docs.
+  if (rows.some((row) => row.guidance === "(below smoke)")) {
+    lines.push(
+      `\n(below smoke): n < ${SMOKE_K} -- below the smoke threshold, collect more runs before trusting this cell`,
+    );
+  }
 
   return ok(`${lines.join("\n")}\n`);
 };

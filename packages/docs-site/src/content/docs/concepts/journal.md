@@ -46,7 +46,7 @@ The event types your workspace can actually produce right now:
 | `bundle.created` | `skillmaker new` |
 | `bundle.stage_changed` | `skillmaker advance` (guarded — see [the state machine](/concepts/state-machine/)) |
 | `review.requested` | `skillmaker review request` |
-| `review.resolved` | the viewer's review panel (`approve` / `revise`) |
+| `review.resolved` | the viewer's review panel, or `skillmaker review resolve` (`approve` / `revise`) |
 | `skill.version_recorded` | `skillmaker version record` |
 | `todo.opened` / `todo.updated` / `todo.status_changed` | `skillmaker todo add/done/start/drop/reopen` and the viewer's todo panel |
 | `run.started` / `run.completed` | `skillmaker run` |

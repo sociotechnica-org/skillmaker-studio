@@ -661,10 +661,14 @@ const handleRecordVersion = async (
 /** `runs/<runId>/artifacts/<nonempty>` -- Phase 9's run-detail artifact viewer. */
 const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 
+/** `runs/<runId>/response.md` -- the run's extracted final agent message (finding #5), surfaced in the same run-detail artifact viewer. */
+const RUN_RESPONSE_PATH = /^runs\/[^/]+\/response\.md$/;
+
 /**
- * Only `design.md`, a non-empty path under `output/`, or a run's
- * `artifacts/` contents may be read back over HTTP (data-model.md §2.12 --
- * artifacts listed/viewable on the run-detail panel).
+ * Only `design.md`, a non-empty path under `output/`, a run's `artifacts/`
+ * contents, or a run's `response.md` may be read back over HTTP
+ * (data-model.md §2.12 -- artifacts listed/viewable on the run-detail
+ * panel).
  */
 const isAllowedBundleFilePath = (relativePath: string): boolean => {
   // No relative segments, period: `runs/<id>/artifacts/../../<id>/run.json`
@@ -679,7 +683,7 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
   if (relativePath.startsWith("output/") && relativePath.length > "output/".length) {
     return true;
   }
-  return RUN_ARTIFACT_PATH.test(relativePath);
+  return RUN_ARTIFACT_PATH.test(relativePath) || RUN_RESPONSE_PATH.test(relativePath);
 };
 
 /**
@@ -774,7 +778,14 @@ const handleRunDetail = async (
   }
 
   const artifactsDir = join(runDir, "artifacts");
-  const artifacts = listFilesRecursive(artifactsDir);
+  // `response.md` (finding #5) lives directly under `runs/<id>/`, a sibling
+  // of `artifacts/`, not inside it -- but the run-detail panel's artifact
+  // list is where grading actually happens, so it's surfaced there too,
+  // first, ahead of the run's captured workspace-diff artifacts.
+  const responsePath = join(runDir, "response.md");
+  const artifacts = existsSync(responsePath)
+    ? ["response.md", ...listFilesRecursive(artifactsDir)]
+    : listFilesRecursive(artifactsDir);
 
   const events = await readJournalEvents(root);
   const gradingHistory = events

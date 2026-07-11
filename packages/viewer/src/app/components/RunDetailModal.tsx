@@ -347,7 +347,12 @@ const ArtifactViewer: FC<{ slug: string; runId: string; artifacts: ReadonlyArray
       return;
     }
     let cancelled = false;
-    getBundleFile(slug, `runs/${runId}/artifacts/${selected}`)
+    // "response.md" (finding #5) lives directly under `runs/<id>/`, a
+    // sibling of `artifacts/`, not inside it -- see Server.ts's
+    // `handleRunDetail` for why it's still listed in `artifacts` first.
+    const fetchPath =
+      selected === "response.md" ? `runs/${runId}/response.md` : `runs/${runId}/artifacts/${selected}`;
+    getBundleFile(slug, fetchPath)
       .then((response) => {
         if (!cancelled) {
           setContent(response.content);

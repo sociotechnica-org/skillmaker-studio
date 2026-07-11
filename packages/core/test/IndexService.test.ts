@@ -595,7 +595,10 @@ describe("IndexService.listMeasurements", () => {
           expect(v1).toMatchObject({ n: 2, passes: 1, passRate: 0.5 });
           expect(v1?.ci).not.toBeNull();
           expect(v2).toMatchObject({ n: 1, passes: 1, passRate: 1 });
-          expect(v2?.ci).toEqual([0, 1]);
+          // n=1 all-pass: Wilson's zero-failure bound is tighter than
+          // rule-of-three's degenerate [0, 1] and wins.
+          expect(v2?.ci?.[0]).toBeGreaterThan(0);
+          expect(v2?.ci?.[1]).toBe(1);
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
