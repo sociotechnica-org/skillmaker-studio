@@ -160,6 +160,12 @@ export {
   type RunProgressEvent,
 } from "./RunEngine.ts";
 export {
+  repairRuns,
+  RunRepairNotFoundError,
+  type RunRepairInput,
+  type RepairedRun,
+} from "./RunRepair.ts";
+export {
   runStation,
   StationPreconditionError,
   buildStationPrompt,

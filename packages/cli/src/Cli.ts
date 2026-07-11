@@ -18,6 +18,7 @@ import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runReviewResolve } from "./commands/ReviewResolve.ts";
 import { runRun } from "./commands/Run.ts";
+import { runRunRepair } from "./commands/RunRepair.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStationRun } from "./commands/StationRun.ts";
 import { runStatus } from "./commands/Status.ts";
@@ -37,6 +38,7 @@ Commands:
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
+  run repair <slug> [runId]   Terminal-state stuck "running" run(s) whose process is gone, so their transcripts become gradeable
   station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
   grade <slug> <runId>    Record a run's grading verdict (data-model.md §2.9)
   measurements <slug>     Show measurement cells: n, pass rate, CI, guidance (§2.11)
@@ -215,6 +217,10 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
     }
     case "run": {
+      if (argv[1] === "repair") {
+        const [slug, runId] = twoPositionalsAfter(argv, 2);
+        return yield* runRunRepair(cwd, slug, runId, { json });
+      }
       const slug = positionalAfterCommand(argv);
       const fixture = flagValue(argv, "--fixture");
       const provider = flagValue(argv, "--provider");

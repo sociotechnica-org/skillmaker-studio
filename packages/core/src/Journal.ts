@@ -198,6 +198,24 @@ export class RunGradedEvent extends Schema.Class<RunGradedEvent>("RunGradedEvent
   }),
 }) {}
 
+/**
+ * Fix (Phase 20 Story 3 friction log F2): `skillmaker run repair`
+ * terminal-states a "running" run whose process is gone. Appended alongside
+ * the corrected `run.json` (never replaces `run.started`/`run.completed` --
+ * the journal keeps the full history, same "latest wins, history kept"
+ * convention as `RunGradedEvent`).
+ */
+export class RunRepairedEvent extends Schema.Class<RunRepairedEvent>("RunRepairedEvent")({
+  ...envelopeFields,
+  type: Schema.Literal("run.repaired"),
+  payload: Schema.Struct({
+    id: Schema.String,
+    status: RunStatus,
+    endedAt: Schema.String,
+    reason: Schema.String,
+  }),
+}) {}
+
 // ---------------------------------------------------------------------------
 // station.* / review.*
 // ---------------------------------------------------------------------------
@@ -271,6 +289,7 @@ export const JournalEvent = Schema.Union([
   RunStartedEvent,
   RunCompletedEvent,
   RunGradedEvent,
+  RunRepairedEvent,
   StationStartedEvent,
   ReviewRequestedEvent,
   ReviewResolvedEvent,

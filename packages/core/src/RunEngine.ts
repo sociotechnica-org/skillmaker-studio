@@ -108,6 +108,8 @@ export interface RunFixtureResult {
   readonly responsePath: string;
   /** Fix 1: set only when `status !== "completed"`, e.g. an unknown `--model` request's "advertised models: ..." message -- surfaced to the CLI/server caller instead of requiring a `stderr.txt` read to discover why a run failed. */
   readonly errorMessage?: string;
+  /** Fix (Phase 20 Story 3 friction log F2): relative paths under `artifacts/` that vanished between snapshot and copy and were skipped rather than crashing the run. Empty when nothing was skipped. */
+  readonly artifactsSkipped: ReadonlyArray<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,11 +159,30 @@ const diffTrees = (before: Map<string, string>, after: Map<string, string>): Rea
   return changed.sort();
 };
 
-const copyPreservingPath = (srcRoot: string, destRoot: string, relPath: string): void => {
+/**
+ * Fix (Phase 20 Story 3 friction log F2): the snapshot/diff/copy sequence is
+ * not atomic against the sandbox's own filesystem -- a provider CLI can
+ * delete its own transient files (shell snapshots, lock files) between the
+ * "after" snapshot and this copy. Tolerates exactly that race: an ENOENT on
+ * the read means the file is gone, not that anything is broken, so it's
+ * skipped (never crashes the run). Any other error (permissions, I/O) still
+ * throws -- those are real faults the caller should see.
+ */
+const copyPreservingPath = (srcRoot: string, destRoot: string, relPath: string): "copied" | "skipped" => {
   const src = nodeJoin(srcRoot, relPath);
   const dest = nodeJoin(destRoot, relPath);
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(src);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return "skipped";
+    }
+    throw error;
+  }
   mkdirSync(nodeJoin(dest, ".."), { recursive: true });
-  writeFileSync(dest, readFileSync(src));
+  writeFileSync(dest, bytes);
+  return "copied";
 };
 
 const copyDirRecursive = (src: string, dest: string, excludeTopLevel?: ReadonlySet<string>): void => {
@@ -511,12 +532,18 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
     const after = snapshotTree(sandboxDir);
     const changedPaths = diffTrees(before, after);
     const artifactsDir = path.join(runDir, "artifacts");
+    // Fix F2: files that vanished between the "after" snapshot and this copy
+    // (e.g. a provider CLI's own transient churn) -- skipped, not crashed,
+    // and noted on the final run.json rather than silently dropped.
+    const skippedArtifacts: string[] = [];
     if (changedPaths.length > 0) {
       yield* fs
         .makeDirectory(artifactsDir, { recursive: true })
         .pipe(Effect.mapError(toIOError(`could not create ${artifactsDir}`)));
       for (const relPath of changedPaths) {
-        copyPreservingPath(sandboxDir, artifactsDir, relPath);
+        if (copyPreservingPath(sandboxDir, artifactsDir, relPath) === "skipped") {
+          skippedArtifacts.push(relPath);
+        }
       }
     }
 
@@ -547,6 +574,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       status,
       model,
       skillInvoked,
+      ...(skippedArtifacts.length > 0 ? { artifactsSkipped: skippedArtifacts } : {}),
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(finalRecord, null, 2)}\n`)
@@ -571,6 +599,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       skillInstalled,
       skillInvoked,
       responsePath,
+      artifactsSkipped: skippedArtifacts,
       ...(errorMessage !== undefined ? { errorMessage } : {}),
     } satisfies RunFixtureResult;
   } finally {
@@ -583,6 +612,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
 export const _internal = {
   snapshotTree,
   diffTrees,
+  copyPreservingPath,
   resolveFixtureFilesDir,
   classifyAcpError,
   installSkill,
