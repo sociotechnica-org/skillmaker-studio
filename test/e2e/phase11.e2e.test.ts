@@ -219,20 +219,31 @@ describe("skillmaker publish: guard + real target publishing", () => {
     expect(readFileSync(copiedSkill, "utf8")).toContain("Do the demo thing.");
   });
 
-  test("claude-marketplace target: .claude-plugin/marketplace.json has the exact spec shape", () => {
+  test("claude-marketplace target: .claude-plugin/marketplace.json gives demo-skill its own plugin entry (friction log finding #4)", () => {
     const manifestPath = join(scratchDir, ".claude-plugin", "marketplace.json");
     expect(existsSync(manifestPath)).toBe(true);
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
       name: string;
       owner: { name: string };
-      plugins: ReadonlyArray<{ name: string; source: string; skills: ReadonlyArray<string> }>;
+      plugins: ReadonlyArray<{ name: string; source: string; version: string }>;
     };
     expect(manifest.name).toBe("phase-11-demo-studio");
     expect(manifest.owner.name).toBe("Phase 11 Demo Studio");
     expect(manifest.plugins).toHaveLength(1);
-    expect(manifest.plugins[0]?.name).toBe("skills");
-    expect(manifest.plugins[0]?.source).toBe("./");
-    expect(manifest.plugins[0]?.skills).toEqual(["./skills/demo-skill/output"]);
+    // Per-bundle plugin entry, named for the bundle -- not the old generic
+    // shared "skills" plugin -- carrying the recorded label ("v1"), not a
+    // bare hash.
+    expect(manifest.plugins[0]?.name).toBe("demo-skill");
+    expect(manifest.plugins[0]?.source).toBe("./skills/demo-skill/output");
+    expect(manifest.plugins[0]?.version).toBe("v1");
+  });
+
+  test("claude-marketplace target: a storefront README.md is generated at the target root", () => {
+    const readmePath = join(scratchDir, "README.md");
+    expect(existsSync(readmePath)).toBe(true);
+    const readme = readFileSync(readmePath, "utf8");
+    expect(readme).toContain("### demo-skill");
+    expect(readme).toContain("v1");
   });
 
   test("re-publishing the same version to the same targets is idempotent: no new skill.published events", () => {
@@ -264,13 +275,14 @@ describe("skillmaker publish: guard + real target publishing", () => {
     const copiedSkill = join(scratchDir, "published-repo", "demo-skill", "SKILL.md");
     expect(readFileSync(copiedSkill, "utf8")).toContain("Do the updated demo thing.");
 
-    // The claude-marketplace manifest's skills array is unchanged (still one
-    // entry for demo-skill's output path -- v2 publish never touched it).
+    // The claude-marketplace manifest is unchanged (still the "v1" plugin
+    // entry -- the "repo"-only publish never touched the claude target).
     const manifestPath = join(scratchDir, ".claude-plugin", "marketplace.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-      plugins: ReadonlyArray<{ skills: ReadonlyArray<string> }>;
+      plugins: ReadonlyArray<{ source: string; version: string }>;
     };
-    expect(manifest.plugins[0]?.skills).toEqual(["./skills/demo-skill/output"]);
+    expect(manifest.plugins[0]?.source).toBe("./skills/demo-skill/output");
+    expect(manifest.plugins[0]?.version).toBe("v1");
   });
 
   test("an unknown --target id is a usage error", () => {

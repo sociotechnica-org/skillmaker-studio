@@ -29,7 +29,7 @@ Configured once per workspace, in `skillmaker.config.json`:
 | Kind | What it does |
 |---|---|
 | `git-dir` | Copies the bundle's `output/` to `<path>/<slug>/`. `path` is required. |
-| `claude-marketplace` | Writes/updates a Claude-format marketplace manifest. `path` defaults to the workspace root. |
+| `claude-marketplace` | Writes/updates a Claude-format marketplace manifest **and** a storefront `README.md` at the target root. `path` defaults to the workspace root. Each published bundle gets its own plugin entry carrying the bundle's `oneLiner`, `tags`, and recorded version label (falling back to a short hash) — not a bare, anonymous accumulator. The README is regenerated in full on every publish: one section per skill with its oneLiner, version, and per-provider measurement receipts (n · pass rate · CI) — the numbers that make the marketplace repo an actual storefront, not just an install target. |
 | `codex-marketplace` | Writes/updates a Codex-format marketplace manifest. `path` defaults to the workspace root. **The Codex marketplace manifest shape is best-effort** — there is no published spec to conform to yet, so this target is documented honestly as "our best guess," not a verified integration. |
 
 ## Options

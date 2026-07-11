@@ -52,7 +52,7 @@ target has an `id`, a `kind`, and an optional `path`:
 | Kind | What it does |
 |---|---|
 | `git-dir` | Copies the bundle's `output/` to `<path>/<slug>/`. `path` is required — this target has no default location. |
-| `claude-marketplace` | Writes/updates a Claude-format marketplace manifest, lossless round-tripped (unknown fields are preserved, not dropped). `path` defaults to the workspace root. |
+| `claude-marketplace` | Writes/updates a Claude-format marketplace manifest, lossless round-tripped (unknown fields are preserved, not dropped), plus a storefront `README.md` at the target root regenerated on every publish. Each bundle gets its own plugin entry (`name` = slug, `description` = the bundle's oneLiner, `version` = its recorded label, `keywords` = its tags) and its own README section with per-provider measurement receipts (n · pass rate · CI) — the numbers a shopper needs, not just an install target. `path` defaults to the workspace root. |
 | `codex-marketplace` | Writes/updates a Codex-format marketplace manifest. `path` defaults to the workspace root. |
 
 `skillmaker publish <slug>` publishes to every configured target by
