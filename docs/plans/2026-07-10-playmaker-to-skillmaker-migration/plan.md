@@ -299,6 +299,41 @@ outputs, grading, stage names). Product-level extras:
 - **Marketplace packaging format** — track the emerging Claude skill
   marketplace conventions before hard-coding a publish target.
 
+### Phase 17 — UI pass: adopt the PMS Studio's nav + hierarchy (ruled 2026-07-11)
+
+- **Value:** the viewer stops being a thrown-together single board page and
+  gains the old Studio's superior navigation, organizational structure,
+  and focus (director ruling: structure yes, Alexandrian styling no).
+- **Scope:** walk the original PMS Studio viewer (`pms start`, :4322, in
+  alexandria-internal) end to end; extract its nav model, page hierarchy,
+  and focus patterns into a spec; revamp packages/viewer to match —
+  improving where the old surface was rough. Keep the existing dark
+  aesthetic and runtime-boundary architecture.
+- **Verify (/chrome):** side-by-side walk of old Studio and new viewer;
+  every existing capability (board, reviews, todos, versions, evals,
+  read-out) reachable in the new structure; full loop re-run + re-recorded.
+
+### Fold-ins from skill-creator research (2026-07-11, director pre-authorized)
+
+Source: docs/research/2026-07-11-anthropic-skill-creator.md.
+
+1. **Without-skill baseline runs** → Phase 10/12 scope: eval runs gain an
+   optional baseline mode (same fixture, no skill installed), recorded as
+   measurements with version=null; the read-out shows the with/without
+   delta — the most persuasive number a skill can have.
+2. **Trigger-rate measurement** → Phase 12 scope: measure whether the
+   skill *activates* when it should (skill-creator's stream-JSON
+   early-exit technique is directly reusable); a fixture class for
+   triggering, distinct from task success.
+3. **Grader self-critique** → Phase 10 scope: after grading, the grader
+   flags non-discriminating checks (pass everything / fail everything);
+   flagged checks surface as risk-map gaps.
+- Anti-lesson (recorded, no action): skill-creator's loose-file
+  persistence exhibits real schema drift + unrecoverable data by their
+  own admission — validates the journal + rebuildable-index model as the
+  trust wedge. The eval viewer's feedback-collection design (feedback as
+  input to the next iteration) is noted for the read-out's future.
+
 ### Phase 18 — installer experience (ruled 2026-07-11)
 
 - **Value:** installing by cloning the repo is a crummy experience; make
@@ -308,9 +343,9 @@ outputs, grading, stage names). Product-level extras:
   Skillmaker.app bundle; (b) an install script
   (`curl -fsSL https://skillmaker.studio/install.sh | sh`) that fetches
   the right binary + viewer assets to ~/.skillmaker/bin and PATHs it;
-  (c) evaluate `bun pm`-less npm publishing of a wrapper package
-  (`npx skillmaker`) and Homebrew tap as fast-follows; (d) update docs
-  getting-started + marketing hero CTA to the real install story.
+  (c) evaluate npm wrapper (`npx skillmaker`) and Homebrew tap as
+  fast-follows; (d) update docs getting-started + marketing hero CTA to
+  the real install story.
 - **Verify:** fresh machine-shaped install from the public artifact (no
-  repo clone, no bun): script → `skillmaker init/new/start` golden path;
-  the .app opens from a plain download.
+  repo clone, no bun): script → init/new/start golden path; the .app
+  opens from a plain download.
