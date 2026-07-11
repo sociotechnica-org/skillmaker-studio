@@ -15,6 +15,7 @@ import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runRun } from "./commands/Run.ts";
 import { runStart } from "./commands/Start.ts";
+import { runStationRun } from "./commands/StationRun.ts";
 import { runStatus } from "./commands/Status.ts";
 import { runTodoAdd, runTodoList, runTodoStatus, type TodoStatusCommand } from "./commands/Todo.ts";
 import { runVersionRecord } from "./commands/Version.ts";
@@ -31,6 +32,7 @@ Commands:
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
+  station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
   grade <slug> <runId>    Record a run's grading verdict (data-model.md §2.9)
   measurements <slug>     Show measurement cells: n, pass rate, CI, guidance (§2.11)
   start             Serve the viewer + API (default port from config, or 4323)
@@ -64,8 +66,9 @@ Options:
   --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case; defaults to golden
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
   --fixture <case>  (run) the fixture case to run (required)
-  --provider <id>   (run) provider id from skillmaker.config.json; defaults to "claude-code"
-  --timeout <s>     (run) prompt timeout in seconds; defaults to 300
+  --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"
+  --timeout <s>     (run, station run) prompt timeout in seconds; defaults to 300
+  --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
   --verdict <v>     (grade) pass | fail | partial (required)
   --notes <text>    (grade) free-text grading notes
   -h, --help        Show this help
@@ -103,6 +106,7 @@ const VALUE_FLAGS = new Set([
   "--timeout",
   "--verdict",
   "--notes",
+  "--state",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -196,6 +200,19 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const provider = flagValue(argv, "--provider");
       const timeout = flagValue(argv, "--timeout");
       return yield* runRun(cwd, slug, { json, fixture, provider, timeout });
+    }
+    case "station": {
+      const subcommand = argv[1];
+      if (subcommand !== "run") {
+        return usageError(
+          `skillmaker: unknown "station" subcommand "${String(subcommand)}"\n\nUsage: skillmaker station run <slug> [--state <state>] [--provider <id>] [--timeout <seconds>]\n`,
+        );
+      }
+      const slug = positionalAfter(argv, 2);
+      const state = flagValue(argv, "--state");
+      const provider = flagValue(argv, "--provider");
+      const timeout = flagValue(argv, "--timeout");
+      return yield* runStationRun(cwd, slug, { json, state, provider, timeout });
     }
     case "grade": {
       const [slug, runId] = twoPositionalsAfter(argv, 1);

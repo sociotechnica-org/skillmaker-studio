@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "template": "default",
+  "stations": {
+    "researching": {
+      "doer": "agent",
+      "skill": "william/research-a-skill",
+      "produces": [
+        "research/"
+      ],
+      "review": true
+    },
+    "drafting": {
+      "doer": "agent",
+      "skill": "william/draft-skill-md",
+      "produces": [
+        "design.md",
+        "output/SKILL.md"
+      ],
+      "review": true
+    },
+    "evaluating": {
+      "doer": "agent",
+      "produces": [
+        "evals/",
+        "runs/"
+      ],
+      "review": true
+    }
+  }
+}

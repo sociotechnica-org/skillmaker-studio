@@ -127,3 +127,21 @@ export {
   type RunFixtureResult,
   type RunProgressEvent,
 } from "./RunEngine.ts";
+export {
+  runStation,
+  StationPreconditionError,
+  buildStationPrompt,
+  buildReviewQuestion,
+  latestReviseNotes,
+  type RunStationInput,
+  type RunStationResult,
+  type StationProgressEvent,
+  type BuildStationPromptInput,
+} from "./StationEngine.ts";
+export {
+  detectNonDiscriminatingChecks,
+  formatSelfCritiqueWarning,
+  MIN_GRADED_RUNS_FOR_SELF_CRITIQUE,
+  type GradedRunChecks,
+  type NonDiscriminatingCheck,
+} from "./GraderSelfCritique.ts";

@@ -18,7 +18,9 @@ import {
   JournalLayer,
   JournalEvent,
   runFixture,
+  runStation,
   type Actor,
+  type BundleStage,
   type BundleRecord,
   type FixtureRecord,
   type MeasurementRecord,
@@ -425,12 +427,46 @@ const handlePostEvent = async (
 };
 
 /**
+ * The current stage's agent station, if the bundle has `stations.json` and
+ * that stage has a `doer: "agent"` station configured -- what the viewer's
+ * "Run station" button (OverviewTab) gates on. Deliberately lenient (returns
+ * `null` on any missing/malformed input rather than failing the whole bundle
+ * detail response): this is availability info for a button, not a
+ * precondition check -- `StationEngine.runStation` re-validates for real
+ * when the button is actually pressed.
+ */
+const readCurrentStageStation = (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  stage: string,
+): { readonly state: string; readonly skill: string } | null => {
+  try {
+    const stationsJsonPath = join(root, config.skillsDir, slug, "stations.json");
+    if (!existsSync(stationsJsonPath)) {
+      return null;
+    }
+    const parsed = JSON.parse(readFileSync(stationsJsonPath, "utf8")) as {
+      readonly stations?: Record<string, { readonly doer?: unknown; readonly skill?: unknown }>;
+    };
+    const station = parsed.stations?.[stage];
+    if (station === undefined || station.doer !== "agent" || typeof station.skill !== "string") {
+      return null;
+    }
+    return { state: stage, skill: station.skill };
+  } catch {
+    return null;
+  }
+};
+
+/**
  * `GET /api/bundles/:slug` -- the detail/review panel data (data-model.md
  * §2.13, §2.7). `bundle` already carries the live `designHash`/`outputHash`/
  * `drift` (computed at `rebuild()`, data-model.md §2.7); `versions` is the
- * full recorded history, newest first.
+ * full recorded history, newest first. `station` is the current stage's
+ * agent station (if any) -- the viewer's "Run station" button gate.
  */
-const handleBundleDetail = async (root: string, slug: string): Promise<Response> => {
+const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
   const bundle = await getBundleRecord(root, slug);
   if (bundle === undefined) {
     return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
@@ -446,6 +482,7 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
   const { fixtures, riskCoverage, warnings } = await listBundleEvalDetail(root, slug);
   const runs = await listRunRecords(root, slug);
   const measurements = await listMeasurementRecords(root, slug);
+  const station = readCurrentStageStation(root, config, slug, bundle.stage);
 
   return jsonResponse({
     bundle,
@@ -457,6 +494,7 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
     warnings,
     runs,
     measurements,
+    station,
   });
 };
 
@@ -755,6 +793,88 @@ const handleTriggerRun = async (
   return jsonResponse({ runId, status: "started" });
 };
 
+interface TriggerStationRunRequestBody {
+  readonly state?: unknown;
+  readonly provider?: unknown;
+}
+
+const isBundleStage = (value: string): value is BundleStage =>
+  value === "idea" || value === "researching" || value === "drafting" || value === "evaluating" || value === "published";
+
+/**
+ * `POST /api/bundles/:slug/station-run` -- the viewer's "Run station"
+ * button (OverviewTab). Same detached-run shape as `handleTriggerRun`:
+ * `StationEngine.runStation` is spawned via `Effect.runFork` (not awaited),
+ * the HTTP response returns a pre-generated `runId` immediately, and the
+ * run's actual progress (station.started / run.started / run.completed /
+ * review.requested) lands via the journal, which the SSE watcher already
+ * broadcasts.
+ */
+const handleTriggerStationRun = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  request: Request,
+): Promise<Response> => {
+  const bundleDir = join(root, config.skillsDir, slug);
+  if (!existsSync(join(bundleDir, "bundle.json"))) {
+    return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
+  }
+
+  let provider = "claude-code";
+  let state: BundleStage | undefined;
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    let body: unknown;
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+    const rawProvider = (body as TriggerStationRunRequestBody).provider;
+    if (rawProvider !== undefined) {
+      if (typeof rawProvider !== "string") {
+        return jsonResponse({ error: "provider must be a string" }, 400);
+      }
+      provider = rawProvider;
+    }
+    const rawState = (body as TriggerStationRunRequestBody).state;
+    if (rawState !== undefined) {
+      if (typeof rawState !== "string" || !isBundleStage(rawState)) {
+        return jsonResponse({ error: "state must be a valid bundle stage" }, 400);
+      }
+      state = rawState;
+    }
+  }
+  if (config.providers[provider] === undefined) {
+    return jsonResponse({ error: `provider "${provider}" is not configured in skillmaker.config.json` }, 400);
+  }
+
+  const actor = await Effect.runPromise(resolveUserActor());
+  const runId = crypto.randomUUID();
+  const journalPath = join(root, ".skillmaker", "events.jsonl");
+
+  const program = runStation({
+    root,
+    config,
+    bundle: slug,
+    ...(state !== undefined ? { state } : {}),
+    provider,
+    actor,
+    runId,
+  }).pipe(
+    Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
+    Effect.provide(BunServices.layer),
+    // Non-blocking, same rationale as handleTriggerRun: StationEngine
+    // already persists the outcome (run.json + journal events) before this
+    // Effect ever resolves.
+    Effect.ignore,
+  );
+  Effect.runFork(program);
+
+  return jsonResponse({ runId, status: "started" });
+};
+
 /**
  * A single set of SSE subscriber "send" functions, broadcast to on journal
  * change and on the heartbeat interval. Scoped per server instance.
@@ -929,9 +1049,16 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return handleTriggerRun(root, config, slug, caseName, request);
         }
 
+        if (slug !== undefined && segments.length === 2 && segments[1] === "station-run") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "station-run requires POST" }, 405);
+          }
+          return handleTriggerStationRun(root, config, slug, request);
+        }
+
         if (slug !== undefined && segments.length === 1) {
           try {
-            return await handleBundleDetail(root, slug);
+            return await handleBundleDetail(root, config, slug);
           } catch (cause) {
             return jsonResponse({ error: `could not load bundle "${slug}": ${String(cause)}` }, 500);
           }

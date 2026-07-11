@@ -19,7 +19,7 @@
  * shown inline), instead of requiring a separate dev-only affordance.
  */
 import { type FC, useEffect, useState } from "react";
-import { getBundleFile, postEvent, recordVersion, triggerRun } from "../runtime/api.ts";
+import { getBundleFile, postEvent, recordVersion, triggerRun, triggerStationRun } from "../runtime/api.ts";
 import {
   STAGES,
   type BundleStage,
@@ -217,6 +217,7 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
               gateBasis={gateBasis}
               setGateBasis={setGateBasis}
               submit={submit}
+              onChanged={refetch}
             />
           )}
           {tab === "files" && <FilesTab slug={slug} />}
@@ -257,6 +258,7 @@ interface OverviewTabProps {
   readonly gateBasis: string;
   readonly setGateBasis: (value: string) => void;
   readonly submit: (type: string, payload: Record<string, unknown>) => void;
+  readonly onChanged: () => void;
 }
 
 const OverviewTab: FC<OverviewTabProps> = ({
@@ -275,6 +277,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
   gateBasis,
   setGateBasis,
   submit,
+  onChanged,
 }) => {
   const { bundle, guardStatus } = detail;
   const stage = bundle.stage;
@@ -284,6 +287,29 @@ const OverviewTab: FC<OverviewTabProps> = ({
   const question = stringField(latestReviewRequest?.payload, "question");
   const forwardReady = guardStatus.approvedForForward && (stage !== "evaluating" || guardStatus.gateApproved);
   const earlier = earlierStages(stage);
+  const [stationPending, setStationPending] = useState(false);
+  const [stationError, setStationError] = useState<string | undefined>(undefined);
+
+  const runCurrentStageStation = (): void => {
+    if (detail.station === null) {
+      return;
+    }
+    setStationPending(true);
+    setStationError(undefined);
+    triggerStationRun(slug, detail.station.state, undefined)
+      .then((result) => {
+        if (!result.ok) {
+          setStationError(result.error);
+          return;
+        }
+        // The station run proceeds server-side; the SSE journal stream
+        // refreshes the panel as station.started/review.requested land. One
+        // eager refetch so the change shows up promptly, same as FixtureRow.
+        onChanged();
+      })
+      .catch((cause: Error) => setStationError(cause.message))
+      .finally(() => setStationPending(false));
+  };
 
   return (
     <>
@@ -304,6 +330,29 @@ const OverviewTab: FC<OverviewTabProps> = ({
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
           {actionError}
         </p>
+      )}
+
+      {!awaitingReview && detail.station !== null && (
+        <section className="flex flex-col gap-1 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Agent station</h4>
+          <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+            &quot;{detail.station.state}&quot; runs with skill{" "}
+            <span className="font-mono">{detail.station.skill}</span>.
+          </p>
+          {stationError !== undefined && (
+            <p className="rounded-md bg-red-100 px-2 py-1 text-[11px] text-red-800 dark:bg-red-950 dark:text-red-300">
+              {stationError}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={stationPending}
+            onClick={runCurrentStageStation}
+            className="rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          >
+            Run station ▸
+          </button>
+        </section>
       )}
 
       {awaitingReview ? (

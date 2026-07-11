@@ -202,6 +202,16 @@ export class MeasurementRecord extends Schema.Class<MeasurementRecord>("Measurem
   ci: Schema.NullOr(Schema.Tuple([Schema.Number, Schema.Number])),
 }) {}
 
+/**
+ * The current stage's agent station, if the bundle has `stations.json` and
+ * that stage has a `doer: "agent"` station configured (data-model.md
+ * §2.13) -- what the Overview tab's "Run station" button gates on.
+ */
+export class StationAvailability extends Schema.Class<StationAvailability>("StationAvailability")({
+  state: Schema.String,
+  skill: Schema.String,
+}) {}
+
 export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   "BundleDetailResponse",
 )({
@@ -214,6 +224,7 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   warnings: Schema.Array(WarningRecord),
   runs: Schema.Array(RunRecord),
   measurements: Schema.Array(MeasurementRecord),
+  station: Schema.NullOr(StationAvailability),
 }) {}
 
 /**
@@ -249,6 +260,14 @@ export class RunDetailResponse extends Schema.Class<RunDetailResponse>("RunDetai
 
 /** `POST /api/bundles/:slug/fixtures/:case/run` response -- the run id, returned before the run finishes. */
 export class TriggerRunResponse extends Schema.Class<TriggerRunResponse>("TriggerRunResponse")({
+  runId: Schema.String,
+  status: Schema.Literal("started"),
+}) {}
+
+/** `POST /api/bundles/:slug/station-run` response -- same shape as `TriggerRunResponse`. */
+export class TriggerStationRunResponse extends Schema.Class<TriggerStationRunResponse>(
+  "TriggerStationRunResponse",
+)({
   runId: Schema.String,
   status: Schema.Literal("started"),
 }) {}
