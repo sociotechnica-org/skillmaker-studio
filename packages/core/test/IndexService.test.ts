@@ -633,3 +633,107 @@ describe("IndexService.listMeasurements", () => {
     );
   });
 });
+
+describe("IndexService.rebuild -- duplicate skill.version_recorded tolerance", () => {
+  // Fix F3/F4: reproduces a pre-existing bad journal line -- a second
+  // `skill.version_recorded` event for the SAME (bundle, hash, designHash)
+  // triple as an earlier one, written directly to `events.jsonl` (bypassing
+  // `Journal.append`'s idempotency guard entirely, exactly as could happen
+  // from a pre-fix `run` auto-record, or any other future writer that
+  // forgets an idempotencyKey). Before this fix, `rebuild()` would let this
+  // duplicate reach the `skill_versions` table's `(bundle, hash,
+  // design_hash)` PRIMARY KEY, throw a raw SQLite UNIQUE violation, and wrap
+  // it in an opaque "could not write studio.db" error -- bricking `list`,
+  // `status`, `reindex`, and `measurements` for the ENTIRE workspace, not
+  // just the one bad bundle. Now `rebuild()` must tolerate it (Ruling I):
+  // skip the duplicate, warn, and keep indexing every other event/bundle.
+  test("rebuild tolerates a pre-existing duplicate skill.version_recorded journal line: no throw, one version indexed, a warning surfaced, and all OTHER bundles/events still index cleanly", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "demo" });
+        yield* workspace.createBundle(dir, { slug: "other" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:demo",
+            payload: { bundle: "demo" },
+          });
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:other",
+            payload: { bundle: "other" },
+          });
+          // The first, legitimate `skill.version_recorded` for "demo" --
+          // e.g. `adopt`'s labeled record.
+          yield* journal.append({
+            type: "skill.version_recorded",
+            actor,
+            idempotencyKey: "skill.version_recorded:demo:sha256:d1:sha256:h1",
+            payload: { bundle: "demo", hash: "sha256:h1", designHash: "sha256:d1", label: "adopted" },
+          });
+          // An unrelated, perfectly valid event for a DIFFERENT bundle --
+          // this must still index correctly despite the bad line below.
+          yield* journal.append({
+            type: "skill.version_recorded",
+            actor,
+            idempotencyKey: "skill.version_recorded:other:sha256:d9:sha256:h9",
+            payload: { bundle: "other", hash: "sha256:h9", designHash: "sha256:d9" },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        // The pre-existing bad line: a second `skill.version_recorded` for
+        // "demo" with the IDENTICAL (bundle, hash, designHash) triple as
+        // above, but a different idempotencyKey (as a pre-fix `run`
+        // auto-record with no idempotencyKey guard would have produced) --
+        // written directly to disk, bypassing `Journal.append` entirely, to
+        // simulate a line already on disk from before this fix shipped.
+        const duplicateLine = JSON.stringify({
+          schemaVersion: 1,
+          id: "00000000-0000-4000-8000-000000000042",
+          at: "2026-07-05T00:00:00.000Z",
+          actor,
+          type: "skill.version_recorded",
+          payload: { bundle: "demo", hash: "sha256:h1", designHash: "sha256:d1" },
+        });
+        appendFileSync(journalPath, `${duplicateLine}\n`);
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+
+          // (a) rebuild() must not throw/fail despite the duplicate triple.
+          const result = yield* index.rebuild();
+          expect(result.bundles).toBe(2);
+
+          // (b) exactly one version is indexed for the duplicated triple.
+          const demoVersions = yield* index.listVersions("demo");
+          expect(demoVersions.length).toBe(1);
+          expect(demoVersions[0]).toMatchObject({ hash: "sha256:h1", designHash: "sha256:d1" });
+
+          // (c) a warning is surfaced identifying the duplicate.
+          const warnings = yield* index.listWarnings("demo");
+          const duplicateWarning = warnings.find((w) => w.message.includes("duplicate skill.version_recorded"));
+          expect(duplicateWarning).toBeDefined();
+          expect(duplicateWarning?.message).toContain("demo");
+          expect(duplicateWarning?.message).toContain("sha256:h1");
+          expect(duplicateWarning?.message).toContain("sha256:d1");
+
+          // (d) every OTHER bundle/event still indexes correctly -- the bad
+          // line for "demo" never brings down the rest of the workspace.
+          const otherVersions = yield* index.listVersions("other");
+          expect(otherVersions.length).toBe(1);
+          expect(otherVersions[0]).toMatchObject({ hash: "sha256:h9", designHash: "sha256:d9" });
+
+          const bundles = yield* index.listBundles();
+          expect(bundles.map((b) => b.slug).sort()).toEqual(["demo", "other"]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+});

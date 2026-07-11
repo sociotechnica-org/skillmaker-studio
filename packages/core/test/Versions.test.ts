@@ -5,12 +5,14 @@ import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
 import { BundleCreatedEvent, SkillVersionRecordedEvent } from "../src/Journal.ts";
 import type { JournalEvent } from "../src/Journal.ts";
+import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
 import {
   computeDrift,
   foldSkillVersions,
   hashDesign,
   hashOutputTree,
   latestSkillVersion,
+  recordSkillVersion,
 } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
@@ -219,5 +221,76 @@ describe("foldSkillVersions / latestSkillVersion", () => {
     ];
     const versions = foldSkillVersions(events);
     expect(versions.get("alpha")?.length).toBe(1);
+  });
+});
+
+describe("recordSkillVersion (Fix F3: the exact Story-1 duplicate-hash sequence)", () => {
+  test("a repeat with IDENTICAL hashes+payload is a clean no-op, not a duplicate journal line", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+        const first = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1");
+        const second = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1");
+
+        expect(first.status).toBe("appended");
+        expect(second.status).toBe("already_appended");
+
+        const all = yield* journal.readAll();
+        expect(all.filter((e) => e.type === "skill.version_recorded").length).toBe(1);
+      }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
+    );
+  });
+
+  // Reproduces the exact Story-1 (F3) sequence: `adopt` records an initial
+  // version under label "adopted" for a hash; a later `run` against the
+  // SAME unchanged content used to auto-record again with NO
+  // idempotencyKey at all, appending a second `skill.version_recorded`
+  // event for the identical (bundle, hash, designHash) triple -- which then
+  // hit IndexService's `skill_versions` PRIMARY KEY and bricked the index.
+  // Now both writers share `recordSkillVersion`, so the collision is a
+  // catchable `JournalIdempotencyConflictError`, never a raw duplicate.
+  test("adopt's labeled record + a later run's auto-record under the SAME hashes: conflict is catchable, journal stays consistent", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+
+        // Step 1: `adopt` records the initial version, as Adopt.ts does.
+        const adoptResult = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", {
+          label: "adopted",
+        });
+        expect(adoptResult.status).toBe("appended");
+
+        // Step 2: a later `run` (unchanged content -> same hashes) auto-
+        // records again, exactly like RunEngine.ts's drift check, but WITHOUT
+        // the "adopted" label in its payload -- different content under the
+        // same idempotency key, so it must conflict, not silently duplicate.
+        const runOutcome = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1").pipe(Effect.flip);
+        expect(runOutcome._tag).toBe("JournalIdempotencyConflictError");
+
+        // The journal must still contain exactly ONE skill.version_recorded
+        // event for this triple -- the conflict must never reach disk as a
+        // second line.
+        const all = yield* journal.readAll();
+        const versionEvents = all.filter((e) => e.type === "skill.version_recorded");
+        expect(versionEvents.length).toBe(1);
+      }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
+    );
+  });
+
+  test("RunEngine's catchTag pattern: swallowing the conflict lets the run proceed instead of failing", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+        yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", { label: "adopted" });
+
+        // Mirrors RunEngine.ts's `.pipe(Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void))`.
+        yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1").pipe(
+          Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void),
+        );
+
+        const all = yield* journal.readAll();
+        expect(all.filter((e) => e.type === "skill.version_recorded").length).toBe(1);
+      }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
+    );
   });
 });

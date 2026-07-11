@@ -36,6 +36,7 @@ import {
   detectBundleLayout,
   foldSkillVersions,
   latestSkillVersion,
+  recordSkillVersion,
 } from "./Versions.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
 
@@ -337,11 +338,15 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   if (drift === "in-sync" && latest !== undefined) {
     skillVersionHash = latest.hash;
   } else {
-    yield* journal.append({
-      actor: input.actor,
-      type: "skill.version_recorded",
-      payload: { bundle: input.bundle, hash: hashes.outputHash, designHash: hashes.designHash },
-    });
+    // Fix F3: route through the SAME idempotency-keyed recordSkillVersion
+    // path `version record`/`adopt` use, instead of appending directly with
+    // no idempotencyKey. A same-content repeat is a clean no-op; a
+    // different-content repeat under the same (bundle, hash, designHash)
+    // triple is a catchable conflict, never a raw duplicate write that
+    // could brick IndexService's skill_versions table.
+    yield* recordSkillVersion(input.bundle, input.actor, hashes.designHash, hashes.outputHash).pipe(
+      Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void),
+    );
     skillVersionHash = hashes.outputHash;
     autoRecordedVersion = true;
   }
