@@ -263,9 +263,31 @@ directional; the build proceeds piece by piece.
   spot-audit cards against real CLI/viewer behavior; no card references
   retired machinery.
 
+### Phase 15 — desktop app (Tauri) (ruled in 2026-07-11)
+
+- **Value:** Skillmaker.app — manage skills without installing a CLI.
+  Serves the technical-but-app-preferring persona; the deeper non-technical
+  product is a separate standing thesis
+  (docs/sources/2026-07-11-desktop-app-thesis.md), not this phase.
+- **Scope:** a Tauri shell (packages/desktop) bundling the Phase-12a
+  compiled binary as a sidecar: app launch → pick/remember a workspace
+  folder → sidecar `skillmaker start` on a local port → window points at
+  the viewer. Native niceties kept minimal: dock icon, workspace-picker
+  dialog, quit stops the sidecar cleanly (claim-file discipline). No new
+  product surfaces — the viewer IS the app.
+- **Ordering:** parallelizable any time after Phase 12a (already merged);
+  most valuable after Phase 9 when the viewer carries the full read-out
+  loop. macOS first; Windows/Linux deferred until asked for.
+- **Verify:** fresh-machine-shaped QA — install the .app on a clean user
+  account (or bare temp HOME), no bun/node/git config present beyond git
+  itself, golden path init → new → review → advance entirely in the app;
+  quit and relaunch → same workspace restored, single-instance claim
+  respected.
+
 Phases 1–7 involve zero LLM calls. Each phase is independently shippable;
 re-ordering 5/6/7 is cheap if discussion demands it. Phases 13–14 come
-after everything else, in that order.
+after everything else, in that order; Phase 15 is a parallel track, not
+part of the 13–14 tail.
 
 ## Open decisions
 
