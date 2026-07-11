@@ -487,3 +487,18 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
 - 301 unit tests pass, 0 fail; `tsc --noEmit` clean on `packages/core` and
   `packages/cli`; two logical commits for the William bundles, one for the
   publish traversal, one for CI.
+
+## Phase 20 — the reduced-friction verdict (Story-1 re-run vs original)
+
+Original Story 1 (v0.1.0 era): 3 P1s — adopt missing from the shipped
+binary; adopted bundles evaling a naked agent silently; a duplicate
+auto-version event bricking the journal — plus contamination and opacity
+P2s. Re-run (v0.2.1, fresh persona, same beats): **all three P1s fixed
+and none recurred; zero new P1s.** Install 0.8s; adopt 3/3 respectful;
+the eval loop measured a real skill improvement 67%→100% with honest CIs;
+the auth error now names the exact credential paths (a delight, where the
+original era had a black box). Remaining findings are ergonomic (k-runs
+flag, grading ceremony, adopted-stage placement, drift-without-design
+false green, exit-126 hint) — filed as todos on the repo's own board.
+**Verdict: friction materially reduced. Story-as-eval re-earn: PASSED.**
+The plan's Phase 20 completion criteria are met.
