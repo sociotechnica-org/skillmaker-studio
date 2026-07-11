@@ -219,3 +219,40 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
 - From Phase 8 on (director ruling 2026-07-11): ALL builder work happens in
   worktrees; the main checkout stays clean on main for QA, merges, and this
   log. Phase 7 was the last builder on the main checkout.
+
+## Phase 8 — eval run engine (PR #15) — first LLM phase
+
+- AcpClient productionized from the spike: env-strip (CLAUDE_CODE_*),
+  permission auto-approve logged as synthetic transcript entries, stderr
+  capture, 8-row failure classification (infra-error exit 3 vs failed 1).
+- RunEngine: sandbox workspace, skill installed at .claude/skills/<slug>/,
+  drift-aware auto version record, incremental transcript.jsonl, workspace
+  diff → artifacts/, immutable run records.
+- **Two real runs green**: builder's gated e2e + orchestrator's independent
+  run in the test workspace — real frame-the-problem skill, claude-code
+  over ACP, FRAMING.md artifact that followed the skill's rules exactly
+  (no invented metrics). 292 tests, 0 fail.
+- Grade columns pre-wired in the index for Phase 9.
+
+## Strategy thread (PRs #12, #13, #14) — skills-repo mode
+
+- Two source notes frozen (marketplace thesis, desktop thesis); Phase 15
+  (Tauri) ruled into the plan.
+- Six-angle competitive scan: coordinator lost its fan-out results;
+  recovered all six full reports from sub-agent transcripts (lesson:
+  coordinator-of-coordinators is fragile — flat fan-out + own synthesis
+  beats delegation of synthesis). Archived under
+  docs/research/2026-07-11-competitive-scan/.
+- Verified headlines: Codex = full peer (open agentskills.io standard +
+  real marketplace); gh skill + Portkey publish without evals; Anthropic
+  skill-creator evals without gating; gstack hand-rolled eval CI; elicit =
+  97 skills + 15 plugins + .command installers (desktop evidence). The
+  version-pinned-pass-rate-gating-publish + model-change-re-earn combo is
+  validated white space.
+- strategy-skills-repo-mode.md v2 requests rulings R1-R5 (adopt-first,
+  Phase 16 placement, Elicit pilot, positioning, dual-marketplace scope).
+
+## Marketing site + domain (PR #11 + infra)
+
+- Site live at skillmaker-studio.pages.dev; custom domains attached, DNS
+  CNAMEs created via cf; awaiting nameserver propagation (zone pending).
