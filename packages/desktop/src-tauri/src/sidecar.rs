@@ -3,7 +3,7 @@
 //! playing nice with `.skillmaker/claims/server.json`.
 
 use regex::Regex;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::OnceLock;
 use tauri::AppHandle;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -25,14 +25,29 @@ pub struct LaunchedWorkspace {
     pub owned_child: Option<CommandChild>,
 }
 
+/// How long the sidecar gets to print its `http://localhost:<port>`
+/// startup line before we give up, kill it, and surface an error. Normal
+/// startup is well under a second (index rebuild included); the point of
+/// the deadline is that a wedged sidecar becomes an error screen, never
+/// an infinite spinner.
+const STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[derive(Debug)]
 pub enum LaunchError {
     Spawn(String),
     /// The sidecar exited before ever printing a `http://localhost:<port>`
-    /// line -- e.g. the workspace has no `skillmaker.config.json`
-    /// (`skillmaker start` prints "no skillmaker workspace found" and
-    /// exits 1), or the compiled binary can't find its `viewer-dist`.
-    NoUrlBeforeExit { stderr_tail: String },
+    /// line -- e.g. the picked folder isn't a skillmaker workspace
+    /// (`skillmaker start` prints "no skillmaker workspace found (run
+    /// `skillmaker init` first)" and exits 1), or the compiled binary
+    /// can't find its `viewer-dist`.
+    NoUrlBeforeExit {
+        stderr_tail: String,
+    },
+    /// The sidecar was still alive but hadn't printed its URL within
+    /// `STARTUP_TIMEOUT`; it has been killed.
+    Timeout {
+        stderr_tail: String,
+    },
 }
 
 /// Launches (or attaches to) the server for `workspace_root`. Reads the
@@ -57,10 +72,7 @@ pub fn launch_workspace(
     spawn_sidecar(app, workspace_root)
 }
 
-fn spawn_sidecar(
-    app: &AppHandle,
-    workspace_root: &Path,
-) -> Result<LaunchedWorkspace, LaunchError> {
+fn spawn_sidecar(app: &AppHandle, workspace_root: &Path) -> Result<LaunchedWorkspace, LaunchError> {
     let shell = app.shell();
     let command = shell
         .sidecar("skillmaker")
@@ -77,42 +89,66 @@ fn spawn_sidecar(
         .spawn()
         .map_err(|error| LaunchError::Spawn(error.to_string()))?;
 
+    // `spawn()` delivers events on a (tokio) channel from a background
+    // reader thread. Tokio's blocking_recv has no timeout variant, so
+    // bridge into a std::sync::mpsc channel -- whose Receiver DOES have
+    // recv_timeout -- via one forwarder task. The forwarder deliberately
+    // ignores send failures and keeps receiving for the process's whole
+    // lifetime: after startup (or after a timeout) nobody reads the std
+    // side any more, but the tokio side must keep draining so the child
+    // never blocks on a full stdout/stderr pipe.
+    let (event_tx, event_rx) = std::sync::mpsc::channel::<CommandEvent>();
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = receiver.recv().await {
+            let _ = event_tx.send(event);
+        }
+    });
+
     let mut stdout_buf = String::new();
     let mut stderr_buf = String::new();
+    let deadline = std::time::Instant::now() + STARTUP_TIMEOUT;
 
-    // `spawn()` delivers events on a channel from a background reader
-    // thread; block this (non-main, see caller) thread on it just long
-    // enough to learn the port, then hand the receiver off to keep
-    // draining in the background so the pipe never backs up.
+    // Block this (non-main, see caller) thread until the startup URL
+    // appears, the sidecar dies, or the deadline passes.
     let url = loop {
-        match receiver.blocking_recv() {
-            Some(CommandEvent::Stdout(bytes)) => {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            let _ = child.kill();
+            return Err(LaunchError::Timeout {
+                stderr_tail: tail(&stderr_buf, 2000),
+            });
+        }
+        match event_rx.recv_timeout(remaining) {
+            Ok(CommandEvent::Stdout(bytes)) => {
                 stdout_buf.push_str(&String::from_utf8_lossy(&bytes));
                 stdout_buf.push('\n');
-                if let Some(captures) = port_url_pattern().captures(&stdout_buf) {
-                    break captures.get(0).unwrap().as_str().to_string();
+                if let Some(matched) = port_url_pattern().find(&stdout_buf) {
+                    break matched.as_str().to_string();
                 }
             }
-            Some(CommandEvent::Stderr(bytes)) => {
+            Ok(CommandEvent::Stderr(bytes)) => {
                 stderr_buf.push_str(&String::from_utf8_lossy(&bytes));
                 stderr_buf.push('\n');
             }
-            Some(CommandEvent::Error(message)) => {
+            Ok(CommandEvent::Error(message)) => {
                 stderr_buf.push_str(&message);
                 stderr_buf.push('\n');
             }
-            Some(CommandEvent::Terminated(_)) | None => {
+            Ok(CommandEvent::Terminated(_))
+            | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 return Err(LaunchError::NoUrlBeforeExit {
                     stderr_tail: tail(&stderr_buf, 2000),
                 });
             }
-            _ => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                return Err(LaunchError::Timeout {
+                    stderr_tail: tail(&stderr_buf, 2000),
+                });
+            }
+            Ok(_) => {}
         }
     };
-
-    // Keep draining stdout/stderr in the background for the process
-    // lifetime so the child never blocks on a full pipe.
-    tauri::async_runtime::spawn(async move { while receiver.recv().await.is_some() {} });
 
     Ok(LaunchedWorkspace {
         url,
@@ -137,7 +173,7 @@ fn tail(s: &str, max_chars: usize) -> String {
 /// the workspace root) rather than recovered from the child, since
 /// `CommandChild` doesn't carry cwd.
 #[cfg(unix)]
-pub fn stop_owned_sidecar(child: CommandChild, claim_path: &PathBuf) {
+pub fn stop_owned_sidecar(child: CommandChild, claim_path: &Path) {
     let pid = child.pid();
     let sigterm_result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
 
@@ -160,6 +196,6 @@ pub fn stop_owned_sidecar(child: CommandChild, claim_path: &PathBuf) {
 }
 
 #[cfg(not(unix))]
-pub fn stop_owned_sidecar(child: CommandChild, _claim_path: &PathBuf) {
+pub fn stop_owned_sidecar(child: CommandChild, _claim_path: &Path) {
     let _ = child.kill();
 }

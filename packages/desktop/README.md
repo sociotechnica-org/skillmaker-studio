@@ -22,11 +22,16 @@ Windows or Linux.
 1. On launch, the app loads a small static loading page
    (`ui/index.html`) into a window immediately, so there's never a blank
    window while the sidecar boots.
-2. It reads a remembered workspace path from
-   `<appDataDir>/settings.json` (a hand-rolled JSON file, not
+2. Once the event loop is live (`RunEvent::Ready` -- NOT in `setup`: a
+   native dialog opened before the NSApp run loop is pumping renders but
+   never receives clicks on macOS), it reads a remembered workspace path
+   from `<appDataDir>/settings.json` (a hand-rolled JSON file, not
    `tauri-plugin-store` -- see `src-tauri/src/settings.rs` for why). If
    there isn't one (first launch, or the remembered folder no longer
-   exists), it shows a native folder-picker dialog.
+   exists), it shows a native folder-picker dialog, parented to the main
+   window as a sheet. Cancelling the picker never quits or hangs the
+   app: the page flips to a message state and the Workspace menu can
+   re-open the picker at any time.
 3. For the chosen workspace, it checks
    `<workspace>/.skillmaker/claims/server.json` -- the same claim file
    `skillmaker start` itself reads/writes
@@ -41,7 +46,13 @@ Windows or Linux.
      collides with a CLI-started instance for a *different* workspace.
      It watches the sidecar's stdout for the
      `http://localhost:<port>` line `skillmaker start` prints once
-     bound, then navigates the window there.
+     bound, then navigates the window there. If the sidecar exits first
+     (e.g. "no skillmaker workspace found") or doesn't print its URL
+     within 15s (it is then killed), the loading page flips to an error
+     state showing the sidecar's stderr excerpt, and a native dialog
+     offers "Choose Another Folder…" to retry -- never an infinite
+     spinner. A folder is only persisted as the remembered workspace
+     after it launches successfully.
 4. **File > Workspace > Switch Workspace…** (`Cmd+Shift+O`) stops the
    sidecar this process owns (if any) and re-runs step 2/3 for a newly
    picked folder.
@@ -55,7 +66,11 @@ The window never grants the loaded content any Tauri IPC surface
 (`tauri.conf.json`'s `app.security.capabilities` is `[]`, and no
 `capabilities/` directory is defined) -- the loading page and the
 sidecar-served viewer are both treated as plain web content with zero
-access to Tauri APIs from JS. This is deliberate defense-in-depth: the
+access to Tauri APIs from JS. The error/loading states on the local page
+are driven one-way from Rust via `WebviewWindow::eval` (the `__sm*` hooks
+in `ui/index.html`); anything interactive (retry, workspace choice) is a
+native dialog or menu item, never page JS. This is deliberate
+defense-in-depth: the
 viewer can render skill content (markdown/HTML) that this phase hasn't
 audited as trusted, so the desktop shell doesn't hand it anything beyond
 what a normal browser tab would have.
@@ -117,13 +132,6 @@ snapshot, not a live link to the checkout.
 ## Known limitations (Phase 15)
 
 - macOS only; no Windows/Linux bundling or testing.
-- No in-app error UI: if the sidecar fails to start (e.g. the picked
-  folder somehow isn't a valid `skillmaker` workspace and `skillmaker
-  init` was never run there), the loading screen just stays up and the
-  reason is only visible in the app's stderr (`Console.app`, or the
-  terminal when run via `bun run dev`). `skillmaker start` itself does
-  print a clear "no skillmaker workspace found" message for that case --
-  it just isn't surfaced in the window yet.
 - Closing the window (red traffic-light button) follows normal macOS
   behavior (app stays running with no window, since no `ExitRequested` is
   triggered) -- there is currently no menu affordance to reopen a window
