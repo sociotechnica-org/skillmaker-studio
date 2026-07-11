@@ -200,6 +200,11 @@ export class MeasurementRecord extends Schema.Class<MeasurementRecord>("Measurem
   model: Schema.String,
   n: Schema.Number,
   passes: Schema.Number,
+  // Fix 3 (F5): counted in `n`'s denominator, never in `passRate`'s
+  // numerator -- kept as their own fields so a partial verdict stays
+  // visible instead of disappearing from the cell.
+  partial: Schema.Number,
+  fail: Schema.Number,
   passRate: Schema.Number,
   ci: Schema.NullOr(Schema.Tuple([Schema.Number, Schema.Number])),
 }) {}

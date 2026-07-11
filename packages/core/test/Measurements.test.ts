@@ -185,6 +185,37 @@ describe("computeMeasurements: never pooled", () => {
     expect(measurement?.passRate).toBeCloseTo(1 / 3, 10);
   });
 
+  // Fix 3 (Phase 20 Story 2 friction log F5): partial verdicts must stay
+  // VISIBLE (their own counted field), even though pass rate stays
+  // pass-only. Before this fix, `partial` had no field at all -- the CLI/
+  // viewer had nothing to render, so a partial verdict silently vanished
+  // from the read-out instead of showing up as its own count.
+  test("partial and fail are counted in their own fields, both included in n, neither in passRate's numerator", () => {
+    const runs: ReadonlyArray<RunIndexRecord> = [
+      run({ id: "r1", verdict: "pass" }),
+      run({ id: "r2", verdict: "partial" }),
+      run({ id: "r3", verdict: "partial" }),
+      run({ id: "r4", verdict: "fail" }),
+    ];
+    const [measurement] = computeMeasurements(runs);
+    expect(measurement?.n).toBe(4);
+    expect(measurement?.passes).toBe(1);
+    expect(measurement?.partial).toBe(2);
+    expect(measurement?.fail).toBe(1);
+    // n === passes + partial + fail, always.
+    expect((measurement?.passes ?? 0) + (measurement?.partial ?? 0) + (measurement?.fail ?? 0)).toBe(
+      measurement?.n,
+    );
+    expect(measurement?.passRate).toBeCloseTo(1 / 4, 10);
+  });
+
+  test("a cell with zero partial/fail reports 0, not undefined -- the field is never missing", () => {
+    const runs: ReadonlyArray<RunIndexRecord> = [run({ id: "r1", verdict: "pass" })];
+    const [measurement] = computeMeasurements(runs);
+    expect(measurement?.partial).toBe(0);
+    expect(measurement?.fail).toBe(0);
+  });
+
   test("all-pass cell uses the tighter of rule-of-three/Wilson (n=3 -> Wilson), mixed cell uses Wilson", () => {
     const allPass: ReadonlyArray<RunIndexRecord> = [
       run({ id: "r1", verdict: "pass" }),
