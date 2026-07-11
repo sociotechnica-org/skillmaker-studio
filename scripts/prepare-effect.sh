@@ -2,6 +2,11 @@
 
 set -eu
 
+# CI and other automated environments don't need the local research clone.
+if [ "${SKIP_EFFECT_CLONE:-0}" = "1" ]; then
+  exit 0
+fi
+
 repo_dir=".repos/effect"
 repo_url="https://github.com/Effect-TS/effect-smol"
 
