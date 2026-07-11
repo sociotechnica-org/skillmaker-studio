@@ -4,15 +4,46 @@
  * plan.md Phase 3). No CORS, no second origin -- the viewer's runtime
  * client hits same-origin `/api/*` paths.
  */
-import { IndexService, IndexServiceLayer, type BundleRecord, type WorkspaceConfig } from "@skillmaker/core";
+import {
+  bundleForEvent,
+  checkTransition,
+  foldBundleStates,
+  guardStatus,
+  IndexService,
+  IndexServiceLayer,
+  Journal,
+  JournalLayer,
+  JournalEvent,
+  type BundleRecord,
+  type WorkspaceConfig,
+} from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
+import { resolveUserActor } from "../ActorResolver.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
 
 const HEARTBEAT_MS = 15_000;
+
+/**
+ * The v1 event catalog (data-model.md §2.9) is much larger than this --
+ * `POST /api/events` only ever accepts the subset a human/agent can
+ * meaningfully cause from outside the CLI's own scaffolding commands.
+ * Everything else (`bundle.created`, `skill.*`, `todo.*`, `run.*`,
+ * `station.started`) stays CLI/engine-only.
+ */
+const ALLOWED_API_EVENT_TYPES = new Set([
+  "bundle.stage_changed",
+  "review.requested",
+  "review.resolved",
+  "bundle.gate_decided",
+  "bundle.archived",
+  "bundle.restored",
+]);
+
+const MAX_BUNDLE_DETAIL_EVENTS = 20;
 
 export interface StartServerOptions {
   readonly root: string;
@@ -50,6 +81,157 @@ const listBundleRecords = (root: string): Promise<ReadonlyArray<BundleRecord>> =
       return yield* index.listBundles();
     }),
   );
+
+const getBundleRecord = (root: string, slug: string): Promise<BundleRecord | undefined> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      return yield* index.getBundle(slug);
+    }),
+  );
+
+const runJournalEffect = <A>(
+  root: string,
+  program: Effect.Effect<A, unknown, Journal>,
+): Promise<A> =>
+  Effect.runPromise(
+    program.pipe(
+      Effect.provide(Layer.provide(JournalLayer(join(root, ".skillmaker", "events.jsonl")), BunServices.layer)),
+    ),
+  );
+
+const readJournalEvents = (root: string): Promise<ReadonlyArray<JournalEvent>> =>
+  runJournalEffect(
+    root,
+    Effect.gen(function* () {
+      const journal = yield* Journal;
+      return yield* journal.readAll();
+    }),
+  );
+
+interface PostEventRequestBody {
+  readonly type?: unknown;
+  readonly payload?: unknown;
+  readonly idempotencyKey?: unknown;
+}
+
+/**
+ * `POST /api/events` -- the server-mediated write path (data-model.md
+ * §2.9/§2.13): schema-validates against the allowlisted subset of the event
+ * catalog, runs the same `Machine.checkTransition` guard the CLI's
+ * `advance` command runs, then appends. Rejections are 409s carrying a
+ * human-readable reason, not silent failures.
+ */
+const handlePostEvent = async (root: string, request: Request): Promise<Response> => {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid JSON body" }, 400);
+  }
+  if (typeof body !== "object" || body === null) {
+    return jsonResponse({ error: "request body must be a JSON object" }, 400);
+  }
+
+  const { type, payload, idempotencyKey } = body as PostEventRequestBody;
+  if (typeof type !== "string" || !ALLOWED_API_EVENT_TYPES.has(type)) {
+    return jsonResponse(
+      { error: `event type "${String(type)}" is not accepted by POST /api/events` },
+      400,
+    );
+  }
+  if (idempotencyKey !== undefined && typeof idempotencyKey !== "string") {
+    return jsonResponse({ error: "idempotencyKey must be a string" }, 400);
+  }
+
+  const actor = await Effect.runPromise(resolveUserActor());
+
+  // Dry-decode against the full event schema (with synthesized envelope
+  // fields) to validate the payload shape and recover a typed payload for
+  // guard-checking, before the journal's own append-time decode.
+  const decodeOutcome = await Effect.runPromise(
+    Effect.result(
+      Schema.decodeUnknownEffect(JournalEvent)({
+        schemaVersion: 1,
+        id: crypto.randomUUID(),
+        at: new Date().toISOString(),
+        actor,
+        ...(typeof idempotencyKey === "string" ? { idempotencyKey } : {}),
+        type,
+        payload,
+      }),
+    ),
+  );
+  if (decodeOutcome._tag === "Failure") {
+    return jsonResponse(
+      { error: `invalid payload for "${type}": ${String(decodeOutcome.failure)}` },
+      400,
+    );
+  }
+  // Envelope fields (id/at/schemaVersion) are discarded -- journal.append
+  // regenerates them; this dry-decode only proved the payload valid.
+  const { id: _id, at: _at, schemaVersion: _schemaVersion, ...eventInput } = decodeOutcome.success;
+
+  if (eventInput.type === "bundle.stage_changed") {
+    const events = await readJournalEvents(root);
+    const verdict = checkTransition(events, eventInput.payload);
+    if (!verdict.allowed) {
+      return jsonResponse({ error: verdict.reason }, 409);
+    }
+  }
+
+  if (eventInput.type === "review.resolved") {
+    const events = await readJournalEvents(root);
+    const state = foldBundleStates(events).get(eventInput.payload.bundle);
+    if (
+      state === undefined ||
+      state.substate !== "awaiting-review" ||
+      state.stage !== eventInput.payload.state
+    ) {
+      return jsonResponse(
+        {
+          error: `bundle "${eventInput.payload.bundle}" is not awaiting review at state "${eventInput.payload.state}"`,
+        },
+        409,
+      );
+    }
+  }
+
+  try {
+    const result = await runJournalEffect(
+      root,
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+        return yield* journal.append(eventInput);
+      }),
+    );
+    return jsonResponse({ status: result.status, event: result.event });
+  } catch (cause) {
+    return jsonResponse({ error: `could not append event: ${String(cause)}` }, 500);
+  }
+};
+
+/** `GET /api/bundles/:slug` -- the detail/review panel data (data-model.md §2.13). */
+const handleBundleDetail = async (root: string, slug: string): Promise<Response> => {
+  const bundle = await getBundleRecord(root, slug);
+  if (bundle === undefined) {
+    return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
+  }
+
+  const events = await readJournalEvents(root);
+  const bundleEvents = events.filter((event) => bundleForEvent(event) === slug);
+  // Newest first, capped at MAX_BUNDLE_DETAIL_EVENTS -- a recent-activity
+  // list, not a full history (that's `skillmaker status --json`).
+  const recentEvents = bundleEvents.slice(-MAX_BUNDLE_DETAIL_EVENTS).reverse();
+
+  return jsonResponse({
+    bundle,
+    guardStatus: guardStatus(events, slug),
+    events: recentEvents,
+  });
+};
 
 /**
  * A single set of SSE subscriber "send" functions, broadcast to on journal
@@ -162,6 +344,21 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return jsonResponse({ bundles });
         } catch (cause) {
           return jsonResponse({ error: `could not list bundles: ${String(cause)}` }, 500);
+        }
+      }
+
+      if (pathname === "/api/events" && request.method === "POST") {
+        return handlePostEvent(root, request);
+      }
+
+      if (pathname.startsWith("/api/bundles/")) {
+        const slug = pathname.slice("/api/bundles/".length);
+        if (slug.length > 0 && !slug.includes("/")) {
+          try {
+            return await handleBundleDetail(root, slug);
+          } catch (cause) {
+            return jsonResponse({ error: `could not load bundle "${slug}": ${String(cause)}` }, 500);
+          }
         }
       }
 

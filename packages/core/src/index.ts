@@ -17,6 +17,14 @@ export * from "./Journal.ts";
 export * from "./Workspace.ts";
 export * from "./Errors.ts";
 export { foldBundleStates, bundleForEvent } from "./Fold.ts";
+export {
+  STAGES,
+  checkTransition,
+  guardStatus,
+  type TransitionVerdict,
+  type CheckTransitionInput,
+  type GuardStatus,
+} from "./Machine.ts";
 
 export { Journal, layer as JournalLayer, type AppendResult } from "./JournalService.ts";
 export {

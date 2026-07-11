@@ -35,3 +35,41 @@ export const fetchJson = async <S extends Schema.ConstraintDecoder<unknown>>(
     throw new RuntimeDecodeError(path, `${path} response failed schema decode: ${String(cause)}`);
   }
 };
+
+export interface RawJsonResponse {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly body: unknown;
+}
+
+/**
+ * `POST` without decode-or-throw on the HTTP status: a non-2xx here (e.g.
+ * the guarded-transition 409) is expected domain information the caller
+ * wants to read and show inline, not an exceptional runtime failure. Only
+ * network errors and non-JSON bodies throw.
+ */
+export const postJson = async (path: string, payload: unknown): Promise<RawJsonResponse> => {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (cause) {
+    throw new RuntimeFetchError(path, `network error posting to ${path}: ${String(cause)}`);
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (cause) {
+    throw new RuntimeFetchError(
+      path,
+      `${path} did not return valid JSON: ${String(cause)}`,
+      response.status,
+    );
+  }
+
+  return { status: response.status, ok: response.ok, body };
+};
