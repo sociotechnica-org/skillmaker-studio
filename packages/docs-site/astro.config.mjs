@@ -10,6 +10,24 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Skillmaker Studio Docs",
+      // Guard against the white FOUC flash that browsers paint during
+      // full-page navigation on this dark-only site: the default UA canvas
+      // is white, and Starlight's own dark background/color-scheme only
+      // land once the external stylesheet finishes loading. Injecting these
+      // tags first in <head> (ahead of the theme-select script and the
+      // stylesheet <link>, both hardcoded after Starlight's <Head/> in
+      // Page.astro) means the very first paint already uses the dark
+      // canvas, so there's nothing to flash from.
+      head: [
+        {
+          tag: "meta",
+          attrs: { name: "color-scheme", content: "dark" },
+        },
+        {
+          tag: "style",
+          content: "html{background-color:#17181c}",
+        },
+      ],
       social: [
         {
           icon: "github",
