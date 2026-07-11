@@ -10,6 +10,27 @@ only way to run it today is from a source checkout, with
 a real install command once the binary is distributed.
 :::
 
+## Once v0.1.0 is tagged: one-command install
+
+:::caution[Not live yet]
+This is the target install story, wired up in CI
+(`.github/workflows/release.yml`) but **not usable yet** — no `v*` tag has
+been pushed, so no GitHub Release exists, and the command below will 404
+until the first one is published. Use "Clone and build" further down until
+then.
+:::
+
+Once a release exists:
+
+```sh
+curl -fsSL https://skillmaker.studio/install.sh | sh
+```
+
+This detects your OS/arch, downloads the matching release tarball from
+GitHub, and installs `skillmaker` (plus the viewer assets it needs) to
+`~/.skillmaker/bin`. Re-run the same command to upgrade. Supported
+platforms at launch: macOS arm64 and Linux x64.
+
 ## Prerequisites
 
 - [bun](https://bun.sh) — the CLI runs directly under bun, no build step

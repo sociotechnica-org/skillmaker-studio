@@ -1,0 +1,97 @@
+name: Release
+
+# Tag-triggered release build: compiles the `skillmaker` binary for each
+# supported platform and publishes a GitHub Release with a tarball per
+# platform (plan.md Phase 18 "installer experience").
+#
+# Scope for this pass: the CLI binary + viewer-dist/ + VERSION, tarred up
+# as `skillmaker-<version>-<os>-<arch>.tar.gz`. The Skillmaker.app bundle
+# (macOS, code-signed + notarized) is explicitly OUT of scope here --
+# signing/notarization is a separate follow-up (plan.md Phase 18 scope
+# item (a) mentions the .app bundle as a later addition, not this pass).
+#
+# Platforms: macOS arm64 (macos-14 runner, native Apple Silicon) and Linux
+# x64 (ubuntu-latest). `bun build --compile` produces a binary for the
+# *host* platform it runs on -- there's no cross-compile step here, so each
+# platform gets its own job on a matching runner. macOS x64 (Intel) is a
+# fast-follow, not built here yet.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - name: Install
+        run: bun install --frozen-lockfile
+        env:
+          # prepare script clones effect source for local research; skip in CI
+          SKIP_EFFECT_CLONE: "1"
+      - name: Build dist artifact
+        run: ./scripts/build-dist.sh
+      - name: Package tarball
+        run: |
+          set -eu
+          version="$(cat dist/VERSION)"
+          # Tar the three artifacts at the archive's top level (not nested
+          # in a wrapper directory) -- install.sh extracts and looks for
+          # ./skillmaker and ./viewer-dist directly.
+          tarball="skillmaker-${version}-darwin-arm64.tar.gz"
+          tar -czf "$tarball" -C dist skillmaker viewer-dist VERSION
+          echo "TARBALL=$tarball" >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skillmaker-darwin-arm64
+          path: ${{ env.TARBALL }}
+
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - name: Install
+        run: bun install --frozen-lockfile
+        env:
+          # prepare script clones effect source for local research; skip in CI
+          SKIP_EFFECT_CLONE: "1"
+      - name: Build dist artifact
+        run: ./scripts/build-dist.sh
+      - name: Package tarball
+        run: |
+          set -eu
+          version="$(cat dist/VERSION)"
+          # Tar the three artifacts at the archive's top level (not nested
+          # in a wrapper directory) -- install.sh extracts and looks for
+          # ./skillmaker and ./viewer-dist directly.
+          tarball="skillmaker-${version}-linux-x64.tar.gz"
+          tar -czf "$tarball" -C dist skillmaker viewer-dist VERSION
+          echo "TARBALL=$tarball" >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skillmaker-linux-x64
+          path: ${{ env.TARBALL }}
+
+  publish-release:
+    needs: [build-macos-arm64, build-linux-x64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          generate_release_notes: true
