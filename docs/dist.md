@@ -43,19 +43,13 @@ under the compiled binary (it still works fine when run from the repo
 checkout via `bun packages/cli/src/main.ts`, which resolves
 `packages/viewer/dist` instead — see "How discovery works" below).
 
-## Installing from a published release (once v0.1.0 is tagged)
+## Installing from a published release
 
-> **Not live yet.** `.github/workflows/release.yml` builds and publishes
-> this on every `v*` tag push, but as of this writing no tag has been
-> pushed and no GitHub Release exists — the install command below will
-> fail with a 404 until the first release is published. Until then, use
-> "Installing from a local build" further down.
-
-Once a release exists, `packages/marketing-site/public/install.sh` (served
-as `https://skillmaker.studio/install.sh` once the marketing site deploys)
-detects your OS/arch, downloads the matching tarball from the latest
-GitHub Release (`sociotechnica-org/skillmaker-studio`), and installs
-`skillmaker` + `viewer-dist/` as siblings under `~/.skillmaker/bin/`:
+`packages/marketing-site/public/install.sh` (served as
+`https://skillmaker.studio/install.sh`) detects your OS/arch, downloads the
+matching tarball from the latest GitHub Release
+(`sociotechnica-org/skillmaker-studio`), and installs `skillmaker` +
+`viewer-dist/` as siblings under `~/.skillmaker/bin/`:
 
 ```sh
 curl -fsSL https://skillmaker.studio/install.sh | sh
@@ -67,7 +61,7 @@ upgrade. Supported platforms today: macOS arm64 (`darwin-arm64`) and Linux
 x64 (`linux-x64`) — see `.github/workflows/release.yml`. macOS x64 (Intel)
 and Linux arm64 are fast-follows.
 
-## Installing from a local build
+## Installing from source (building locally)
 
 Copy the two artifacts anywhere on the target machine, keeping them
 siblings, and put the binary on `PATH`:

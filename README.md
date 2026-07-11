@@ -20,6 +20,8 @@ passes at rate r over n runs" stay separate facts, honestly displayed.
 ## Quickstart
 
 ```sh
+curl -fsSL https://skillmaker.studio/install.sh | sh   # macOS arm64 + Linux x64
+
 # in any git repo that should hold skills
 skillmaker init                 # config + journal + skills/
 skillmaker new my-first-skill   # scaffold a Skill Bundle
