@@ -4,6 +4,7 @@
  */
 import { Effect } from "effect";
 import { type CliResult, ok, usageError } from "./CliResult.ts";
+import { runAdopt } from "./commands/Adopt.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runBookBuild } from "./commands/BookBuild.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
@@ -29,6 +30,7 @@ Usage: skillmaker <command> [options]
 Commands:
   init              Initialize a skillmaker workspace in the current directory
   new <slug>        Create a new Skill Bundle under skills/<slug>/
+  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles
   list              List Skill Bundles by stage/substate (rebuilds the index first)
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
@@ -181,6 +183,10 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const slug = positionalAfterCommand(argv);
       const name = flagValue(argv, "--name");
       return yield* runNew(cwd, slug, { json, name });
+    }
+    case "adopt": {
+      const targetPath = positionalAfterCommand(argv);
+      return yield* runAdopt(cwd, targetPath, { json });
     }
     case "list":
       return yield* runList(cwd, { json });

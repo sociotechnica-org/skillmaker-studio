@@ -100,10 +100,26 @@ export {
   foldSkillVersions,
   latestSkillVersion,
   shortHash,
+  ADOPT_MARKER_FILENAME,
+  ADOPT_EXCLUDED_NAMES,
   type BundleHashes,
+  type BundleLayout,
   type Drift,
   type SkillVersion,
+  type HashOutputTreeOptions,
 } from "./Versions.ts";
+export {
+  adoptWorkspace,
+  parseFrontmatter,
+  AdoptMarker,
+  type AdoptedSkill,
+  type SkippedSkill,
+  type AdoptReport,
+  type Frontmatter,
+  type FrontmatterValue,
+  type ParsedFrontmatter,
+  type SkillLifecycle,
+} from "./Adopt.ts";
 export { didSkillActivate } from "./SkillActivation.ts";
 export {
   resolveProviderProfile,

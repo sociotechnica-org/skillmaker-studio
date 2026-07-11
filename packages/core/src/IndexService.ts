@@ -22,7 +22,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import type { Path } from "effect/Path";
 import { renameSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
 import type { BundleStage, BundleSubstate } from "./Bundle.ts";
 import { BundleState } from "./Bundle.ts";
@@ -39,8 +39,14 @@ import type { JournalEvent, RunVerdict } from "./Journal.ts";
 import { RunRecord } from "./Run.ts";
 import type { RunStatus } from "./Run.ts";
 import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
-import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
-import type { Drift } from "./Versions.ts";
+import {
+  ADOPT_MARKER_FILENAME,
+  computeBundleHashes,
+  computeDrift,
+  foldSkillVersions,
+  latestSkillVersion,
+} from "./Versions.ts";
+import type { BundleLayout, Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
 import { computeMeasurements } from "./Measurements.ts";
 import {
@@ -236,6 +242,16 @@ interface RunRow {
 
 /** bun:sqlite's named-parameter binding shape. */
 type SqliteBindings = Record<string, string | number | boolean | null>;
+
+/** One materialized bundle.json, with where it actually lives and how its output tree hashes. */
+interface BundleIdentityLocation {
+  readonly identity: BundleIdentity;
+  readonly dir: string;
+  readonly layout: BundleLayout;
+}
+
+/** Directory names never descended into while scanning for `bundle.json` (mirrors `Adopt.ts`'s discovery skip-list). */
+const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set(["node_modules", ".git", "dist", ".skillmaker"]);
 
 const BUNDLE_STAGES: ReadonlyArray<BundleStage> = [
   "idea",
@@ -702,33 +718,62 @@ export const layer = (
       });
 
       /**
-       * Scans `skills/*\/bundle.json`, tolerating and reporting malformed
-       * files as warnings rather than failing (ruling I). Keyed by directory
-       * name, which is the canonical slug.
+       * Recursively scans the whole workspace for `bundle.json` files
+       * (tolerating and reporting malformed ones as warnings, never failing
+       * -- ruling I), not just one level under `config.skillsDir`: an
+       * in-place-adopted bundle (`Adopt.ts`, strategy-skills-repo-mode.md
+       * §3B.8) is never moved into `skillsDir`, so it can live anywhere in
+       * the tree. A directory carrying the `.skillmaker-adopt.json` marker
+       * alongside its `bundle.json` is layout `"in-place"`; every other
+       * `bundle.json` (including ones under `skillsDir`, the normal case)
+       * is layout `"output-dir"`. Keyed by the identity's own `slug` field,
+       * not the directory name, since an adopted directory's basename need
+       * not equal its (slugified) bundle slug.
        */
       const scanBundleIdentities = Effect.fn("IndexService.scanBundleIdentities")(function* () {
-        const identities = new Map<string, BundleIdentity>();
+        const identities = new Map<string, BundleIdentityLocation>();
         const warnings: WarningRecord[] = [];
 
-        const skillsDirExists = yield* fs
-          .exists(skillsDir)
-          .pipe(Effect.mapError(toIndexError(`could not check ${skillsDir}`)));
-        if (!skillsDirExists) {
+        const rootExists = yield* fs
+          .exists(workspaceRoot)
+          .pipe(Effect.mapError(toIndexError(`could not check ${workspaceRoot}`)));
+        if (!rootExists) {
           return { identities, warnings };
         }
 
-        const entries = yield* fs
-          .readDirectory(skillsDir)
-          .pipe(Effect.mapError(toIndexError(`could not list ${skillsDir}`)));
-
-        for (const entry of entries) {
-          const bundleJsonPath = join(skillsDir, entry, "bundle.json");
-          const bundleJsonExists = yield* fs
-            .exists(bundleJsonPath)
-            .pipe(Effect.mapError(toIndexError(`could not check ${bundleJsonPath}`)));
-          if (!bundleJsonExists) {
+        const stack: string[] = [workspaceRoot];
+        while (stack.length > 0) {
+          const dir = stack.pop();
+          if (dir === undefined) {
             continue;
           }
+
+          const entries = yield* fs
+            .readDirectory(dir)
+            .pipe(Effect.mapError(toIndexError(`could not list ${dir}`)));
+
+          let hasBundleJson = false;
+          for (const entry of entries) {
+            const full = join(dir, entry);
+            const info = yield* fs.stat(full).pipe(Effect.mapError(toIndexError(`could not stat ${full}`)));
+            if (info.type === "Directory") {
+              if (BUNDLE_SCAN_SKIP_DIR_NAMES.has(entry)) {
+                continue;
+              }
+              stack.push(full);
+              continue;
+            }
+            if (info.type === "File" && entry === "bundle.json") {
+              hasBundleJson = true;
+            }
+          }
+
+          if (!hasBundleJson) {
+            continue;
+          }
+
+          const bundleJsonPath = join(dir, "bundle.json");
+          const relativeLabel = relative(workspaceRoot, bundleJsonPath).split(sep).join("/");
 
           const attempt = Effect.gen(function* () {
             const raw = yield* fs.readFileString(bundleJsonPath);
@@ -742,13 +787,28 @@ export const layer = (
           const outcome = yield* Effect.result(attempt);
           if (outcome._tag === "Failure") {
             warnings.push({
-              bundle: entry,
               source: "bundle.json",
-              message: `${skillsDirName}/${entry}/bundle.json is malformed and was skipped: ${String(outcome.failure)}`,
+              message: `${relativeLabel} is malformed and was skipped: ${String(outcome.failure)}`,
             });
             continue;
           }
-          identities.set(entry, outcome.success);
+
+          const identity = outcome.success;
+          const markerExists = yield* fs
+            .exists(join(dir, ADOPT_MARKER_FILENAME))
+            .pipe(Effect.mapError(toIndexError(`could not check ${join(dir, ADOPT_MARKER_FILENAME)}`)));
+          const layout: BundleLayout = markerExists ? "in-place" : "output-dir";
+
+          const existing = identities.get(identity.slug);
+          if (existing !== undefined) {
+            warnings.push({
+              bundle: identity.slug,
+              source: "bundle.json",
+              message: `duplicate bundle.json for slug "${identity.slug}" at ${relativeLabel} (already found at ${relative(workspaceRoot, existing.dir).split(sep).join("/")}) was skipped`,
+            });
+            continue;
+          }
+          identities.set(identity.slug, { identity, dir, layout });
         }
 
         return { identities, warnings };
@@ -953,7 +1013,8 @@ export const layer = (
         const riskCoverageRecords: RiskCoverageRecord[] = [];
         const runRecords: RunIndexRecord[] = [];
         for (const slug of slugs) {
-          const identity = identities.get(slug);
+          const located = identities.get(slug);
+          const identity = located?.identity;
           if (identity === undefined) {
             warnings.push({
               bundle: slug,
@@ -983,9 +1044,13 @@ export const layer = (
           // `hashDesign`/`hashOutputTree` both tolerate a missing path
           // (treating it as empty), so this is safe even for a journal-only
           // "ghost" bundle (identity undefined, see the warning above) that
-          // has no skills/<slug>/ directory on disk.
-          const bundleDir = join(skillsDir, slug);
-          const hashes = yield* computeBundleHashes(bundleDir).pipe(
+          // has no directory on disk at all -- it falls back to the default
+          // `skillsDir/<slug>/` location, `output-dir` layout. A located
+          // bundle uses its actual directory and layout (`"in-place"` for an
+          // adopted bundle, `Adopt.ts`).
+          const bundleDir = located?.dir ?? join(skillsDir, slug);
+          const layout = located?.layout ?? "output-dir";
+          const hashes = yield* computeBundleHashes(bundleDir, layout).pipe(
             Effect.provideService(FileSystem, fs),
             Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not hash bundle "${slug}"`)(cause)),
           );
