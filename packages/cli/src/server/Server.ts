@@ -8,6 +8,7 @@ import {
   bundleForEvent,
   checkTransition,
   foldBundleStates,
+  foldTodos,
   guardStatus,
   IndexService,
   IndexServiceLayer,
@@ -15,6 +16,7 @@ import {
   JournalLayer,
   JournalEvent,
   type BundleRecord,
+  type TodoRecord,
   type WorkspaceConfig,
 } from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
@@ -31,8 +33,10 @@ const HEARTBEAT_MS = 15_000;
  * The v1 event catalog (data-model.md §2.9) is much larger than this --
  * `POST /api/events` only ever accepts the subset a human/agent can
  * meaningfully cause from outside the CLI's own scaffolding commands.
- * Everything else (`bundle.created`, `skill.*`, `todo.*`, `run.*`,
- * `station.started`) stays CLI/engine-only.
+ * Everything else (`bundle.created`, `skill.*`, `run.*`, `station.started`)
+ * stays CLI/engine-only. `todo.*` joined the allowlist in Phase 5 -- the
+ * viewer's todos panel writes directly through this path, same as bundle
+ * stage/review actions.
  */
 const ALLOWED_API_EVENT_TYPES = new Set([
   "bundle.stage_changed",
@@ -41,6 +45,9 @@ const ALLOWED_API_EVENT_TYPES = new Set([
   "bundle.gate_decided",
   "bundle.archived",
   "bundle.restored",
+  "todo.opened",
+  "todo.updated",
+  "todo.status_changed",
 ]);
 
 const MAX_BUNDLE_DETAIL_EVENTS = 20;
@@ -89,6 +96,16 @@ const getBundleRecord = (root: string, slug: string): Promise<BundleRecord | und
       const index = yield* IndexService;
       yield* index.rebuild();
       return yield* index.getBundle(slug);
+    }),
+  );
+
+const listTodoRecords = (root: string, includeArchived: boolean): Promise<ReadonlyArray<TodoRecord>> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      return yield* index.listTodos({ includeArchived });
     }),
   );
 
@@ -179,6 +196,30 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
     const verdict = checkTransition(events, eventInput.payload);
     if (!verdict.allowed) {
       return jsonResponse({ error: verdict.reason }, 409);
+    }
+  }
+
+  if (eventInput.type === "todo.updated") {
+    const events = await readJournalEvents(root);
+    const current = foldTodos(events).get(eventInput.payload.id);
+    if (current === undefined) {
+      return jsonResponse({ error: `no such todo "${eventInput.payload.id}"` }, 409);
+    }
+  }
+
+  if (eventInput.type === "todo.status_changed") {
+    const events = await readJournalEvents(root);
+    const current = foldTodos(events).get(eventInput.payload.id);
+    if (current === undefined) {
+      return jsonResponse({ error: `no such todo "${eventInput.payload.id}"` }, 409);
+    }
+    if (current.status !== eventInput.payload.from) {
+      return jsonResponse(
+        {
+          error: `stale "from": todo "${eventInput.payload.id}" is currently "${current.status}", not "${eventInput.payload.from}"`,
+        },
+        409,
+      );
     }
   }
 
@@ -349,6 +390,16 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
       if (pathname === "/api/events" && request.method === "POST") {
         return handlePostEvent(root, request);
+      }
+
+      if (pathname === "/api/todos") {
+        try {
+          const includeArchived = url.searchParams.get("all") === "1";
+          const todos = await listTodoRecords(root, includeArchived);
+          return jsonResponse({ todos });
+        } catch (cause) {
+          return jsonResponse({ error: `could not list todos: ${String(cause)}` }, 500);
+        }
       }
 
       if (pathname.startsWith("/api/bundles/")) {
