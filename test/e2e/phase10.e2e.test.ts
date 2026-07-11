@@ -84,9 +84,10 @@ const cliStationRun = (slug: string, env?: Record<string, string>) => {
 };
 
 const postEvent = async (body: unknown): Promise<{ status: number; body: unknown }> => {
-  // review.resolved is only writable through the server-mediated
-  // `POST /api/events` path (Server.ts) -- there is no dedicated CLI
-  // subcommand for it (the viewer's review panel is the only client).
+  // Exercises the server-mediated `POST /api/events` path (Server.ts) --
+  // one of the two doors onto `review.resolved`. The other is the
+  // `skillmaker review resolve` CLI subcommand (ReviewResolve.ts), covered
+  // by test/e2e/phase20-story4-review-resolve.e2e.test.ts.
   const port = 24000 + Math.floor(Math.random() * 8000);
   const baseUrl = `http://localhost:${port}`;
   const serverProcess = Bun.spawn(["bun", cliEntry, "start", "--port", String(port), "--no-open"], {

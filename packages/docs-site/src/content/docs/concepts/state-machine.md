@@ -54,9 +54,9 @@ review ("review.resolved" with decision "approve" for state "idea")
 recorded since the last stage change
 ```
 
-Request a review, then approve it (today, review resolution is driven from
-the viewer's review panel — see the review-pair note below), and the same
-`advance` call succeeds:
+Request a review, then approve it — from the viewer's review panel, or from
+the terminal with `skillmaker review resolve` (see the review-pair note
+below) — and the same `advance` call succeeds:
 
 ```sh
 skillmaker review request my-first-skill --question "Ready?"
@@ -75,11 +75,14 @@ and `--override`.
 
 Requesting a review never blocks anything — the bundle just enters
 `awaiting-review` and work can continue elsewhere. A human resolves the
-review in the viewer: **approve** satisfies the forward guard for that
-stage; **revise** (with notes) clears the `awaiting-review` substate
-without unlocking the guard, so the work continues at the same stage. This
-is deliberate: human gates are data on the journal, never a blocked
-process.
+review either in the viewer's review panel or with
+[`skillmaker review resolve`](/cli/review-resolve/) — both write the same
+`review.resolved` event through the same guard: **approve** satisfies the
+forward guard for that stage; **revise** (with notes) clears the
+`awaiting-review` substate without unlocking the guard, so the work
+continues at the same stage. Solo publishers and CI automation never need
+the browser for this. This is deliberate: human gates are data on the
+journal, never a blocked process.
 
 ## Why backward moves are always legal
 

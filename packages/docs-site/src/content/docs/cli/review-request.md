@@ -11,7 +11,9 @@ Requests a review of the bundle's work at its current stage: appends a
 `review.requested` event and moves the bundle into the `awaiting-review`
 substate. This is the CLI's half of the
 [non-blocking review pair](/concepts/state-machine/#the-non-blocking-review-pair)
-— resolution (`approve` or `revise`) happens in the viewer's review panel.
+— resolution (`approve` or `revise`) happens either in the viewer's review
+panel or via [`skillmaker review resolve`](/cli/review-resolve/), the CLI's
+other half of the pair.
 
 ## Options
 
@@ -33,6 +35,9 @@ An approved review is what unlocks
 `advance` refuses to move the bundle forward at all.
 
 ## See also
+
+[`skillmaker review resolve`](/cli/review-resolve/) to approve or send back
+the review from the terminal.
 
 [The production state machine](/concepts/state-machine/) for the full
 guard table.
