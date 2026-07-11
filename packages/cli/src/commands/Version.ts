@@ -8,6 +8,7 @@
  */
 import {
   computeBundleHashes,
+  detectBundleLayout,
   JournalLayer,
   recordSkillVersion,
   shortHash,
@@ -60,7 +61,8 @@ export const runVersionRecord = Effect.fn("runVersionRecord")(function* (
     return expectedFailure(`skillmaker version record: no such bundle "${slug}"\n`);
   }
 
-  const { designHash, outputHash } = yield* computeBundleHashes(bundleDir);
+  const layout = yield* detectBundleLayout(bundleDir);
+  const { designHash, outputHash } = yield* computeBundleHashes(bundleDir, layout);
 
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
