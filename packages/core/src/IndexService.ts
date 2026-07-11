@@ -609,6 +609,45 @@ export class IndexService extends Context.Service<
  * `workspaceRoot`. A factory (like `JournalLayer`/`WorkspaceService` scoped
  * calls) because the workspace root is a genuine runtime parameter.
  */
+/**
+ * Per-workspace-root serialization: every `GET /api/*` handler in the CLI
+ * server opens its OWN `IndexService` layer (its own `bun:sqlite`
+ * connection to `studio.db`) and calls `rebuild()` -- there is no shared,
+ * long-lived index session. `rebuild()`'s atomic-rename trick
+ * (temp-file-then-`renameSync`-over-`studio.db`) is safe against a single
+ * concurrent READER on POSIX, but NOT against a second concurrent WRITER
+ * doing its own rename of the same path: on macOS/APFS, one connection's
+ * `renameSync` over a path another connection still has open can leave that
+ * other connection's `bun:sqlite` handle pointing at an invalidated vnode,
+ * surfacing as `SQLiteError: disk I/O error (SQLITE_IOERR_VNODE)` on its
+ * next query. This is exactly what a real browser session triggers: the
+ * viewer's initial page load fires several `/api/*` requests concurrently
+ * (bundles, state, todos, skillbook, the events SSE stream), each spinning
+ * up its own layer instance and rebuilding at the same time -- so
+ * `GET /api/skillbook` intermittently 500s right after startup, while a
+ * later, uncontended `curl` succeeds. This queue makes the whole
+ * open-connection -> rebuild -> query -> close-connection lifecycle of one
+ * `IndexService` layer instance run to completion before the next one (for
+ * the same workspace root) is allowed to start, which removes the
+ * concurrent-writer case entirely rather than trying to make `bun:sqlite`
+ * tolerate it.
+ */
+const workspaceLocks = new Map<string, Promise<void>>();
+
+const acquireWorkspaceLock = (workspaceRoot: string): Effect.Effect<() => void> =>
+  Effect.callback<() => void>((resume) => {
+    const previous = workspaceLocks.get(workspaceRoot) ?? Promise.resolve();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    workspaceLocks.set(
+      workspaceRoot,
+      previous.then(() => held),
+    );
+    void previous.then(() => resume(Effect.succeed(release)));
+  });
+
 export const layer = (
   workspaceRoot: string,
 ): Layer.Layer<IndexService, IndexError | JournalReadError, FileSystem | Path> => {
@@ -647,6 +686,15 @@ export const layer = (
           ? skillsDirOutcome.success.skillsDir
           : "skills";
       const skillsDir = join(workspaceRoot, skillsDirName);
+
+      // Wait our turn on `workspaceLocks` (see the comment above
+      // `acquireWorkspaceLock`) BEFORE even checking `dbExisted`, and don't
+      // release until this whole layer instance's db connection is closed
+      // (the release below runs LIFO, after the handle's own release) --
+      // so no two layer instances for the SAME workspace root ever have a
+      // `studio.db` connection open, or a stale `dbExisted` read, at the
+      // same time.
+      yield* Effect.acquireRelease(acquireWorkspaceLock(workspaceRoot), (release) => Effect.sync(release));
 
       const dbExisted = yield* fs
         .exists(dbPath)
