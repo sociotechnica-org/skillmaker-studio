@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "name": "skillmaker-studio-phase10",
+  "skillsDir": "skills",
+  "viewer": {
+    "port": 4323
+  },
+  "trackRuns": true,
+  "providers": {
+    "claude-code": {
+      "command": [
+        "npx",
+        "-y",
+        "@zed-industries/claude-code-acp@latest"
+      ]
+    },
+    "codex": {
+      "command": [
+        "codex-acp"
+      ]
+    }
+  },
+  "publishTargets": []
+}
