@@ -9,6 +9,8 @@ import {
   IndexServiceLayer,
   Journal,
   JournalLayer,
+  shortHash,
+  type VersionRecord,
   Workspace,
 } from "@skillmaker/core";
 import { Effect, Layer } from "effect";
@@ -24,6 +26,7 @@ interface StatusView {
   readonly eventCount: number;
   readonly lastEventType: string | undefined;
   readonly lastEventAt: string | undefined;
+  readonly latestVersion: VersionRecord | undefined;
 }
 
 export const runStatus = Effect.fn("runStatus")(function* (
@@ -56,6 +59,14 @@ export const runStatus = Effect.fn("runStatus")(function* (
       const index = yield* IndexService;
       const journal = yield* Journal;
 
+      // `getBundle`/`listVersions` read the SQLite index, which is only
+      // rebuilt on `list`/`reindex`/`start` or on first bootstrap
+      // (IndexService.ts) -- without an explicit rebuild here, `status`
+      // could show a stage/drift/version snapshot stale by however long it's
+      // been since one of those ran. Cheap at this scale (see rebuild()'s
+      // own doc comment), so just always rebuild first.
+      yield* index.rebuild();
+
       const bundle = yield* index.getBundle(slug);
       if (bundle === undefined) {
         return undefined;
@@ -65,11 +76,14 @@ export const runStatus = Effect.fn("runStatus")(function* (
       const bundleEvents = events.filter((event) => bundleForEvent(event) === slug);
       const lastEvent = bundleEvents.at(-1);
 
+      const versions = yield* index.listVersions(slug);
+
       const view: StatusView = {
         bundle,
         eventCount: bundleEvents.length,
         lastEventType: lastEvent?.type,
         lastEventAt: lastEvent?.at,
+        latestVersion: versions[0],
       };
       return view;
     }).pipe(Effect.provide(layers)),
@@ -87,7 +101,7 @@ export const runStatus = Effect.fn("runStatus")(function* (
 });
 
 const summarize = (view: StatusView, json: boolean): CliResult => {
-  const { bundle } = view;
+  const { bundle, latestVersion } = view;
   if (json) {
     return ok(
       `${JSON.stringify({
@@ -102,6 +116,13 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
         eventCount: view.eventCount,
         lastEventType: view.lastEventType ?? null,
         lastEventAt: view.lastEventAt ?? null,
+        designHash: bundle.designHash,
+        outputHash: bundle.outputHash,
+        drift: bundle.drift,
+        latestVersion:
+          latestVersion !== undefined
+            ? { hash: latestVersion.hash, label: latestVersion.label ?? null, recordedAt: latestVersion.recordedAt }
+            : null,
       })}\n`,
     );
   }
@@ -117,6 +138,14 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
     `archived:    ${bundle.archived}`,
     `events:      ${view.eventCount}`,
     `last event:  ${view.lastEventType !== undefined ? `${view.lastEventType} at ${view.lastEventAt}` : "(none)"}`,
+    `design:      ${shortHash(bundle.designHash)}`,
+    `output:      ${shortHash(bundle.outputHash)}`,
+    `drift:       ${bundle.drift}`,
+    `version:     ${
+      latestVersion !== undefined
+        ? `${shortHash(latestVersion.hash)}${latestVersion.label !== undefined ? ` "${latestVersion.label}"` : ""} at ${latestVersion.recordedAt}`
+        : "(none recorded)"
+    }`,
   ];
   return ok(`${lines.join("\n")}\n`);
 };

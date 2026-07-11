@@ -8,9 +8,11 @@ import { fetchJson, postJson } from "./client.ts";
 import {
   ApiErrorResponse,
   BundleDetailResponse,
+  BundleFileResponse,
   BundlesResponse,
   HealthResponse,
   PostEventResponse,
+  RecordVersionResponse,
   StateResponse,
   TodosResponse,
 } from "./schemas.ts";
@@ -24,6 +26,13 @@ export const getBundles = (): Promise<BundlesResponse> =>
 
 export const getBundleDetail = (slug: string): Promise<BundleDetailResponse> =>
   fetchJson(`/api/bundles/${encodeURIComponent(slug)}`, BundleDetailResponse);
+
+/** `GET /api/bundles/:slug/file?path=design.md|output/...` -- the Files tab. */
+export const getBundleFile = (slug: string, path: string): Promise<BundleFileResponse> =>
+  fetchJson(
+    `/api/bundles/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`,
+    BundleFileResponse,
+  );
 
 /** `GET /api/todos[?all=1]` -- the todos panel's data (data-model.md §2.10/§2.11). */
 export const getTodos = (includeArchived: boolean): Promise<TodosResponse> =>
@@ -52,6 +61,32 @@ export const postEvent = async (input: PostEventInput): Promise<PostEventResult>
 
   if (raw.ok) {
     const decoded = await Schema.decodeUnknownPromise(PostEventResponse)(raw.body);
+    return { ok: true, response: decoded };
+  }
+
+  const decodedError = await Schema.decodeUnknownPromise(ApiErrorResponse)(raw.body).catch(() =>
+    FALLBACK_ERROR(raw.status),
+  );
+  return { ok: false, error: decodedError.error };
+};
+
+export type RecordVersionResult =
+  | { readonly ok: true; readonly response: RecordVersionResponse }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * `POST /api/bundles/:slug/record-version` -- the Versions tab's "Record
+ * version" button. Hashing happens server-side (the same core function the
+ * CLI uses), not here -- this is a plain typed wrapper, same shape as
+ * `postEvent`.
+ */
+export const recordVersion = async (slug: string, label: string | undefined): Promise<RecordVersionResult> => {
+  const raw = await postJson(`/api/bundles/${encodeURIComponent(slug)}/record-version`, {
+    ...(label !== undefined ? { label } : {}),
+  });
+
+  if (raw.ok) {
+    const decoded = await Schema.decodeUnknownPromise(RecordVersionResponse)(raw.body);
     return { ok: true, response: decoded };
   }
 

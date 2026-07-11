@@ -13,6 +13,7 @@ import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStatus } from "./commands/Status.ts";
 import { runTodoAdd, runTodoList, runTodoStatus, type TodoStatusCommand } from "./commands/Todo.ts";
+import { runVersionRecord } from "./commands/Version.ts";
 
 const USAGE = `skillmaker — Skillmaker Studio CLI
 
@@ -27,6 +28,7 @@ Commands:
   start             Serve the viewer + API (default port from config, or 4323)
   review request <slug>   Request review of the bundle's current stage work
   advance <slug>          Move a bundle along the state machine (guarded)
+  version record <slug>   Record a version: hash design.md + output/ (idempotent on content)
   todo add <title>        Open a new todo
   todo list               List todos (rebuilds the index first)
   todo done <id>          Mark a todo done
@@ -40,6 +42,7 @@ Options:
   --port <n>        (start) Port to serve on; overrides skillmaker.config.json
   --no-open         (start) Do not open a browser on startup
   --question <text> (review request) Question for the reviewer
+  --label <text>    (version record) Human tag for the recorded version, e.g. "v0.3"
   --to <stage>      (advance) Target stage; defaults to the next stage
   --back <stage>    (advance) Move backward to an earlier stage (requires --reason)
   --reason <text>   (advance) Reason for a backward move
@@ -75,6 +78,7 @@ const VALUE_FLAGS = new Set([
   "--bundle",
   "--detail",
   "--priority",
+  "--label",
 ]);
 
 const TODO_STATUS_COMMANDS: ReadonlySet<string> = new Set(["done", "start", "drop", "reopen"]);
@@ -155,6 +159,17 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const back = flagValue(argv, "--back");
       const reason = flagValue(argv, "--reason");
       return yield* runAdvance(cwd, slug, { json, to, back, reason, override: hasFlag(argv, "--override") });
+    }
+    case "version": {
+      const subcommand = argv[1];
+      if (subcommand !== "record") {
+        return usageError(
+          `skillmaker: unknown "version" subcommand "${String(subcommand)}"\n\nUsage: skillmaker version record <slug> [--label <text>]\n`,
+        );
+      }
+      const slug = positionalAfter(argv, 2);
+      const label = flagValue(argv, "--label");
+      return yield* runVersionRecord(cwd, slug, { json, label });
     }
     case "todo": {
       const subcommand = argv[1];

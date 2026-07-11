@@ -47,6 +47,20 @@ export {
   layer as IndexServiceLayer,
   type BundleRecord,
   type TodoRecord,
+  type VersionRecord,
   type ListTodosOptions,
   type RebuildResult,
 } from "./IndexService.ts";
+export {
+  hashFile,
+  hashOutputTree,
+  hashDesign,
+  computeBundleHashes,
+  computeDrift,
+  foldSkillVersions,
+  latestSkillVersion,
+  shortHash,
+  type BundleHashes,
+  type Drift,
+  type SkillVersion,
+} from "./Versions.ts";

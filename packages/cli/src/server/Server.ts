@@ -7,6 +7,7 @@
 import {
   bundleForEvent,
   checkTransition,
+  computeBundleHashes,
   foldBundleStates,
   foldTodos,
   guardStatus,
@@ -15,14 +16,16 @@ import {
   Journal,
   JournalLayer,
   JournalEvent,
+  type Actor,
   type BundleRecord,
   type TodoRecord,
+  type VersionRecord,
   type WorkspaceConfig,
 } from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import { extname, join, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
@@ -99,6 +102,16 @@ const getBundleRecord = (root: string, slug: string): Promise<BundleRecord | und
     }),
   );
 
+const listVersionRecords = (root: string, slug: string): Promise<ReadonlyArray<VersionRecord>> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      return yield* index.listVersions(slug);
+    }),
+  );
+
 const listTodoRecords = (root: string, includeArchived: boolean): Promise<ReadonlyArray<TodoRecord>> =>
   runIndexEffect(
     root,
@@ -126,6 +139,43 @@ const readJournalEvents = (root: string): Promise<ReadonlyArray<JournalEvent>> =
       const journal = yield* Journal;
       return yield* journal.readAll();
     }),
+  );
+
+type AppendVersionOutcome =
+  | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }
+  | { readonly kind: "conflict"; readonly message: string };
+
+/**
+ * Appends `skill.version_recorded` with the same idempotency semantics as
+ * the CLI's `skillmaker version record` (Version.ts): same content twice is
+ * a no-op, same hash with a different label is a conflict.
+ */
+const appendVersion = (
+  root: string,
+  slug: string,
+  actor: Actor,
+  outputHash: string,
+  designHash: string,
+  label: string | undefined,
+): Promise<AppendVersionOutcome> =>
+  runJournalEffect(
+    root,
+    Effect.gen(function* () {
+      const journal = yield* Journal;
+      const result = yield* journal.append({
+        type: "skill.version_recorded",
+        actor,
+        // See Version.ts's CLI equivalent: keyed on BOTH hashes so a
+        // design-only change doesn't collide with the prior version's key.
+        idempotencyKey: `skill.version_recorded:${slug}:${designHash}:${outputHash}`,
+        payload: { bundle: slug, hash: outputHash, designHash, ...(label !== undefined ? { label } : {}) },
+      });
+      return { kind: "ok" as const, status: result.status };
+    }).pipe(
+      Effect.catchTag("JournalIdempotencyConflictError", (error) =>
+        Effect.succeed<AppendVersionOutcome>({ kind: "conflict", message: error.message }),
+      ),
+    ),
   );
 
 interface PostEventRequestBody {
@@ -254,7 +304,12 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
   }
 };
 
-/** `GET /api/bundles/:slug` -- the detail/review panel data (data-model.md §2.13). */
+/**
+ * `GET /api/bundles/:slug` -- the detail/review panel data (data-model.md
+ * §2.13, §2.7). `bundle` already carries the live `designHash`/`outputHash`/
+ * `drift` (computed at `rebuild()`, data-model.md §2.7); `versions` is the
+ * full recorded history, newest first.
+ */
 const handleBundleDetail = async (root: string, slug: string): Promise<Response> => {
   const bundle = await getBundleRecord(root, slug);
   if (bundle === undefined) {
@@ -267,11 +322,119 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
   // list, not a full history (that's `skillmaker status --json`).
   const recentEvents = bundleEvents.slice(-MAX_BUNDLE_DETAIL_EVENTS).reverse();
 
+  const versions = await listVersionRecords(root, slug);
+
   return jsonResponse({
     bundle,
     guardStatus: guardStatus(events, slug),
     events: recentEvents,
+    versions,
   });
+};
+
+interface RecordVersionRequestBody {
+  readonly label?: unknown;
+}
+
+/**
+ * `POST /api/bundles/:slug/record-version` -- the viewer's "Record version"
+ * button. Hashing is I/O, not client business, so this endpoint computes
+ * hashes server-side via the SAME `computeBundleHashes` the CLI's
+ * `skillmaker version record` calls (Version.ts) rather than accepting
+ * hashes from the client or widening the generic `POST /api/events`
+ * allowlist -- a dedicated endpoint keeps that computation in one place.
+ */
+const handleRecordVersion = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  request: Request,
+): Promise<Response> => {
+  const bundle = await getBundleRecord(root, slug);
+  if (bundle === undefined) {
+    return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
+  }
+
+  let body: unknown = {};
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+  }
+  const rawLabel =
+    typeof body === "object" && body !== null && "label" in body
+      ? (body as RecordVersionRequestBody).label
+      : undefined;
+  if (rawLabel !== undefined && typeof rawLabel !== "string") {
+    return jsonResponse({ error: "label must be a string" }, 400);
+  }
+  const label = rawLabel;
+
+  try {
+    const bundleDir = join(root, config.skillsDir, slug);
+    const { designHash, outputHash } = await Effect.runPromise(
+      computeBundleHashes(bundleDir).pipe(Effect.provide(BunServices.layer)),
+    );
+
+    const actor = await Effect.runPromise(resolveUserActor());
+    const outcome = await appendVersion(root, slug, actor, outputHash, designHash, label);
+
+    if (outcome.kind === "conflict") {
+      return jsonResponse(
+        {
+          error: `a version was already recorded for this exact content under a different label -- content is unchanged, so no new version was recorded. ${outcome.message}`,
+        },
+        409,
+      );
+    }
+
+    return jsonResponse({ status: outcome.status, hash: outputHash, designHash, label: label ?? null });
+  } catch (cause) {
+    return jsonResponse({ error: `could not record version: ${String(cause)}` }, 500);
+  }
+};
+
+/** Only `design.md` or a non-empty path under `output/` may be read back over HTTP. */
+const isAllowedBundleFilePath = (relativePath: string): boolean => {
+  if (relativePath === "design.md") {
+    return true;
+  }
+  return relativePath.startsWith("output/") && relativePath.length > "output/".length;
+};
+
+/**
+ * `GET /api/bundles/:slug/file?path=design.md|output/...` -- the viewer's
+ * read-only Files tab. A strict allowlist (design.md, or under output/) plus
+ * a resolved-path containment check guards against traversal (`../..`,
+ * absolute paths, symlink escapes); anything outside the allowlist or off
+ * the bundle directory 404s rather than erroring, so it never leaks whether
+ * a path exists elsewhere on disk.
+ */
+const handleBundleFile = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  relPath: string | null,
+): Promise<Response> => {
+  if (relPath === null || relPath.length === 0 || !isAllowedBundleFilePath(relPath)) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  const bundleDir = resolvePath(join(root, config.skillsDir, slug));
+  const filePath = resolvePath(join(bundleDir, relPath));
+  if (filePath !== bundleDir && !filePath.startsWith(bundleDir + sep)) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  const content = readFileSync(filePath, "utf8");
+  return jsonResponse({ path: relPath, content });
 };
 
 /**
@@ -403,8 +566,25 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       }
 
       if (pathname.startsWith("/api/bundles/")) {
-        const slug = pathname.slice("/api/bundles/".length);
-        if (slug.length > 0 && !slug.includes("/")) {
+        const rest = pathname.slice("/api/bundles/".length);
+        const segments = rest.split("/").filter((segment) => segment.length > 0);
+        const slug = segments[0];
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "record-version") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "record-version requires POST" }, 405);
+          }
+          return handleRecordVersion(root, config, slug, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "file") {
+          if (request.method !== "GET") {
+            return jsonResponse({ error: "file requires GET" }, 405);
+          }
+          return handleBundleFile(root, config, slug, url.searchParams.get("path"));
+        }
+
+        if (slug !== undefined && segments.length === 1) {
           try {
             return await handleBundleDetail(root, slug);
           } catch (cause) {
