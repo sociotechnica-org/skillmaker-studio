@@ -116,10 +116,12 @@ export const triggerRun = async (
   slug: string,
   caseName: string,
   provider: string | undefined,
+  /** Fix 1 (Phase 20 Story 2 friction log F1): an optional model id, forwarded to the server's run-trigger endpoint -- validated once the ACP session connects (the advertised model list isn't known before then). */
+  model?: string,
 ): Promise<TriggerRunResult> => {
   const raw = await postJson(
     `/api/bundles/${encodeURIComponent(slug)}/fixtures/${encodeURIComponent(caseName)}/run`,
-    { ...(provider !== undefined ? { provider } : {}) },
+    { ...(provider !== undefined ? { provider } : {}), ...(model !== undefined && model.length > 0 ? { model } : {}) },
   );
 
   if (raw.ok) {

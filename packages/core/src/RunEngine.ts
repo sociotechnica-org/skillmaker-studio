@@ -61,6 +61,14 @@ export interface RunFixtureInput {
   readonly fixtureCase: string;
   /** Provider id from `skillmaker.config.json` `providers`, e.g. `"claude-code"`. */
   readonly provider: string;
+  /**
+   * Fix 1 (Phase 20 Story 2 friction log F1): a caller-requested model id
+   * (`skillmaker run --model <id>`, the server's run-trigger endpoint, or
+   * the viewer's model field), threaded through to `runAcpSession` as
+   * `requestedModel`. `undefined` leaves the adapter on its own default
+   * model.
+   */
+  readonly model?: string;
   readonly actor: Actor;
   /** Default 300_000ms (5 minutes), per `AcpClient`'s default. */
   readonly timeoutMs?: number;
@@ -98,6 +106,8 @@ export interface RunFixtureResult {
   readonly skillInvoked: boolean;
   /** Fix (finding #5): absolute path to `runs/<id>/response.md` -- the agent's final message, extracted from the transcript, so grading against an answer key never requires reading raw `transcript.jsonl`. */
   readonly responsePath: string;
+  /** Fix 1: set only when `status !== "completed"`, e.g. an unknown `--model` request's "advertised models: ..." message -- surfaced to the CLI/server caller instead of requiring a `stderr.txt` read to discover why a run failed. */
+  readonly errorMessage?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +472,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
         prompt,
         env: sessionEnv,
         ...(input.timeoutMs !== undefined ? { promptTimeoutMs: input.timeoutMs } : {}),
+        ...(input.model !== undefined ? { requestedModel: input.model } : {}),
         onTranscript,
         providerProfile,
       }),
@@ -473,6 +484,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
     let status: RunStatus;
     let model = "";
     let stderr = "";
+    let errorMessage: string | undefined;
     if (outcome._tag === "Success") {
       model = outcome.success.model ?? "";
       stderr = outcome.success.stderr;
@@ -481,12 +493,17 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       const classified = classifyAcpError(outcome.failure);
       status = classified.status;
       stderr = classified.stderr;
+      // Fix 1: e.g. an unknown `--model` id's "advertised models: ..." list
+      // -- keep it out of run.json's terse status/model fields and surface
+      // it explicitly so a caller doesn't have to grep stderr.txt.
+      errorMessage = outcome.failure.message;
     }
 
     if (status !== "completed") {
       const stderrPath = path.join(runDir, "stderr.txt");
+      const stderrContent = errorMessage !== undefined ? `${errorMessage}\n\n${stderr}` : stderr;
       yield* fs
-        .writeFileString(stderrPath, stderr)
+        .writeFileString(stderrPath, stderrContent)
         .pipe(Effect.mapError(toIOError(`could not write ${stderrPath}`)));
     }
 
@@ -554,6 +571,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       skillInstalled,
       skillInvoked,
       responsePath,
+      ...(errorMessage !== undefined ? { errorMessage } : {}),
     } satisfies RunFixtureResult;
   } finally {
     // Sandbox cleanup happens on both the success and failure paths --

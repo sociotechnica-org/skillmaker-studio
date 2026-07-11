@@ -914,13 +914,19 @@ const FixtureRow: FC<{
   onChanged: () => void;
 }> = ({ slug, fixture, runs, measurements, latestHash, providers, onOpenRun, onChanged }) => {
   const [provider, setProvider] = useState<string>(providers[0] ?? "claude-code");
+  // Fix 1 (Phase 20 Story 2 friction log F1): the advertised model list is
+  // only known once an ACP session connects (session/new's
+  // models.availableModels), so this stays a free-text id rather than a
+  // pre-populated <select> -- an unknown id is rejected server-side with the
+  // advertised list once the session starts.
+  const [model, setModel] = useState<string>("");
   const [pending, setPending] = useState(false);
   const [runError, setRunError] = useState<string | undefined>(undefined);
 
   const startRun = (): void => {
     setPending(true);
     setRunError(undefined);
-    triggerRun(slug, fixture.caseName, providers.length > 0 ? provider : undefined)
+    triggerRun(slug, fixture.caseName, providers.length > 0 ? provider : undefined, model.trim())
       .then((result) => {
         if (!result.ok) {
           setRunError(result.error);
@@ -968,6 +974,13 @@ const FixtureRow: FC<{
               ))}
             </select>
           )}
+          <input
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            placeholder="model (optional)"
+            title="Model id from the provider's advertised session/new models (e.g. default, sonnet, haiku). Leave blank for the provider's own default."
+            className="w-24 rounded-md border border-neutral-300 px-1 py-0.5 text-[10px] dark:border-neutral-700 dark:bg-neutral-900"
+          />
           <button
             type="button"
             disabled={pending || !fixture.hasPromptMd}

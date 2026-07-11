@@ -31,6 +31,8 @@ export interface RunOptions {
   readonly json: boolean;
   readonly fixture?: string;
   readonly provider?: string;
+  /** Fix 1 (Phase 20 Story 2 friction log F1): `--model <id>`, threaded to `RunEngine.runFixture` as `requestedModel`. */
+  readonly model?: string;
   readonly timeout?: string;
 }
 
@@ -110,6 +112,7 @@ export const runRun = Effect.fn("runRun")(function* (
       fixtureCase: options.fixture,
       provider,
       actor,
+      ...(options.model !== undefined ? { model: options.model } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       onProgress,
     }).pipe(Effect.provide(JournalLayer(journalPath))),
@@ -150,6 +153,7 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
     skillInstalled: result.skillInstalled,
     skillInvoked: result.skillInvoked,
     responsePath: result.responsePath,
+    errorMessage: result.errorMessage ?? null,
   };
 
   const body = json
@@ -163,6 +167,7 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
         `  artifacts: ${result.artifacts.length === 0 ? "(none)" : result.artifacts.join(", ")}`,
         `  response:  ${result.responsePath}`,
         `  run dir:   ${result.runDir}`,
+        ...(result.errorMessage !== undefined ? [`  error:     ${result.errorMessage}`] : []),
         "",
       ].join("\n");
 

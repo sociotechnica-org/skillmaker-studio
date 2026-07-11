@@ -78,6 +78,7 @@ Options:
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
   --fixture <case>  (run) the fixture case to run (required)
   --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"
+  --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
   --timeout <s>     (run, station run) prompt timeout in seconds; defaults to 300
   --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
   --verdict <v>     (grade) pass | fail | partial (required)
@@ -115,6 +116,7 @@ const VALUE_FLAGS = new Set([
   "--risks",
   "--fixture",
   "--provider",
+  "--model",
   "--timeout",
   "--verdict",
   "--notes",
@@ -216,8 +218,9 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const slug = positionalAfterCommand(argv);
       const fixture = flagValue(argv, "--fixture");
       const provider = flagValue(argv, "--provider");
+      const model = flagValue(argv, "--model");
       const timeout = flagValue(argv, "--timeout");
-      return yield* runRun(cwd, slug, { json, fixture, provider, timeout });
+      return yield* runRun(cwd, slug, { json, fixture, provider, model, timeout });
     }
     case "station": {
       const subcommand = argv[1];

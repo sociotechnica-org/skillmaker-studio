@@ -839,6 +839,8 @@ const handleRunDetail = async (
 
 interface TriggerRunRequestBody {
   readonly provider?: unknown;
+  /** Fix 1 (Phase 20 Story 2 friction log F1): a model id from the provider's advertised `session/new` models -- validated by `RunEngine`/`AcpClient` once the session connects, not here (the advertised list is only known after spawning the adapter). */
+  readonly model?: unknown;
 }
 
 /**
@@ -869,6 +871,7 @@ const handleTriggerRun = async (
   }
 
   let provider = "claude-code";
+  let model: string | undefined;
   const rawText = await request.text();
   if (rawText.length > 0) {
     let body: unknown;
@@ -884,6 +887,11 @@ const handleTriggerRun = async (
       }
       provider = rawProvider;
     }
+    const rawModel = (body as TriggerRunRequestBody).model;
+    if (rawModel !== undefined && typeof rawModel !== "string") {
+      return jsonResponse({ error: "model must be a string" }, 400);
+    }
+    model = typeof rawModel === "string" && rawModel.length > 0 ? rawModel : undefined;
   }
   if (config.providers[provider] === undefined) {
     return jsonResponse({ error: `provider "${provider}" is not configured in skillmaker.config.json` }, 400);
@@ -901,6 +909,7 @@ const handleTriggerRun = async (
     provider,
     actor,
     runId,
+    ...(model !== undefined ? { model } : {}),
   }).pipe(
     Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
     Effect.provide(BunServices.layer),
