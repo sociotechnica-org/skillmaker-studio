@@ -1,9 +1,15 @@
 /**
- * The bundle-detail / review panel (plan.md Phase 4): a side panel, not a
- * route change. Shows guard hints, the review pair (request/approve/
- * revise), the publish gate, forward "advance", and "move back". All writes
- * go through `POST /api/events` (data-model.md §2.9/§2.13) via
- * `runtime/api.ts`'s `postEvent`.
+ * The bundle-detail / review panel (plan.md Phase 4, Phase 6): a side panel,
+ * not a route change. Three tabs:
+ *   - Overview: guard hints, the review pair (request/approve/revise), the
+ *     publish gate, forward "advance", "move back", recent events. All
+ *     writes go through `POST /api/events` (data-model.md §2.9/§2.13) via
+ *     `runtime/api.ts`'s `postEvent`.
+ *   - Files: read-only `design.md`/`output/SKILL.md` via
+ *     `GET /api/bundles/:slug/file` (a strict allowlist -- see Server.ts).
+ *   - Versions: the drift badge (data-model.md §2.7), "Record version", and
+ *     version history, via `GET /api/bundles/:slug` (versions + drift are
+ *     already in the detail payload) and `POST /api/bundles/:slug/record-version`.
  *
  * Reachable-409 choice (see task report): the "Advance" button stays
  * clickable even when `guardStatus` predicts a rejection -- it is only
@@ -12,9 +18,9 @@
  * from the UI itself (click when unapproved -> server rejects -> reason
  * shown inline), instead of requiring a separate dev-only affordance.
  */
-import { type FC, useState } from "react";
-import { postEvent } from "../runtime/api.ts";
-import { STAGES, type BundleStage, type EventView } from "../runtime/schemas.ts";
+import { type FC, useEffect, useState } from "react";
+import { getBundleFile, postEvent, recordVersion } from "../runtime/api.ts";
+import { STAGES, type BundleStage, type Drift, type EventView, type VersionRecord } from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -37,8 +43,55 @@ const earlierStages = (stage: BundleStage): ReadonlyArray<BundleStage> => STAGES
 
 const nextStage = (stage: BundleStage): BundleStage | undefined => STAGES[STAGES.indexOf(stage) + 1];
 
+const shortHash = (hash: string): string => {
+  const prefix = "sha256:";
+  if (!hash.startsWith(prefix)) {
+    return hash;
+  }
+  const hex = hash.slice(prefix.length);
+  return `${prefix}${hex.slice(0, 10)}`;
+};
+
+const DRIFT_LABEL: Record<Drift, string> = {
+  "no-version": "No version recorded",
+  "in-sync": "In sync",
+  "design-changed": "Design changed",
+  "output-hand-edited": "Output hand-edited",
+  both: "Design changed + output hand-edited",
+};
+
+const DRIFT_EXPLANATION: Record<Drift, string> = {
+  "no-version": "This bundle has no recorded version yet -- record one to start tracking drift.",
+  "in-sync": "design.md and output/ match the latest recorded version.",
+  "design-changed": "design.md has changed since the latest recorded version; output/ still matches.",
+  "output-hand-edited": "output/ has been hand-edited since the latest recorded version; design.md still matches.",
+  both: "Both design.md and output/ have changed since the latest recorded version.",
+};
+
+const DRIFT_BADGE_CLASS: Record<Drift, string> = {
+  "in-sync": "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  "no-version": "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+  "design-changed": "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  "output-hand-edited": "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  both: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+};
+
+const FILE_OPTIONS: ReadonlyArray<{ readonly label: string; readonly path: string }> = [
+  { label: "design.md", path: "design.md" },
+  { label: "output/SKILL.md", path: "output/SKILL.md" },
+];
+
+type PanelTab = "overview" | "files" | "versions";
+
+const TABS: ReadonlyArray<{ readonly key: PanelTab; readonly label: string }> = [
+  { key: "overview", label: "Overview" },
+  { key: "files", label: "Files" },
+  { key: "versions", label: "Versions" },
+];
+
 export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, onClose }) => {
   const { detail, loading, error, refetch } = useBundleDetail(slug);
+  const [tab, setTab] = useState<PanelTab>("overview");
   const [actionError, setActionError] = useState<string | undefined>(undefined);
   const [pending, setPending] = useState(false);
   const [reviseNotes, setReviseNotes] = useState("");
@@ -84,29 +137,59 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
       )}
 
       {detail !== undefined && (
-        <BundlePanelBody
-          detail={detail}
-          slug={slug}
-          pending={pending}
-          actionError={actionError}
-          reviseNotes={reviseNotes}
-          setReviseNotes={setReviseNotes}
-          reviewQuestion={reviewQuestion}
-          setReviewQuestion={setReviewQuestion}
-          backTarget={backTarget}
-          setBackTarget={setBackTarget}
-          backReason={backReason}
-          setBackReason={setBackReason}
-          gateBasis={gateBasis}
-          setGateBasis={setGateBasis}
-          submit={submit}
-        />
+        <>
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{detail.bundle.name}</h3>
+            <p className="font-mono text-xs text-neutral-500 dark:text-neutral-400">{detail.bundle.slug}</p>
+          </div>
+
+          <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
+            {TABS.map((candidate) => (
+              <button
+                key={candidate.key}
+                type="button"
+                onClick={() => setTab(candidate.key)}
+                className={
+                  tab === candidate.key
+                    ? "border-b-2 border-neutral-900 px-2 py-1 text-xs font-medium text-neutral-900 dark:border-neutral-100 dark:text-neutral-100"
+                    : "border-b-2 border-transparent px-2 py-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                }
+              >
+                {candidate.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "overview" && (
+            <OverviewTab
+              detail={detail}
+              slug={slug}
+              pending={pending}
+              actionError={actionError}
+              reviseNotes={reviseNotes}
+              setReviseNotes={setReviseNotes}
+              reviewQuestion={reviewQuestion}
+              setReviewQuestion={setReviewQuestion}
+              backTarget={backTarget}
+              setBackTarget={setBackTarget}
+              backReason={backReason}
+              setBackReason={setBackReason}
+              gateBasis={gateBasis}
+              setGateBasis={setGateBasis}
+              submit={submit}
+            />
+          )}
+          {tab === "files" && <FilesTab slug={slug} />}
+          {tab === "versions" && (
+            <VersionsTab slug={slug} drift={detail.bundle.drift} versions={detail.versions} onRecorded={refetch} />
+          )}
+        </>
       )}
     </aside>
   );
 };
 
-interface BundlePanelBodyProps {
+interface OverviewTabProps {
   readonly detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
   readonly slug: string;
   readonly pending: boolean;
@@ -124,7 +207,7 @@ interface BundlePanelBodyProps {
   readonly submit: (type: string, payload: Record<string, unknown>) => void;
 }
 
-const BundlePanelBody: FC<BundlePanelBodyProps> = ({
+const OverviewTab: FC<OverviewTabProps> = ({
   detail,
   slug,
   pending,
@@ -152,11 +235,6 @@ const BundlePanelBody: FC<BundlePanelBodyProps> = ({
 
   return (
     <>
-      <div>
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{bundle.name}</h3>
-        <p className="font-mono text-xs text-neutral-500 dark:text-neutral-400">{bundle.slug}</p>
-      </div>
-
       <div className="text-xs text-neutral-600 dark:text-neutral-300">
         <p>
           Stage: <span className="font-medium">{stage}</span>
@@ -336,5 +414,138 @@ const BundlePanelBody: FC<BundlePanelBodyProps> = ({
         </ul>
       </section>
     </>
+  );
+};
+
+const FilesTab: FC<{ slug: string }> = ({ slug }) => {
+  const [selected, setSelected] = useState<string>(FILE_OPTIONS[0]?.path ?? "design.md");
+  const [content, setContent] = useState<string | undefined>(undefined);
+  const [fileError, setFileError] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setFileError(undefined);
+    getBundleFile(slug, selected)
+      .then((response) => {
+        if (!cancelled) {
+          setContent(response.content);
+        }
+      })
+      .catch((cause: Error) => {
+        if (!cancelled) {
+          setContent(undefined);
+          setFileError(cause.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, selected]);
+
+  return (
+    <section className="flex flex-col gap-2">
+      <select
+        value={selected}
+        onChange={(event) => setSelected(event.target.value)}
+        className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+      >
+        {FILE_OPTIONS.map((option) => (
+          <option key={option.path} value={option.path}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {loading && <p className="text-xs text-neutral-500">Loading...</p>}
+      {fileError !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          Could not load {selected}: {fileError}
+        </p>
+      )}
+      {!loading && fileError === undefined && (
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800">
+          {content !== undefined && content.length > 0 ? content : "(empty)"}
+        </pre>
+      )}
+    </section>
+  );
+};
+
+const VersionsTab: FC<{
+  slug: string;
+  drift: Drift;
+  versions: ReadonlyArray<VersionRecord>;
+  onRecorded: () => void;
+}> = ({ slug, drift, versions, onRecorded }) => {
+  const [label, setLabel] = useState("");
+  const [pending, setPending] = useState(false);
+  const [recordError, setRecordError] = useState<string | undefined>(undefined);
+
+  const submit = (): void => {
+    setPending(true);
+    setRecordError(undefined);
+    recordVersion(slug, label.trim().length > 0 ? label.trim() : undefined)
+      .then((result) => {
+        if (!result.ok) {
+          setRecordError(result.error);
+          return;
+        }
+        setLabel("");
+        onRecorded();
+      })
+      .catch((cause: Error) => setRecordError(cause.message))
+      .finally(() => setPending(false));
+  };
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS[drift]}`}>
+        {DRIFT_LABEL[drift]}
+      </div>
+      <p className="text-xs text-neutral-600 dark:text-neutral-300">{DRIFT_EXPLANATION[drift]}</p>
+
+      {recordError !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {recordError}
+        </p>
+      )}
+
+      <div className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+        <input
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          placeholder="Label (optional, e.g. v0.3)"
+          className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+        />
+        <button
+          type="button"
+          disabled={pending}
+          onClick={submit}
+          className="rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+        >
+          Record version
+        </button>
+      </div>
+
+      <section className="flex flex-col gap-1">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Version history</h4>
+        <ul className="flex flex-col gap-1">
+          {versions.map((version) => (
+            <li key={version.hash} className="text-[11px] text-neutral-600 dark:text-neutral-300">
+              <span className="font-mono">{shortHash(version.hash)}</span>{" "}
+              {version.label !== undefined && <span className="font-medium">{version.label}</span>}{" "}
+              <span className="text-neutral-400">{formatTime(version.recordedAt)}</span>
+            </li>
+          ))}
+          {versions.length === 0 && <li className="text-[11px] text-neutral-400">No versions recorded yet.</li>}
+        </ul>
+      </section>
+    </section>
   );
 };

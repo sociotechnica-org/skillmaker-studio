@@ -19,6 +19,21 @@ export type BundleStage = typeof BundleStage.Type;
 export const BundleSubstate = Schema.Literals(["working", "awaiting-review"]);
 export type BundleSubstate = typeof BundleSubstate.Type;
 
+/**
+ * Drift between the live `design.md`/`output/` hashes and the latest
+ * recorded version (data-model.md §2.7). `"no-version"` is a fifth state
+ * beyond the doc's four -- there is no "latest" to compare against until a
+ * version has been recorded at least once.
+ */
+export const Drift = Schema.Literals([
+  "no-version",
+  "in-sync",
+  "design-changed",
+  "output-hand-edited",
+  "both",
+]);
+export type Drift = typeof Drift.Type;
+
 export class BundleRecord extends Schema.Class<BundleRecord>("BundleRecord")({
   slug: Schema.String,
   name: Schema.String,
@@ -28,6 +43,18 @@ export class BundleRecord extends Schema.Class<BundleRecord>("BundleRecord")({
   stage: BundleStage,
   substate: BundleSubstate,
   archived: Schema.Boolean,
+  designHash: Schema.String,
+  outputHash: Schema.String,
+  drift: Drift,
+}) {}
+
+/** One recorded `skill.version_recorded` event (data-model.md §2.7, §2.11). */
+export class VersionRecord extends Schema.Class<VersionRecord>("VersionRecord")({
+  bundle: Schema.String,
+  hash: Schema.String,
+  designHash: Schema.String,
+  label: Schema.optionalKey(Schema.String),
+  recordedAt: Schema.String,
 }) {}
 
 export class BundlesResponse extends Schema.Class<BundlesResponse>("BundlesResponse")({
@@ -101,11 +128,28 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   bundle: BundleRecord,
   guardStatus: GuardStatus,
   events: Schema.Array(EventView),
+  versions: Schema.Array(VersionRecord),
 }) {}
 
 export class PostEventResponse extends Schema.Class<PostEventResponse>("PostEventResponse")({
   status: Schema.Literals(["appended", "already_appended"]),
   event: EventView,
+}) {}
+
+/** `POST /api/bundles/:slug/record-version` response. */
+export class RecordVersionResponse extends Schema.Class<RecordVersionResponse>(
+  "RecordVersionResponse",
+)({
+  status: Schema.Literals(["appended", "already_appended"]),
+  hash: Schema.String,
+  designHash: Schema.String,
+  label: Schema.NullOr(Schema.String),
+}) {}
+
+/** `GET /api/bundles/:slug/file?path=...` response. */
+export class BundleFileResponse extends Schema.Class<BundleFileResponse>("BundleFileResponse")({
+  path: Schema.String,
+  content: Schema.String,
 }) {}
 
 export class ApiErrorResponse extends Schema.Class<ApiErrorResponse>("ApiErrorResponse")({
