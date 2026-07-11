@@ -256,3 +256,24 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
 
 - Site live at skillmaker-studio.pages.dev; custom domains attached, DNS
   CNAMEs created via cf; awaiting nameserver propagation (zone pending).
+
+## Incident: power-blip reboot (2026-07-11 ~06:51)
+
+- House power blip (diag: `rst uv, vdd_hi_uvlo` — undervoltage reset, no
+  kernel panic; not software). Killed the session mid-fleet.
+- Recovery: Phase 9's 3 committed scopes survived; Phase 15's uncommitted
+  work salvage-committed from the worktree (85d27d4); all agents resumed
+  from transcripts; skill-creator research restarted (nothing written).
+- Bonus: the director live-tested the Tauri app pre-reboot and found two
+  real bugs — unclickable folder-picker dialog; infinite "Starting…"
+  spinner on empty selection. Both now top of Phase 15's scope.
+- Lesson banked: commit-early + worktrees + transcripts made a hard reboot
+  a ~10-minute recovery.
+
+## Deploys + standing freshness rule (2026-07-11)
+
+- docs.skillmaker.studio LIVE (Pages project skillmaker-docs + CNAME);
+  marketing header gains a Docs link.
+- **Standing rule (director):** every feature merge updates the docs site
+  and the marketing home page ("what works today") and redeploys both.
+  Now part of the per-phase ship checklist alongside the build-log entry.
