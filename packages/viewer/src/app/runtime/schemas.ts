@@ -53,3 +53,61 @@ export class HealthResponse extends Schema.Class<HealthResponse>("HealthResponse
   ok: Schema.Boolean,
   version: Schema.String,
 }) {}
+
+/**
+ * The production stage ladder, in order (data-model.md §2.13, ruling F).
+ * Kept in lockstep with `@skillmaker/core`'s `Machine.STAGES`, but declared
+ * locally -- the viewer decodes what the wire sends, it does not import
+ * `@skillmaker/core`.
+ */
+export const STAGES: ReadonlyArray<BundleStage> = [
+  "idea",
+  "researching",
+  "drafting",
+  "evaluating",
+  "published",
+];
+
+/** Mirrors `@skillmaker/core`'s `Machine.GuardStatus` (data-model.md §2.13). */
+export class GuardStatus extends Schema.Class<GuardStatus>("GuardStatus")({
+  stage: BundleStage,
+  approvedForForward: Schema.Boolean,
+  gateApproved: Schema.Boolean,
+}) {}
+
+export class ActorView extends Schema.Class<ActorView>("ActorView")({
+  kind: Schema.Literals(["user", "agent", "process"]),
+  name: Schema.String,
+  provider: Schema.optionalKey(Schema.String),
+}) {}
+
+/**
+ * A journal event as rendered in the bundle-detail panel. `payload` is left
+ * as `Schema.Unknown` -- the panel only needs a handful of well-known fields
+ * per event `type`, read defensively rather than via a full 16-member
+ * discriminated union the viewer would have to keep hand-in-hand with core.
+ */
+export class EventView extends Schema.Class<EventView>("EventView")({
+  id: Schema.String,
+  type: Schema.String,
+  at: Schema.String,
+  actor: ActorView,
+  payload: Schema.Unknown,
+}) {}
+
+export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
+  "BundleDetailResponse",
+)({
+  bundle: BundleRecord,
+  guardStatus: GuardStatus,
+  events: Schema.Array(EventView),
+}) {}
+
+export class PostEventResponse extends Schema.Class<PostEventResponse>("PostEventResponse")({
+  status: Schema.Literals(["appended", "already_appended"]),
+  event: EventView,
+}) {}
+
+export class ApiErrorResponse extends Schema.Class<ApiErrorResponse>("ApiErrorResponse")({
+  error: Schema.String,
+}) {}

@@ -1,8 +1,16 @@
 import type { FC } from "react";
 import type { BundleRecord } from "../runtime/schemas.ts";
 
-export const BundleCard: FC<{ bundle: BundleRecord }> = ({ bundle }) => (
-  <article className="rounded-lg border border-neutral-200 bg-white p-3 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+export const BundleCard: FC<{ bundle: BundleRecord; onSelect?: (slug: string) => void }> = ({
+  bundle,
+  onSelect,
+}) => (
+  <article
+    onClick={onSelect === undefined ? undefined : () => onSelect(bundle.slug)}
+    className={`rounded-lg border border-neutral-200 bg-white p-3 shadow-sm dark:border-neutral-800 dark:bg-neutral-900${
+      onSelect === undefined ? "" : " cursor-pointer hover:border-neutral-400 dark:hover:border-neutral-600"
+    }`}
+  >
     <div className="flex items-start justify-between gap-2">
       <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
         {bundle.name}
