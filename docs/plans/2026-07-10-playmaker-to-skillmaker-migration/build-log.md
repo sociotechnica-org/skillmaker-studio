@@ -297,3 +297,25 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
 - ui-pass-spec.md: 448-line cited extraction of the PMS Studio IA +
   director rulings (publish = distinct guided action; /catalog survives
   as the skill browser). Phase 17 builder executing it now.
+
+## Phase 17 — UI pass (PR #33)
+
+- Executed ui-pass-spec + rulings: hand-rolled router, AppShell nav
+  [Board][Catalog][Activity], bundle detail as deep-linkable pages,
+  ?run= URL-synced modal, guided publish flow, /catalog browser,
+  /activity journal feed (paginated /api/events). 376 tests, 0 fail.
+- Real find: Astro SSR prerender pass crashes a naive pushState router
+  (window undefined) — SSR fallback documented in router.tsx.
+- /chrome pass on all four surfaces + demo GIF in the PR.
+
+## Phase 18 — installer, complete (PRs #31, #32, #34) + v0.1.0
+
+- release.yml (tag-triggered darwin-arm64 + linux-x64 tarballs → GitHub
+  Release); install.sh at skillmaker.studio/install.sh; v0.1.0 tagged —
+  first real Release built by CI in 38s.
+- **Verified against the real thing twice**: orchestrator installed from
+  the raw GitHub URL pre-flip; the flip agent re-proved from the LIVE
+  https://skillmaker.studio/install.sh (scratch HOME → binary →
+  init/new/list, exit 0s). Docs/marketing/README flipped to
+  curl-install-first; both sites redeployed.
+- The 18a local proof caught a tarball-nesting bug before CI ever ran.
