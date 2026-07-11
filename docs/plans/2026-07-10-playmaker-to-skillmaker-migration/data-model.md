@@ -127,7 +127,7 @@ Alexandria ledger + `.ax-runtime` split]
   "trackRuns": true,
   "providers": {
     "claude-code": { "command": ["npx", "-y", "@zed-industries/claude-code-acp@latest"] },
-    "codex":       { "command": ["codex-acp"] }
+    "codex":       { "command": ["npx", "-y", "@agentclientprotocol/codex-acp@latest"] }
   },
   "publishTargets": [
     { "id": "dist", "kind": "git-dir", "path": "dist/skills" }

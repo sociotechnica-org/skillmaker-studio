@@ -21,6 +21,7 @@
  */
 import { Schema } from "effect";
 import { Effect } from "effect";
+import { CLAUDE_CODE_PROFILE, type ProviderProfile } from "./ProviderProfile.ts";
 
 // ---------------------------------------------------------------------------
 // Env stripping (spike/FINDINGS.md "Critical, non-obvious gotcha")
@@ -189,8 +190,8 @@ const INFRA_STDERR_SIGNATURES: ReadonlyArray<string> = [
   "npm ERR!",
 ];
 
-const stderrLooksInfra = (stderr: string): boolean =>
-  INFRA_STDERR_SIGNATURES.some((signature) => stderr.includes(signature));
+const stderrLooksInfra = (stderr: string, extraSignatures: ReadonlyArray<string> = []): boolean =>
+  [...INFRA_STDERR_SIGNATURES, ...extraSignatures].some((signature) => stderr.includes(signature));
 
 // ---------------------------------------------------------------------------
 // Low-level client (Promise-based; see module doc for why)
@@ -488,11 +489,13 @@ export interface AcpRunOptions {
   /** Default 300_000ms (5 minutes). */
   readonly promptTimeoutMs?: number;
   readonly onTranscript?: (entry: TranscriptEntry) => void;
+  /** Provider-specific model extraction + infra-stderr signatures (ProviderProfile.ts). Defaults to the claude-code-acp profile, whose tolerant `extractModel` also recognizes codex's shapes. */
+  readonly providerProfile?: ProviderProfile;
 }
 
 export interface AcpRunResult {
   readonly stopReason: string;
-  /** From `session/new`'s `models.currentModelId`, or null if unavailable (spike/FINDINGS.md). */
+  /** Read via `providerProfile.extractModel` from `session/new`'s result, or null if unavailable (spike/FINDINGS.md, spike-codex/FINDINGS.md). */
   readonly model: string | null;
   readonly agentInfo: unknown;
   /** Full captured stderr, always populated (even on success) so callers can persist it on any failure classification made after the fact (e.g. stopReason != end_turn). */
@@ -501,7 +504,7 @@ export interface AcpRunResult {
 
 const DEFAULT_PROMPT_TIMEOUT_MS = 300_000;
 
-const classify = (err: unknown, stderr: string): AcpError => {
+const classify = (err: unknown, stderr: string, providerProfile: ProviderProfile): AcpError => {
   if (err instanceof InfraFault) {
     if (err.reason === "spawn") {
       return AcpSpawnError.make({ message: err.message, stderr });
@@ -528,8 +531,9 @@ const classify = (err: unknown, stderr: string): AcpError => {
   if (err instanceof TaskFault) {
     // -32603 is ambiguous per spike/FINDINGS.md: could be a genuine internal
     // task-ish error, or (as observed live) a pure infra fault (the nested-
-    // session guard) whose real cause only appears in stderr.
-    const likelyInfra = stderrLooksInfra(stderr);
+    // session guard for claude-code, the model-compat fault for codex --
+    // spike-codex/FINDINGS.md) whose real cause only appears in stderr.
+    const likelyInfra = stderrLooksInfra(stderr, providerProfile.infraStderrSignatures);
     return AcpProtocolError.make({
       message: err.message,
       code: err.code,
@@ -538,10 +542,12 @@ const classify = (err: unknown, stderr: string): AcpError => {
     });
   }
   const message = err instanceof Error ? err.message : String(err);
-  return AcpProtocolError.make({ message, stderr, likelyInfra: stderrLooksInfra(stderr) });
+  return AcpProtocolError.make({
+    message,
+    stderr,
+    likelyInfra: stderrLooksInfra(stderr, providerProfile.infraStderrSignatures),
+  });
 };
-
-const extractModel = (session: NewSessionResult): string | null => session.models?.currentModelId ?? null;
 
 /**
  * Drives one full ACP session (spawn -> initialize -> newSession -> prompt)
@@ -552,6 +558,7 @@ const extractModel = (session: NewSessionResult): string | null => session.model
  * `transcript.jsonl` incrementally (data-model.md §2.8).
  */
 export const runAcpSession = (opts: AcpRunOptions): Effect.Effect<AcpRunResult, AcpError> => {
+  const providerProfile = opts.providerProfile ?? CLAUDE_CODE_PROFILE;
   const client = new AcpClient({
     command: opts.command,
     ...(opts.env !== undefined ? { env: opts.env } : {}),
@@ -564,7 +571,7 @@ export const runAcpSession = (opts: AcpRunOptions): Effect.Effect<AcpRunResult, 
       await client.spawn();
       const init = await client.initialize();
       const session = await client.newSession(opts.cwd);
-      const model = extractModel(session);
+      const model = providerProfile.extractModel(session);
       const promptResult = await client.prompt(session.sessionId, opts.prompt);
       return {
         stopReason: promptResult.stopReason,
@@ -573,7 +580,7 @@ export const runAcpSession = (opts: AcpRunOptions): Effect.Effect<AcpRunResult, 
         stderr: client.getStderr(),
       };
     },
-    catch: (err) => classify(err, client.getStderr()),
+    catch: (err) => classify(err, client.getStderr(), providerProfile),
   });
 
   return attempt.pipe(Effect.ensuring(Effect.promise(() => client.close())));

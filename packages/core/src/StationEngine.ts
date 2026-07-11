@@ -39,6 +39,7 @@ import type { BundleStage } from "./Bundle.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { foldBundleStates } from "./Fold.ts";
 import { Journal } from "./JournalService.ts";
+import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
 import { Station, StationsFile } from "./Stations.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
@@ -169,7 +170,8 @@ const filterToProduces = (
   produces: ReadonlyArray<string>,
 ): ReadonlyArray<string> => changedPaths.filter((p) => matchesProduces(p, produces));
 
-const IGNORED_TOP_LEVEL = new Set([".git", ".claude"]);
+/** `.claude` (claude-code) and `.agents` (codex) -- both provider skill-install dirs, so a snapshot taken after the skill is installed (as StationEngine's `before` snapshot always is) never trips a false "changed" diff regardless of which provider ran. */
+const IGNORED_TOP_LEVEL = new Set([".git", ".claude", ".agents"]);
 
 /** Recursively hashes every file under `root` (relPath -> content), skipping `.git` and the installed skill dir. Deliberately a plain content map (not a hash) -- stations copy small text files, and this doubles as the "what did the agent write" source for copyback, no need for a second read pass. */
 const snapshotFiles = (root: string): Map<string, Buffer> => {
@@ -413,6 +415,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       }),
     );
   }
+  const providerProfile = resolveProviderProfile(provider);
 
   const designMdPath = path.join(bundleDir, "design.md");
   const designMdExists = yield* fs
@@ -447,7 +450,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       copyFile(designMdPath, nodeJoin(sandboxDir, "design.md"));
     }
 
-    const skillInstallDir = nodeJoin(sandboxDir, ".claude", "skills", skillSlug);
+    const skillInstallDir = nodeJoin(sandboxDir, providerProfile.skillInstallDir, skillSlug);
     copyDirRecursive(skillOutputDir, skillInstallDir);
 
     input.onProgress?.({ type: "sandbox-ready" });
@@ -510,6 +513,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
         prompt,
         ...(input.timeoutMs !== undefined ? { promptTimeoutMs: input.timeoutMs } : {}),
         onTranscript,
+        providerProfile,
       }),
     );
     void entryCount;

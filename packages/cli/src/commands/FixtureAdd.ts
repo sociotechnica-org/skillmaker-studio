@@ -39,7 +39,7 @@ export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
 ) {
   if (slug === undefined || caseName === undefined) {
     return usageError(
-      "skillmaker fixture add: missing <slug> <case>\n\nUsage: skillmaker fixture add <slug> <case> [--class golden|refusal|empty|rerun|hard-case] [--risks IN-1,RE-2]\n",
+      `skillmaker fixture add: missing <slug> <case>\n\nUsage: skillmaker fixture add <slug> <case> [--class ${FIXTURE_CLASSES.join("|")}] [--risks IN-1,RE-2]\n`,
     );
   }
 
