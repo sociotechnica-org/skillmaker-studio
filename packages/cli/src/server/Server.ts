@@ -133,59 +133,6 @@ const getBundleRecord = (root: string, slug: string): Promise<BundleRecord | und
     }),
   );
 
-const listVersionRecords = (root: string, slug: string): Promise<ReadonlyArray<VersionRecord>> =>
-  runIndexEffect(
-    root,
-    Effect.gen(function* () {
-      const index = yield* IndexService;
-      yield* index.rebuild();
-      return yield* index.listVersions(slug);
-    }),
-  );
-
-/** Runs for one bundle, newest first (data-model.md §2.8, plan.md Phase 8). */
-const listRunRecords = (root: string, slug: string): Promise<ReadonlyArray<RunIndexRecord>> =>
-  runIndexEffect(
-    root,
-    Effect.gen(function* () {
-      const index = yield* IndexService;
-      yield* index.rebuild();
-      const runs = yield* index.listRuns(slug);
-      return [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-    }),
-  );
-
-/** Aggregated measurement cells for a bundle, never pooled (data-model.md §2.11, §1.1 laws 5-6). */
-const listMeasurementRecords = (root: string, slug: string): Promise<ReadonlyArray<MeasurementRecord>> =>
-  runIndexEffect(
-    root,
-    Effect.gen(function* () {
-      const index = yield* IndexService;
-      yield* index.rebuild();
-      return yield* index.listMeasurements(slug);
-    }),
-  );
-
-interface BundleEvalDetail {
-  readonly fixtures: ReadonlyArray<FixtureRecord>;
-  readonly riskCoverage: ReadonlyArray<RiskCoverageRecord>;
-  readonly warnings: ReadonlyArray<WarningRecord>;
-}
-
-/** Fixtures + risk coverage + warnings for one bundle (data-model.md §2.5/§2.6, plan.md Phase 7). */
-const listBundleEvalDetail = (root: string, slug: string): Promise<BundleEvalDetail> =>
-  runIndexEffect(
-    root,
-    Effect.gen(function* () {
-      const index = yield* IndexService;
-      yield* index.rebuild();
-      const fixtures = yield* index.listFixtures(slug);
-      const riskCoverage = yield* index.listRiskCoverage(slug);
-      const warnings = yield* index.listWarnings(slug);
-      return { fixtures, riskCoverage, warnings };
-    }),
-  );
-
 const listTodoRecords = (root: string, includeArchived: boolean): Promise<ReadonlyArray<TodoRecord>> =>
   runIndexEffect(
     root,
@@ -261,45 +208,61 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
  * discovery at repo scale). One row per bundle: name/one-liner/tags/stage
  * (already on `BundleRecord`), latest recorded version + drift, and a
  * measurements summary (how many of the bundle's fixtures have at least one
- * measurement cell at the latest recorded version). Reuses the same
- * per-bundle listing functions `handleBundleDetail` already calls -- no new
- * `IndexService` methods needed.
+ * measurement cell at the latest recorded version).
+ *
+ * ONE `rebuild()` for the whole request, then every per-bundle listing
+ * reuses that SAME `IndexService` connection -- not one `IndexServiceLayer`
+ * (and one `rebuild()`) per bundle per list. Catalog rows scale with the
+ * number of bundles, so the old per-bundle helper calls (each its own
+ * `runIndexEffect`) meant N bundles cost 1 + 3N full index rebuilds for one
+ * `GET /api/catalog` -- 13 rebuilds for a 4-bundle workspace. Mirrors
+ * `Skillbook.ts#buildSkillbook`, which already does this correctly.
  */
-const handleCatalog = async (root: string): Promise<Response> => {
-  const bundles = await listBundleRecords(root);
-  const entries = await Promise.all(
-    bundles.map(async (bundle) => {
-      const versions = await listVersionRecords(root, bundle.slug);
-      const { fixtures } = await listBundleEvalDetail(root, bundle.slug);
-      const measurements = await listMeasurementRecords(root, bundle.slug);
-      const latestVersion = versions[0];
-      const measuredFixtureCases =
-        latestVersion === undefined
-          ? new Set<string>()
-          : new Set(
-              measurements
-                .filter((measurement) => measurement.versionHash === latestVersion.hash)
-                .map((measurement) => measurement.fixtureCase),
-            );
-      return {
-        slug: bundle.slug,
-        name: bundle.name,
-        oneLiner: bundle.oneLiner,
-        tags: bundle.tags,
-        stage: bundle.stage,
-        archived: bundle.archived,
-        drift: bundle.drift,
-        latestVersion:
+const handleCatalog = async (root: string): Promise<Response> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      const bundles = yield* index.listBundles();
+
+      const entries = [];
+      for (const bundle of bundles) {
+        const versions = yield* index.listVersions(bundle.slug);
+        const fixtures = yield* index.listFixtures(bundle.slug);
+        const measurements = yield* index.listMeasurements(bundle.slug);
+        const latestVersion = versions[0];
+        const measuredFixtureCases =
           latestVersion === undefined
-            ? null
-            : { hash: latestVersion.hash, label: latestVersion.label ?? null, recordedAt: latestVersion.recordedAt },
-        fixtureCount: fixtures.length,
-        measuredFixtureCount: measuredFixtureCases.size,
-      };
+            ? new Set<string>()
+            : new Set(
+                measurements
+                  .filter((measurement) => measurement.versionHash === latestVersion.hash)
+                  .map((measurement) => measurement.fixtureCase),
+              );
+        entries.push({
+          slug: bundle.slug,
+          name: bundle.name,
+          oneLiner: bundle.oneLiner,
+          tags: bundle.tags,
+          stage: bundle.stage,
+          archived: bundle.archived,
+          drift: bundle.drift,
+          latestVersion:
+            latestVersion === undefined
+              ? null
+              : {
+                  hash: latestVersion.hash,
+                  label: latestVersion.label ?? null,
+                  recordedAt: latestVersion.recordedAt,
+                },
+          fixtureCount: fixtures.length,
+          measuredFixtureCount: measuredFixtureCases.size,
+        });
+      }
+      return jsonResponse({ entries });
     }),
   );
-  return jsonResponse({ entries });
-};
 
 type AppendVersionOutcome =
   | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }
@@ -558,11 +521,55 @@ const readCurrentStageStation = (
  * full recorded history, newest first. `station` is the current stage's
  * agent station (if any) -- the viewer's "Run station" button gate.
  */
+/** `IndexService`-backed slice of `handleBundleDetail` -- one rebuild, every list against the same connection. */
+type BundleIndexDetail =
+  | { readonly kind: "not_found" }
+  | {
+      readonly kind: "found";
+      readonly bundle: BundleRecord;
+      readonly versions: ReadonlyArray<VersionRecord>;
+      readonly fixtures: ReadonlyArray<FixtureRecord>;
+      readonly riskCoverage: ReadonlyArray<RiskCoverageRecord>;
+      readonly warnings: ReadonlyArray<WarningRecord>;
+      readonly runs: ReadonlyArray<RunIndexRecord>;
+      readonly measurements: ReadonlyArray<MeasurementRecord>;
+    };
+
+const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexDetail> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      const bundle = yield* index.getBundle(slug);
+      if (bundle === undefined) {
+        return { kind: "not_found" as const };
+      }
+      const versions = yield* index.listVersions(slug);
+      const fixtures = yield* index.listFixtures(slug);
+      const riskCoverage = yield* index.listRiskCoverage(slug);
+      const warnings = yield* index.listWarnings(slug);
+      const runs = yield* index.listRuns(slug);
+      const measurements = yield* index.listMeasurements(slug);
+      return {
+        kind: "found" as const,
+        bundle,
+        versions,
+        fixtures,
+        riskCoverage,
+        warnings,
+        runs: [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+        measurements,
+      };
+    }),
+  );
+
 const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
-  const bundle = await getBundleRecord(root, slug);
-  if (bundle === undefined) {
+  const detail = await loadBundleIndexDetail(root, slug);
+  if (detail.kind === "not_found") {
     return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
   }
+  const { bundle, versions, fixtures, riskCoverage, warnings, runs, measurements } = detail;
 
   const events = await readJournalEvents(root);
   const bundleEvents = events.filter((event) => bundleForEvent(event) === slug);
@@ -570,10 +577,6 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   // list, not a full history (that's `skillmaker status --json`).
   const recentEvents = bundleEvents.slice(-MAX_BUNDLE_DETAIL_EVENTS).reverse();
 
-  const versions = await listVersionRecords(root, slug);
-  const { fixtures, riskCoverage, warnings } = await listBundleEvalDetail(root, slug);
-  const runs = await listRunRecords(root, slug);
-  const measurements = await listMeasurementRecords(root, slug);
   const station = readCurrentStageStation(root, config, slug, bundle.stage);
 
   return jsonResponse({
@@ -1174,6 +1177,15 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
   const server = Bun.serve({
     port,
+    // Explicit safety net, not a fix by itself: Bun's default per-connection
+    // idle timeout is 10s, which a concurrent-request burst on cold start
+    // (several `/api/*` requests + the events SSE stream all racing to
+    // rebuild the same workspace's index at once, see the workspace-lock
+    // comment in packages/core/src/IndexService.ts) could exceed and
+    // surface as "[Bun.serve]: request timed out after 10 seconds" in the
+    // server log and a hung request in the browser. 30s gives real
+    // (non-runaway) requests headroom without hiding a genuine hang.
+    idleTimeout: 30,
     async fetch(request) {
       const url = new URL(request.url);
       const pathname = url.pathname;
