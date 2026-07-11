@@ -31,6 +31,8 @@ Usage: skillmaker <command> [options]
 | [`reindex`](/cli/reindex/) | Rebuild `.skillmaker/studio.db` from files + the journal |
 | [`fixture add <slug> <case>`](/cli/fixture-add/) | Scaffold `evals/fixtures/<case>/` for a bundle |
 | [`run <slug>`](/cli/run/) | Run a fixture case through an ACP provider |
+| [`grade <slug> <runId>`](/cli/grade/) | Record a run's grading verdict |
+| [`measurements <slug>`](/cli/measurements/) | Show measurement cells: n, pass rate, CI, guidance |
 | [`start`](/cli/start/) | Serve the viewer + API |
 | [`review request <slug>`](/cli/review-request/) | Request review of the bundle's current stage work |
 | [`advance <slug>`](/cli/advance/) | Move a bundle along the state machine (guarded) |

@@ -96,10 +96,11 @@ key needed. Permission requests from the agent during a run are
 auto-approved and logged as a synthetic transcript entry, so nothing the
 agent did is hidden from the transcript.
 
-:::note[Grading is not built yet]
-`skillmaker run` produces real transcripts and artifacts, but there is no
-grading command or UI on this branch to turn a run into a pass/fail
-verdict yet — see the [Roadmap](/roadmap/). Coverage authoring (fixtures,
-risk maps) works today independent of any run; see
+:::note[Next: turning a run into a verdict]
+`skillmaker run` produces real transcripts and artifacts. Turning one into
+a pass/fail verdict — and the *n* · pass-rate · confidence-interval
+measurements built on top of graded runs — is covered in
+[Grading and measurements](/evals/grading-and-measurements/). Coverage
+authoring (fixtures, risk maps) works independently of any run; see
 [Fixtures and risk maps](/evals/fixtures-and-risk-maps/).
 :::

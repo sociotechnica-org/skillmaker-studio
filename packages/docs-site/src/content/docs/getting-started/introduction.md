@@ -35,12 +35,14 @@ displayed.
 
 ## What's in these docs
 
-- **[Getting Started](/getting-started/install/)** — install from source and
-  walk through creating your first Skill Bundle and opening the board.
+- **[Getting Started](/getting-started/install/)** — install from source,
+  walk through creating your first Skill Bundle and opening the board, and
+  build the desktop app.
 - **[Concepts](/concepts/skill-bundle/)** — the Skill Bundle's anatomy, the
   production state machine, the journal, and versions/drift.
 - **[Evals](/evals/fixtures-and-risk-maps/)** — the fixture kit, risk
-  families, and the coverage-vs-validation honesty rule.
+  families, the coverage-vs-validation honesty rule, and grading runs into
+  measurements.
 - **[CLI Reference](/cli/)** — one page per command, generated from the
   CLI's own router.
 - **[Contributing](/contributing/repo-layout/)** — repo layout and build
@@ -49,8 +51,8 @@ displayed.
 
 :::note
 This site documents only what's merged and runnable on the current
-codebase. Planned-but-not-built functionality (agent-driven eval runs with
-grading, agent-first production stations, publishing, the skillbook) is
-described once, on the [Roadmap](/roadmap/) page, linking the build plan —
-not scattered across these pages as half-true promises.
+codebase. Planned-but-not-built functionality (agent-first production
+stations, publishing, the skillbook) is described once, on the
+[Roadmap](/roadmap/) page, linking the build plan — not scattered across
+these pages as half-true promises.
 :::
