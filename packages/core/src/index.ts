@@ -50,7 +50,33 @@ export {
   type VersionRecord,
   type ListTodosOptions,
   type RebuildResult,
+  type FixtureRecord,
+  type RiskCoverageRecord,
+  type WarningRecord,
 } from "./IndexService.ts";
+export {
+  scanFixtures,
+  FIXTURE_CLASSES,
+  FixtureClass,
+  RISK_FAMILIES,
+  riskFamily,
+  isKnownRiskFamily,
+  FixtureCase,
+  FixtureSetup,
+  FixtureGrading,
+  type RiskFamily,
+  type FixtureCaseRecord,
+  type ScanFixturesResult,
+} from "./Fixtures.ts";
+export {
+  parseRiskMap,
+  checkCoverage,
+  parseCoverageCell,
+  COVERAGE_VALUES,
+  type CoverageValue,
+  type RiskRow,
+  type ParseRiskMapResult,
+} from "./RiskMap.ts";
 export {
   hashFile,
   hashOutputTree,

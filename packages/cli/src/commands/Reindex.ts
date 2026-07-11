@@ -5,11 +5,17 @@
  * hard-fails on malformed input (Part 3 ruling I) — it surfaces warnings.
  */
 import { IndexService, IndexServiceLayer, Workspace } from "@skillmaker/core";
+import type { RebuildResult, WarningRecord } from "@skillmaker/core";
 import { Effect } from "effect";
 import { type CliResult, expectedFailure, ok } from "../CliResult.ts";
 
 export interface ReindexOptions {
   readonly json: boolean;
+}
+
+interface ReindexView {
+  readonly result: RebuildResult;
+  readonly warnings: ReadonlyArray<WarningRecord>;
 }
 
 export const runReindex = Effect.fn("runReindex")(function* (
@@ -30,7 +36,12 @@ export const runReindex = Effect.fn("runReindex")(function* (
   const outcome = yield* Effect.result(
     Effect.gen(function* () {
       const index = yield* IndexService;
-      return yield* index.rebuild();
+      const result = yield* index.rebuild();
+      // `result.warnings` is flat messages; re-fetch the persisted,
+      // bundle-tagged rows so the CLI can group warnings by bundle.
+      const warnings = yield* index.listWarnings();
+      const view: ReindexView = { result, warnings };
+      return view;
     }).pipe(Effect.provide(IndexServiceLayer(resolved.root))),
   );
 
@@ -41,16 +52,46 @@ export const runReindex = Effect.fn("runReindex")(function* (
   return summarize(outcome.success, options.json);
 });
 
-const summarize = (
-  result: { readonly bundles: number; readonly events: number; readonly warnings: ReadonlyArray<string> },
-  json: boolean,
-): CliResult => {
+const summarize = (view: ReindexView, json: boolean): CliResult => {
+  const { result, warnings } = view;
   if (json) {
-    return ok(`${JSON.stringify({ status: "reindexed", ...result })}\n`);
+    return ok(
+      `${JSON.stringify({
+        status: "reindexed",
+        bundles: result.bundles,
+        todos: result.todos,
+        events: result.events,
+        warnings: warnings.map((w) => ({ bundle: w.bundle ?? null, source: w.source, message: w.message })),
+      })}\n`,
+    );
   }
-  const lines = [
-    `skillmaker: reindexed — ${result.bundles} bundle(s), ${result.events} event(s)`,
-    ...result.warnings.map((warning) => `warning: ${warning}`),
-  ];
+
+  const lines = [`skillmaker: reindexed — ${result.bundles} bundle(s), ${result.events} event(s)`];
+
+  const byBundle = new Map<string, WarningRecord[]>();
+  const appLevel: WarningRecord[] = [];
+  for (const warning of warnings) {
+    if (warning.bundle === undefined) {
+      appLevel.push(warning);
+      continue;
+    }
+    const bucket = byBundle.get(warning.bundle) ?? [];
+    bucket.push(warning);
+    byBundle.set(warning.bundle, bucket);
+  }
+
+  for (const bundle of [...byBundle.keys()].sort()) {
+    lines.push(`warnings for "${bundle}":`);
+    for (const warning of byBundle.get(bundle) ?? []) {
+      lines.push(`  [${warning.source}] ${warning.message}`);
+    }
+  }
+  if (appLevel.length > 0) {
+    lines.push("warnings:");
+    for (const warning of appLevel) {
+      lines.push(`  [${warning.source}] ${warning.message}`);
+    }
+  }
+
   return ok(`${lines.join("\n")}\n`);
 };

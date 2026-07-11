@@ -20,7 +20,17 @@
  */
 import { type FC, useEffect, useState } from "react";
 import { getBundleFile, postEvent, recordVersion } from "../runtime/api.ts";
-import { STAGES, type BundleStage, type Drift, type EventView, type VersionRecord } from "../runtime/schemas.ts";
+import {
+  STAGES,
+  type BundleStage,
+  type CoverageValue,
+  type Drift,
+  type EventView,
+  type FixtureRecord,
+  type RiskCoverageRecord,
+  type VersionRecord,
+  type WarningRecord,
+} from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -81,13 +91,39 @@ const FILE_OPTIONS: ReadonlyArray<{ readonly label: string; readonly path: strin
   { label: "output/SKILL.md", path: "output/SKILL.md" },
 ];
 
-type PanelTab = "overview" | "files" | "versions";
+type PanelTab = "overview" | "files" | "versions" | "evals";
 
 const TABS: ReadonlyArray<{ readonly key: PanelTab; readonly label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "files", label: "Files" },
   { key: "versions", label: "Versions" },
+  { key: "evals", label: "Evals" },
 ];
+
+/** IN Input / RE Reasoning / OUT Output / ADV Adversarial / CHN Chain (data-model.md §2.6). */
+const RISK_FAMILY_ORDER = ["IN", "RE", "OUT", "ADV", "CHN"] as const;
+
+const RISK_FAMILY_LABEL: Record<string, string> = {
+  IN: "IN Input",
+  RE: "RE Reasoning",
+  OUT: "OUT Output",
+  ADV: "ADV Adversarial",
+  CHN: "CHN Chain",
+};
+
+const COVERAGE_GLYPH: Record<CoverageValue, string> = {
+  covered: "●",
+  partial: "◐",
+  gap: "○",
+  "n/a": "—",
+};
+
+const COVERAGE_LABEL: Record<CoverageValue, string> = {
+  covered: "covered",
+  partial: "partial",
+  gap: "gap",
+  "n/a": "n/a",
+};
 
 export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, onClose }) => {
   const { detail, loading, error, refetch } = useBundleDetail(slug);
@@ -182,6 +218,9 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
           {tab === "files" && <FilesTab slug={slug} />}
           {tab === "versions" && (
             <VersionsTab slug={slug} drift={detail.bundle.drift} versions={detail.versions} onRecorded={refetch} />
+          )}
+          {tab === "evals" && (
+            <EvalsTab fixtures={detail.fixtures} riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
           )}
         </>
       )}
@@ -544,6 +583,105 @@ const VersionsTab: FC<{
             </li>
           ))}
           {versions.length === 0 && <li className="text-[11px] text-neutral-400">No versions recorded yet.</li>}
+        </ul>
+      </section>
+    </section>
+  );
+};
+
+/**
+ * Evals tab (plan.md Phase 7): the risk-map coverage axis grouped by family,
+ * the scanned fixtures, and any reindex-time warnings. The Validation column
+ * always reads "not yet measured" -- actual measurement runs land in Phase
+ * 9; this tab only ever reports what has been *authored*, never a result.
+ */
+const EvalsTab: FC<{
+  fixtures: ReadonlyArray<FixtureRecord>;
+  riskCoverage: ReadonlyArray<RiskCoverageRecord>;
+  warnings: ReadonlyArray<WarningRecord>;
+}> = ({ fixtures, riskCoverage, warnings }) => {
+  const families = RISK_FAMILY_ORDER.filter((family) => riskCoverage.some((row) => row.family === family));
+  const otherFamilies = Array.from(
+    new Set(riskCoverage.map((row) => row.family).filter((family) => !(RISK_FAMILY_ORDER as ReadonlyArray<string>).includes(family))),
+  ).sort();
+  const orderedFamilies = [...families, ...otherFamilies];
+
+  return (
+    <section className="flex flex-col gap-4">
+      {warnings.length > 0 && (
+        <section className="flex flex-col gap-1 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+            Warnings
+          </h4>
+          <ul className="flex flex-col gap-1">
+            {warnings.map((warning, index) => (
+              <li key={index} className="text-[11px] text-amber-800 dark:text-amber-300">
+                <span className="font-mono">[{warning.source}]</span> {warning.message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="flex flex-col gap-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Risk coverage</h4>
+        {orderedFamilies.length === 0 && (
+          <p className="text-[11px] text-neutral-400">No risk-map.md authored yet.</p>
+        )}
+        {orderedFamilies.map((family) => (
+          <div key={family} className="flex flex-col gap-1">
+            <h5 className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-300">
+              {RISK_FAMILY_LABEL[family] ?? family}
+            </h5>
+            <table className="w-full text-left text-[11px]">
+              <thead>
+                <tr className="text-neutral-400">
+                  <th className="pr-2 font-normal">Risk</th>
+                  <th className="pr-2 font-normal">Coverage</th>
+                  <th className="pr-2 font-normal">Fixture</th>
+                  <th className="pr-2 font-normal">Validation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {riskCoverage
+                  .filter((row) => row.family === family)
+                  .map((row) => (
+                    <tr key={row.riskId} className="border-t border-neutral-100 dark:border-neutral-800">
+                      <td className="py-1 pr-2 font-mono">{row.riskId}</td>
+                      <td className="py-1 pr-2">
+                        {COVERAGE_GLYPH[row.coverage]} {COVERAGE_LABEL[row.coverage]}
+                      </td>
+                      <td className="py-1 pr-2 font-mono">{row.fixtureCase ?? "—"}</td>
+                      <td className="py-1 pr-2 text-neutral-400">not yet measured</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </section>
+
+      <section className="flex flex-col gap-1">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Fixtures</h4>
+        <ul className="flex flex-col gap-1">
+          {fixtures.map((fixture) => (
+            <li
+              key={fixture.caseName}
+              className="flex items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-300"
+            >
+              <span className="font-mono">{fixture.caseName}</span>
+              <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                {fixture.class}
+              </span>
+              {fixture.risks.length > 0 && (
+                <span className="text-neutral-400">{fixture.risks.join(", ")}</span>
+              )}
+              <span className={fixture.hasPromptMd ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-300 dark:text-neutral-600"}>
+                {fixture.hasPromptMd ? "prompt.md" : "no prompt.md"}
+              </span>
+            </li>
+          ))}
+          {fixtures.length === 0 && <li className="text-[11px] text-neutral-400">No fixtures yet.</li>}
         </ul>
       </section>
     </section>

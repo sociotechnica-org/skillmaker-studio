@@ -5,12 +5,14 @@
 import {
   type BundleRecord,
   bundleForEvent,
+  type CoverageValue,
   IndexService,
   IndexServiceLayer,
   Journal,
   JournalLayer,
   shortHash,
   type VersionRecord,
+  type WarningRecord,
   Workspace,
 } from "@skillmaker/core";
 import { Effect, Layer } from "effect";
@@ -21,13 +23,37 @@ export interface StatusOptions {
   readonly json: boolean;
 }
 
+interface CoverageSummary {
+  readonly covered: number;
+  readonly partial: number;
+  readonly gap: number;
+  readonly na: number;
+}
+
 interface StatusView {
   readonly bundle: BundleRecord;
   readonly eventCount: number;
   readonly lastEventType: string | undefined;
   readonly lastEventAt: string | undefined;
   readonly latestVersion: VersionRecord | undefined;
+  readonly fixtureCount: number;
+  readonly coverage: CoverageSummary;
+  readonly warnings: ReadonlyArray<WarningRecord>;
 }
+
+const summarizeCoverage = (values: ReadonlyArray<CoverageValue>): CoverageSummary => {
+  let covered = 0;
+  let partial = 0;
+  let gap = 0;
+  let na = 0;
+  for (const value of values) {
+    if (value === "covered") covered++;
+    else if (value === "partial") partial++;
+    else if (value === "gap") gap++;
+    else na++;
+  }
+  return { covered, partial, gap, na };
+};
 
 export const runStatus = Effect.fn("runStatus")(function* (
   cwd: string,
@@ -77,6 +103,9 @@ export const runStatus = Effect.fn("runStatus")(function* (
       const lastEvent = bundleEvents.at(-1);
 
       const versions = yield* index.listVersions(slug);
+      const fixtures = yield* index.listFixtures(slug);
+      const riskCoverage = yield* index.listRiskCoverage(slug);
+      const warnings = yield* index.listWarnings(slug);
 
       const view: StatusView = {
         bundle,
@@ -84,6 +113,9 @@ export const runStatus = Effect.fn("runStatus")(function* (
         lastEventType: lastEvent?.type,
         lastEventAt: lastEvent?.at,
         latestVersion: versions[0],
+        fixtureCount: fixtures.length,
+        coverage: summarizeCoverage(riskCoverage.map((row) => row.coverage)),
+        warnings,
       };
       return view;
     }).pipe(Effect.provide(layers)),
@@ -123,6 +155,9 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
           latestVersion !== undefined
             ? { hash: latestVersion.hash, label: latestVersion.label ?? null, recordedAt: latestVersion.recordedAt }
             : null,
+        fixtureCount: view.fixtureCount,
+        coverage: view.coverage,
+        warnings: view.warnings.map((w) => ({ source: w.source, message: w.message })),
       })}\n`,
     );
   }
@@ -146,6 +181,14 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
         ? `${shortHash(latestVersion.hash)}${latestVersion.label !== undefined ? ` "${latestVersion.label}"` : ""} at ${latestVersion.recordedAt}`
         : "(none recorded)"
     }`,
+    `fixtures:    ${view.fixtureCount}`,
+    `coverage:    ${view.coverage.covered} covered, ${view.coverage.partial} partial, ${view.coverage.gap} gap${view.coverage.na > 0 ? `, ${view.coverage.na} n/a` : ""}`,
   ];
+  if (view.warnings.length > 0) {
+    lines.push("warnings:");
+    for (const warning of view.warnings) {
+      lines.push(`  [${warning.source}] ${warning.message}`);
+    }
+  }
   return ok(`${lines.join("\n")}\n`);
 };

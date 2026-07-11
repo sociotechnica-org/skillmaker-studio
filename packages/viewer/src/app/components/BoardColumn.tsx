@@ -5,8 +5,9 @@ import { BundleCard } from "./BundleCard.tsx";
 export const BoardColumn: FC<{
   title: string;
   bundles: ReadonlyArray<BundleRecord>;
+  fixtureCounts?: Readonly<Record<string, number>>;
   onSelect?: (slug: string) => void;
-}> = ({ title, bundles, onSelect }) => (
+}> = ({ title, bundles, fixtureCounts, onSelect }) => (
   <div className="flex min-w-56 flex-1 flex-col gap-2 rounded-xl bg-neutral-100/60 p-3 dark:bg-neutral-900/40">
     <header className="flex items-center justify-between px-1">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
@@ -16,7 +17,12 @@ export const BoardColumn: FC<{
     </header>
     <div className="flex flex-col gap-2">
       {bundles.map((bundle) => (
-        <BundleCard key={bundle.slug} bundle={bundle} onSelect={onSelect} />
+        <BundleCard
+          key={bundle.slug}
+          bundle={bundle}
+          fixtureCount={fixtureCounts?.[bundle.slug] ?? 0}
+          onSelect={onSelect}
+        />
       ))}
     </div>
   </div>

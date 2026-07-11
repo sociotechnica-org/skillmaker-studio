@@ -18,8 +18,11 @@ import {
   JournalEvent,
   type Actor,
   type BundleRecord,
+  type FixtureRecord,
+  type RiskCoverageRecord,
   type TodoRecord,
   type VersionRecord,
+  type WarningRecord,
   type WorkspaceConfig,
 } from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
@@ -92,6 +95,18 @@ const listBundleRecords = (root: string): Promise<ReadonlyArray<BundleRecord>> =
     }),
   );
 
+/** bundle slug -> fixture count, for the board's subtle fixture-count indicator. */
+const listFixtureCounts = (root: string): Promise<Readonly<Record<string, number>>> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      const counts = yield* index.listFixtureCounts();
+      return Object.fromEntries(counts);
+    }),
+  );
+
 const getBundleRecord = (root: string, slug: string): Promise<BundleRecord | undefined> =>
   runIndexEffect(
     root,
@@ -109,6 +124,26 @@ const listVersionRecords = (root: string, slug: string): Promise<ReadonlyArray<V
       const index = yield* IndexService;
       yield* index.rebuild();
       return yield* index.listVersions(slug);
+    }),
+  );
+
+interface BundleEvalDetail {
+  readonly fixtures: ReadonlyArray<FixtureRecord>;
+  readonly riskCoverage: ReadonlyArray<RiskCoverageRecord>;
+  readonly warnings: ReadonlyArray<WarningRecord>;
+}
+
+/** Fixtures + risk coverage + warnings for one bundle (data-model.md §2.5/§2.6, plan.md Phase 7). */
+const listBundleEvalDetail = (root: string, slug: string): Promise<BundleEvalDetail> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      const fixtures = yield* index.listFixtures(slug);
+      const riskCoverage = yield* index.listRiskCoverage(slug);
+      const warnings = yield* index.listWarnings(slug);
+      return { fixtures, riskCoverage, warnings };
     }),
   );
 
@@ -323,12 +358,16 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
   const recentEvents = bundleEvents.slice(-MAX_BUNDLE_DETAIL_EVENTS).reverse();
 
   const versions = await listVersionRecords(root, slug);
+  const { fixtures, riskCoverage, warnings } = await listBundleEvalDetail(root, slug);
 
   return jsonResponse({
     bundle,
     guardStatus: guardStatus(events, slug),
     events: recentEvents,
     versions,
+    fixtures,
+    riskCoverage,
+    warnings,
   });
 };
 
@@ -545,7 +584,8 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       if (pathname === "/api/bundles") {
         try {
           const bundles = await listBundleRecords(root);
-          return jsonResponse({ bundles });
+          const fixtureCounts = await listFixtureCounts(root);
+          return jsonResponse({ bundles, fixtureCounts });
         } catch (cause) {
           return jsonResponse({ error: `could not list bundles: ${String(cause)}` }, 500);
         }

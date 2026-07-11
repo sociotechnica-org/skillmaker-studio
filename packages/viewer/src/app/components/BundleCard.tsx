@@ -1,10 +1,11 @@
 import type { FC } from "react";
 import type { BundleRecord } from "../runtime/schemas.ts";
 
-export const BundleCard: FC<{ bundle: BundleRecord; onSelect?: (slug: string) => void }> = ({
-  bundle,
-  onSelect,
-}) => (
+export const BundleCard: FC<{
+  bundle: BundleRecord;
+  fixtureCount?: number;
+  onSelect?: (slug: string) => void;
+}> = ({ bundle, fixtureCount = 0, onSelect }) => (
   <article
     onClick={onSelect === undefined ? undefined : () => onSelect(bundle.slug)}
     className={`rounded-lg border border-neutral-200 bg-white p-3 shadow-sm dark:border-neutral-800 dark:bg-neutral-900${
@@ -24,6 +25,11 @@ export const BundleCard: FC<{ bundle: BundleRecord; onSelect?: (slug: string) =>
     <p className="mt-1 font-mono text-xs text-neutral-500 dark:text-neutral-400">{bundle.slug}</p>
     {bundle.oneLiner.length > 0 && (
       <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-300">{bundle.oneLiner}</p>
+    )}
+    {fixtureCount > 0 && (
+      <p className="mt-2 text-[10px] text-neutral-400 dark:text-neutral-500">
+        {fixtureCount} fixture{fixtureCount === 1 ? "" : "s"}
+      </p>
     )}
   </article>
 );

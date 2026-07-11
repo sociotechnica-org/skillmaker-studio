@@ -59,6 +59,44 @@ export class VersionRecord extends Schema.Class<VersionRecord>("VersionRecord")(
 
 export class BundlesResponse extends Schema.Class<BundlesResponse>("BundlesResponse")({
   bundles: Schema.Array(BundleRecord),
+  /** bundle slug -> fixture count, for the board's subtle fixture-count indicator (plan.md Phase 7). */
+  fixtureCounts: Schema.Record(Schema.String, Schema.Number),
+}) {}
+
+/**
+ * A scanned `evals/fixtures/<case>/case.json` (data-model.md §2.5, §2.11).
+ * `class` is left as `Schema.String`, not a literal union -- `scanFixtures`
+ * tolerates an unknown class as a warning rather than dropping the fixture,
+ * so the wire can legitimately send a non-canonical value here too.
+ */
+export class FixtureRecord extends Schema.Class<FixtureRecord>("FixtureRecord")({
+  bundle: Schema.String,
+  caseName: Schema.String,
+  class: Schema.String,
+  risks: Schema.Array(Schema.String),
+  /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE) -- the Evals tab's prompt.md indicator. */
+  hasPromptMd: Schema.Boolean,
+}) {}
+
+/** ● covered / ◐ partial / ○ gap / n/a (data-model.md §2.6). No results column, ever. */
+export const CoverageValue = Schema.Literals(["covered", "partial", "gap", "n/a"]);
+export type CoverageValue = typeof CoverageValue.Type;
+
+/** One authored `evals/risk-map.md` row (data-model.md §2.6, §2.11). */
+export class RiskCoverageRecord extends Schema.Class<RiskCoverageRecord>("RiskCoverageRecord")({
+  bundle: Schema.String,
+  riskId: Schema.String,
+  /** Left as `Schema.String`, not a literal union, for the same reason as `FixtureRecord.class`. */
+  family: Schema.String,
+  coverage: CoverageValue,
+  fixtureCase: Schema.optionalKey(Schema.String),
+}) {}
+
+/** A reindex-time warning (Part 3 ruling I: warnings, never hard fails). */
+export class WarningRecord extends Schema.Class<WarningRecord>("WarningRecord")({
+  bundle: Schema.optionalKey(Schema.String),
+  source: Schema.String,
+  message: Schema.String,
 }) {}
 
 export class WorkspaceSummary extends Schema.Class<WorkspaceSummary>("WorkspaceSummary")({
@@ -129,6 +167,9 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   guardStatus: GuardStatus,
   events: Schema.Array(EventView),
   versions: Schema.Array(VersionRecord),
+  fixtures: Schema.Array(FixtureRecord),
+  riskCoverage: Schema.Array(RiskCoverageRecord),
+  warnings: Schema.Array(WarningRecord),
 }) {}
 
 export class PostEventResponse extends Schema.Class<PostEventResponse>("PostEventResponse")({

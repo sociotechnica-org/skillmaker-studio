@@ -56,6 +56,22 @@ bundle: ${slug}
 <!-- Which fixture cases the failure hypotheses demand (seeds evals/). -->
 `;
 
+const riskMapSkeleton = (slug: string): string =>
+  `---
+bundle: ${slug}
+---
+<!-- The authored coverage axis ONLY (data-model.md §2.6) -- no results
+     column, ever: validation is computed from graded runs and joined in the
+     viewer at read time. Risk ids band into IN (input) / RE (reasoning) /
+     OUT (output) / ADV (adversarial) / CHN (chain) families. Coverage is
+     ● covered / ◐ partial / ○ gap (or the plain words). Fixture is the
+     evals/fixtures/<case>/ directory name that buys this row's coverage, or
+     "—" for a gap. -->
+
+| Risk | Description | Coverage | Fixture |
+|---|---|---|---|
+`;
+
 export interface CreateBundleInput {
   readonly slug: string;
   readonly name?: string;
@@ -234,6 +250,10 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
           .writeFileString(path.join(dir, ".gitkeep"), "")
           .pipe(Effect.mapError(toIOError(`could not write ${dir}/.gitkeep`)));
       }
+
+      yield* fs
+        .writeFileString(path.join(bundleDir, "evals", "risk-map.md"), riskMapSkeleton(input.slug))
+        .pipe(Effect.mapError(toIOError("could not write evals/risk-map.md")));
 
       return { status: "created" as const, slug: input.slug };
     });
