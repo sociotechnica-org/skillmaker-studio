@@ -204,7 +204,7 @@ describe("computeMeasurements: never pooled", () => {
     expect(measurement?.fail).toBe(1);
     // n === passes + partial + fail, always.
     expect((measurement?.passes ?? 0) + (measurement?.partial ?? 0) + (measurement?.fail ?? 0)).toBe(
-      measurement?.n,
+      measurement?.n ?? -1,
     );
     expect(measurement?.passRate).toBeCloseTo(1 / 4, 10);
   });
