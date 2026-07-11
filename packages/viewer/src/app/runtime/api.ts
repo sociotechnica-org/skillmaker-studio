@@ -12,6 +12,7 @@ import {
   HealthResponse,
   PostEventResponse,
   StateResponse,
+  TodosResponse,
 } from "./schemas.ts";
 
 export const getHealth = (): Promise<HealthResponse> => fetchJson("/api/health", HealthResponse);
@@ -23,6 +24,10 @@ export const getBundles = (): Promise<BundlesResponse> =>
 
 export const getBundleDetail = (slug: string): Promise<BundleDetailResponse> =>
   fetchJson(`/api/bundles/${encodeURIComponent(slug)}`, BundleDetailResponse);
+
+/** `GET /api/todos[?all=1]` -- the todos panel's data (data-model.md §2.10/§2.11). */
+export const getTodos = (includeArchived: boolean): Promise<TodosResponse> =>
+  fetchJson(includeArchived ? "/api/todos?all=1" : "/api/todos", TodosResponse);
 
 export interface PostEventInput {
   readonly type: string;
