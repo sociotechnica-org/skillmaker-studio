@@ -14,7 +14,15 @@ export class ViewerConfig extends Schema.Class<ViewerConfig>("ViewerConfig")({
 export class PublishTarget extends Schema.Class<PublishTarget>("PublishTarget")({
   id: Schema.String,
   kind: Schema.String,
-  path: Schema.String,
+  /**
+   * `git-dir` requires this (the destination directory to copy `output/`
+   * into). `claude-marketplace`/`codex-marketplace` treat a missing `path`
+   * as "the workspace root" -- their manifests live at fixed well-known
+   * paths (`.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`) relative
+   * to wherever the marketplace repo root is, which defaults to the
+   * skillmaker workspace root itself.
+   */
+  path: Schema.optionalKey(Schema.String),
 }) {}
 
 export class WorkspaceConfig extends Schema.Class<WorkspaceConfig>("WorkspaceConfig")({
