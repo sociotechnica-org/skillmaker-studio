@@ -1,6 +1,6 @@
 ---
 const repoUrl = "https://github.com/sociotechnica-org/skillmaker-studio";
-const installLines = ["git clone " + repoUrl + ".git", "cd skillmaker-studio", "bun install"];
+const installLines = ["curl -fsSL https://skillmaker.studio/install.sh | sh"];
 ---
 
 <section class="mx-auto max-w-5xl px-6 pb-20 pt-16 sm:pb-28 sm:pt-24">
@@ -51,7 +51,7 @@ const installLines = ["git clone " + repoUrl + ".git", "cd skillmaker-studio", "
         id="install-snippet"
       >{installLines.map((line) => `$ ${line}`).join("\n")}</pre>
       <p class="border-t border-border px-4 py-3 text-xs text-ink-dim">
-        Pre-alpha. No published binary yet — clone and run from source.
+        Pre-alpha &middot; v0.1.0 &middot; macOS arm64 + Linux x64
       </p>
     </div>
   </div>

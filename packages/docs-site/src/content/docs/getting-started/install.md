@@ -1,37 +1,26 @@
 ---
-title: Install from source
-description: There's no published package yet — build the CLI from the repo.
+title: Install
+description: One-line install for macOS arm64 and Linux x64, or build from source.
 ---
 
-:::caution[No npm package yet]
-Skillmaker Studio isn't published to npm or any package registry yet — the
-only way to run it today is from a source checkout, with
-[bun](https://bun.sh). This page is honest about that; it'll be replaced by
-a real install command once the binary is distributed.
-:::
-
-## Once v0.1.0 is tagged: one-command install
-
-:::caution[Not live yet]
-This is the target install story, wired up in CI
-(`.github/workflows/release.yml`) but **not usable yet** — no `v*` tag has
-been pushed, so no GitHub Release exists, and the command below will 404
-until the first one is published. Use "Clone and build" further down until
-then.
-:::
-
-Once a release exists:
+## One-command install
 
 ```sh
 curl -fsSL https://skillmaker.studio/install.sh | sh
 ```
 
-This detects your OS/arch, downloads the matching release tarball from
-GitHub, and installs `skillmaker` (plus the viewer assets it needs) to
-`~/.skillmaker/bin`. Re-run the same command to upgrade. Supported
-platforms at launch: macOS arm64 and Linux x64.
+This detects your OS/arch, downloads the matching release tarball from the
+latest GitHub Release (`sociotechnica-org/skillmaker-studio`), and installs
+`skillmaker` (plus the viewer assets it needs) to `~/.skillmaker/bin`.
+Re-run the same command to upgrade. Supported platforms today: macOS arm64
+and Linux x64. macOS x64 (Intel) and Linux arm64 are fast-follows.
 
-## Prerequisites
+## Installing from source
+
+Building from a checkout works on any platform bun supports, and is the
+right path if you want to hack on Skillmaker Studio itself.
+
+### Prerequisites
 
 - [bun](https://bun.sh) — the CLI runs directly under bun, no build step
   required for local use.
@@ -49,7 +38,7 @@ platforms at launch: macOS arm64 and Linux x64.
   this only matters when you run the CLI from *outside* the repo checkout —
   which is exactly what the next page does.)
 
-## Clone and build
+### Clone and build
 
 ```sh
 git clone https://github.com/sociotechnica-org/skillmaker-studio.git
@@ -62,7 +51,7 @@ bun run build:viewer   # required once before `skillmaker start` works
 (`.repos/effect`) used for reference; skip it with `SKIP_EFFECT_CLONE=1` if
 you don't need it.
 
-## Running the CLI from the checkout
+### Running the CLI from the checkout
 
 The CLI's entry point is `packages/cli/src/main.ts`, and bun runs TypeScript
 directly — no compile step:
@@ -79,7 +68,7 @@ Reference) reads naturally as `skillmaker <command>`:
 alias skillmaker="bun /path/to/skillmaker-studio/packages/cli/src/main.ts"
 ```
 
-## Optional: compile a single binary
+### Optional: compile a single binary
 
 Skillmaker Studio can also compile to one self-contained executable (no
 `bun`, no repo checkout, no `node_modules` needed on the target machine —
