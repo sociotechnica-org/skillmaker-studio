@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "trigger-basic",
+  "class": "trigger",
+  "risks": [
+    "IN-2"
+  ]
+}

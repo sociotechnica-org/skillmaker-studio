@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "hard-case-conflicting-sections",
+  "class": "hard-case",
+  "risks": [
+    "RE-2"
+  ]
+}
