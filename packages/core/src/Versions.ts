@@ -19,6 +19,24 @@ const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make
 
 const sha256Hex = (data: Uint8Array | string): string => createHash("sha256").update(data).digest("hex");
 
+/** The adopt-time marker filename (`Adopt.ts`, strategy-skills-repo-mode.md §3B.8). */
+export const ADOPT_MARKER_FILENAME = ".skillmaker-adopt.json";
+
+/**
+ * Top-level entries excluded when hashing an in-place-adopted bundle's
+ * output tree: the studio-owned files `Adopt.ts` writes into the discovered
+ * directory (mirroring the names `WorkspaceService.createBundle` scaffolds
+ * for an in-workspace bundle), never the brownfield repo's own content.
+ */
+export const ADOPT_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
+  "bundle.json",
+  ADOPT_MARKER_FILENAME,
+  "design.md",
+  "research",
+  "evals",
+  "runs",
+]);
+
 /** sha256 of one file's bytes, as `sha256:<hex>`. */
 export const hashFile = Effect.fn("Versions.hashFile")(function* (filePath: string) {
   const fs = yield* FileSystem;
@@ -34,7 +52,20 @@ export const hashFile = Effect.fn("Versions.hashFile")(function* (filePath: stri
  * (missing dir, or a dir with only `.gitkeep`) hashes the canonical empty
  * list `"[]"` -- a well-defined value, not a special-cased sentinel.
  */
-export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (dir: string) {
+export interface HashOutputTreeOptions {
+  /**
+   * Top-level entry names (matched against the first path segment under
+   * `dir`) to exclude entirely — used for in-place-adopted bundles, whose
+   * "output" is the discovered directory itself minus the studio-owned files
+   * `Adopt.ts` added (`ADOPT_EXCLUDED_NAMES`).
+   */
+  readonly excludeTopLevel?: ReadonlySet<string>;
+}
+
+export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (
+  dir: string,
+  options?: HashOutputTreeOptions,
+) {
   const fs = yield* FileSystem;
 
   const dirExists = yield* fs.exists(dir).pipe(Effect.mapError(toIOError(`could not check ${dir}`)));
@@ -48,6 +79,12 @@ export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (di
   for (const entry of entries) {
     if (basename(entry) === ".gitkeep") {
       continue;
+    }
+    if (options?.excludeTopLevel !== undefined) {
+      const [firstSegment] = entry.split(sep);
+      if (firstSegment !== undefined && options.excludeTopLevel.has(firstSegment)) {
+        continue;
+      }
     }
     const fullPath = join(dir, entry);
     const info = yield* fs.stat(fullPath).pipe(Effect.mapError(toIOError(`could not stat ${fullPath}`)));
@@ -80,16 +117,26 @@ export interface BundleHashes {
   readonly outputHash: string;
 }
 
+/** `"output-dir"` (default): the normal `output/` subdirectory. `"in-place"`: an adopted bundle (`Adopt.ts`) whose output IS the bundle directory itself, minus `ADOPT_EXCLUDED_NAMES`. */
+export type BundleLayout = "output-dir" | "in-place";
+
 /**
  * The shared hashing entry point: given a bundle directory
- * (`skills/<slug>/`), computes the live `design.md` hash and `output/` tree
- * hash. Called by both the CLI's `version record` command and the server's
- * `POST /api/bundles/:slug/record-version` -- one function, two doors,
- * hashing stays I/O (server-side), never a client computation.
+ * (`skills/<slug>/`, or an adopted bundle's discovered directory), computes
+ * the live `design.md` hash and output-tree hash. Called by both the CLI's
+ * `version record` command and the server's `POST
+ * /api/bundles/:slug/record-version` -- one function, two doors, hashing
+ * stays I/O (server-side), never a client computation.
  */
-export const computeBundleHashes = Effect.fn("Versions.computeBundleHashes")(function* (bundleDir: string) {
+export const computeBundleHashes = Effect.fn("Versions.computeBundleHashes")(function* (
+  bundleDir: string,
+  layout: BundleLayout = "output-dir",
+) {
   const designHash = yield* hashDesign(join(bundleDir, "design.md"));
-  const outputHash = yield* hashOutputTree(join(bundleDir, "output"));
+  const outputHash =
+    layout === "in-place"
+      ? yield* hashOutputTree(bundleDir, { excludeTopLevel: ADOPT_EXCLUDED_NAMES })
+      : yield* hashOutputTree(join(bundleDir, "output"));
   return { designHash, outputHash };
 });
 
