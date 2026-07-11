@@ -11,6 +11,7 @@ import { runList } from "./commands/List.ts";
 import { runNew } from "./commands/New.ts";
 import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
+import { runRun } from "./commands/Run.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStatus } from "./commands/Status.ts";
 import { runTodoAdd, runTodoList, runTodoStatus, type TodoStatusCommand } from "./commands/Todo.ts";
@@ -27,6 +28,7 @@ Commands:
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
+  run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
   start             Serve the viewer + API (default port from config, or 4323)
   review request <slug>   Request review of the bundle's current stage work
   advance <slug>          Move a bundle along the state machine (guarded)
@@ -57,7 +59,12 @@ Options:
   --all             (todo list) include archived todos
   --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case; defaults to golden
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
+  --fixture <case>  (run) the fixture case to run (required)
+  --provider <id>   (run) provider id from skillmaker.config.json; defaults to "claude-code"
+  --timeout <s>     (run) prompt timeout in seconds; defaults to 300
   -h, --help        Show this help
+
+Exit codes (run): 0 completed, 1 failed, 2 usage error, 3 infra-error
 `;
 
 const hasFlag = (argv: ReadonlyArray<string>, flag: string): boolean => argv.includes(flag);
@@ -85,6 +92,9 @@ const VALUE_FLAGS = new Set([
   "--label",
   "--class",
   "--risks",
+  "--fixture",
+  "--provider",
+  "--timeout",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -171,6 +181,13 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const klass = flagValue(argv, "--class");
       const risks = flagValue(argv, "--risks");
       return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
+    }
+    case "run": {
+      const slug = positionalAfterCommand(argv);
+      const fixture = flagValue(argv, "--fixture");
+      const provider = flagValue(argv, "--provider");
+      const timeout = flagValue(argv, "--timeout");
+      return yield* runRun(cwd, slug, { json, fixture, provider, timeout });
     }
     case "start": {
       const portValue = flagValue(argv, "--port");

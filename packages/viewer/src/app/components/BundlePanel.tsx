@@ -28,6 +28,7 @@ import {
   type EventView,
   type FixtureRecord,
   type RiskCoverageRecord,
+  type RunRecord,
   type VersionRecord,
   type WarningRecord,
 } from "../runtime/schemas.ts";
@@ -220,7 +221,12 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
             <VersionsTab slug={slug} drift={detail.bundle.drift} versions={detail.versions} onRecorded={refetch} />
           )}
           {tab === "evals" && (
-            <EvalsTab fixtures={detail.fixtures} riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
+            <EvalsTab
+              fixtures={detail.fixtures}
+              riskCoverage={detail.riskCoverage}
+              warnings={detail.warnings}
+              runs={detail.runs}
+            />
           )}
         </>
       )}
@@ -590,16 +596,53 @@ const VersionsTab: FC<{
 };
 
 /**
+ * Per-fixture last-run status chip (plan.md Phase 8): completed green /
+ * failed red / infra-error gray / running pulse. This is intentionally the
+ * whole of Phase 8's viewer surface -- the full graded read-out (verdicts,
+ * transcripts, artifacts) is Phase 9's Evals tab work, not this one's.
+ */
+const RUN_CHIP_STYLE: Record<RunRecord["status"], string> = {
+  completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
+  failed: "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300",
+  "infra-error": "bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
+  running: "animate-pulse bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300",
+};
+
+const LastRunChip: FC<{ run: RunRecord | undefined }> = ({ run }) => {
+  if (run === undefined) {
+    return <span className="text-neutral-300 dark:text-neutral-600">no runs</span>;
+  }
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${RUN_CHIP_STYLE[run.status]}`}
+      title={`run ${run.id} at ${run.startedAt}`}
+    >
+      {run.status}
+    </span>
+  );
+};
+
+/**
  * Evals tab (plan.md Phase 7): the risk-map coverage axis grouped by family,
  * the scanned fixtures, and any reindex-time warnings. The Validation column
  * always reads "not yet measured" -- actual measurement runs land in Phase
- * 9; this tab only ever reports what has been *authored*, never a result.
+ * 9; this tab only ever reports what has been *authored*, never a result,
+ * except for the per-fixture last-run chip added in Phase 8.
  */
 const EvalsTab: FC<{
   fixtures: ReadonlyArray<FixtureRecord>;
   riskCoverage: ReadonlyArray<RiskCoverageRecord>;
   warnings: ReadonlyArray<WarningRecord>;
-}> = ({ fixtures, riskCoverage, warnings }) => {
+  runs: ReadonlyArray<RunRecord>;
+}> = ({ fixtures, riskCoverage, warnings, runs }) => {
+  const lastRunByFixture = new Map<string, RunRecord>();
+  // `runs` arrives newest-first from the server, so the first hit per
+  // fixture case is the last run -- no extra sort needed here.
+  for (const run of runs) {
+    if (run.fixtureCase !== undefined && !lastRunByFixture.has(run.fixtureCase)) {
+      lastRunByFixture.set(run.fixtureCase, run);
+    }
+  }
   const families = RISK_FAMILY_ORDER.filter((family) => riskCoverage.some((row) => row.family === family));
   const otherFamilies = Array.from(
     new Set(riskCoverage.map((row) => row.family).filter((family) => !(RISK_FAMILY_ORDER as ReadonlyArray<string>).includes(family))),
@@ -679,6 +722,7 @@ const EvalsTab: FC<{
               <span className={fixture.hasPromptMd ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-300 dark:text-neutral-600"}>
                 {fixture.hasPromptMd ? "prompt.md" : "no prompt.md"}
               </span>
+              <LastRunChip run={lastRunByFixture.get(fixture.caseName)} />
             </li>
           ))}
           {fixtures.length === 0 && <li className="text-[11px] text-neutral-400">No fixtures yet.</li>}

@@ -10,6 +10,7 @@ import {
   IndexServiceLayer,
   Journal,
   JournalLayer,
+  type RunIndexRecord,
   shortHash,
   type VersionRecord,
   type WarningRecord,
@@ -39,6 +40,7 @@ interface StatusView {
   readonly fixtureCount: number;
   readonly coverage: CoverageSummary;
   readonly warnings: ReadonlyArray<WarningRecord>;
+  readonly lastRun: RunIndexRecord | undefined;
 }
 
 const summarizeCoverage = (values: ReadonlyArray<CoverageValue>): CoverageSummary => {
@@ -106,6 +108,8 @@ export const runStatus = Effect.fn("runStatus")(function* (
       const fixtures = yield* index.listFixtures(slug);
       const riskCoverage = yield* index.listRiskCoverage(slug);
       const warnings = yield* index.listWarnings(slug);
+      const runs = yield* index.listRuns(slug);
+      const lastRun = [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
 
       const view: StatusView = {
         bundle,
@@ -116,6 +120,7 @@ export const runStatus = Effect.fn("runStatus")(function* (
         fixtureCount: fixtures.length,
         coverage: summarizeCoverage(riskCoverage.map((row) => row.coverage)),
         warnings,
+        lastRun,
       };
       return view;
     }).pipe(Effect.provide(layers)),
@@ -158,6 +163,17 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
         fixtureCount: view.fixtureCount,
         coverage: view.coverage,
         warnings: view.warnings.map((w) => ({ source: w.source, message: w.message })),
+        lastRun:
+          view.lastRun !== undefined
+            ? {
+                id: view.lastRun.id,
+                fixtureCase: view.lastRun.fixtureCase ?? null,
+                status: view.lastRun.status,
+                startedAt: view.lastRun.startedAt,
+                endedAt: view.lastRun.endedAt ?? null,
+                verdict: view.lastRun.verdict ?? null,
+              }
+            : null,
       })}\n`,
     );
   }
@@ -183,6 +199,11 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
     }`,
     `fixtures:    ${view.fixtureCount}`,
     `coverage:    ${view.coverage.covered} covered, ${view.coverage.partial} partial, ${view.coverage.gap} gap${view.coverage.na > 0 ? `, ${view.coverage.na} n/a` : ""}`,
+    `last run:    ${
+      view.lastRun !== undefined
+        ? `${view.lastRun.id.slice(0, 8)} ${view.lastRun.fixtureCase ?? "(unknown fixture)"} ${view.lastRun.status} at ${view.lastRun.startedAt}`
+        : "(none)"
+    }`,
   ];
   if (view.warnings.length > 0) {
     lines.push("warnings:");

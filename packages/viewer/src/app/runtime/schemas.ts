@@ -99,6 +99,29 @@ export class WarningRecord extends Schema.Class<WarningRecord>("WarningRecord")(
   message: Schema.String,
 }) {}
 
+/** `run.json`'s `status` (data-model.md §2.8). `"running"` is transient -- a crash mid-run can leave it stuck, but the run record is never deleted. */
+export const RunStatus = Schema.Literals(["running", "completed", "failed", "infra-error"]);
+export type RunStatus = typeof RunStatus.Type;
+
+/** A grading verdict, once Phase 9's grading UI has recorded one (data-model.md §2.8). Absent on ungraded runs. */
+export const RunVerdict = Schema.Literals(["pass", "fail", "needs-review"]);
+export type RunVerdict = typeof RunVerdict.Type;
+
+/** One eval run against a fixture case (data-model.md §2.8, §2.11, plan.md Phase 8). Grading columns are populated starting Phase 9. */
+export class RunRecord extends Schema.Class<RunRecord>("RunRecord")({
+  id: Schema.String,
+  bundle: Schema.String,
+  fixtureCase: Schema.optionalKey(Schema.String),
+  versionHash: Schema.String,
+  provider: Schema.String,
+  model: Schema.String,
+  startedAt: Schema.String,
+  endedAt: Schema.optionalKey(Schema.String),
+  status: RunStatus,
+  verdict: Schema.optionalKey(RunVerdict),
+  gradedAt: Schema.optionalKey(Schema.String),
+}) {}
+
 export class WorkspaceSummary extends Schema.Class<WorkspaceSummary>("WorkspaceSummary")({
   path: Schema.String,
   name: Schema.String,
@@ -170,6 +193,7 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   fixtures: Schema.Array(FixtureRecord),
   riskCoverage: Schema.Array(RiskCoverageRecord),
   warnings: Schema.Array(WarningRecord),
+  runs: Schema.Array(RunRecord),
 }) {}
 
 export class PostEventResponse extends Schema.Class<PostEventResponse>("PostEventResponse")({

@@ -35,7 +35,9 @@ import { bundleForEvent, foldBundleStates } from "./Fold.ts";
 import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
 import type { Actor } from "./Actor.ts";
-import type { JournalEvent } from "./Journal.ts";
+import type { JournalEvent, RunVerdict } from "./Journal.ts";
+import { RunRecord } from "./Run.ts";
+import type { RunStatus } from "./Run.ts";
 import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
 import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
 import type { Drift } from "./Versions.ts";
@@ -117,6 +119,27 @@ export interface RiskCoverageRecord {
 }
 
 /**
+ * A materialized `runs/<id>/run.json` row (data-model.md §2.8, §2.11),
+ * joined with the latest `run.graded` journal event for that run id (if
+ * any) -- `verdict`/`gradedAt`/`gradedBy` are the grading columns, filled by
+ * Phase 9's grading UI; created now so the schema is stable across phases.
+ */
+export interface RunIndexRecord {
+  readonly id: string;
+  readonly bundle: string;
+  readonly fixtureCase?: string;
+  readonly versionHash: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly startedAt: string;
+  readonly endedAt?: string;
+  readonly status: RunStatus;
+  readonly verdict?: RunVerdict;
+  readonly gradedAt?: string;
+  readonly gradedBy?: Actor;
+}
+
+/**
  * One reindex-time warning, persisted so it stays queryable after the
  * rebuild that produced it (Part 3 ruling I: warnings, never hard fails).
  * `source` distinguishes what was being scanned, e.g. `"bundle.json"`,
@@ -188,6 +211,21 @@ interface WarningRow {
   readonly message: string;
 }
 
+interface RunRow {
+  readonly id: string;
+  readonly bundle: string;
+  readonly fixture_case: string | null;
+  readonly version_hash: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly started_at: string;
+  readonly ended_at: string | null;
+  readonly status: string;
+  readonly verdict: string | null;
+  readonly graded_at: string | null;
+  readonly graded_by_json: string | null;
+}
+
 /** bun:sqlite's named-parameter binding shape. */
 type SqliteBindings = Record<string, string | number | boolean | null>;
 
@@ -208,6 +246,8 @@ const DRIFT_VALUES: ReadonlyArray<Drift> = [
   "output-hand-edited",
   "both",
 ];
+const RUN_STATUSES: ReadonlyArray<RunStatus> = ["running", "completed", "failed", "infra-error"];
+const RUN_VERDICTS: ReadonlyArray<RunVerdict> = ["pass", "fail", "partial"];
 
 const isBundleStage = (value: string): value is BundleStage =>
   (BUNDLE_STAGES as ReadonlyArray<string>).includes(value);
@@ -222,6 +262,12 @@ const isTodoKind = (value: string): value is TodoKind =>
 
 const isTodoStatus = (value: string): value is TodoStatus =>
   (TODO_STATUSES as ReadonlyArray<string>).includes(value);
+
+const isRunStatus = (value: string): value is RunStatus =>
+  (RUN_STATUSES as ReadonlyArray<string>).includes(value);
+
+const isRunVerdict = (value: string): value is RunVerdict =>
+  (RUN_VERDICTS as ReadonlyArray<string>).includes(value);
 
 const toIndexError = (message: string) => (cause: unknown) => IndexError.make({ message, cause });
 
@@ -363,6 +409,45 @@ const rowToWarningRecord = (row: WarningRow): WarningRecord => ({
   message: row.message,
 });
 
+const rowToRunIndexRecord = (row: RunRow): Effect.Effect<RunIndexRecord, IndexError> =>
+  Effect.gen(function* () {
+    if (!isRunStatus(row.status)) {
+      return yield* Effect.fail(
+        IndexError.make({ message: `studio.db: run "${row.id}" has invalid status "${row.status}"` }),
+      );
+    }
+    let verdict: RunVerdict | undefined;
+    if (row.verdict !== null) {
+      if (!isRunVerdict(row.verdict)) {
+        return yield* Effect.fail(
+          IndexError.make({ message: `studio.db: run "${row.id}" has invalid verdict "${row.verdict}"` }),
+        );
+      }
+      verdict = row.verdict;
+    }
+    let gradedBy: Actor | undefined;
+    if (row.graded_by_json !== null) {
+      gradedBy = yield* Effect.try({
+        try: () => JSON.parse(row.graded_by_json as string) as Actor,
+        catch: toIndexError(`studio.db: run "${row.id}" has invalid graded_by_json`),
+      });
+    }
+    return {
+      id: row.id,
+      bundle: row.bundle,
+      ...(row.fixture_case !== null ? { fixtureCase: row.fixture_case } : {}),
+      versionHash: row.version_hash,
+      provider: row.provider,
+      model: row.model,
+      startedAt: row.started_at,
+      ...(row.ended_at !== null ? { endedAt: row.ended_at } : {}),
+      status: row.status,
+      ...(verdict !== undefined ? { verdict } : {}),
+      ...(row.graded_at !== null ? { gradedAt: row.graded_at } : {}),
+      ...(gradedBy !== undefined ? { gradedBy } : {}),
+    };
+  });
+
 const createSchema = (db: Database): void => {
   db.run(`
     CREATE TABLE IF NOT EXISTS bundles (
@@ -447,6 +532,22 @@ const createSchema = (db: Database): void => {
       message TEXT NOT NULL
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS runs (
+      id TEXT PRIMARY KEY,
+      bundle TEXT NOT NULL,
+      fixture_case TEXT,
+      version_hash TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      status TEXT NOT NULL,
+      verdict TEXT,
+      graded_at TEXT,
+      graded_by_json TEXT
+    )
+  `);
 };
 
 export class IndexService extends Context.Service<
@@ -470,6 +571,8 @@ export class IndexService extends Context.Service<
     readonly listWarnings: (slug?: string) => Effect.Effect<ReadonlyArray<WarningRecord>, IndexError>;
     /** Fixture count per bundle (board-card indicator; only bundles with >= 1 fixture appear). */
     readonly listFixtureCounts: () => Effect.Effect<ReadonlyMap<string, number>, IndexError>;
+    /** All runs for a bundle, newest first (data-model.md §2.8, §2.11). */
+    readonly listRuns: (slug: string) => Effect.Effect<ReadonlyArray<RunIndexRecord>, IndexError>;
   }
 >()("IndexService") {}
 
@@ -617,6 +720,7 @@ export const layer = (
         fixtureRecords: ReadonlyArray<FixtureRecord>,
         riskCoverageRecords: ReadonlyArray<RiskCoverageRecord>,
         warningRecords: ReadonlyArray<WarningRecord>,
+        runRecords: ReadonlyArray<RunIndexRecord>,
       ): void => {
         const run = db.transaction(() => {
           const insertBundle = db.query(
@@ -722,6 +826,26 @@ export const layer = (
               $message: warning.message,
             });
           }
+
+          const insertRun = db.query(
+            "INSERT INTO runs (id, bundle, fixture_case, version_hash, provider, model, started_at, ended_at, status, verdict, graded_at, graded_by_json) VALUES ($id, $bundle, $fixtureCase, $versionHash, $provider, $model, $startedAt, $endedAt, $status, $verdict, $gradedAt, $gradedBy)",
+          );
+          for (const runRecord of runRecords) {
+            insertRun.run({
+              $id: runRecord.id,
+              $bundle: runRecord.bundle,
+              $fixtureCase: runRecord.fixtureCase ?? null,
+              $versionHash: runRecord.versionHash,
+              $provider: runRecord.provider,
+              $model: runRecord.model,
+              $startedAt: runRecord.startedAt,
+              $endedAt: runRecord.endedAt ?? null,
+              $status: runRecord.status,
+              $verdict: runRecord.verdict ?? null,
+              $gradedAt: runRecord.gradedAt ?? null,
+              $gradedBy: runRecord.gradedBy !== undefined ? JSON.stringify(runRecord.gradedBy) : null,
+            });
+          }
         });
         run();
       };
@@ -733,11 +857,30 @@ export const layer = (
         const todos = foldTodos(events);
         const versionsBySlug = foldSkillVersions(events);
 
+        // Latest `run.graded` event per run id -- the grading columns
+        // joined onto each `runs` row below (data-model.md §2.11's
+        // "-- latest run.graded" comment). Events are already in append
+        // order, so a later event for the same run id overwrites an
+        // earlier one, leaving the latest grade.
+        const gradeByRunId = new Map<
+          string,
+          { readonly verdict: RunVerdict; readonly gradedAt: string; readonly gradedBy: Actor }
+        >();
+        for (const event of events) {
+          if (event.type !== "run.graded") continue;
+          gradeByRunId.set(event.payload.id, {
+            verdict: event.payload.verdict,
+            gradedAt: event.at,
+            gradedBy: event.actor,
+          });
+        }
+
         const slugs = new Set<string>([...identities.keys(), ...states.keys()]);
         const records: BundleRecord[] = [];
         const versionRecords: VersionRecord[] = [];
         const fixtureRecords: FixtureRecord[] = [];
         const riskCoverageRecords: RiskCoverageRecord[] = [];
+        const runRecords: RunIndexRecord[] = [];
         for (const slug of slugs) {
           const identity = identities.get(slug);
           if (identity === undefined) {
@@ -806,6 +949,71 @@ export const layer = (
             warnings.push({ bundle: slug, source: "risk-map", message: warning });
           }
 
+          // Runs: scan `runs/<id>/run.json` files (data-model.md §2.8,
+          // §2.11) -- populated from files, NOT folded from `run.started`/
+          // `run.completed` journal events, since `run.json` is the
+          // immutable-once-finalized record and is what a run's own
+          // directory presence means. Malformed run.json is tolerated and
+          // reported as a warning, never a hard failure (ruling I).
+          const runsDir = join(bundleDir, "runs");
+          const runsDirExists = yield* fs
+            .exists(runsDir)
+            .pipe(Effect.mapError(toIndexError(`could not check ${runsDir}`)));
+          if (runsDirExists) {
+            const runEntries = yield* fs
+              .readDirectory(runsDir)
+              .pipe(Effect.mapError(toIndexError(`could not list ${runsDir}`)));
+            for (const runEntry of runEntries) {
+              const runEntryDir = join(runsDir, runEntry);
+              const runEntryInfo = yield* fs
+                .stat(runEntryDir)
+                .pipe(Effect.mapError(toIndexError(`could not stat ${runEntryDir}`)));
+              if (runEntryInfo.type !== "Directory") {
+                continue;
+              }
+              const runJsonPath = join(runEntryDir, "run.json");
+              const runJsonExists = yield* fs
+                .exists(runJsonPath)
+                .pipe(Effect.mapError(toIndexError(`could not check ${runJsonPath}`)));
+              if (!runJsonExists) {
+                continue;
+              }
+              const attempt = Effect.gen(function* () {
+                const raw = yield* fs.readFileString(runJsonPath);
+                const parsed = yield* Effect.try({
+                  try: () => JSON.parse(raw) as unknown,
+                  catch: (cause) => cause,
+                });
+                return yield* Schema.decodeUnknownEffect(RunRecord)(parsed);
+              });
+              const outcome = yield* Effect.result(attempt);
+              if (outcome._tag === "Failure") {
+                warnings.push({
+                  bundle: slug,
+                  source: "runs",
+                  message: `runs/${runEntry}/run.json is malformed and was skipped: ${String(outcome.failure)}`,
+                });
+                continue;
+              }
+              const runRecord = outcome.success;
+              const grade = gradeByRunId.get(runRecord.id);
+              runRecords.push({
+                id: runRecord.id,
+                bundle: slug,
+                ...(runRecord.fixtureCase !== undefined ? { fixtureCase: runRecord.fixtureCase } : {}),
+                versionHash: runRecord.skillVersionHash,
+                provider: runRecord.provider,
+                model: runRecord.model,
+                startedAt: runRecord.startedAt,
+                ...(runRecord.endedAt !== undefined ? { endedAt: runRecord.endedAt } : {}),
+                status: runRecord.status,
+                ...(grade !== undefined
+                  ? { verdict: grade.verdict, gradedAt: grade.gradedAt, gradedBy: grade.gradedBy }
+                  : {}),
+              });
+            }
+          }
+
           records.push({
             slug,
             name: identity?.name ?? slug,
@@ -840,7 +1048,17 @@ export const layer = (
             const tempDb = new Database(tempPath, { create: true });
             try {
               createSchema(tempDb);
-              populate(tempDb, records, todoRecords, events, versionRecords, fixtureRecords, riskCoverageRecords, warnings);
+              populate(
+                tempDb,
+                records,
+                todoRecords,
+                events,
+                versionRecords,
+                fixtureRecords,
+                riskCoverageRecords,
+                warnings,
+                runRecords,
+              );
             } finally {
               tempDb.close();
             }
@@ -1006,6 +1224,24 @@ export const layer = (
         return new Map(rows.map((row) => [row.bundle, row.n] as const));
       });
 
+      /** All runs for a bundle, newest first (data-model.md §2.8, §2.11). */
+      const listRuns = Effect.fn("IndexService.listRuns")(function* (slug: string) {
+        const rows = yield* Effect.try({
+          try: () =>
+            handle.current
+              .query<RunRow, SqliteBindings>(
+                "SELECT * FROM runs WHERE bundle = $bundle ORDER BY started_at DESC, id DESC",
+              )
+              .all({ $bundle: slug }),
+          catch: toIndexError(`could not query runs for "${slug}"`),
+        });
+        const records: RunIndexRecord[] = [];
+        for (const row of rows) {
+          records.push(yield* rowToRunIndexRecord(row));
+        }
+        return records;
+      });
+
       return {
         rebuild,
         listBundles,
@@ -1016,6 +1252,7 @@ export const layer = (
         listRiskCoverage,
         listWarnings,
         listFixtureCounts,
+        listRuns,
       };
     }),
   );
