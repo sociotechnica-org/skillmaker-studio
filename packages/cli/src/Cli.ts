@@ -5,12 +5,14 @@
 import { Effect } from "effect";
 import { type CliResult, ok, usageError } from "./CliResult.ts";
 import { runAdvance } from "./commands/Advance.ts";
+import { runBookBuild } from "./commands/BookBuild.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
 import { runGrade } from "./commands/Grade.ts";
 import { runInit } from "./commands/Init.ts";
 import { runList } from "./commands/List.ts";
 import { runMeasurements } from "./commands/Measurements.ts";
 import { runNew } from "./commands/New.ts";
+import { runPublish } from "./commands/Publish.ts";
 import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runRun } from "./commands/Run.ts";
@@ -39,6 +41,8 @@ Commands:
   review request <slug>   Request review of the bundle's current stage work
   advance <slug>          Move a bundle along the state machine (guarded)
   version record <slug>   Record a version: hash design.md + output/ (idempotent on content)
+  publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
+  book build              Render the Skillbook to a static site (§2.14)
   todo add <title>        Open a new todo
   todo list               List todos (rebuilds the index first)
   todo done <id>          Mark a todo done
@@ -53,6 +57,8 @@ Options:
   --no-open         (start) Do not open a browser on startup
   --question <text> (review request) Question for the reviewer
   --label <text>    (version record) Human tag for the recorded version, e.g. "v0.3"
+  --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
+  --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
   --back <stage>    (advance) Move backward to an earlier stage (requires --reason)
   --reason <text>   (advance) Reason for a backward move
@@ -107,6 +113,8 @@ const VALUE_FLAGS = new Set([
   "--verdict",
   "--notes",
   "--state",
+  "--target",
+  "--out",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -260,6 +268,21 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const slug = positionalAfter(argv, 2);
       const label = flagValue(argv, "--label");
       return yield* runVersionRecord(cwd, slug, { json, label });
+    }
+    case "publish": {
+      const slug = positionalAfterCommand(argv);
+      const target = flagValue(argv, "--target");
+      return yield* runPublish(cwd, slug, { json, target });
+    }
+    case "book": {
+      const subcommand = argv[1];
+      if (subcommand !== "build") {
+        return usageError(
+          `skillmaker: unknown "book" subcommand "${String(subcommand)}"\n\nUsage: skillmaker book build [--out <dir>]\n`,
+        );
+      }
+      const out = flagValue(argv, "--out");
+      return yield* runBookBuild(cwd, { json, out });
     }
     case "todo": {
       const subcommand = argv[1];
