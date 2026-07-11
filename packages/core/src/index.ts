@@ -104,6 +104,17 @@ export {
   type Drift,
   type SkillVersion,
 } from "./Versions.ts";
+export { didSkillActivate } from "./SkillActivation.ts";
+export {
+  resolveProviderProfile,
+  CLAUDE_CODE_PROFILE,
+  CODEX_PROFILE,
+  CLAUDE_CODE_PROVIDER_ID,
+  CODEX_PROVIDER_ID,
+  CODEX_MODEL_COMPAT_STDERR_SIGNATURE,
+  type ProviderProfile,
+  type SessionModelSource,
+} from "./ProviderProfile.ts";
 export {
   AcpClient,
   runAcpSession,

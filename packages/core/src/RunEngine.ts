@@ -27,6 +27,7 @@ import {
 import type { Actor } from "./Actor.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
+import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
 import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
@@ -259,6 +260,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       }),
     );
   }
+  const providerProfile = resolveProviderProfile(input.provider);
 
   // --- Precondition: a skill version recorded whose hash matches current
   // output/ (data-model.md §2.7 "implicit before a run"). ---
@@ -299,7 +301,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
     }
 
     const outputDir = nodeJoin(bundleDir, "output");
-    const skillInstallDir = nodeJoin(sandboxDir, ".claude", "skills", input.bundle);
+    const skillInstallDir = nodeJoin(sandboxDir, providerProfile.skillInstallDir, input.bundle);
     if (dirExists(outputDir)) {
       copyDirRecursive(outputDir, skillInstallDir);
     }
@@ -363,6 +365,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
         prompt,
         ...(input.timeoutMs !== undefined ? { promptTimeoutMs: input.timeoutMs } : {}),
         onTranscript,
+        providerProfile,
       }),
     );
 
