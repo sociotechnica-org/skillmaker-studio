@@ -123,6 +123,16 @@ CI, everyinc's seven manifests, mattpocock's deprecated/ dir).
    of the repo, doesn't take it over** — maintain *their* layout and
    *their* manifests.
 
+### Mode C½ — distributed AS a skill (source note 2026-07-11)
+
+The fourth distribution rung, and the lowest-friction: a skillmaker skill
+in the Claude marketplace(s) — install via `/plugin install`, and the
+studio is a conversation away (the skill-creator precedent, §1). Developed
+in the self-hosted workspace, evaluated with its own fixtures, published
+through its own gate: the studio ships itself as its own first skill, with
+receipts. Candidate flagship artifact for Phase 11. Source note:
+docs/sources/2026-07-11-skillmaker-as-a-skill-thesis.md.
+
 ### Mode C — desktop (ruled: Phase 15)
 
 Now with direct evidence: Elicit hand-builds macOS `.command` installers
