@@ -39,6 +39,7 @@ import type { JournalEvent, RunVerdict } from "./Journal.ts";
 import { RunRecord } from "./Run.ts";
 import type { RunStatus } from "./Run.ts";
 import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
+import { AdoptMarker } from "./Adopt.ts";
 import {
   ADOPT_MARKER_FILENAME,
   computeBundleHashes,
@@ -57,6 +58,13 @@ import {
 import type { GradedCheck } from "./Journal.ts";
 import type { MeasurementRecord } from "./Measurements.ts";
 
+/** Fix (Phase 20 Story 3 friction log, upstream provenance): mirrors `AdoptUpstream` (`Adopt.ts`) into the index, read from `.skillmaker-adopt.json` at rebuild time. Record-only -- no drift-vs-upstream comparison. */
+export interface BundleUpstream {
+  readonly source: string;
+  readonly ref?: string;
+  readonly importedAt: string;
+}
+
 export interface BundleRecord {
   readonly slug: string;
   readonly name: string;
@@ -72,6 +80,8 @@ export interface BundleRecord {
   readonly outputHash: string;
   /** Drift between the live hashes above and the latest recorded version (data-model.md §2.7). */
   readonly drift: Drift;
+  /** Present only for an adopted bundle whose `.skillmaker-adopt.json` marker recorded an `upstream` (i.e. `adopt --source ...` was used for it). */
+  readonly upstream?: BundleUpstream;
 }
 
 /** A materialized `skill.version_recorded` row (data-model.md §2.7, §2.11). */
@@ -177,6 +187,7 @@ interface BundleRow {
   readonly design_hash: string;
   readonly output_hash: string;
   readonly drift: string;
+  readonly upstream_json: string | null;
 }
 
 interface VersionRow {
@@ -248,6 +259,7 @@ interface BundleIdentityLocation {
   readonly identity: BundleIdentity;
   readonly dir: string;
   readonly layout: BundleLayout;
+  readonly upstream?: BundleUpstream;
 }
 
 /** Directory names never descended into while scanning for `bundle.json` (mirrors `Adopt.ts`'s discovery skip-list). */
@@ -323,6 +335,15 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
         IndexError.make({ message: `studio.db: bundle "${row.slug}" has invalid drift "${row.drift}"` }),
       );
     }
+    let upstream: BundleUpstream | undefined;
+    if (row.upstream_json !== null) {
+      const parsed = yield* Effect.try({
+        try: () => JSON.parse(row.upstream_json as string) as unknown,
+        catch: toIndexError(`studio.db: bundle "${row.slug}" has invalid upstream_json`),
+      });
+      upstream = parsed as BundleUpstream;
+    }
+
     return {
       slug: row.slug,
       name: row.name,
@@ -335,6 +356,7 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
       designHash: row.design_hash,
       outputHash: row.output_hash,
       drift: row.drift,
+      ...(upstream !== undefined ? { upstream } : {}),
     };
   });
 
@@ -485,7 +507,8 @@ const createSchema = (db: Database): void => {
       archived INTEGER NOT NULL,
       design_hash TEXT NOT NULL,
       output_hash TEXT NOT NULL,
-      drift TEXT NOT NULL
+      drift TEXT NOT NULL,
+      upstream_json TEXT
     )
   `);
   db.run(`
@@ -794,10 +817,29 @@ export const layer = (
           }
 
           const identity = outcome.success;
+          const markerPath = join(dir, ADOPT_MARKER_FILENAME);
           const markerExists = yield* fs
-            .exists(join(dir, ADOPT_MARKER_FILENAME))
-            .pipe(Effect.mapError(toIndexError(`could not check ${join(dir, ADOPT_MARKER_FILENAME)}`)));
+            .exists(markerPath)
+            .pipe(Effect.mapError(toIndexError(`could not check ${markerPath}`)));
           const layout: BundleLayout = markerExists ? "in-place" : "output-dir";
+
+          // Fix (Phase 20 Story 3 friction log, upstream provenance):
+          // best-effort read of the marker's optional `upstream` field --
+          // never a hard failure (ruling I). A malformed/unreadable marker
+          // still counts as "in-place" (layout, above); it just carries no
+          // upstream info.
+          let upstream: BundleUpstream | undefined;
+          if (markerExists) {
+            const markerOutcome = yield* Effect.result(
+              fs.readFileString(markerPath).pipe(
+                Effect.flatMap((raw) => Effect.try({ try: () => JSON.parse(raw) as unknown, catch: (cause) => cause })),
+                Effect.flatMap((parsed) => Schema.decodeUnknownEffect(AdoptMarker)(parsed)),
+              ),
+            );
+            if (markerOutcome._tag === "Success" && markerOutcome.success.upstream !== undefined) {
+              upstream = markerOutcome.success.upstream;
+            }
+          }
 
           const existing = identities.get(identity.slug);
           if (existing !== undefined) {
@@ -808,7 +850,7 @@ export const layer = (
             });
             continue;
           }
-          identities.set(identity.slug, { identity, dir, layout });
+          identities.set(identity.slug, { identity, dir, layout, ...(upstream !== undefined ? { upstream } : {}) });
         }
 
         return { identities, warnings };
@@ -844,7 +886,7 @@ export const layer = (
       ): void => {
         const run = db.transaction(() => {
           const insertBundle = db.query(
-            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift)",
+            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson)",
           );
           for (const record of records) {
             insertBundle.run({
@@ -859,6 +901,7 @@ export const layer = (
               $designHash: record.designHash,
               $outputHash: record.outputHash,
               $drift: record.drift,
+              $upstreamJson: record.upstream !== undefined ? JSON.stringify(record.upstream) : null,
             });
           }
 
@@ -1191,6 +1234,7 @@ export const layer = (
             designHash: hashes.designHash,
             outputHash: hashes.outputHash,
             drift,
+            ...(located?.upstream !== undefined ? { upstream: located.upstream } : {}),
           });
         }
 

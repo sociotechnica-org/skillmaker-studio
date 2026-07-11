@@ -25,6 +25,7 @@ import {
   type TranscriptEntry,
 } from "./AcpClient.ts";
 import type { Actor } from "./Actor.ts";
+import { seedProviderAuth } from "./AuthSeeding.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
@@ -108,6 +109,10 @@ export interface RunFixtureResult {
   readonly responsePath: string;
   /** Fix 1: set only when `status !== "completed"`, e.g. an unknown `--model` request's "advertised models: ..." message -- surfaced to the CLI/server caller instead of requiring a `stderr.txt` read to discover why a run failed. */
   readonly errorMessage?: string;
+  /** Fix (Phase 20 Story 3 friction log F2): relative paths under `artifacts/` that vanished between snapshot and copy and were skipped rather than crashing the run. Empty when nothing was skipped. */
+  readonly artifactsSkipped: ReadonlyArray<string>;
+  /** Security amendment on F4: relative paths redacted from `artifacts/` for matching a credential-shaped basename. Empty when nothing was redacted. */
+  readonly artifactsRedacted: ReadonlyArray<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,11 +162,47 @@ const diffTrees = (before: Map<string, string>, after: Map<string, string>): Rea
   return changed.sort();
 };
 
-const copyPreservingPath = (srcRoot: string, destRoot: string, relPath: string): void => {
+/**
+ * Fix (Phase 20 Story 3 friction log F2): the snapshot/diff/copy sequence is
+ * not atomic against the sandbox's own filesystem -- a provider CLI can
+ * delete its own transient files (shell snapshots, lock files) between the
+ * "after" snapshot and this copy. Tolerates exactly that race: an ENOENT on
+ * the read means the file is gone, not that anything is broken, so it's
+ * skipped (never crashes the run). Any other error (permissions, I/O) still
+ * throws -- those are real faults the caller should see.
+ */
+const copyPreservingPath = (srcRoot: string, destRoot: string, relPath: string): "copied" | "skipped" => {
   const src = nodeJoin(srcRoot, relPath);
   const dest = nodeJoin(destRoot, relPath);
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(src);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return "skipped";
+    }
+    throw error;
+  }
   mkdirSync(nodeJoin(dest, ".."), { recursive: true });
-  writeFileSync(dest, readFileSync(src));
+  writeFileSync(dest, bytes);
+  return "copied";
+};
+
+/**
+ * Belt-and-suspenders (Phase 20 Story 3 friction log, security amendment on
+ * F4): the isolated config dir now lives structurally outside `sandboxDir`
+ * (see `runFixture`'s `isolatedConfigDir`), so it can never appear in the
+ * workspace diff at all -- but this redaction guards the artifact-capture
+ * path itself against any credential-shaped file that ends up inside the
+ * sandbox by some OTHER means (a fixture's own files/, a provider CLI
+ * writing state somewhere unexpected inside cwd, a future isolation
+ * regression). Matched on the file's basename only, case-insensitively.
+ */
+const CREDENTIAL_LIKE_BASENAME = /^(\.credentials\.json|auth\.json|.*_token.*|.*\.pem)$/i;
+
+const isCredentialLikePath = (relPath: string): boolean => {
+  const basename = relPath.split("/").at(-1) ?? relPath;
+  return CREDENTIAL_LIKE_BASENAME.test(basename);
 };
 
 const copyDirRecursive = (src: string, dest: string, excludeTopLevel?: ReadonlySet<string>): void => {
@@ -375,6 +416,10 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   const transcriptPath = path.join(runDir, "transcript.jsonl");
   const runJsonPath = path.join(runDir, "run.json");
   const startedAt = new Date().toISOString();
+  // Declared here (not inside `try`) so `finally` can clean it up -- `try`
+  // and `finally` are separate block scopes; a `const` declared inside
+  // `try` is NOT visible inside `finally`, unlike `sandboxDir` above.
+  let isolatedConfigDir: string | undefined;
 
   try {
     Bun.spawnSync({ cmd: ["git", "init", "--quiet"], cwd: sandboxDir, stdout: "ignore", stderr: "ignore" });
@@ -396,16 +441,40 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
     }
 
     // Fix F6: point the ACP adapter subprocess's config directory at a
-    // fresh, empty, run-scoped directory (inside the disposable sandbox, so
-    // it's cleaned up with everything else) via the provider profile's
+    // fresh, empty, run-scoped directory via the provider profile's
     // `configDirEnvVar`. Without this, the subprocess inherits the
     // operator's real $HOME and the underlying CLI reads the operator's own
     // `~/.claude/skills` (or provider equivalent) in ADDITION to the
     // bundle's skill installed above -- contaminating what this run
     // actually measures.
-    const isolatedConfigDir = nodeJoin(sandboxDir, ".skillmaker-sandbox-config");
-    mkdirSync(isolatedConfigDir, { recursive: true });
+    //
+    // Fix (Phase 20 Story 3 friction log, security amendment on F4): this
+    // directory used to live INSIDE `sandboxDir` (`.skillmaker-sandbox-
+    // config/`), which put it squarely inside the before/after workspace
+    // diff that becomes `runs/<id>/artifacts/`. A provider CLI's config dir
+    // routinely contains live credential material (Fix F4 seeds it with
+    // exactly that, below) -- so every seeded run risked committing
+    // `.credentials.json`/`auth.json` into `artifacts/` under
+    // `trackRuns: true`. It's a SIBLING temp directory now, structurally
+    // outside `sandboxDir` -- `snapshotTree(sandboxDir)` can never see it,
+    // not "excluded by convention" but excluded by construction. This is
+    // also the direct fix for F2's "codex sweeps ~60 junk provider files
+    // into every run's artifacts/" report: those files were codex's own
+    // config-dir churn (`.codex-global-state.json`, session caches, etc.)
+    // landing inside the old nested path and getting diffed as "changed".
+    isolatedConfigDir = mkdtempSync(nodeJoin(tmpdir(), "skillmaker-run-config-"));
     const sessionEnv: Record<string, string> = { [providerProfile.configDirEnvVar]: isolatedConfigDir };
+
+    // Fix F4: seed ONLY the auth material this provider's CLI reads (never
+    // skills/settings) so a sandboxed session authenticates the same way
+    // the operator's real shell would, instead of failing with an opaque
+    // "Authentication required" that F4's friction log had to dig out of
+    // stderr.txt by hand. Best-effort -- a provider authenticated some
+    // other way (an env-var API key, a CI fake adapter that never checks
+    // auth at all) is never blocked by a failed seed; `authSeed.missingHint`
+    // is kept only to enrich the error message if the session later fails
+    // with an auth-shaped signal (see below).
+    const authSeed = seedProviderAuth(input.provider, isolatedConfigDir);
 
     input.onProgress?.({ type: "sandbox-ready" });
 
@@ -497,6 +566,18 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       // -- keep it out of run.json's terse status/model fields and surface
       // it explicitly so a caller doesn't have to grep stderr.txt.
       errorMessage = outcome.failure.message;
+      // Fix F4: when the provider itself reports an auth fault (a distinct
+      // `AcpAuthError`, not a generic protocol/spawn/timeout fault) AND this
+      // run's sandbox had no credential material to seed, replace the
+      // opaque "Authentication required" with the EXACT thing that's
+      // missing -- this is the "clear preflight-shaped error naming the
+      // exact missing thing" the fix promises, surfaced at the moment auth
+      // actually turns out to matter rather than as a blind precondition
+      // that would also block providers that don't need this seeding at
+      // all (e.g. env-var API keys, CI's fake ACP adapter).
+      if (outcome.failure._tag === "AcpAuthError" && !authSeed.seeded && authSeed.missingHint !== undefined) {
+        errorMessage = `${errorMessage}\n\nsandbox auth: ${authSeed.missingHint}`;
+      }
     }
 
     if (status !== "completed") {
@@ -511,12 +592,28 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
     const after = snapshotTree(sandboxDir);
     const changedPaths = diffTrees(before, after);
     const artifactsDir = path.join(runDir, "artifacts");
+    // Fix F2: files that vanished between the "after" snapshot and this copy
+    // (e.g. a provider CLI's own transient churn) -- skipped, not crashed,
+    // and noted on the final run.json rather than silently dropped.
+    const skippedArtifacts: string[] = [];
+    // Security amendment on F4: credential-pattern basenames never make it
+    // into artifacts/, no matter how they got into the sandbox.
+    const redactedArtifacts: string[] = [];
+    const copiedArtifacts: string[] = [];
     if (changedPaths.length > 0) {
       yield* fs
         .makeDirectory(artifactsDir, { recursive: true })
         .pipe(Effect.mapError(toIOError(`could not create ${artifactsDir}`)));
       for (const relPath of changedPaths) {
-        copyPreservingPath(sandboxDir, artifactsDir, relPath);
+        if (isCredentialLikePath(relPath)) {
+          redactedArtifacts.push(relPath);
+          continue;
+        }
+        if (copyPreservingPath(sandboxDir, artifactsDir, relPath) === "skipped") {
+          skippedArtifacts.push(relPath);
+        } else {
+          copiedArtifacts.push(relPath);
+        }
       }
     }
 
@@ -547,6 +644,8 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       status,
       model,
       skillInvoked,
+      ...(skippedArtifacts.length > 0 ? { artifactsSkipped: skippedArtifacts } : {}),
+      ...(redactedArtifacts.length > 0 ? { artifactsRedacted: redactedArtifacts } : {}),
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(finalRecord, null, 2)}\n`)
@@ -566,23 +665,34 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       status,
       skillVersionHash,
       autoRecordedVersion,
-      artifacts: changedPaths,
+      artifacts: copiedArtifacts,
       model,
       skillInstalled,
       skillInvoked,
       responsePath,
+      artifactsSkipped: skippedArtifacts,
+      artifactsRedacted: redactedArtifacts,
       ...(errorMessage !== undefined ? { errorMessage } : {}),
     } satisfies RunFixtureResult;
   } finally {
     // Sandbox cleanup happens on both the success and failure paths --
     // records under runs/<id>/ are never deleted, only the scratch sandbox.
     rmSync(sandboxDir, { recursive: true, force: true });
+    // The isolated config dir is a sibling of sandboxDir now (Fix F4
+    // security amendment), not nested inside it, so it needs its own
+    // cleanup -- never left behind holding seeded auth material. Guarded
+    // for undefined: it's only assigned once the try body reaches that
+    // point, so an early failure before assignment must not throw here.
+    if (isolatedConfigDir !== undefined) {
+      rmSync(isolatedConfigDir, { recursive: true, force: true });
+    }
   }
 });
 
 export const _internal = {
   snapshotTree,
   diffTrees,
+  copyPreservingPath,
   resolveFixtureFilesDir,
   classifyAcpError,
   installSkill,

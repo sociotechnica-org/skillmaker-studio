@@ -27,6 +27,10 @@ import { type CliResult, expectedFailure, ok } from "../CliResult.ts";
 
 export interface AdoptOptions {
   readonly json: boolean;
+  /** Fix (Phase 20 Story 3 friction log, upstream provenance): `adopt --source <url-or-path>` -- applies to every skill adopted in this batch. */
+  readonly source?: string;
+  /** `adopt --source ... --ref <ref>` -- ignored without `--source`. */
+  readonly ref?: string;
 }
 
 export const runAdopt = Effect.fn("runAdopt")(function* (
@@ -48,7 +52,7 @@ export const runAdopt = Effect.fn("runAdopt")(function* (
   const path = yield* Path;
   const root = targetPath === undefined ? resolved.root : path.resolve(cwd, targetPath);
 
-  const report = yield* adoptWorkspace(root);
+  const report = yield* adoptWorkspace(root, { source: options.source, ref: options.ref });
 
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
@@ -77,10 +81,15 @@ export const runAdopt = Effect.fn("runAdopt")(function* (
     }
   }).pipe(Effect.provide(JournalLayer(journalPath)));
 
-  return summarize(report, options.json);
+  return summarize(report, options.json, options.source, options.ref);
 });
 
-const summarize = (report: AdoptReport, json: boolean): CliResult => {
+const summarize = (
+  report: AdoptReport,
+  json: boolean,
+  source: string | undefined,
+  ref: string | undefined,
+): CliResult => {
   if (json) {
     return ok(
       `${JSON.stringify({
@@ -96,12 +105,17 @@ const summarize = (report: AdoptReport, json: boolean): CliResult => {
         warnings: report.warnings,
         manifests: report.manifests,
         evalInfra: report.evalInfra,
+        // Fix (Phase 20 Story 3 friction log, upstream provenance): only
+        // present when --source was passed; applies to every skill adopted
+        // in THIS batch (report.adopted), not skipped/already-adopted ones.
+        ...(source !== undefined ? { upstream: { source, ref: ref ?? null } } : {}),
       })}\n`,
     );
   }
 
   const lines = [
     `skillmaker: adopt -- found ${report.found} SKILL.md file(s), adopted ${report.adopted.length}, skipped ${report.skipped.length} (already adopted)`,
+    ...(source !== undefined ? [`upstream:    ${source}${ref !== undefined ? ` @ ${ref}` : ""}`] : []),
   ];
 
   const printSkill = (skill: AdoptedSkill): void => {

@@ -46,6 +46,7 @@ export {
   IndexService,
   layer as IndexServiceLayer,
   type BundleRecord,
+  type BundleUpstream,
   type TodoRecord,
   type VersionRecord,
   type ListTodosOptions,
@@ -116,7 +117,9 @@ export {
   adoptWorkspace,
   parseFrontmatter,
   AdoptMarker,
+  AdoptUpstream,
   type AdoptedSkill,
+  type AdoptWorkspaceOptions,
   type SkippedSkill,
   type AdoptReport,
   type Frontmatter,
@@ -159,6 +162,13 @@ export {
   type RunFixtureResult,
   type RunProgressEvent,
 } from "./RunEngine.ts";
+export {
+  repairRuns,
+  RunRepairNotFoundError,
+  type RunRepairInput,
+  type RepairedRun,
+} from "./RunRepair.ts";
+export { seedProviderAuth, type AuthSeedResult } from "./AuthSeeding.ts";
 export {
   runStation,
   StationPreconditionError,

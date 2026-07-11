@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AcpAuthError, AcpProtocolError, AcpSpawnError, AcpTimeoutError } from "../src/AcpClient.ts";
@@ -12,8 +12,15 @@ import { ADOPT_MARKER_FILENAME } from "../src/Versions.ts";
 import { layer as WorkspaceLayer, Workspace } from "../src/WorkspaceService.ts";
 import { withTempDir as withEffectTempDir } from "./support/TestLayer.ts";
 
-const { snapshotTree, diffTrees, resolveFixtureFilesDir, classifyAcpError, installSkill, listFilesRecursive } =
-  _internal;
+const {
+  snapshotTree,
+  diffTrees,
+  copyPreservingPath,
+  resolveFixtureFilesDir,
+  classifyAcpError,
+  installSkill,
+  listFilesRecursive,
+} = _internal;
 
 const withTempDir = <A>(fn: (dir: string) => A): A => {
   const dir = mkdtempSync(join(tmpdir(), "skillmaker-runengine-test-"));
@@ -71,6 +78,43 @@ describe("snapshotTree / diffTrees", () => {
     const before = new Map([["gone.md", "hash-a"]]);
     const after = new Map<string, string>();
     expect(diffTrees(before, after)).toEqual([]);
+  });
+});
+
+describe("copyPreservingPath (Fix F2: ENOENT race between snapshot and copy must never crash a run)", () => {
+  test("a file that vanished after the diff is skipped, not thrown", () => {
+    withTempDir((srcRoot) => {
+      withTempDir((destRoot) => {
+        // Deliberately never created in srcRoot -- reproduces the exact
+        // race: the "after" snapshot saw it, but it's gone by copy time
+        // (e.g. a provider CLI's own transient shell-snapshot/lock churn).
+        expect(copyPreservingPath(srcRoot, destRoot, "vanished.txt")).toBe("skipped");
+        expect(existsSync(join(destRoot, "vanished.txt"))).toBe(false);
+      });
+    });
+  });
+
+  test("a file that still exists at copy time is copied normally", () => {
+    withTempDir((srcRoot) => {
+      withTempDir((destRoot) => {
+        writeFileSync(join(srcRoot, "present.txt"), "hello\n");
+        expect(copyPreservingPath(srcRoot, destRoot, "present.txt")).toBe("copied");
+        expect(readFileSync(join(destRoot, "present.txt"), "utf8")).toBe("hello\n");
+      });
+    });
+  });
+
+  test("a nested vanished file is skipped without crashing, and a sibling nested real file still copies", () => {
+    withTempDir((srcRoot) => {
+      withTempDir((destRoot) => {
+        mkdirSync(join(srcRoot, "nested"), { recursive: true });
+        writeFileSync(join(srcRoot, "nested", "real.md"), "content");
+        expect(copyPreservingPath(srcRoot, destRoot, "nested/vanished.md")).toBe("skipped");
+        expect(copyPreservingPath(srcRoot, destRoot, "nested/real.md")).toBe("copied");
+        expect(existsSync(join(destRoot, "nested", "vanished.md"))).toBe(false);
+        expect(readFileSync(join(destRoot, "nested", "real.md"), "utf8")).toBe("content");
+      });
+    });
   });
 });
 
@@ -373,11 +417,16 @@ describe("runFixture sandbox isolation (Fix F6: an isolated CLAUDE_CONFIG_DIR re
       const marker = JSON.parse(readFileSync(markerPath, "utf8")) as { claudeConfigDir: string | null };
       expect(marker.claudeConfigDir).not.toBeNull();
       expect(marker.claudeConfigDir).not.toBe(process.env.HOME);
-      // The isolated dir lives INSIDE the disposable per-run sandbox
-      // (mkdtemp'd under "skillmaker-run-"), proving it's genuinely
-      // run-scoped rather than a single shared override.
-      expect(marker.claudeConfigDir).toContain("skillmaker-run-");
-      expect(marker.claudeConfigDir).toContain(".skillmaker-sandbox-config");
+      // Security amendment (Phase 20 Story 3 friction log F4): the isolated
+      // config dir is now a SIBLING mkdtemp'd directory
+      // ("skillmaker-run-config-*"), structurally outside the disposable
+      // per-run sandbox ("skillmaker-run-*") -- not nested inside it. This
+      // is deliberate: it keeps any auth material seeded into the config
+      // dir (see AuthSeeding.ts) permanently outside the before/after
+      // workspace diff that becomes runs/<id>/artifacts/, rather than
+      // relying on filename-based exclusion from that diff.
+      expect(marker.claudeConfigDir).toContain("skillmaker-run-config-");
+      expect(marker.claudeConfigDir).not.toContain(".skillmaker-sandbox-config");
     } finally {
       if (previousMarkerEnv === undefined) {
         delete process.env.SKILLMAKER_TEST_MARKER_PATH;

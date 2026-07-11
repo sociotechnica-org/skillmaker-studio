@@ -18,6 +18,7 @@ import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runReviewResolve } from "./commands/ReviewResolve.ts";
 import { runRun } from "./commands/Run.ts";
+import { runRunRepair } from "./commands/RunRepair.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStationRun } from "./commands/StationRun.ts";
 import { runStatus } from "./commands/Status.ts";
@@ -31,12 +32,13 @@ Usage: skillmaker <command> [options]
 Commands:
   init              Initialize a skillmaker workspace in the current directory
   new <slug>        Create a new Skill Bundle under skills/<slug>/
-  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles
+  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles (--source <url-or-path> [--ref <ref>] to record upstream provenance for this batch)
   list              List Skill Bundles by stage/substate (rebuilds the index first)
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
+  run repair <slug> [runId]   Terminal-state stuck "running" run(s) whose process is gone, so their transcripts become gradeable
   station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
   grade <slug> <runId>    Record a run's grading verdict (data-model.md §2.9)
   measurements <slug>     Show measurement cells: n, pass rate, CI, guidance (§2.11)
@@ -62,6 +64,8 @@ Options:
   --question <text> (review request) Question for the reviewer
   --decision <d>    (review resolve) approve | revise (required)
   --label <text>    (version record) Human tag for the recorded version, e.g. "v0.3"
+  --source <s>      (adopt) URL or local path this batch was imported from; recorded on each adopted skill's marker
+  --ref <ref>       (adopt) Ref/tag/pointer alongside --source; ignored without --source
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
@@ -123,6 +127,8 @@ const VALUE_FLAGS = new Set([
   "--state",
   "--target",
   "--out",
+  "--source",
+  "--ref",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -192,7 +198,9 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "adopt": {
       const targetPath = positionalAfterCommand(argv);
-      return yield* runAdopt(cwd, targetPath, { json });
+      const source = flagValue(argv, "--source");
+      const ref = flagValue(argv, "--ref");
+      return yield* runAdopt(cwd, targetPath, { json, source, ref });
     }
     case "list":
       return yield* runList(cwd, { json });
@@ -215,6 +223,10 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
     }
     case "run": {
+      if (argv[1] === "repair") {
+        const [slug, runId] = twoPositionalsAfter(argv, 2);
+        return yield* runRunRepair(cwd, slug, runId, { json });
+      }
       const slug = positionalAfterCommand(argv);
       const fixture = flagValue(argv, "--fixture");
       const provider = flagValue(argv, "--provider");

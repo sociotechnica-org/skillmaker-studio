@@ -9,6 +9,7 @@ import {
   checkTransition,
   computeBundleHashes,
   computeMeasurements,
+  detectBundleLayout,
   didSkillActivate,
   foldBundleStates,
   foldTodos,
@@ -637,7 +638,10 @@ const handleRecordVersion = async (
   try {
     const bundleDir = join(root, config.skillsDir, slug);
     const { designHash, outputHash } = await Effect.runPromise(
-      computeBundleHashes(bundleDir).pipe(Effect.provide(BunServices.layer)),
+      detectBundleLayout(bundleDir).pipe(
+        Effect.flatMap((layout) => computeBundleHashes(bundleDir, layout)),
+        Effect.provide(BunServices.layer),
+      ),
     );
 
     const actor = await Effect.runPromise(resolveUserActor());

@@ -78,4 +78,35 @@ export class RunRecord extends Schema.Class<RunRecord>("RunRecord")({
    * "unknown, predates this field", distinct from a computed `false`.
    */
   skillInvoked: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Fix (Phase 20 Story 3 friction log F2): relative paths (within
+   * `runs/<id>/artifacts/`) that were captured in the before/after workspace
+   * diff but had already vanished from the sandbox by copy time (e.g. a
+   * provider CLI's own transient shell-snapshot/lock churn) -- skipped
+   * rather than crashing the run. `optionalKey` and omitted entirely when
+   * nothing was skipped, so pre-fix and unaffected `run.json` files are
+   * unchanged.
+   */
+  artifactsSkipped: Schema.optionalKey(Schema.Array(Schema.String)),
+  /**
+   * Security amendment on F4 (Phase 20 Story 3 friction log): relative
+   * paths that matched a credential-shaped basename (`.credentials.json`,
+   * `auth.json`, `*_token*`, `*.pem`) and were redacted from
+   * `runs/<id>/artifacts/` -- belt-and-suspenders on top of the isolated
+   * config dir living structurally outside the sandbox's diff surface.
+   * `optionalKey` and omitted when nothing was redacted.
+   */
+  artifactsRedacted: Schema.optionalKey(Schema.Array(Schema.String)),
+  /**
+   * Fix (Phase 20 Story 3 friction log F2): set by `skillmaker run repair`
+   * when it terminal-states a "running" run whose process is gone (e.g.
+   * after an artifact-capture crash left it stuck). Absent for runs that
+   * reached a terminal status on their own.
+   */
+  repaired: Schema.optionalKey(
+    Schema.Struct({
+      at: Schema.String,
+      reason: Schema.String,
+    }),
+  ),
 }) {}

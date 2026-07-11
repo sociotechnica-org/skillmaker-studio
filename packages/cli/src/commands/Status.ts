@@ -156,6 +156,10 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
         designHash: bundle.designHash,
         outputHash: bundle.outputHash,
         drift: bundle.drift,
+        upstream:
+          bundle.upstream !== undefined
+            ? { source: bundle.upstream.source, ref: bundle.upstream.ref ?? null, importedAt: bundle.upstream.importedAt }
+            : null,
         latestVersion:
           latestVersion !== undefined
             ? { hash: latestVersion.hash, label: latestVersion.label ?? null, recordedAt: latestVersion.recordedAt }
@@ -192,6 +196,9 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
     `design:      ${shortHash(bundle.designHash)}`,
     `output:      ${shortHash(bundle.outputHash)}`,
     `drift:       ${bundle.drift}`,
+    ...(bundle.upstream !== undefined
+      ? [`upstream:    ${bundle.upstream.source}${bundle.upstream.ref !== undefined ? ` @ ${bundle.upstream.ref}` : ""} (imported ${bundle.upstream.importedAt})`]
+      : []),
     `version:     ${
       latestVersion !== undefined
         ? `${shortHash(latestVersion.hash)}${latestVersion.label !== undefined ? ` "${latestVersion.label}"` : ""} at ${latestVersion.recordedAt}`
