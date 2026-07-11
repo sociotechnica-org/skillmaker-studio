@@ -5,6 +5,7 @@
 import { Effect } from "effect";
 import { type CliResult, ok, usageError } from "./CliResult.ts";
 import { runAdvance } from "./commands/Advance.ts";
+import { runFixtureAdd } from "./commands/FixtureAdd.ts";
 import { runInit } from "./commands/Init.ts";
 import { runList } from "./commands/List.ts";
 import { runNew } from "./commands/New.ts";
@@ -25,6 +26,7 @@ Commands:
   list              List Skill Bundles by stage/substate (rebuilds the index first)
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
+  fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
   start             Serve the viewer + API (default port from config, or 4323)
   review request <slug>   Request review of the bundle's current stage work
   advance <slug>          Move a bundle along the state machine (guarded)
@@ -53,6 +55,8 @@ Options:
   --priority <n>    (todo add) lower = more urgent; defaults by kind
   --pin             (todo add) pin the todo (exempt from auto-archive)
   --all             (todo list) include archived todos
+  --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case; defaults to golden
+  --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
   -h, --help        Show this help
 `;
 
@@ -79,7 +83,29 @@ const VALUE_FLAGS = new Set([
   "--detail",
   "--priority",
   "--label",
+  "--class",
+  "--risks",
 ]);
+
+/** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
+const twoPositionalsAfter = (
+  argv: ReadonlyArray<string>,
+  startIndex: number,
+): readonly [string | undefined, string | undefined] => {
+  const found: string[] = [];
+  for (let i = startIndex; i < argv.length && found.length < 2; i++) {
+    const arg = argv[i];
+    if (arg === undefined || arg.startsWith("-")) {
+      continue;
+    }
+    const prev = argv[i - 1];
+    if (prev !== undefined && VALUE_FLAGS.has(prev)) {
+      continue;
+    }
+    found.push(arg);
+  }
+  return [found[0], found[1]];
+};
 
 const TODO_STATUS_COMMANDS: ReadonlySet<string> = new Set(["done", "start", "drop", "reopen"]);
 
@@ -134,6 +160,18 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "reindex":
       return yield* runReindex(cwd, { json });
+    case "fixture": {
+      const subcommand = argv[1];
+      if (subcommand !== "add") {
+        return usageError(
+          `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n`,
+        );
+      }
+      const [slug, caseName] = twoPositionalsAfter(argv, 2);
+      const klass = flagValue(argv, "--class");
+      const risks = flagValue(argv, "--risks");
+      return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
+    }
     case "start": {
       const portValue = flagValue(argv, "--port");
       const port = portValue === undefined ? undefined : Number.parseInt(portValue, 10);
