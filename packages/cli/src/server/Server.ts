@@ -68,6 +68,9 @@ const ALLOWED_API_EVENT_TYPES = new Set([
 
 const MAX_BUNDLE_DETAIL_EVENTS = 20;
 
+const DEFAULT_EVENTS_PAGE_SIZE = 50;
+const MAX_EVENTS_PAGE_SIZE = 200;
+
 export interface StartServerOptions {
   readonly root: string;
   readonly config: WorkspaceConfig;
@@ -208,6 +211,92 @@ const readJournalEvents = (root: string): Promise<ReadonlyArray<JournalEvent>> =
       return yield* journal.readAll();
     }),
   );
+
+/**
+ * `GET /api/events[?limit=&before=]` -- the Activity page's journal feed
+ * (Phase 17, ui-pass-spec.md §3.1: "new top-level route"). Additive-only:
+ * reads the same journal every other endpoint already reads in full
+ * (`readJournalEvents`), just paginated newest-first with a cursor. `before`
+ * is an event id -- the page returned starts strictly after that event in
+ * newest-first order, matching "load older" pagination.
+ */
+const handleListEvents = async (root: string, url: URL): Promise<Response> => {
+  const rawLimit = url.searchParams.get("limit");
+  let limit = DEFAULT_EVENTS_PAGE_SIZE;
+  if (rawLimit !== null) {
+    const parsed = Number(rawLimit);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return jsonResponse({ error: "limit must be a positive integer" }, 400);
+    }
+    limit = Math.min(parsed, MAX_EVENTS_PAGE_SIZE);
+  }
+
+  const before = url.searchParams.get("before");
+  const events = await readJournalEvents(root);
+  const newestFirst = [...events].reverse();
+
+  let startIndex = 0;
+  if (before !== null) {
+    const cursorIndex = newestFirst.findIndex((event) => event.id === before);
+    if (cursorIndex === -1) {
+      return jsonResponse({ error: `no such event "${before}"` }, 400);
+    }
+    startIndex = cursorIndex + 1;
+  }
+
+  const page = newestFirst.slice(startIndex, startIndex + limit);
+  const hasMore = startIndex + limit < newestFirst.length;
+  const lastEvent = page[page.length - 1];
+  const nextCursor = hasMore && lastEvent !== undefined ? lastEvent.id : null;
+
+  return jsonResponse({ events: page, nextCursor });
+};
+
+/**
+ * `GET /api/catalog` -- the Catalog page's skill-browser rows (Phase 17,
+ * director ruling: the Catalog page survives as "what skills do we have,"
+ * discovery at repo scale). One row per bundle: name/one-liner/tags/stage
+ * (already on `BundleRecord`), latest recorded version + drift, and a
+ * measurements summary (how many of the bundle's fixtures have at least one
+ * measurement cell at the latest recorded version). Reuses the same
+ * per-bundle listing functions `handleBundleDetail` already calls -- no new
+ * `IndexService` methods needed.
+ */
+const handleCatalog = async (root: string): Promise<Response> => {
+  const bundles = await listBundleRecords(root);
+  const entries = await Promise.all(
+    bundles.map(async (bundle) => {
+      const versions = await listVersionRecords(root, bundle.slug);
+      const { fixtures } = await listBundleEvalDetail(root, bundle.slug);
+      const measurements = await listMeasurementRecords(root, bundle.slug);
+      const latestVersion = versions[0];
+      const measuredFixtureCases =
+        latestVersion === undefined
+          ? new Set<string>()
+          : new Set(
+              measurements
+                .filter((measurement) => measurement.versionHash === latestVersion.hash)
+                .map((measurement) => measurement.fixtureCase),
+            );
+      return {
+        slug: bundle.slug,
+        name: bundle.name,
+        oneLiner: bundle.oneLiner,
+        tags: bundle.tags,
+        stage: bundle.stage,
+        archived: bundle.archived,
+        drift: bundle.drift,
+        latestVersion:
+          latestVersion === undefined
+            ? null
+            : { hash: latestVersion.hash, label: latestVersion.label ?? null, recordedAt: latestVersion.recordedAt },
+        fixtureCount: fixtures.length,
+        measuredFixtureCount: measuredFixtureCases.size,
+      };
+    }),
+  );
+  return jsonResponse({ entries });
+};
 
 type AppendVersionOutcome =
   | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }
@@ -996,6 +1085,22 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
       if (pathname === "/api/events" && request.method === "POST") {
         return handlePostEvent(root, config, request);
+      }
+
+      if (pathname === "/api/events" && request.method === "GET") {
+        try {
+          return await handleListEvents(root, url);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list events: ${String(cause)}` }, 500);
+        }
+      }
+
+      if (pathname === "/api/catalog") {
+        try {
+          return await handleCatalog(root);
+        } catch (cause) {
+          return jsonResponse({ error: `could not build catalog: ${String(cause)}` }, 500);
+        }
       }
 
       if (pathname === "/api/todos") {

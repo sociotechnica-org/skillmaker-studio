@@ -1,8 +1,12 @@
 /**
- * The bundle-detail / review panel (plan.md Phase 4, Phase 6): a side panel,
- * not a route change. Three tabs:
+ * The bundle-detail page (`/bundles/:slug` + its sub-routes, ui-pass-spec.md
+ * §3.1/§3.3): promoted from a 24rem side panel to a full page so Overview /
+ * Files / Versions / Evals have room to breathe, and so a bundle is
+ * linkable/bookmarkable. Four tabs, now real sub-routes instead of
+ * `useState<PanelTab>` -- deep-linkable, refresh-safe, back/forward-safe by
+ * construction (ui-pass-spec.md §3.4#2):
  *   - Overview: guard hints, the review pair (request/approve/revise), the
- *     publish gate, forward "advance", "move back", recent events. All
+ *     publish flow, forward "advance", "move back", recent events. All
  *     writes go through `POST /api/events` (data-model.md §2.9/§2.13) via
  *     `runtime/api.ts`'s `postEvent`.
  *   - Files: read-only `design.md`/`output/SKILL.md` via
@@ -10,6 +14,9 @@
  *   - Versions: the drift badge (data-model.md §2.7), "Record version", and
  *     version history, via `GET /api/bundles/:slug` (versions + drift are
  *     already in the detail payload) and `POST /api/bundles/:slug/record-version`.
+ *   - Evals: risk coverage + fixtures + runs; the run-detail modal's
+ *     open/close state is synced to `?run=:runId` on this route (fixing the
+ *     old Studio's worst focus-management flaw, ui-pass-spec.md §3.4#5).
  *
  * Reachable-409 choice (see task report): the "Advance" button stays
  * clickable even when `guardStatus` predicts a rejection -- it is only
@@ -20,6 +27,7 @@
  */
 import { type FC, useEffect, useState } from "react";
 import { getBundleFile, postEvent, recordVersion, triggerRun, triggerStationRun } from "../runtime/api.ts";
+import { bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
 import {
   STAGES,
   type BundleStage,
@@ -95,9 +103,7 @@ const FILE_OPTIONS: ReadonlyArray<{ readonly label: string; readonly path: strin
   { label: "output/SKILL.md", path: "output/SKILL.md" },
 ];
 
-type PanelTab = "overview" | "files" | "versions" | "evals";
-
-const TABS: ReadonlyArray<{ readonly key: PanelTab; readonly label: string }> = [
+const TABS: ReadonlyArray<{ readonly key: BundleTab; readonly label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "files", label: "Files" },
   { key: "versions", label: "Versions" },
@@ -129,9 +135,13 @@ const COVERAGE_LABEL: Record<CoverageValue, string> = {
   "n/a": "n/a",
 };
 
-export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, onClose }) => {
+export const BundlePanel: FC<{ slug: string; tab: BundleTab; runId: string | undefined }> = ({
+  slug,
+  tab,
+  runId,
+}) => {
   const { detail, loading, error, refetch } = useBundleDetail(slug);
-  const [tab, setTab] = useState<PanelTab>("overview");
+  const { navigate } = useRouter();
   const [actionError, setActionError] = useState<string | undefined>(undefined);
   const [pending, setPending] = useState(false);
   const [reviseNotes, setReviseNotes] = useState("");
@@ -157,18 +167,14 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
   };
 
   return (
-    <aside className="flex w-96 shrink-0 flex-col gap-4 overflow-y-auto border-l border-neutral-200 p-4 dark:border-neutral-800">
+    <div className="flex max-w-4xl flex-col gap-4">
       <div className="flex items-start justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          Bundle detail
-        </h2>
-        <button
-          type="button"
-          onClick={onClose}
+        <Link
+          href="/"
           className="text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
         >
-          Close
-        </button>
+          ← Board
+        </Link>
       </div>
 
       {loading && detail === undefined && <p className="text-sm text-neutral-500">Loading...</p>}
@@ -179,16 +185,15 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
       {detail !== undefined && (
         <>
           <div>
-            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{detail.bundle.name}</h3>
+            <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{detail.bundle.name}</h3>
             <p className="font-mono text-xs text-neutral-500 dark:text-neutral-400">{detail.bundle.slug}</p>
           </div>
 
           <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
             {TABS.map((candidate) => (
-              <button
+              <Link
                 key={candidate.key}
-                type="button"
-                onClick={() => setTab(candidate.key)}
+                href={bundleHref(slug, candidate.key)}
                 className={
                   tab === candidate.key
                     ? "border-b-2 border-neutral-900 px-2 py-1 text-xs font-medium text-neutral-900 dark:border-neutral-100 dark:text-neutral-100"
@@ -196,7 +201,7 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
                 }
               >
                 {candidate.label}
-              </button>
+              </Link>
             ))}
           </div>
 
@@ -233,12 +238,15 @@ export const BundlePanel: FC<{ slug: string; onClose: () => void }> = ({ slug, o
               runs={detail.runs}
               measurements={detail.measurements}
               versions={detail.versions}
+              runId={runId}
+              onOpenRun={(id) => navigate(bundleRunHref(slug, id))}
+              onCloseRun={() => navigate(bundleHref(slug, "evals"))}
               onChanged={refetch}
             />
           )}
         </>
       )}
-    </aside>
+    </div>
   );
 };
 
@@ -413,60 +421,38 @@ const OverviewTab: FC<OverviewTabProps> = ({
         </section>
       )}
 
-      {stage === "evaluating" && guardStatus.approvedForForward && !guardStatus.gateApproved && (
-        <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Decide publish gate</h4>
-          <input
-            value={gateBasis}
-            onChange={(event) => setGateBasis(event.target.value)}
-            placeholder="Basis (evidence summary)"
-            className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-          />
-          <button
-            type="button"
-            disabled={pending || gateBasis.trim().length === 0}
-            onClick={() =>
-              submit("bundle.gate_decided", {
-                bundle: slug,
-                gate: "publish",
-                decision: "approved",
-                basis: gateBasis.trim(),
-              })
-            }
-            className="rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
-          >
-            Approve publish gate
-          </button>
-        </section>
-      )}
-
-      {next !== undefined && (
-        <section className="flex flex-col gap-1">
-          <button
-            type="button"
-            disabled={pending}
-            title={
-              forwardReady
-                ? `Advance to "${next}"`
-                : stage === "evaluating"
-                  ? "Requires an approved review of evaluating AND an approved publish gate"
-                  : `Requires an approved review of "${stage}"`
-            }
-            onClick={() => submit("bundle.stage_changed", { bundle: slug, from: stage, to: next })}
-            className={
-              forwardReady
-                ? "rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-                : "rounded-md border border-dashed border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-500 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-400"
-            }
-          >
-            Advance to &quot;{next}&quot; ▸
-          </button>
-          {!forwardReady && (
-            <p className="text-[10px] text-neutral-400">
-              Not guard-approved yet -- clicking still submits and shows the server&apos;s rejection reason.
-            </p>
-          )}
-        </section>
+      {stage === "evaluating" ? (
+        <PublishSection
+          slug={slug}
+          approvedForForward={guardStatus.approvedForForward}
+          gateApproved={guardStatus.gateApproved}
+          gateBasis={gateBasis}
+          setGateBasis={setGateBasis}
+          onChanged={onChanged}
+        />
+      ) : (
+        next !== undefined && (
+          <section className="flex flex-col gap-1">
+            <button
+              type="button"
+              disabled={pending}
+              title={forwardReady ? `Advance to "${next}"` : `Requires an approved review of "${stage}"`}
+              onClick={() => submit("bundle.stage_changed", { bundle: slug, from: stage, to: next })}
+              className={
+                forwardReady
+                  ? "rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+                  : "rounded-md border border-dashed border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-500 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-400"
+              }
+            >
+              Advance to &quot;{next}&quot; ▸
+            </button>
+            {!forwardReady && (
+              <p className="text-[10px] text-neutral-400">
+                Not guard-approved yet -- clicking still submits and shows the server&apos;s rejection reason.
+              </p>
+            )}
+          </section>
+        )
       )}
 
       {earlier.length > 0 && (
@@ -515,6 +501,133 @@ const OverviewTab: FC<OverviewTabProps> = ({
         </ul>
       </section>
     </>
+  );
+};
+
+/**
+ * The publish action (director ruling, ui-pass-spec.md "Director rulings"
+ * #1): a distinct guided flow, not the generic "advance" -- one basis input
+ * drives ONE click that submits `bundle.gate_decided` (decision: approved)
+ * followed by `bundle.stage_changed` to "published". Replaces the generic
+ * advance button for exactly the evaluating -> published transition; every
+ * other transition still uses the plain advance button in `OverviewTab`.
+ */
+const PublishSection: FC<{
+  slug: string;
+  approvedForForward: boolean;
+  gateApproved: boolean;
+  gateBasis: string;
+  setGateBasis: (value: string) => void;
+  onChanged: () => void;
+}> = ({ slug, approvedForForward, gateApproved, gateBasis, setGateBasis, onChanged }) => {
+  const [pending, setPending] = useState(false);
+  const [publishError, setPublishError] = useState<string | undefined>(undefined);
+
+  if (!approvedForForward) {
+    return (
+      <section className="flex flex-col gap-1 rounded-md border border-dashed border-neutral-300 p-3 text-[11px] text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+        Publishing requires an approved review of &quot;evaluating&quot; first.
+      </section>
+    );
+  }
+
+  // The gate was already approved (e.g. a prior attempt got this far but the
+  // stage-change step failed/was interrupted) -- only the second step
+  // remains, so only offer that, not a redundant basis input.
+  if (gateApproved) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Publish</h4>
+        <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+          The publish gate is already approved. Finish moving this bundle to &quot;published&quot;.
+        </p>
+        {publishError !== undefined && (
+          <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+            {publishError}
+          </p>
+        )}
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            setPending(true);
+            setPublishError(undefined);
+            postEvent({ type: "bundle.stage_changed", payload: { bundle: slug, from: "evaluating", to: "published" } })
+              .then((result) => {
+                if (!result.ok) {
+                  setPublishError(result.error);
+                  return;
+                }
+                onChanged();
+              })
+              .catch((cause: Error) => setPublishError(cause.message))
+              .finally(() => setPending(false));
+          }}
+          className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+        >
+          Publish ▸
+        </button>
+      </section>
+    );
+  }
+
+  const publish = (): void => {
+    if (gateBasis.trim().length === 0) {
+      return;
+    }
+    setPending(true);
+    setPublishError(undefined);
+    postEvent({
+      type: "bundle.gate_decided",
+      payload: { bundle: slug, gate: "publish", decision: "approved", basis: gateBasis.trim() },
+    })
+      .then((gateResult) => {
+        if (!gateResult.ok) {
+          setPublishError(gateResult.error);
+          return;
+        }
+        return postEvent({
+          type: "bundle.stage_changed",
+          payload: { bundle: slug, from: "evaluating", to: "published" },
+        }).then((stageResult) => {
+          if (!stageResult.ok) {
+            setPublishError(stageResult.error);
+            return;
+          }
+          setGateBasis("");
+          onChanged();
+        });
+      })
+      .catch((cause: Error) => setPublishError(cause.message))
+      .finally(() => setPending(false));
+  };
+
+  return (
+    <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Publish</h4>
+      <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+        Record the publish-gate decision basis and move this bundle to &quot;published&quot; in one step.
+      </p>
+      <input
+        value={gateBasis}
+        onChange={(event) => setGateBasis(event.target.value)}
+        placeholder="Basis (evidence summary, required)"
+        className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+      />
+      {publishError !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {publishError}
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={pending || gateBasis.trim().length === 0}
+        onClick={publish}
+        className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+      >
+        Approve gate &amp; publish ▸
+      </button>
+    </section>
   );
 };
 
@@ -839,11 +952,14 @@ const EvalsTab: FC<{
   runs: ReadonlyArray<RunRecord>;
   measurements: ReadonlyArray<MeasurementRecord>;
   versions: ReadonlyArray<VersionRecord>;
+  /** The open run, sourced from the route's `?run=` query param (ui-pass-spec.md §3.1/§3.4#5) -- not local state, so it survives reload/back-forward. */
+  runId: string | undefined;
+  onOpenRun: (runId: string) => void;
+  onCloseRun: () => void;
   onChanged: () => void;
-}> = ({ slug, fixtures, riskCoverage, warnings, runs, measurements, versions, onChanged }) => {
+}> = ({ slug, fixtures, riskCoverage, warnings, runs, measurements, versions, runId, onOpenRun, onCloseRun, onChanged }) => {
   const { state } = useWorkspace();
   const providers = state?.config.providers ?? [];
-  const [openRunId, setOpenRunId] = useState<string | undefined>(undefined);
   // Versions arrive newest-first; measurements only count against the
   // CURRENT latest recorded version (data-model.md §1.6's honest reset).
   const latestHash = versions[0]?.hash;
@@ -930,7 +1046,7 @@ const EvalsTab: FC<{
               measurements={measurements}
               latestHash={latestHash}
               providers={providers}
-              onOpenRun={setOpenRunId}
+              onOpenRun={onOpenRun}
               onChanged={onChanged}
             />
           ))}
@@ -938,13 +1054,8 @@ const EvalsTab: FC<{
         </ul>
       </section>
 
-      {openRunId !== undefined && (
-        <RunDetailModal
-          slug={slug}
-          runId={openRunId}
-          onClose={() => setOpenRunId(undefined)}
-          onGraded={onChanged}
-        />
+      {runId !== undefined && (
+        <RunDetailModal slug={slug} runId={runId} onClose={onCloseRun} onGraded={onChanged} />
       )}
     </section>
   );
