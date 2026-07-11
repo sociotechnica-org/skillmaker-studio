@@ -10,6 +10,8 @@ import {
   BundleDetailResponse,
   BundleFileResponse,
   BundlesResponse,
+  CatalogResponse,
+  EventsResponse,
   HealthResponse,
   PostEventResponse,
   RecordVersionResponse,
@@ -47,6 +49,22 @@ export const getRunDetail = (slug: string, runId: string): Promise<RunDetailResp
 /** `GET /api/todos[?all=1]` -- the todos panel's data (data-model.md §2.10/§2.11). */
 export const getTodos = (includeArchived: boolean): Promise<TodosResponse> =>
   fetchJson(includeArchived ? "/api/todos?all=1" : "/api/todos", TodosResponse);
+
+/** `GET /api/events[?limit=&before=]` -- the Activity page's paginated journal feed. */
+export const getEvents = (options: { limit?: number; before?: string } = {}): Promise<EventsResponse> => {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  if (options.before !== undefined) {
+    params.set("before", options.before);
+  }
+  const query = params.toString();
+  return fetchJson(query.length > 0 ? `/api/events?${query}` : "/api/events", EventsResponse);
+};
+
+/** `GET /api/catalog` -- the Catalog page's skill-browser rows. */
+export const getCatalog = (): Promise<CatalogResponse> => fetchJson("/api/catalog", CatalogResponse);
 
 export interface PostEventInput {
   readonly type: string;

@@ -332,3 +332,46 @@ export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
 export class TodosResponse extends Schema.Class<TodosResponse>("TodosResponse")({
   todos: Schema.Array(TodoRecord),
 }) {}
+
+/**
+ * `GET /api/events[?limit=&before=]` -- the Activity page's journal feed
+ * (Phase 17, ui-pass-spec.md §3.1 "new capability the old surface lacked").
+ * Newest first; `nextCursor` (an event id) is `null` once there is nothing
+ * older left to page through.
+ */
+export class EventsResponse extends Schema.Class<EventsResponse>("EventsResponse")({
+  events: Schema.Array(EventView),
+  nextCursor: Schema.NullOr(Schema.String),
+}) {}
+
+/**
+ * One `GET /api/catalog` row (Phase 17, director ruling: the Catalog page
+ * survives as a skill browser -- "what skills do we have," discovery at
+ * repo scale). `latestVersion` mirrors `VersionRecord` but is nullable (no
+ * version recorded yet); `measuredFixtureCount`/`fixtureCount` is the
+ * measurements-summary the ruling calls for, derived server-side from the
+ * same fixtures/measurements data `BundleDetailResponse` already exposes
+ * per-bundle.
+ */
+export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
+  slug: Schema.String,
+  name: Schema.String,
+  oneLiner: Schema.String,
+  tags: Schema.Array(Schema.String),
+  stage: BundleStage,
+  archived: Schema.Boolean,
+  drift: Drift,
+  latestVersion: Schema.NullOr(
+    Schema.Struct({
+      hash: Schema.String,
+      label: Schema.NullOr(Schema.String),
+      recordedAt: Schema.String,
+    }),
+  ),
+  fixtureCount: Schema.Number,
+  measuredFixtureCount: Schema.Number,
+}) {}
+
+export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogResponse")({
+  entries: Schema.Array(CatalogEntry),
+}) {}
