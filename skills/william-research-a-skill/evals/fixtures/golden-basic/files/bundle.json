@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "slug": "changelog-entry-writer",
+  "name": "Changelog Entry Writer",
+  "oneLiner": "Writes a CHANGELOG.md entry for the current change from the git diff and commit messages.",
+  "tags": [],
+  "created": "2026-07-11",
+  "targets": ["claude-code"]
+}

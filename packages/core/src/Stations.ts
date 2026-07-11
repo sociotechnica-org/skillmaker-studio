@@ -11,7 +11,7 @@ export type StationDoer = typeof StationDoer.Type;
 
 export class Station extends Schema.Class<Station>("Station")({
   doer: StationDoer,
-  /** The skill the station-agent runs with, e.g. "william/research-a-skill". */
+  /** The skill the station-agent runs with, e.g. "william-research-a-skill". */
   skill: Schema.optionalKey(Schema.String),
   /** Paths (relative to the bundle) this station's work produces. */
   produces: Schema.Array(Schema.String),
@@ -35,7 +35,11 @@ export const DEFAULT_STATIONS_TEMPLATE: typeof StationsFile.Type = {
   stations: {
     researching: {
       doer: "agent",
-      skill: "william/research-a-skill",
+      // Bundle slug, not "william/research-a-skill" -- same rule as
+      // "drafting" below (station.skill resolves to another bundle in the
+      // SAME workspace, and bundle slugs cannot contain "/"). Real,
+      // working skill as of Phase 19: skills/william-research-a-skill/.
+      skill: "william-research-a-skill",
       produces: ["research/"],
       review: true,
     },
