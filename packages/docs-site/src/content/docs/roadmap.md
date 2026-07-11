@@ -37,21 +37,45 @@ where the rest of this site documents merged, runnable features, not here:
   including real numbers from adopting two real-world skills repos.
 - **The predecessor studio's library** — migrated and Raven-reviewed
   against the shipped data model (Phase 14).
+- **William, self-hosted for real (Phase 19).** The repo's own studio is
+  William's actual working environment: real `design.md`s, fixtures by
+  failure class, a risk map, recorded versions, and measured runs on both
+  providers, staged through the board like any other bundle.
+- **Phase 20 — six real personas, six friction logs, four fix PRs
+  (v0.2.0 → v0.2.1).** Six fresh-install stories (first bundle, model
+  selection, vendored-adopt, publish/storefront, maintain/re-earn,
+  failure-iteration) each drove real friction logs against the shipped
+  CLI, closed by PRs #47/#49/#51/#54: layout-aware runs, journal safety,
+  sandbox isolation, `--model` selection with resolved-id recording,
+  storefront receipts, `response.md`, honest confidence intervals, `run
+  repair`, `adopt --source` provenance, and — the story's sharpest
+  finding — a credential-leak P0 in sandboxed auth, fixed structurally in
+  v0.2.1. See the [build log](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md)
+  for the full phase entry and
+  [Provider auth & troubleshooting](/getting-started/provider-auth/) for
+  what shipped.
 
 ## What's coming
 
-- **William, self-hosted for real (Phase 19).** The repo's own studio
-  becomes William's actual working environment, not just a proof that
-  stations can run: every William skill gets a real `design.md`, fixtures
-  by failure class, a risk map, recorded versions, and measured runs on
-  **both** providers, staged through the board like any other bundle. New
-  William skills are born via `skillmaker new` + station runs — the
-  agent-first loop, dogfooded end to end on the product's own skills.
 - **Desktop app: Windows/Linux and a signed, downloadable build.** The
   macOS build-from-source shell is documented in
   [Desktop app](/getting-started/desktop-app/); a cross-platform,
   installable version is still ahead, along with an in-app reconnect for
   the "attached-but-dead server" limitation noted there.
+- **Iteration ergonomics: a `runs list` command and grading at volume.**
+  Story 6's friction log found real pain grading 8+ runs in a row: no
+  `skillmaker runs list` (run ids currently live only in dir names, and
+  must be copy-pasted from `run` output), and no `--fixture ... --latest`
+  or similar selector to queue grading without hand-tracking which run is
+  which. A `-k`/count-oriented flag for driving several runs of the same
+  fixture in one invocation (instead of N separate `skillmaker run`
+  calls) is in the same backlog bucket. Not yet built.
+- **Drift vs. upstream.** `adopt --source`/`--ref` (shipped in v0.2.1)
+  records where an adopted skill came from at adopt time, but the product
+  still can't answer "has the *source repo* changed since I adopted?" — a
+  `skillmaker upstream diff` (or similar) that re-fetches `--source` and
+  compares would close that. Today "drift" only means drift vs. your own
+  adopt-time snapshot, not vs. upstream.
 
 ## Why nothing above has its own page yet
 
