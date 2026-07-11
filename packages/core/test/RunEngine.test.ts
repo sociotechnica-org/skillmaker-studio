@@ -417,11 +417,16 @@ describe("runFixture sandbox isolation (Fix F6: an isolated CLAUDE_CONFIG_DIR re
       const marker = JSON.parse(readFileSync(markerPath, "utf8")) as { claudeConfigDir: string | null };
       expect(marker.claudeConfigDir).not.toBeNull();
       expect(marker.claudeConfigDir).not.toBe(process.env.HOME);
-      // The isolated dir lives INSIDE the disposable per-run sandbox
-      // (mkdtemp'd under "skillmaker-run-"), proving it's genuinely
-      // run-scoped rather than a single shared override.
-      expect(marker.claudeConfigDir).toContain("skillmaker-run-");
-      expect(marker.claudeConfigDir).toContain(".skillmaker-sandbox-config");
+      // Security amendment (Phase 20 Story 3 friction log F4): the isolated
+      // config dir is now a SIBLING mkdtemp'd directory
+      // ("skillmaker-run-config-*"), structurally outside the disposable
+      // per-run sandbox ("skillmaker-run-*") -- not nested inside it. This
+      // is deliberate: it keeps any auth material seeded into the config
+      // dir (see AuthSeeding.ts) permanently outside the before/after
+      // workspace diff that becomes runs/<id>/artifacts/, rather than
+      // relying on filename-based exclusion from that diff.
+      expect(marker.claudeConfigDir).toContain("skillmaker-run-config-");
+      expect(marker.claudeConfigDir).not.toContain(".skillmaker-sandbox-config");
     } finally {
       if (previousMarkerEnv === undefined) {
         delete process.env.SKILLMAKER_TEST_MARKER_PATH;

@@ -165,6 +165,7 @@ export {
   type RunRepairInput,
   type RepairedRun,
 } from "./RunRepair.ts";
+export { seedProviderAuth, type AuthSeedResult } from "./AuthSeeding.ts";
 export {
   runStation,
   StationPreconditionError,
