@@ -446,3 +446,15 @@ Minimal, because the data layer already doesn't assume a side panel:
   invalidation design is needed — each route's hooks refetch on the same
   SSE signal they already do today, whether or not the route is currently
   mounted.
+
+## Director rulings on the open questions (2026-07-11)
+
+1. **Graduate/publish gets a distinct UI action — YES.** The publish gate
+   deserves a first-class control (gate decision + stage move as one
+   guided flow), not a generic advance.
+2. **The Catalog page survives — YES.** As a skill *browser*: the board
+   answers "what's in flight," the catalog answers "what skills do we
+   have" — discovery at repo scale (the 97-skill case). Route: /catalog —
+   name, one-liner, tags, stage, latest version + drift, measurements
+   summary; links into /bundles/:slug. Third nav item: [Board] [Catalog]
+   [Activity].
