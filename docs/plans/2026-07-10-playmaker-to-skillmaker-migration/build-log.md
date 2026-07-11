@@ -156,6 +156,57 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
 - Merge discipline: spine lands first; 12a rebases over it; spike is
   read-only input to Phase 8.
 
+## Phase 12a — compiled binary (PR #9, parallel track) — SHIPPED
+
+- `bun build --compile` works with ZERO special flags: bun:sqlite and the
+  effect beta compile clean under bun 1.3.11. 59MB single binary.
+- **Risk confirmed then fixed:** `import.meta.url` inside a compiled binary
+  is a virtual `/$bunfs/...` path — the viewer-dist ancestor walk found
+  nothing (reproduced live). Fix: additive `process.execPath`-relative walk;
+  repo-checkout discovery unchanged.
+- Artifact: dist/skillmaker + dist/viewer-dist/ + VERSION (semver+sha);
+  `build:dist` script; docs/dist.md.
+- Verified twice: builder's 5-test e2e on the real binary + orchestrator
+  independent rebuild-from-scratch and a fresh-machine-shaped run (binary +
+  assets in a bare temp dir, unrelated workspace, no bun involved). Phase
+  QA can now exercise the compiled artifact.
+
+## ACP spike (branch spike-acp-client, never merges) — Phase 8 prep, DONE
+
+- **A real claude-code run completed over ACP**: adapter
+  @zed-industries/claude-code-acp@0.16.2 via npx; rides the logged-in
+  `claude` CLI auth — NO API key needed. ~15.3s per fixture case (spawn
+  0.8s, session/new 1.4s, prompt 13.1s).
+- **The gotcha that would have burned Phase 8:** the adapter refuses to
+  start nested inside a Claude Code session; `CLAUDECODE` env leaks into
+  children and fails as an opaque JSON-RPC -32603 (real cause only in
+  stderr). Engine must strip CLAUDECODE/CLAUDE_CODE_* from spawned env —
+  WILL recur when agent stations launch runs.
+- Protocol confirmed against adapter source (npm-packed and read):
+  ndjson JSON-RPC 2.0 over stdio, protocolVersion 1; initialize →
+  session/new(cwd) → session/prompt → session/update stream → stopReason.
+- Permission policy for Phase 8: auto-approve session/request_permission +
+  log as synthetic transcript entry; bypassPermissions rejected (hides
+  decisions from the transcript).
+- Infra-vs-task signals: -32000 auth infra; -32603 ambiguous (needs
+  stderr); pre-handshake exit = spawn infra; stopReason ≠ end_turn = task.
+- Deliverables: spike/acp-client.ts + run-fixture.ts (runnable),
+  FINDINGS.md, a captured real run (28 wire messages + artifacts).
+
+## Idle-cycle work (2026-07-11)
+
+- CI (PR #7, merged): typecheck/unit/viewer-build/e2e on every PR — the
+  first six PRs had merged on local-only green.
+- Docs (PR #8, held for Phase 7): README rewrite ("ship agent skills with
+  receipts"), this build log, marketing-copy.md draft (hero, pillars, FAQ
+  seeds, voice guardrails + director-ruling checklist).
+- Library-migration prep agent dispatched: card-by-card disposition of the
+  old studio library against the new model → library-migration-prep.md
+  (Phase 14's working doc).
+- Marketing site infra (director): domain skillmaker.studio bought
+  (namecheap), Cloudflare CLI (`cf`) auth'd — site deploys via Cloudflare;
+  DNS entries at namecheap need director setup once we know the targets.
+
 ## Standing decisions & conventions (accumulated)
 
 - Effect idioms: services via Context.Service + Layer factories; Effect.fn
