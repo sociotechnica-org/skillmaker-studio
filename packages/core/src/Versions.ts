@@ -246,6 +246,26 @@ export const shortHash = (hash: string, length = 12): string => {
   return `${prefix}${hex.length > length ? hex.slice(0, length) : hex}`;
 };
 
+/**
+ * Fix 4 (Phase 20 Story 2 friction log F6): everywhere a version renders in
+ * `skillmaker measurements`/the viewer's Evals validation chips, prefer the
+ * human `label` recorded via `version record --label`; fall back to a short
+ * hex fragment (7-8 chars, no `"sha256:"` prefix -- shorter than
+ * `shortHash`'s CLI-table default of 12, matching a `git`-style short-SHA
+ * length) only when no label was ever recorded. A bare raw hash is
+ * meaningless at a glance; this is the one join point both surfaces use so
+ * neither has to reimplement the fallback rule.
+ */
+export const versionLabel = (
+  version: { readonly hash: string; readonly label?: string } | undefined,
+): string => {
+  if (version === undefined) return "";
+  if (version.label !== undefined && version.label.length > 0) return version.label;
+  const prefix = "sha256:";
+  const hex = version.hash.startsWith(prefix) ? version.hash.slice(prefix.length) : version.hash;
+  return hex.length > 8 ? hex.slice(0, 8) : hex;
+};
+
 /** The idempotency key format every `skill.version_recorded` writer must share -- keyed on both hashes so a design-only or output-only change is genuinely new content, never colliding with an unrelated prior version. */
 export const skillVersionIdempotencyKey = (bundle: string, designHash: string, outputHash: string): string =>
   `skill.version_recorded:${bundle}:${designHash}:${outputHash}`;

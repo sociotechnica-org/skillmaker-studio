@@ -338,6 +338,8 @@ describe("publishClaudeMarketplace richness (Phase 20 Story 4 friction log findi
       model: "fake-model-1",
       n: 3,
       passes: 3,
+      partial: 0,
+      fail: 0,
       passRate: 1,
       ci: [0.4385029682449545, 1] as const,
     },
