@@ -17,6 +17,7 @@ import {
   Journal,
   JournalLayer,
   JournalEvent,
+  publishBundle,
   runFixture,
   runStation,
   type Actor,
@@ -36,6 +37,7 @@ import { Effect, Layer, Schema } from "effect";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
+import { loadSkillbook } from "../Skillbook.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
 
@@ -965,6 +967,114 @@ const handleTriggerStationRun = async (
 };
 
 /**
+ * `GET /api/skillbook` -- the Skillbook page's data (data-model.md §2.14).
+ * Runs the SAME `loadSkillbook` data-aggregation `skillmaker book build`
+ * runs (`../Skillbook.ts`) -- "one generator over existing facts... rendered
+ * two ways": here as JSON for the live viewer tab, there as a static site.
+ */
+const handleSkillbook = async (root: string, config: WorkspaceConfig): Promise<Response> => {
+  try {
+    const data = await loadSkillbook(root, config);
+    return jsonResponse(data);
+  } catch (cause) {
+    return jsonResponse({ error: `could not build skillbook: ${String(cause)}` }, 500);
+  }
+};
+
+interface PublishRequestBody {
+  readonly target?: unknown;
+}
+
+/**
+ * `POST /api/bundles/:slug/publish` -- the viewer's post-publish "Publish to
+ * targets" step (Phase 17's guided publish flow, extended). Runs the SAME
+ * `publishBundle` core function the CLI's `skillmaker publish` command runs
+ * (`../commands/Publish.ts`) -- one contract, two doors. `target` in the
+ * body is optional (default: every configured target), mirroring the CLI's
+ * `--target` flag.
+ */
+const handlePublish = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  request: Request,
+): Promise<Response> => {
+  const bundle = await getBundleRecord(root, slug);
+  if (bundle === undefined) {
+    return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
+  }
+
+  if (config.publishTargets.length === 0) {
+    return jsonResponse(
+      { error: "no publishTargets configured in skillmaker.config.json -- nothing to publish to" },
+      409,
+    );
+  }
+
+  let target: string | undefined;
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    let body: unknown;
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+    const rawTarget = (body as PublishRequestBody).target;
+    if (rawTarget !== undefined) {
+      if (typeof rawTarget !== "string") {
+        return jsonResponse({ error: "target must be a string" }, 400);
+      }
+      target = rawTarget;
+    }
+  }
+
+  const bundleDir = join(root, config.skillsDir, slug);
+  const journalPath = join(root, ".skillmaker", "events.jsonl");
+  const actor = await Effect.runPromise(resolveUserActor());
+
+  const outcome = await Effect.runPromise(
+    publishBundle({
+      workspaceRoot: root,
+      bundleDir,
+      bundle: slug,
+      workspaceName: config.name,
+      targets: config.publishTargets,
+      targetIds: target === undefined ? undefined : [target],
+      actor,
+    }).pipe(
+      Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
+      Effect.provide(BunServices.layer),
+      Effect.map((result) => ({ kind: "ok" as const, result })),
+      Effect.catchTag("PublishGuardError", (error) =>
+        Effect.succeed({ kind: "guard" as const, reason: error.reason }),
+      ),
+      Effect.catchTag("PublishTargetNotFoundError", (error) =>
+        Effect.succeed({ kind: "not_found" as const, target: error.target }),
+      ),
+      Effect.catchTag("UnknownPublishTargetKindError", (error) =>
+        Effect.succeed({ kind: "unknown_kind" as const, target: error.target, targetKind: error.kind }),
+      ),
+    ),
+  );
+
+  if (outcome.kind === "guard") {
+    return jsonResponse({ error: outcome.reason }, 409);
+  }
+  if (outcome.kind === "not_found") {
+    return jsonResponse({ error: `no publish target "${outcome.target}" in skillmaker.config.json's publishTargets` }, 400);
+  }
+  if (outcome.kind === "unknown_kind") {
+    return jsonResponse(
+      { error: `publish target "${outcome.target}" has unrecognized kind "${outcome.targetKind}"` },
+      400,
+    );
+  }
+
+  return jsonResponse(outcome.result);
+};
+
+/**
  * A single set of SSE subscriber "send" functions, broadcast to on journal
  * change and on the heartbeat interval. Scoped per server instance.
  */
@@ -1069,6 +1179,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             skillsDir: config.skillsDir,
             viewerPort: config.viewer.port,
             providers: Object.keys(config.providers),
+            publishTargets: config.publishTargets.map((target) => ({ id: target.id, kind: target.kind })),
           },
         });
       }
@@ -1101,6 +1212,10 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         } catch (cause) {
           return jsonResponse({ error: `could not build catalog: ${String(cause)}` }, 500);
         }
+      }
+
+      if (pathname === "/api/skillbook") {
+        return handleSkillbook(root, config);
       }
 
       if (pathname === "/api/todos") {
@@ -1152,6 +1267,13 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             return jsonResponse({ error: "missing fixture case" }, 404);
           }
           return handleTriggerRun(root, config, slug, caseName, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "publish") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "publish requires POST" }, 405);
+          }
+          return handlePublish(root, config, slug, request);
         }
 
         if (slug !== undefined && segments.length === 2 && segments[1] === "station-run") {

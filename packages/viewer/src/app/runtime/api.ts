@@ -14,8 +14,10 @@ import {
   EventsResponse,
   HealthResponse,
   PostEventResponse,
+  PublishBundleResponse,
   RecordVersionResponse,
   RunDetailResponse,
+  SkillbookResponse,
   StateResponse,
   TodosResponse,
   TriggerRunResponse,
@@ -65,6 +67,9 @@ export const getEvents = (options: { limit?: number; before?: string } = {}): Pr
 
 /** `GET /api/catalog` -- the Catalog page's skill-browser rows. */
 export const getCatalog = (): Promise<CatalogResponse> => fetchJson("/api/catalog", CatalogResponse);
+
+/** `GET /api/skillbook` -- the Skillbook page's data (data-model.md §2.14). */
+export const getSkillbook = (): Promise<SkillbookResponse> => fetchJson("/api/skillbook", SkillbookResponse);
 
 export interface PostEventInput {
   readonly type: string;
@@ -151,6 +156,31 @@ export const triggerStationRun = async (
 
   if (raw.ok) {
     const decoded = await Schema.decodeUnknownPromise(TriggerStationRunResponse)(raw.body);
+    return { ok: true, response: decoded };
+  }
+
+  const decodedError = await Schema.decodeUnknownPromise(ApiErrorResponse)(raw.body).catch(() =>
+    FALLBACK_ERROR(raw.status),
+  );
+  return { ok: false, error: decodedError.error };
+};
+
+export type PublishBundleResult =
+  | { readonly ok: true; readonly response: PublishBundleResponse }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * `POST /api/bundles/:slug/publish` -- the BundlePanel's post-publish
+ * "Publish to targets" step (Phase 11B). `target` is optional (default:
+ * every configured target), mirroring the CLI's `--target` flag.
+ */
+export const publishBundle = async (slug: string, target: string | undefined): Promise<PublishBundleResult> => {
+  const raw = await postJson(`/api/bundles/${encodeURIComponent(slug)}/publish`, {
+    ...(target !== undefined ? { target } : {}),
+  });
+
+  if (raw.ok) {
+    const decoded = await Schema.decodeUnknownPromise(PublishBundleResponse)(raw.body);
     return { ok: true, response: decoded };
   }
 

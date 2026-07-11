@@ -132,6 +132,8 @@ export class ConfigSummary extends Schema.Class<ConfigSummary>("ConfigSummary")(
   viewerPort: Schema.Number,
   /** Configured provider names -- the run-trigger provider select (Phase 9) shows a picker only when >1. */
   providers: Schema.Array(Schema.String),
+  /** `skillmaker.config.json`'s `publishTargets` (data-model.md §2.14) -- the BundlePanel's post-publish "Publish to targets" step shows only when this is non-empty. */
+  publishTargets: Schema.Array(Schema.Struct({ id: Schema.String, kind: Schema.String })),
 }) {}
 
 export class StateResponse extends Schema.Class<StateResponse>("StateResponse")({
@@ -374,4 +376,59 @@ export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
 
 export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogResponse")({
   entries: Schema.Array(CatalogEntry),
+}) {}
+
+/**
+ * `GET /api/skillbook` (data-model.md §2.14): "skills leave the studio with
+ * receipts." One changelog entry per version/publish/gate event, newest
+ * first; `designMarkdown` is the raw `design.md` content (rendered
+ * client-side, same hand-rolled markdown subset `book build`'s
+ * `BookRenderer.ts` renders server/CLI-side).
+ */
+export class SkillbookChangelogEntry extends Schema.Class<SkillbookChangelogEntry>(
+  "SkillbookChangelogEntry",
+)({
+  type: Schema.Literals(["version", "published", "gate"]),
+  at: Schema.String,
+  summary: Schema.String,
+}) {}
+
+export class SkillbookBundle extends Schema.Class<SkillbookBundle>("SkillbookBundle")({
+  slug: Schema.String,
+  name: Schema.String,
+  oneLiner: Schema.String,
+  stage: Schema.String,
+  designMarkdown: Schema.String,
+  latestVersion: Schema.NullOr(VersionRecord),
+  measurements: Schema.Array(MeasurementRecord),
+  changelog: Schema.Array(SkillbookChangelogEntry),
+}) {}
+
+export class SkillbookResponse extends Schema.Class<SkillbookResponse>("SkillbookResponse")({
+  workspaceName: Schema.String,
+  bundles: Schema.Array(SkillbookBundle),
+}) {}
+
+/** One `publishTargets` entry (skillmaker.config.json) -- what the viewer's Publish step offers. */
+export class PublishTarget extends Schema.Class<PublishTarget>("PublishTarget")({
+  id: Schema.String,
+  kind: Schema.String,
+  path: Schema.optionalKey(Schema.String),
+}) {}
+
+/** One target's outcome within a `POST /api/bundles/:slug/publish` response. */
+export class PublishTargetResult extends Schema.Class<PublishTargetResult>("PublishTargetResult")({
+  target: Schema.String,
+  kind: Schema.String,
+  status: Schema.Literals(["published", "already_published"]),
+  url: Schema.optionalKey(Schema.String),
+}) {}
+
+/** `POST /api/bundles/:slug/publish` response. */
+export class PublishBundleResponse extends Schema.Class<PublishBundleResponse>(
+  "PublishBundleResponse",
+)({
+  bundle: Schema.String,
+  versionHash: Schema.String,
+  results: Schema.Array(PublishTargetResult),
 }) {}

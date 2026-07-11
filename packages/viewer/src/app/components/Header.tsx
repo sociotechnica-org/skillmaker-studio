@@ -9,6 +9,11 @@ const NAV_ITEMS: ReadonlyArray<{
   { href: "/", label: "Board", match: (name) => name === "board" || name === "bundle" },
   { href: "/catalog", label: "Catalog", match: (name) => name === "catalog" },
   { href: "/activity", label: "Activity", match: (name) => name === "activity" },
+  {
+    href: "/skillbook",
+    label: "Skillbook",
+    match: (name) => name === "skillbook" || name === "skillbook-bundle",
+  },
 ];
 
 const NAV_LINK_ACTIVE =

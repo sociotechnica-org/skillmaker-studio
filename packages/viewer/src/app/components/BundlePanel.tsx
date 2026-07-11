@@ -26,7 +26,14 @@
  * shown inline), instead of requiring a separate dev-only affordance.
  */
 import { type FC, useEffect, useState } from "react";
-import { getBundleFile, postEvent, recordVersion, triggerRun, triggerStationRun } from "../runtime/api.ts";
+import {
+  getBundleFile,
+  postEvent,
+  publishBundle,
+  recordVersion,
+  triggerRun,
+  triggerStationRun,
+} from "../runtime/api.ts";
 import { bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
 import {
   STAGES,
@@ -36,6 +43,7 @@ import {
   type EventView,
   type FixtureRecord,
   type MeasurementRecord,
+  type PublishTargetResult,
   type RiskCoverageRecord,
   type RunRecord,
   type VersionRecord,
@@ -455,6 +463,8 @@ const OverviewTab: FC<OverviewTabProps> = ({
         )
       )}
 
+      {stage === "published" && <PublishToTargetsSection slug={slug} />}
+
       {earlier.length > 0 && (
         <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
           <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Move back</h4>
@@ -627,6 +637,74 @@ const PublishSection: FC<{
       >
         Approve gate &amp; publish ▸
       </button>
+    </section>
+  );
+};
+
+/**
+ * Phase 11B's post-publish step: once a bundle is `"published"`, offers a
+ * "Publish to targets" button that runs core `publishBundle` server-side
+ * (`POST /api/bundles/:slug/publish`, the same contract `skillmaker publish`
+ * runs) against every `publishTargets` entry in `skillmaker.config.json`.
+ * Renders nothing (an honest empty state -- no targets configured is a
+ * normal, unremarkable workspace state) when `publishTargets` is empty.
+ */
+const PublishToTargetsSection: FC<{ slug: string }> = ({ slug }) => {
+  const { state } = useWorkspace();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [results, setResults] = useState<ReadonlyArray<PublishTargetResult> | undefined>(undefined);
+
+  const targets = state?.config.publishTargets ?? [];
+  if (targets.length === 0) {
+    return null;
+  }
+
+  const run = (): void => {
+    setPending(true);
+    setError(undefined);
+    publishBundle(slug, undefined)
+      .then((result) => {
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setResults(result.response.results);
+      })
+      .catch((cause: Error) => setError(cause.message))
+      .finally(() => setPending(false));
+  };
+
+  return (
+    <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Publish to targets</h4>
+      <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+        {targets.length} target{targets.length === 1 ? "" : "s"} configured: {targets.map((target) => target.id).join(", ")}
+      </p>
+      {error !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={pending}
+        onClick={run}
+        className="w-fit rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+      >
+        Publish to targets ▸
+      </button>
+      {results !== undefined && (
+        <ul className="flex flex-col gap-1">
+          {results.map((entry) => (
+            <li key={entry.target} className="text-[11px] text-neutral-600 dark:text-neutral-300">
+              <span className="font-mono">{entry.target}</span> ({entry.kind}):{" "}
+              {entry.status === "already_published" ? "already published" : "published"}
+              {entry.url !== undefined ? ` -> ${entry.url}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 };
