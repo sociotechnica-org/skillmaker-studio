@@ -38,6 +38,9 @@ Usage: skillmaker <command> [options]
 | [`advance <slug>`](/cli/advance/) | Move a bundle along the state machine (guarded) |
 | [`version record <slug>`](/cli/version-record/) | Record a version: hash `design.md` + `output/` |
 | [`todo add/list/done/start/drop/reopen`](/cli/todo/) | The journal-native todo system |
+| [`adopt [path]`](/cli/adopt/) | Import pre-existing `SKILL.md` files as in-place Skill Bundles |
+| [`publish <slug>`](/cli/publish/) | Publish a bundle to its configured publish targets |
+| [`book build`](/cli/book-build/) | Render the Skillbook to a static site |
 
 ## Exit codes
 

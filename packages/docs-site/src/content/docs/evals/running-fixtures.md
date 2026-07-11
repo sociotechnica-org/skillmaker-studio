@@ -4,9 +4,13 @@ description: How `skillmaker run` drives a real agent over ACP.
 ---
 
 `skillmaker run` is the first LLM-touching command in the CLI: it drives a
-real coding agent (today: `claude-code`, over the
-[Agent Client Protocol](https://agentclientprotocol.com/), ACP) through one
-fixture case, end to end, and records everything it did.
+real coding agent over the
+[Agent Client Protocol](https://agentclientprotocol.com/) (ACP) through one
+fixture case, end to end, and records everything it did. Two providers are
+full eval peers today — `claude-code` and `codex` — each with its own
+`ProviderProfile` (skill install directory, model-id extraction, and
+infra-error signatures all differ per provider under the hood; the CLI
+surface is identical either way).
 
 ## What one run does
 
@@ -84,17 +88,27 @@ Configured in `skillmaker.config.json` (written by `skillmaker init`):
 {
   "providers": {
     "claude-code": { "command": ["npx", "-y", "@zed-industries/claude-code-acp@latest"] },
-    "codex":       { "command": ["codex-acp"] }
+    "codex":       { "command": ["npx", "-y", "@agentclientprotocol/codex-acp@latest"] }
   }
 }
 ```
 
-`--provider <id>` selects which one to run against (defaults to
-`claude-code`); `--timeout <seconds>` bounds the prompt (defaults to 300).
-`claude-code` rides your logged-in `claude` CLI session — no separate API
-key needed. Permission requests from the agent during a run are
-auto-approved and logged as a synthetic transcript entry, so nothing the
-agent did is hidden from the transcript.
+Both entries are written by `skillmaker init` — no config edit needed to
+use either provider. `--provider <id>` selects which one to run against
+(defaults to `claude-code`); `--timeout <seconds>` bounds the prompt
+(defaults to 300). Both providers ride your already-logged-in CLI session
+(`claude` / `codex`) — no separate API key needed for either. Permission
+requests from the agent during a run are auto-approved and logged as a
+synthetic transcript entry, so nothing the agent did is hidden from the
+transcript.
+
+A **trigger** fixture (see [Fixtures and risk maps](/evals/fixtures-and-risk-maps/))
+grades activation instead of task correctness — `didSkillActivate` scans
+the transcript for evidence the agent invoked the skill, tolerant of the
+shape difference between providers: claude-code-acp exposes a first-class
+`Skill` tool call, while codex-acp has no dedicated skill tool and instead
+reads the skill file via its native Read/shell tool, detected by a
+`<slug>/SKILL.md` path match.
 
 :::note[Next: turning a run into a verdict]
 `skillmaker run` produces real transcripts and artifacts. Turning one into

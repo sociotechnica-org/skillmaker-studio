@@ -49,26 +49,45 @@ rebuildable index (`skillmaker reindex` reconstructs it from scratch).
   studio shows whether design.md or outputs drifted since the last recorded
   version. Honest states, no enforcement.
 - **Eval fixtures + coverage** — fixture cases by failure class (golden /
-  refusal / empty / rerun / hard-case), risk maps over five risk families
-  (Input / Reasoning / Output / Adversarial / Chain), a coverage surface
-  with validation honestly reading "not yet measured" until real runs land.
-- **Agent-driven eval runs** — `skillmaker run` drives a real coding agent
-  over ACP (claude-code today, codex configured) through a fixture case,
-  end to end, capturing the full transcript and diffing artifacts.
+  refusal / empty / rerun / hard-case / trigger), risk maps over five risk
+  families (Input / Reasoning / Output / Adversarial / Chain), a coverage
+  surface with validation honestly reading "not yet measured" until real
+  runs land.
+- **Agent-driven eval runs, on two providers** — `skillmaker run` drives a
+  real coding agent over ACP — **claude-code and codex are both full eval
+  peers** — through a fixture case, end to end, capturing the full
+  transcript and diffing artifacts. A `trigger`-class fixture grades
+  whether the skill activated on its own, provider-tolerant either way.
 - **Grading + measurements** — grade a run pass/fail/partial in the CLI
   (`skillmaker grade`) or the board's run-detail read-out; graded runs join
   into *n · pass-rate · confidence-interval* measurements
   (`skillmaker measurements`), never pooled across fixture, version,
   provider, or model.
+- **Agent-first production stations** — `skillmaker station run` drives an
+  agent through a stage's work over ACP, requesting review on completion;
+  William, the product's own skill-writing agent, ships skills through
+  this loop today.
+- **Publish, with receipts** — `skillmaker publish` sends a bundle's
+  `output/` to a git directory or a marketplace manifest once it clears
+  the publish gate, from the CLI or the board's guided flow. The
+  Claude-marketplace target round-trips losslessly; the Codex-marketplace
+  manifest shape is still best-effort (no published spec to conform to
+  yet).
+- **The skillbook** — `skillmaker book build` renders a static site with
+  one page per skill: design prose, version-pinned measurement receipts,
+  and a journal-replayed changelog.
+- **Adopt an existing repo** — `skillmaker adopt` wraps pre-existing
+  `SKILL.md` files as bundles in place, no files moved; QA'd against two
+  real skills repos (gstack: 59/60 adopted; mattpocock/skills: 39/39).
 - **Live viewer** — Astro + React + Tailwind board on one origin, SSE
   updates on every journal change, no reload.
 - **Desktop app** — a Tauri shell (macOS, built from source) that wraps the
   compiled `skillmaker` binary as a sidecar: the same board, no terminal.
 
 **Coming next** (see [the build plan](docs/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md)):
-agent-first production stations, publish targets, a generated
-**skillbook** — docs for your whole skill set with the receipts inline —
-and a second provider (codex) with real, cross-platform distribution.
+William's skills fully self-hosted through the studio's own board — every
+William skill measured on both providers and published through the same
+gated loop any bundle uses — plus a cross-platform, signed desktop build.
 
 ## Architecture
 
