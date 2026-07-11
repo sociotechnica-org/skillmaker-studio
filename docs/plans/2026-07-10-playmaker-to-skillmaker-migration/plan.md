@@ -312,3 +312,24 @@ outputs, grading, stage names). Product-level extras:
 - **Verify (/chrome):** side-by-side walk of old Studio and new viewer;
   every existing capability (board, reviews, todos, versions, evals,
   read-out) reachable in the new structure; full loop re-run + re-recorded.
+
+### Fold-ins from skill-creator research (2026-07-11, director pre-authorized)
+
+Source: docs/research/2026-07-11-anthropic-skill-creator.md.
+
+1. **Without-skill baseline runs** → Phase 10/12 scope: eval runs gain an
+   optional baseline mode (same fixture, no skill installed), recorded as
+   measurements with version=null; the read-out shows the with/without
+   delta — the most persuasive number a skill can have.
+2. **Trigger-rate measurement** → Phase 12 scope: measure whether the
+   skill *activates* when it should (skill-creator's stream-JSON
+   early-exit technique is directly reusable); a fixture class for
+   triggering, distinct from task success.
+3. **Grader self-critique** → Phase 10 scope: after grading, the grader
+   flags non-discriminating checks (pass everything / fail everything);
+   flagged checks surface as risk-map gaps.
+- Anti-lesson (recorded, no action): skill-creator's loose-file
+  persistence exhibits real schema drift + unrecoverable data by their
+  own admission — validates the journal + rebuildable-index model as the
+  trust wedge. The eval viewer's feedback-collection design (feedback as
+  input to the next iteration) is noted for the read-out's future.
