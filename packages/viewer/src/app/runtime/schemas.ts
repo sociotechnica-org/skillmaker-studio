@@ -111,3 +111,39 @@ export class PostEventResponse extends Schema.Class<PostEventResponse>("PostEven
 export class ApiErrorResponse extends Schema.Class<ApiErrorResponse>("ApiErrorResponse")({
   error: Schema.String,
 }) {}
+
+/**
+ * Mirrors `@skillmaker/core`'s `Todo`/`IndexService.TodoRecord`
+ * (data-model.md §2.10, §2.11), but declared locally like the rest of this
+ * file -- the viewer decodes what the wire sends.
+ */
+export const TodoKind = Schema.Literals(["task", "bug", "improvement", "eval"]);
+export type TodoKind = typeof TodoKind.Type;
+
+export const TodoStatus = Schema.Literals(["open", "in-progress", "done", "wont-do"]);
+export type TodoStatus = typeof TodoStatus.Type;
+
+export class ChecklistItemView extends Schema.Class<ChecklistItemView>("ChecklistItemView")({
+  text: Schema.String,
+  done: Schema.Boolean,
+}) {}
+
+export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
+  id: Schema.String,
+  kind: TodoKind,
+  status: TodoStatus,
+  title: Schema.String,
+  detail: Schema.optionalKey(Schema.String),
+  checklist: Schema.optionalKey(Schema.Array(ChecklistItemView)),
+  priority: Schema.Number,
+  bundle: Schema.optionalKey(Schema.String),
+  created: Schema.String,
+  terminalAt: Schema.optionalKey(Schema.String),
+  pinned: Schema.optionalKey(Schema.Boolean),
+  archived: Schema.Boolean,
+  source: ActorView,
+}) {}
+
+export class TodosResponse extends Schema.Class<TodosResponse>("TodosResponse")({
+  todos: Schema.Array(TodoRecord),
+}) {}

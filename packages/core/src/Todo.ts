@@ -38,9 +38,14 @@ export class Todo extends Schema.Class<Todo>("Todo")({
   source: Actor,
 }) {}
 
-/** Shallow patch of a todo's mutable fields, carried by `todo.updated`. */
+/**
+ * Shallow patch of a todo's MUTABLE fields, carried by `todo.updated`
+ * (data-model.md §2.10). `id`, `kind`, `created`, and `source` are
+ * immutable and deliberately absent from this schema -- a patch payload
+ * that tries to carry them is decoded with those keys silently stripped
+ * (reject-by-ignore), never rejected outright.
+ */
 export class TodoPatch extends Schema.Class<TodoPatch>("TodoPatch")({
-  kind: Schema.optionalKey(TodoKind),
   title: Schema.optionalKey(Schema.String),
   detail: Schema.optionalKey(Schema.String),
   checklist: Schema.optionalKey(Schema.Array(ChecklistItem)),

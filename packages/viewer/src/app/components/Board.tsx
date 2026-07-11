@@ -4,6 +4,7 @@ import type { BundleRecord, BundleStage } from "../runtime/schemas.ts";
 import { BoardColumn } from "./BoardColumn.tsx";
 import { BundlePanel } from "./BundlePanel.tsx";
 import { Header } from "./Header.tsx";
+import { TodosPanel } from "./TodosPanel.tsx";
 import { useWorkspace } from "../runtime/useWorkspace.ts";
 
 const STAGE_COLUMNS: ReadonlyArray<{ stage: BundleStage; title: string }> = [
@@ -70,6 +71,7 @@ export const Board: FC = () => {
         {selectedSlug !== undefined && (
           <BundlePanel slug={selectedSlug} onClose={() => setSelectedSlug(undefined)} />
         )}
+        <TodosPanel bundles={bundles} />
       </div>
     </div>
   );

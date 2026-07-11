@@ -12,6 +12,7 @@ import { runReindex } from "./commands/Reindex.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStatus } from "./commands/Status.ts";
+import { runTodoAdd, runTodoList, runTodoStatus, type TodoStatusCommand } from "./commands/Todo.ts";
 
 const USAGE = `skillmaker — Skillmaker Studio CLI
 
@@ -26,6 +27,12 @@ Commands:
   start             Serve the viewer + API (default port from config, or 4323)
   review request <slug>   Request review of the bundle's current stage work
   advance <slug>          Move a bundle along the state machine (guarded)
+  todo add <title>        Open a new todo
+  todo list               List todos (rebuilds the index first)
+  todo done <id>          Mark a todo done
+  todo start <id>         Mark a todo in-progress
+  todo drop <id>          Mark a todo won't-do
+  todo reopen <id>        Reopen a terminal todo
 
 Options:
   --json            Emit machine-readable JSON instead of text
@@ -37,6 +44,12 @@ Options:
   --back <stage>    (advance) Move backward to an earlier stage (requires --reason)
   --reason <text>   (advance) Reason for a backward move
   --override        (advance) Bypass guards (journaled as a manual override)
+  --kind <kind>     (todo add) task | bug | improvement | eval; defaults to task
+  --bundle <slug>   (todo add/list) associate/filter by a bundle slug
+  --detail <text>   (todo add) free-text detail
+  --priority <n>    (todo add) lower = more urgent; defaults by kind
+  --pin             (todo add) pin the todo (exempt from auto-archive)
+  --all             (todo list) include archived todos
   -h, --help        Show this help
 `;
 
@@ -51,7 +64,23 @@ const flagValue = (argv: ReadonlyArray<string>, flag: string): string | undefine
 };
 
 /** Flags across every command that consume the following argv slot as a value. */
-const VALUE_FLAGS = new Set(["--name", "--port", "--question", "--to", "--back", "--reason"]);
+const VALUE_FLAGS = new Set([
+  "--name",
+  "--port",
+  "--question",
+  "--to",
+  "--back",
+  "--reason",
+  "--kind",
+  "--bundle",
+  "--detail",
+  "--priority",
+]);
+
+const TODO_STATUS_COMMANDS: ReadonlySet<string> = new Set(["done", "start", "drop", "reopen"]);
+
+const isTodoStatusCommand = (value: string): value is TodoStatusCommand =>
+  TODO_STATUS_COMMANDS.has(value);
 
 /**
  * The first positional (non-flag, not-a-flag-value) argument at or after
@@ -126,6 +155,35 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const back = flagValue(argv, "--back");
       const reason = flagValue(argv, "--reason");
       return yield* runAdvance(cwd, slug, { json, to, back, reason, override: hasFlag(argv, "--override") });
+    }
+    case "todo": {
+      const subcommand = argv[1];
+      if (subcommand === "add") {
+        const title = positionalAfter(argv, 2);
+        const kind = flagValue(argv, "--kind");
+        const bundle = flagValue(argv, "--bundle");
+        const detail = flagValue(argv, "--detail");
+        const priority = flagValue(argv, "--priority");
+        return yield* runTodoAdd(cwd, title, {
+          json,
+          kind,
+          bundle,
+          detail,
+          priority,
+          pin: hasFlag(argv, "--pin"),
+        });
+      }
+      if (subcommand === "list") {
+        const bundle = flagValue(argv, "--bundle");
+        return yield* runTodoList(cwd, { json, bundle, all: hasFlag(argv, "--all") });
+      }
+      if (subcommand !== undefined && isTodoStatusCommand(subcommand)) {
+        const id = positionalAfter(argv, 2);
+        return yield* runTodoStatus(cwd, subcommand, id, { json });
+      }
+      return usageError(
+        `skillmaker: unknown "todo" subcommand "${String(subcommand)}"\n\nUsage: skillmaker todo add|list|done|start|drop|reopen ...\n`,
+      );
     }
     default: {
       const result: CliResult = usageError(`skillmaker: unknown command "${command}"\n\n${USAGE}`);
