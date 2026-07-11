@@ -608,3 +608,15 @@ timeout 3 times across Phase 19/20 CI runs — not investigated as a
 product bug (no story's friction log traces to it), but real enough at 3
 sightings to raise the suite's timeout rather than keep re-running red CI
 by hand. Filed as a todo, not yet fixed.
+
+## Phase 20 — the reduced-friction verdict (Story-1 re-run vs original)
+
+Original Story 1 (v0.1.0 era): 3 P1s — adopt missing from the shipped
+binary; adopted bundles evaling a naked agent silently; a duplicate
+auto-version event bricking the journal. Re-run (v0.2.1, fresh persona,
+same beats): **all three P1s fixed, none recurred, zero new P1s.**
+Install 0.8s; adopt 3/3; a real 67%→100% measured skill improvement with
+honest CIs; the auth error now names exact credential paths. Remaining
+findings ergonomic — filed as todos on the repo's own board.
+**Verdict: friction materially reduced. Story-as-eval re-earn: PASSED.**
+Phase 20 completion criteria met; the plan is complete.
