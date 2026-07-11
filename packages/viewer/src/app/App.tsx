@@ -4,6 +4,7 @@ import { Board } from "./components/Board.tsx";
 import { BundlePanel } from "./components/BundlePanel.tsx";
 import { Catalog } from "./components/Catalog.tsx";
 import { ActivityFeed } from "./components/ActivityFeed.tsx";
+import { Skillbook, SkillbookBundlePage } from "./components/Skillbook.tsx";
 import { RouterProvider, useRouter } from "./runtime/router.tsx";
 
 /**
@@ -23,6 +24,10 @@ const Routes: FC = () => {
       return <Catalog />;
     case "activity":
       return <ActivityFeed />;
+    case "skillbook":
+      return <Skillbook />;
+    case "skillbook-bundle":
+      return <SkillbookBundlePage slug={route.slug} />;
     case "not-found":
       return (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">

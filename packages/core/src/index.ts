@@ -156,3 +156,17 @@ export {
   type GradedRunChecks,
   type NonDiscriminatingCheck,
 } from "./GraderSelfCritique.ts";
+export {
+  checkPublishable,
+  publishBundle,
+  publishGitDir,
+  publishClaudeMarketplace,
+  publishCodexMarketplace,
+  type PublishGuardResult,
+  type GitDirPublishResult,
+  type ClaudeMarketplacePublishResult,
+  type CodexMarketplacePublishResult,
+  type PublishTargetResult,
+  type PublishBundleResult,
+  type PublishBundleInput,
+} from "./Publish.ts";

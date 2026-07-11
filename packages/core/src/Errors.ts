@@ -65,3 +65,36 @@ export class IndexError extends Schema.TaggedErrorClass<IndexError>()("IndexErro
   message: Schema.String,
   cause: Schema.optionalKey(Schema.Defect()),
 }) {}
+
+/**
+ * `skillmaker publish` was attempted for a bundle that is not publishable:
+ * either its stage isn't `"published"` (the gate already enforces that a
+ * bundle can only reach `published` via an approved gate decision -- see
+ * `Machine.ts`), or its recorded version has drifted from the live
+ * `design.md`/`output/` content (data-model.md §2.7) -- publishing a stale
+ * or ahead-of-version bundle would ship content that was never recorded.
+ */
+export class PublishGuardError extends Schema.TaggedErrorClass<PublishGuardError>()(
+  "PublishGuardError",
+  {
+    bundle: Schema.String,
+    reason: Schema.String,
+  },
+) {}
+
+/** `skillmaker publish` referenced a `--target` id that isn't in `skillmaker.config.json`'s `publishTargets`. */
+export class PublishTargetNotFoundError extends Schema.TaggedErrorClass<PublishTargetNotFoundError>()(
+  "PublishTargetNotFoundError",
+  {
+    target: Schema.String,
+  },
+) {}
+
+/** A `publishTargets` entry had an unrecognized `kind`. */
+export class UnknownPublishTargetKindError extends Schema.TaggedErrorClass<UnknownPublishTargetKindError>()(
+  "UnknownPublishTargetKindError",
+  {
+    target: Schema.String,
+    kind: Schema.String,
+  },
+) {}

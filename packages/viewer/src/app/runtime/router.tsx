@@ -22,6 +22,8 @@ export type Route =
   | { readonly name: "bundle"; readonly slug: string; readonly tab: BundleTab; readonly runId: string | undefined }
   | { readonly name: "catalog" }
   | { readonly name: "activity" }
+  | { readonly name: "skillbook" }
+  | { readonly name: "skillbook-bundle"; readonly slug: string }
   | { readonly name: "not-found" };
 
 /** Pure -- parses a pathname + search string into a `Route`. Exported for tests. */
@@ -36,6 +38,12 @@ export const parseRoute = (pathname: string, search: string): Route => {
   }
   if (segments[0] === "activity" && segments.length === 1) {
     return { name: "activity" };
+  }
+  if (segments[0] === "skillbook" && segments.length === 1) {
+    return { name: "skillbook" };
+  }
+  if (segments[0] === "skillbook" && segments[1] !== undefined && segments.length === 2) {
+    return { name: "skillbook-bundle", slug: decodeURIComponent(segments[1]) };
   }
   if (segments[0] === "bundles" && segments[1] !== undefined && segments.length <= 3) {
     const slug = decodeURIComponent(segments[1]);
@@ -52,6 +60,9 @@ export const parseRoute = (pathname: string, search: string): Route => {
 /** The canonical URL for a bundle's tab -- `overview` has no path suffix. */
 export const bundleHref = (slug: string, tab: BundleTab = "overview"): string =>
   tab === "overview" ? `/bundles/${encodeURIComponent(slug)}` : `/bundles/${encodeURIComponent(slug)}/${tab}`;
+
+/** The canonical URL for a bundle's Skillbook chapter. */
+export const skillbookBundleHref = (slug: string): string => `/skillbook/${encodeURIComponent(slug)}`;
 
 /** The Evals tab, optionally with a run selected via `?run=`. */
 export const bundleRunHref = (slug: string, runId: string | undefined): string => {
