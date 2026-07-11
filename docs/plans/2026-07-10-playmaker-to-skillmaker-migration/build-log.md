@@ -409,3 +409,81 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
   confirmed absence.
 - Every prep-doc open question resolved or explicitly carried forward;
   Raven-reviewed against the shipped code before merge.
+
+## Phase 19 — self-hosting for real: William's skills live in the studio
+
+- The repo's own self-hosted workspace (`skills/`, `.skillmaker/`,
+  `skillmaker.config.json`, started in Phase 10) went from "files that
+  happen to sit there" to full product use: both of William's stations
+  now have a real, measured skill behind them, and one of them was driven
+  through the actual gated state machine to `published`.
+- **`william-draft-skill-md` brought to full management**: four fixtures
+  by failure class — `golden-basic` (k=3), `refusal-empty-design` (k=1),
+  `hard-case-conflicting-sections` (k=1), `trigger-basic` (k=1) — plus a
+  populated `evals/risk-map.md` (IN-1/IN-2/ADV-1 covered, RE-2 partial at
+  n=1, RE-1/OUT-1/OUT-2 honest gaps with todos filed). Real ACP runs on
+  **both providers**: 6/6 claude-code runs graded pass by hand against
+  each fixture's answer key, plus a `golden-basic` k=1 cross-provider run
+  on codex — also pass (model `gpt-5.6-sol[xhigh]`). No failures required
+  a skill-text revision this pass.
+- **`william-research-a-skill` created as William's second skill** —
+  wired into the `researching` station, replacing a placeholder slug
+  (`william/research-a-skill`) that had sat in
+  `DEFAULT_STATIONS_TEMPLATE` since Phase 10 and, worse, violated the
+  bundle-slug rules (no `/`) that `StationEngine` itself depends on;
+  `william-draft-skill-md`'s own copied `stations.json` carried the same
+  stale slash-slugs and got fixed alongside it. Real `design.md` +
+  `output/SKILL.md`, a `golden-basic` fixture, and a `risk-map.md` were
+  authored — but the honest result is thinner than
+  `william-draft-skill-md`'s: three real `skillmaker run` attempts against
+  claude-code all came back `status: "infra-error"`. One transcript shows
+  a genuine `end_turn` completion with a well-formed `research/notes.md`
+  (misclassified anyway); the other two silently stopped responding after
+  a dozen or so auto-approved permission requests. `skillmaker grade`
+  correctly refuses to grade non-`completed` runs, so this fixture ships
+  ungraded rather than force-graded — filed as a todo
+  (`investigate-run-infra-error-on-heavy-permission-fixtures`) since it
+  looks like a `RunEngine`/`AcpClient` reliability or classification
+  question under many permission round-trips, not a skill-text problem.
+- **`william-draft-skill-md` driven through the machine for real**: review
+  request/`review.resolved: approve` at each of
+  idea → researching → drafting → evaluating (CLI `review request` +
+  `POST /api/events` against a running `skillmaker start` server — two
+  doors, one journal), a publish-gate decision
+  (`bundle.gate_decided`, `decision: "approved"`) whose `basis` cites the
+  real 6/6 + 1/1 measurement, then `advance` into `published`. Version was
+  already in-sync (no re-record needed). `skillmaker publish` shipped it
+  to both configured targets: `dist/skills/william-draft-skill-md/`
+  (git-dir) and `.claude-plugin/marketplace.json` (claude-marketplace) —
+  both new `publishTargets` added to `skillmaker.config.json` this phase,
+  alongside a `.gitignore` carve-out so `dist/skills/` (published output,
+  real history) survives the blanket `dist/*` ignore.
+- **Config debt found and fixed along the way**: the checked-in
+  `skillmaker.config.json` had codex pinned to a bare `codex-acp` command
+  with no such binary on PATH in this environment; switched to the same
+  `npx @agentclientprotocol/codex-acp@latest` form `data-model.md` already
+  documented. Both `evals/risk-map.md` files initially cited compound
+  Fixture cells (`"golden-basic (positive), refusal-empty-design
+  (negative)"`) that `RiskMap.ts`'s exact-match parser correctly flagged
+  as referencing a fixture that "does not exist" — `reindex` catching its
+  own author's mistake is the CI guard added this phase working as
+  intended before it even shipped.
+- **CI**: a warn-only `reindex --json` step against the repo's own
+  workspace, after the e2e step (`continue-on-error: true` as
+  belt-and-suspenders on top of `reindex` already never exiting nonzero on
+  data warnings — ruling I); actionlint-clean.
+- **The tightened continuous-exercise claim**: this phase's real signal
+  is that self-hosting isn't primarily an exercise-frequency problem.
+  `william-draft-skill-md` had already been exercised in earlier phases;
+  what it lacked was fixtures *pinned to a recorded version hash*, so a
+  pass/fail verdict could be traced to the exact `design.md`/`output/`
+  content that produced it. The gap Phase 19 closes isn't "run it more
+  often" — it's coupling every real run to `skill.version_recorded`'s
+  content hash, so "6/6 pass" is a claim about a specific, addressable
+  version, not a vibe about the skill in general. `william-research-a-
+  skill`'s honest 0-for-3 on gradeable runs is the same discipline cutting
+  the other way: a version-pinned measurement that came back "can't tell
+  yet" is worth more than an ungated claim of success would have been.
+- 301 unit tests pass, 0 fail; `tsc --noEmit` clean on `packages/core` and
+  `packages/cli`; two logical commits for the William bundles, one for the
+  publish traversal, one for CI.
