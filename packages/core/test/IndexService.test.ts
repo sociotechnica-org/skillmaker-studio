@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
 import { layer as IndexServiceLayer, IndexService } from "../src/IndexService.ts";
@@ -506,6 +506,128 @@ bundle: frame-the-problem
 
           const bundle = yield* index.getBundle("relocated");
           expect(bundle?.slug).toBe("relocated");
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+});
+
+describe("IndexService.listMeasurements", () => {
+  interface RunJsonOverrides {
+    readonly id: string;
+    readonly fixtureCase?: string;
+    readonly skillVersionHash?: string;
+    readonly provider?: string;
+    readonly model?: string;
+    readonly status?: "running" | "completed" | "failed" | "infra-error";
+  }
+
+  const writeRunJson = (dir: string, slug: string, overrides: RunJsonOverrides): void => {
+    const runDir = join(dir, "skills", slug, "runs", overrides.id);
+    mkdirSync(runDir, { recursive: true });
+    const record = {
+      schemaVersion: 1,
+      id: overrides.id,
+      bundle: slug,
+      kind: "eval",
+      station: null,
+      fixtureCase: overrides.fixtureCase ?? "golden-basic",
+      skillVersionHash: overrides.skillVersionHash ?? "sha256:v1",
+      provider: overrides.provider ?? "claude-code",
+      model: overrides.model ?? "fake-model-1",
+      startedAt: "2026-07-10T00:00:00.000Z",
+      endedAt: "2026-07-10T00:01:00.000Z",
+      status: overrides.status ?? "completed",
+      actor: { kind: "process", name: "run-engine" },
+    };
+    writeFileSync(join(runDir, "run.json"), JSON.stringify(record, null, 2));
+  };
+
+  test("aggregates graded runs, never pooling across fixture/version/provider/model", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "example-skill" });
+
+        writeRunJson(dir, "example-skill", { id: "run-1" });
+        writeRunJson(dir, "example-skill", { id: "run-2" });
+        writeRunJson(dir, "example-skill", { id: "run-3", skillVersionHash: "sha256:v2" });
+        writeRunJson(dir, "example-skill", { id: "run-4", status: "running" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:example-skill",
+            payload: { bundle: "example-skill" },
+          });
+          yield* journal.append({
+            type: "run.graded",
+            actor,
+            payload: { id: "run-1", verdict: "pass" },
+          });
+          yield* journal.append({
+            type: "run.graded",
+            actor,
+            payload: { id: "run-2", verdict: "fail" },
+          });
+          yield* journal.append({
+            type: "run.graded",
+            actor,
+            payload: { id: "run-3", verdict: "pass" },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+
+          const measurements = yield* index.listMeasurements("example-skill");
+          // v1 cell: run-1 (pass) + run-2 (fail) => n=2, passes=1. v2 cell:
+          // run-3 (pass) => n=1, passes=1. run-4 (running, ungraded) never
+          // contributes.
+          expect(measurements).toHaveLength(2);
+          const v1 = measurements.find((m) => m.versionHash === "sha256:v1");
+          const v2 = measurements.find((m) => m.versionHash === "sha256:v2");
+          expect(v1).toMatchObject({ n: 2, passes: 1, passRate: 0.5 });
+          expect(v1?.ci).not.toBeNull();
+          expect(v2).toMatchObject({ n: 1, passes: 1, passRate: 1 });
+          expect(v2?.ci).toEqual([0, 1]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("a regrade replaces the run's verdict -- latest wins, not accumulated as two samples", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "example-skill" });
+        writeRunJson(dir, "example-skill", { id: "run-1" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:example-skill",
+            payload: { bundle: "example-skill" },
+          });
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "run-1", verdict: "pass" } });
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "run-1", verdict: "fail" } });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const measurements = yield* index.listMeasurements("example-skill");
+          expect(measurements).toHaveLength(1);
+          expect(measurements[0]).toMatchObject({ n: 1, passes: 0, passRate: 0 });
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );

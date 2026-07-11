@@ -1,0 +1,42 @@
+---
+title: Skillmaker Studio
+description: Design, evaluate, and ship agent skills — with receipts.
+template: splash
+hero:
+  tagline: Design, evaluate, and ship agent skills — with receipts.
+  actions:
+    - text: Get started
+      link: /getting-started/introduction/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/sociotechnica-org/skillmaker-studio
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+A skill's research, design thinking, eval fixtures, and run records are the
+durable asset (a **Skill Bundle**); `SKILL.md` is an *output* — produced,
+versioned, and measured, not the thing itself.
+
+<CardGrid stagger>
+	<Card title="The Skill Bundle" icon="open-book">
+		Research, design thinking, evals, and outputs as one tracked unit — not
+		just a prompt file. See [Concepts](/concepts/skill-bundle/).
+	</Card>
+	<Card title="A gated production line" icon="approve-check">
+		Skills move `idea → researching → drafting → evaluating → published`
+		through reviewed, journaled transitions. See the
+		[state machine](/concepts/state-machine/).
+	</Card>
+	<Card title="Honest evals" icon="magnifier">
+		Coverage ("a fixture exists") and validation ("it passes at rate *r*
+		over *n* runs") never merge. See [Evals](/evals/fixtures-and-risk-maps/).
+	</Card>
+	<Card title="Two doors, one ground" icon="setting">
+		The CLI and the viewer are both driven by the same append-only journal —
+		nothing is stored twice. See the [CLI reference](/cli/).
+	</Card>
+</CardGrid>

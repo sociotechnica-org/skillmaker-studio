@@ -42,6 +42,8 @@ import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
 import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
 import type { Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
+import { computeMeasurements } from "./Measurements.ts";
+import type { MeasurementRecord } from "./Measurements.ts";
 
 export interface BundleRecord {
   readonly slug: string;
@@ -573,6 +575,10 @@ export class IndexService extends Context.Service<
     readonly listFixtureCounts: () => Effect.Effect<ReadonlyMap<string, number>, IndexError>;
     /** All runs for a bundle, newest first (data-model.md §2.8, §2.11). */
     readonly listRuns: (slug: string) => Effect.Effect<ReadonlyArray<RunIndexRecord>, IndexError>;
+    /** Aggregated measurement cells for a bundle, never pooled (data-model.md §2.11, §1.1 laws 5-6). */
+    readonly listMeasurements: (
+      slug: string,
+    ) => Effect.Effect<ReadonlyArray<MeasurementRecord>, IndexError>;
   }
 >()("IndexService") {}
 
@@ -1242,6 +1248,12 @@ export const layer = (
         return records;
       });
 
+      /** Aggregated measurement cells for a bundle, computed from `listRuns` (never pooled -- see Measurements.ts). */
+      const listMeasurements = Effect.fn("IndexService.listMeasurements")(function* (slug: string) {
+        const runs = yield* listRuns(slug);
+        return computeMeasurements(runs);
+      });
+
       return {
         rebuild,
         listBundles,
@@ -1253,6 +1265,7 @@ export const layer = (
         listWarnings,
         listFixtureCounts,
         listRuns,
+        listMeasurements,
       };
     }),
   );
