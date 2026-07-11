@@ -1,0 +1,23 @@
+[package]
+name = "skillmaker-desktop"
+version = "0.0.0"
+description = "Skillmaker Studio desktop shell (Tauri) -- wraps the skillmaker CLI's compiled binary as a sidecar and points a window at it."
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Cargo profile is intentionally left at workspace defaults -- no
+# release-only stripping/LTO tuning yet; revisit if bundle size matters.
