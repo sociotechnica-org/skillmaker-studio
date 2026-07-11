@@ -41,7 +41,11 @@ export const DEFAULT_STATIONS_TEMPLATE: typeof StationsFile.Type = {
     },
     drafting: {
       doer: "agent",
-      skill: "william/draft-skill-md",
+      // Bundle slug, not "william/draft-skill-md" -- station.skill resolves
+      // to another bundle in the SAME workspace (StationEngine.ts), and
+      // bundle slugs cannot contain "/" (WorkspaceService.ts's SLUG_PATTERN).
+      // Real, working skill as of Phase 10: skills/william-draft-skill-md/.
+      skill: "william-draft-skill-md",
       produces: ["design.md", "output/SKILL.md"],
       review: true,
     },

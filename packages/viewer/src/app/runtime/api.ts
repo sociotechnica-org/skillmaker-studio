@@ -17,6 +17,7 @@ import {
   StateResponse,
   TodosResponse,
   TriggerRunResponse,
+  TriggerStationRunResponse,
 } from "./schemas.ts";
 
 export const getHealth = (): Promise<HealthResponse> => fetchJson("/api/health", HealthResponse);
@@ -100,6 +101,38 @@ export const triggerRun = async (
 
   if (raw.ok) {
     const decoded = await Schema.decodeUnknownPromise(TriggerRunResponse)(raw.body);
+    return { ok: true, response: decoded };
+  }
+
+  const decodedError = await Schema.decodeUnknownPromise(ApiErrorResponse)(raw.body).catch(() =>
+    FALLBACK_ERROR(raw.status),
+  );
+  return { ok: false, error: decodedError.error };
+};
+
+export type TriggerStationRunResult =
+  | { readonly ok: true; readonly response: TriggerStationRunResponse }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * `POST /api/bundles/:slug/station-run` -- the Overview tab's "Run station"
+ * button (plan.md Phase 10). Same detached shape as `triggerRun`: the
+ * server forks `StationEngine.runStation` and answers immediately with the
+ * run id; progress (station.started / run.completed / review.requested)
+ * arrives via the SSE journal stream.
+ */
+export const triggerStationRun = async (
+  slug: string,
+  state: string | undefined,
+  provider: string | undefined,
+): Promise<TriggerStationRunResult> => {
+  const raw = await postJson(`/api/bundles/${encodeURIComponent(slug)}/station-run`, {
+    ...(state !== undefined ? { state } : {}),
+    ...(provider !== undefined ? { provider } : {}),
+  });
+
+  if (raw.ok) {
+    const decoded = await Schema.decodeUnknownPromise(TriggerStationRunResponse)(raw.body);
     return { ok: true, response: decoded };
   }
 
