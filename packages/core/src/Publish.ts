@@ -118,20 +118,24 @@ const readStringField = (record: JsonRecord, key: string): string | undefined =>
   return typeof value === "string" ? value : undefined;
 };
 
+const EMPTY_JSON_RECORD: JsonRecord = {};
+
+const parseJson = (raw: string): unknown => JSON.parse(raw);
+
 const readJsonRecord = Effect.fn("Publish.readJsonRecord")(function* (filePath: string) {
   const fs = yield* FileSystem;
   const exists = yield* fs.exists(filePath).pipe(Effect.mapError(toIOError(`could not check ${filePath}`)));
   if (!exists) {
-    return {} as JsonRecord;
+    return EMPTY_JSON_RECORD;
   }
   const raw = yield* fs
     .readFileString(filePath)
     .pipe(Effect.mapError(toIOError(`could not read ${filePath}`)));
   const parsed = yield* Effect.try({
-    try: () => JSON.parse(raw) as unknown,
+    try: () => parseJson(raw),
     catch: toIOError(`invalid JSON in ${filePath}`),
   });
-  return isJsonRecord(parsed) ? parsed : ({} as JsonRecord);
+  return isJsonRecord(parsed) ? parsed : EMPTY_JSON_RECORD;
 });
 
 const writeJsonRecord = Effect.fn("Publish.writeJsonRecord")(function* (
