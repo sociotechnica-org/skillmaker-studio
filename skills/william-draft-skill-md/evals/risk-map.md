@@ -11,7 +11,7 @@ bundle: william-draft-skill-md
 
 | Risk | Description | Coverage | Fixture |
 |---|---|---|---|
-| IN-1 | design.md has no real `## Intent`/`## The workflow` content, and the agent should stop rather than fabricate a SKILL.md (design.md failure hypothesis #1) | ● covered | golden-basic (positive), refusal-empty-design (negative) |
+| IN-1 | design.md has no real `## Intent`/`## The workflow` content, and the agent should stop rather than fabricate a SKILL.md (design.md failure hypothesis #1) | ● covered | golden-basic |
 | IN-2 | The skill should activate on its own (be selected by the agent's tool-selection layer) when the task matches its own `## When to use / triggers` phrasing, even when not named explicitly | ● covered | trigger-basic |
 | RE-1 | Revise notes from a prior review are silently ignored in favor of just re-deriving from design.md (design.md failure hypothesis #2) | ○ gap | — |
 | RE-2 | design.md's own sections (e.g. `## Intent` vs `## The workflow`) directly contradict each other, and the agent silently picks a side instead of reconciling toward safety or surfacing the conflict | ◐ partial (n=1 pass) | hard-case-conflicting-sections |
@@ -21,6 +21,17 @@ bundle: william-draft-skill-md
 
 ## Honest gaps
 
+- **The Fixture column holds exactly one fixture-case name** (`RiskMap.ts`'s
+  parser matches it verbatim against `evals/fixtures/<case>/`), so IN-1's
+  row above cites only `golden-basic` (its positive case, which is what
+  produced the graded pass). `refusal-empty-design` also buys IN-1's
+  negative case (the agent correctly declines to write anything when
+  design.md is a bare scaffold) but isn't a second entry in the same cell
+  — worth noting explicitly here rather than silently under-crediting that
+  fixture's coverage. (Phase 19: an earlier draft of this row tried
+  `golden-basic (positive), refusal-empty-design (negative)` in one cell;
+  `reindex` correctly flagged it as a fixture reference that "does not
+  exist" since it doesn't match any single case name — fixed here.)
 - **RE-1 / OUT-1** (revise-round coverage): design.md's own Proof spec names
   a `revise-round` fixture for these two risks; it was not authored in this
   pass (Phase 19 scoped to golden/refusal/hard-case/trigger). Filed as a

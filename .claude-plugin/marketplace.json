@@ -1,0 +1,15 @@
+{
+  "name": "skillmaker-studio",
+  "owner": {
+    "name": "skillmaker-studio"
+  },
+  "plugins": [
+    {
+      "source": "./",
+      "name": "skills",
+      "skills": [
+        "./skills/william-draft-skill-md/output"
+      ]
+    }
+  ]
+}

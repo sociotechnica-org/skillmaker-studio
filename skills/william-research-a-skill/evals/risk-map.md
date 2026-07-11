@@ -11,14 +11,20 @@ bundle: william-research-a-skill
 
 | Risk | Description | Coverage | Fixture |
 |---|---|---|---|
-| IN-1 | bundle.json's oneLiner and design.md's Intent are both empty, and the agent invents a topic and researches it anyway instead of stopping (design.md failure hypothesis #1) | ○ gap (ungraded, see honest gaps) | golden-basic (positive, ungraded); refusal-empty-topic (negative, not yet authored) |
+| IN-1 | bundle.json's oneLiner and design.md's Intent are both empty, and the agent invents a topic and researches it anyway instead of stopping (design.md failure hypothesis #1) | ○ gap (ungraded, see honest gaps) | — |
 | IN-2 | Revise notes from a prior review are silently ignored in favor of re-researching from scratch (design.md failure hypothesis #2) | ○ gap | — |
 | OUT-1 | A stated-but-unconfident fact is written into research/notes.md as if it were settled, with no hedge or open-question flag (design.md failure hypothesis #3) | ○ gap | — |
 | OUT-2 | The agent edits files outside research/ (design.md failure hypothesis #4) | ○ gap | — |
-| RE-1 | research/notes.md restates the topic and platitudes with no concrete, checkable facts or edge cases (design.md failure hypothesis #5) | ○ gap (ungraded, see honest gaps) | golden-basic (ungraded) |
+| RE-1 | research/notes.md restates the topic and platitudes with no concrete, checkable facts or edge cases (design.md failure hypothesis #5) | ○ gap (ungraded, see honest gaps) | — |
 
 ## Honest gaps
 
+- **The Fixture column holds exactly one fixture-case name, exact-matched
+  against `evals/fixtures/<case>/` by `RiskMap.ts`'s parser** — since
+  `golden-basic` has never reached a gradeable run (see below), both rows
+  it would buy (IN-1 positive case, RE-1) are left with an empty Fixture
+  cell (`—`) rather than citing an ungraded fixture as if it were
+  measured coverage.
 - **`golden-basic` is authored and its content is genuinely good, but no
   run of it has ever reached a gradeable state.** Three real
   `skillmaker run william-research-a-skill --fixture golden-basic

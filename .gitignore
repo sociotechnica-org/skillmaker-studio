@@ -20,6 +20,10 @@ dist/*
 
 .repos/effect
 
+# Viewer static build output (bun run build:viewer) -- machine-local build
+# scratch needed to `skillmaker start` locally, not release history.
+packages/viewer/dist/
+
 # Tauri desktop shell build output: cargo target dir, and the staged
 # sidecar binary + viewer-dist (scripts/prepare-desktop-sidecar.sh's
 # output -- target-triple- and machine-specific, derived from dist/).
