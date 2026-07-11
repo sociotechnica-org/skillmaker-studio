@@ -53,6 +53,7 @@ export {
   type FixtureRecord,
   type RiskCoverageRecord,
   type WarningRecord,
+  type RunIndexRecord,
 } from "./IndexService.ts";
 export {
   scanFixtures,
@@ -90,3 +91,26 @@ export {
   type Drift,
   type SkillVersion,
 } from "./Versions.ts";
+export {
+  AcpClient,
+  runAcpSession,
+  stripClaudeCodeEnv,
+  AcpSpawnError,
+  AcpAuthError,
+  AcpProtocolError,
+  AcpTimeoutError,
+  type AcpError,
+  type AcpClientOptions,
+  type AcpRunOptions,
+  type AcpRunResult,
+  type TranscriptEntry,
+  type JsonRpcId,
+} from "./AcpClient.ts";
+export {
+  runFixture,
+  RunPreconditionError,
+  FAILURE_CLASSIFICATION_TABLE,
+  type RunFixtureInput,
+  type RunFixtureResult,
+  type RunProgressEvent,
+} from "./RunEngine.ts";
