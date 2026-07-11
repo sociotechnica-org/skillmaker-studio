@@ -1,6 +1,7 @@
 # Dependencies and build output
 node_modules/
 dist/
+.astro/
 
 # Skillmaker runtime dir: everything untracked EXCEPT the journal.
 # .skillmaker/events.jsonl is append-only shared history (merge=union in

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "prepare": "./scripts/prepare-effect.sh",
+    "build:viewer": "bun run --filter @skillmaker/viewer build",
     "test": "bun test packages",
     "test:e2e": "bun test test/e2e"
   }
