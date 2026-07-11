@@ -11,3 +11,10 @@ dist/
 !.skillmaker/events.jsonl
 
 .repos/effect
+
+# Tauri desktop shell build output: cargo target dir, and the staged
+# sidecar binary + viewer-dist (scripts/prepare-desktop-sidecar.sh's
+# output -- target-triple- and machine-specific, derived from dist/).
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/binaries/
+packages/desktop/src-tauri/gen/

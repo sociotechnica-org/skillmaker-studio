@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Skillmaker Studio</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #ffffff;
+        font-family:
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background: #18181b;
+        }
+      }
+      .wrap {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 12px;
+        color: #52525b;
+      }
+      @media (prefers-color-scheme: dark) {
+        .wrap {
+          color: #a1a1aa;
+        }
+      }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid currentColor;
+        border-top-color: transparent;
+        opacity: 0.6;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      p {
+        font-size: 13px;
+        letter-spacing: 0.02em;
+      }
+      .error .headline {
+        font-size: 14px;
+        font-weight: 600;
+        color: #b91c1c;
+        max-width: 34em;
+        text-align: center;
+      }
+      @media (prefers-color-scheme: dark) {
+        .error .headline {
+          color: #f87171;
+        }
+      }
+      .error pre {
+        font-size: 11px;
+        line-height: 1.5;
+        max-width: 44em;
+        max-height: 14em;
+        overflow: auto;
+        padding: 10px 14px;
+        border-radius: 6px;
+        background: rgba(127, 127, 127, 0.1);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .error .hint {
+        max-width: 34em;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      This is the ONLY local page the desktop shell ever serves. It is
+      shown while the sidecar `skillmaker start` boots (and while the
+      workspace picker is up); the Rust side calls window.navigate() to
+      hand off to the sidecar's http://localhost:<port> origin once the
+      server is ready.
+
+      The page has NO Tauri IPC access (capabilities are empty by
+      design); the Rust side drives it one-way via WebviewWindow::eval,
+      calling the window.__sm* hooks below. Anything interactive (retry,
+      workspace choice) happens in native dialogs and the app menu,
+      never in this page.
+    -->
+    <div class="wrap" id="loading">
+      <div class="spinner"></div>
+      <p>Starting Skillmaker Studio…</p>
+    </div>
+    <div class="wrap error" id="error" hidden>
+      <p class="headline" id="error-headline"></p>
+      <pre id="error-detail" hidden></pre>
+      <p class="hint">
+        Use <strong>Workspace &#9656; Switch Workspace…</strong>
+        (&#8984;&#8679;O) to pick a folder and try again.
+      </p>
+    </div>
+    <script>
+      // Called from Rust (WebviewWindow::eval). `detail` is optional
+      // preformatted text (e.g. a sidecar stderr excerpt).
+      window.__smShowError = (headline, detail) => {
+        document.getElementById("loading").hidden = true;
+        document.getElementById("error-headline").textContent = headline;
+        const detailEl = document.getElementById("error-detail");
+        detailEl.textContent = detail || "";
+        detailEl.hidden = !detail;
+        document.getElementById("error").hidden = false;
+      };
+      // Back to the spinner (a retry is in flight).
+      window.__smShowLoading = () => {
+        document.getElementById("error").hidden = true;
+        document.getElementById("loading").hidden = false;
+      };
+    </script>
+  </body>
+</html>
