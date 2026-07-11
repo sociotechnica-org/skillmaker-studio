@@ -494,6 +494,15 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       input.onProgress?.({ type: "install-warning", message: warning });
     }
 
+    // Fix F6: isolate the ACP adapter subprocess's config directory the
+    // same way RunEngine.ts does -- a fresh, empty, run-scoped directory
+    // via the provider profile's `configDirEnvVar`, so the subprocess never
+    // sees the operator's real `~/.claude/skills` (or provider equivalent)
+    // alongside the station's own skill installed above.
+    const isolatedConfigDir = nodeJoin(sandboxDir, ".skillmaker-sandbox-config");
+    mkdirSync(isolatedConfigDir, { recursive: true });
+    const sessionEnv: Record<string, string> = { [providerProfile.configDirEnvVar]: isolatedConfigDir };
+
     input.onProgress?.({ type: "sandbox-ready" });
 
     yield* fs
@@ -512,6 +521,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       startedAt,
       status: "running",
       actor: input.actor,
+      isolation: "sandbox-home",
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(runningRecord, null, 2)}\n`)
@@ -552,6 +562,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
         command: providerConfig.command,
         cwd: sandboxDir,
         prompt,
+        env: sessionEnv,
         ...(input.timeoutMs !== undefined ? { promptTimeoutMs: input.timeoutMs } : {}),
         onTranscript,
         providerProfile,

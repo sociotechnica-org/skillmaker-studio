@@ -378,6 +378,18 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       input.onProgress?.({ type: "install-warning", message: warning });
     }
 
+    // Fix F6: point the ACP adapter subprocess's config directory at a
+    // fresh, empty, run-scoped directory (inside the disposable sandbox, so
+    // it's cleaned up with everything else) via the provider profile's
+    // `configDirEnvVar`. Without this, the subprocess inherits the
+    // operator's real $HOME and the underlying CLI reads the operator's own
+    // `~/.claude/skills` (or provider equivalent) in ADDITION to the
+    // bundle's skill installed above -- contaminating what this run
+    // actually measures.
+    const isolatedConfigDir = nodeJoin(sandboxDir, ".skillmaker-sandbox-config");
+    mkdirSync(isolatedConfigDir, { recursive: true });
+    const sessionEnv: Record<string, string> = { [providerProfile.configDirEnvVar]: isolatedConfigDir };
+
     input.onProgress?.({ type: "sandbox-ready" });
 
     yield* fs
@@ -397,6 +409,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       startedAt,
       status: "running",
       actor: input.actor,
+      isolation: "sandbox-home",
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(runningRecord, null, 2)}\n`)
@@ -435,6 +448,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
         command: providerConfig.command,
         cwd: sandboxDir,
         prompt,
+        env: sessionEnv,
         ...(input.timeoutMs !== undefined ? { promptTimeoutMs: input.timeoutMs } : {}),
         onTranscript,
         providerProfile,

@@ -62,6 +62,21 @@ export interface ProviderProfile {
   readonly extractModel: (session: SessionModelSource) => string | null;
   /** Stderr substrings that indicate an infra fault for THIS provider specifically, on top of `AcpClient.ts`'s provider-agnostic `INFRA_STDERR_SIGNATURES`. */
   readonly infraStderrSignatures: ReadonlyArray<string>;
+  /**
+   * The env var THIS provider's CLI respects to relocate its whole config
+   * directory (default `~/.claude` / `~/.codex`) -- including that
+   * provider's OWN user-level skill directory. Fix F6: without this, the
+   * ACP adapter subprocess inherits the operator's real `$HOME`, so the
+   * underlying CLI reads the operator's personal user-level skills
+   * (`~/.claude/skills` for claude-code) in ADDITION to the bundle's skill
+   * `RunEngine`/`StationEngine` install at the sandbox-local
+   * `skillInstallDir` above -- contaminating eval measurements with
+   * whatever the operator happens to have installed locally.
+   * `RunEngine`/`StationEngine` set this env var to a fresh, run-scoped,
+   * empty directory before every session so the sandbox is the ONLY source
+   * of skills the agent can see.
+   */
+  readonly configDirEnvVar: string;
 }
 
 const extractFromModelsField = (session: SessionModelSource): string | null =>
@@ -83,11 +98,17 @@ export const CODEX_MODEL_COMPAT_STDERR_SIGNATURE = "requires a newer version of 
 export const CLAUDE_CODE_PROVIDER_ID = "claude-code";
 export const CODEX_PROVIDER_ID = "codex";
 
+/** Respected by the `claude` CLI (which claude-code-acp wraps) to relocate its whole `~/.claude`-equivalent config directory, including user-level skills. */
+export const CLAUDE_CODE_CONFIG_DIR_ENV_VAR = "CLAUDE_CONFIG_DIR";
+/** Respected by the `codex` CLI (which codex-acp wraps) to relocate its whole `~/.codex`-equivalent config directory. */
+export const CODEX_CONFIG_DIR_ENV_VAR = "CODEX_HOME";
+
 export const CLAUDE_CODE_PROFILE: ProviderProfile = {
   id: CLAUDE_CODE_PROVIDER_ID,
   skillInstallDir: ".claude/skills",
   extractModel: extractModelTolerant,
   infraStderrSignatures: [],
+  configDirEnvVar: CLAUDE_CODE_CONFIG_DIR_ENV_VAR,
 };
 
 export const CODEX_PROFILE: ProviderProfile = {
@@ -95,6 +116,7 @@ export const CODEX_PROFILE: ProviderProfile = {
   skillInstallDir: ".agents/skills",
   extractModel: extractModelTolerant,
   infraStderrSignatures: [CODEX_MODEL_COMPAT_STDERR_SIGNATURE],
+  configDirEnvVar: CODEX_CONFIG_DIR_ENV_VAR,
 };
 
 /** Any provider id not explicitly known (custom `skillmaker.config.json` entries) gets claude-code-acp's shape -- the more common ACP adapter layout, and the tolerant `extractModel` still recognizes codex's shape too. */

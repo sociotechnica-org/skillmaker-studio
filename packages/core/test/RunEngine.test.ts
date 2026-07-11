@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { Schema } from "effect";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { Effect, Schema } from "effect";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AcpAuthError, AcpProtocolError, AcpSpawnError, AcpTimeoutError } from "../src/AcpClient.ts";
 import { Actor } from "../src/Actor.ts";
+import { layer as JournalLayer } from "../src/JournalService.ts";
 import { RunRecord } from "../src/Run.ts";
-import { _internal } from "../src/RunEngine.ts";
+import { _internal, runFixture } from "../src/RunEngine.ts";
 import { ADOPT_MARKER_FILENAME } from "../src/Versions.ts";
+import { layer as WorkspaceLayer, Workspace } from "../src/WorkspaceService.ts";
+import { withTempDir as withEffectTempDir } from "./support/TestLayer.ts";
 
 const { snapshotTree, diffTrees, resolveFixtureFilesDir, classifyAcpError, installSkill, listFilesRecursive } =
   _internal;
@@ -293,4 +296,95 @@ describe("RunRecord round-trip (data-model.md §2.8)", () => {
     };
     expect(() => Schema.decodeUnknownSync(RunRecord)(raw)).toThrow();
   });
+});
+
+// Fix F6: an end-to-end `runFixture` regression proving the isolation
+// mechanism actually reaches the ACP adapter subprocess, not just that
+// RunEngine.ts *computes* an isolated path. A fake adapter test double
+// (matching the `node -e <script>` pattern already used in
+// AcpClient.test.ts) writes the env var it actually received to a marker
+// file on `session/prompt`; the test reads that marker back after the run
+// completes (the sandbox itself is cleaned up by then) and asserts it is a
+// fresh, run-scoped path -- never the operator's real `$HOME`.
+describe("runFixture sandbox isolation (Fix F6: an isolated CLAUDE_CONFIG_DIR reaches the adapter subprocess, and run.json records it)", () => {
+  const actor = Actor.make({ kind: "user", name: "test-user" });
+
+  const echoConfigDirToMarkerScript = `
+    const readline = require("readline");
+    const fs = require("fs");
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      const msg = JSON.parse(line);
+      if (msg.method === "initialize") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\\n");
+      } else if (msg.method === "session/new") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } }) + "\\n");
+      } else if (msg.method === "session/prompt") {
+        const markerPath = process.env.SKILLMAKER_TEST_MARKER_PATH;
+        if (markerPath) {
+          fs.writeFileSync(markerPath, JSON.stringify({
+            claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || null,
+          }));
+        }
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } }) + "\\n");
+      }
+    });
+  `;
+
+  test("run.json records isolation: 'sandbox-home', and the adapter subprocess sees a fresh run-scoped CLAUDE_CONFIG_DIR -- never the operator's real $HOME", async () => {
+    const markerDir = mkdtempSync(join(tmpdir(), "skillmaker-f6-marker-"));
+    const markerPath = join(markerDir, "marker.json");
+    const previousMarkerEnv = process.env.SKILLMAKER_TEST_MARKER_PATH;
+    process.env.SKILLMAKER_TEST_MARKER_PATH = markerPath;
+
+    try {
+      await withEffectTempDir((dir) =>
+        Effect.gen(function* () {
+          const workspace = yield* Workspace;
+          const initResult = yield* workspace.init(dir);
+          yield* workspace.createBundle(dir, { slug: "demo" });
+
+          const resolved = yield* workspace.resolve(dir);
+          const bundleDir = join(initResult.root, resolved.config.skillsDir, "demo");
+          writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Demo Skill\n\nSome instructions.\n");
+          const caseDir = join(bundleDir, "evals", "fixtures", "golden-basic");
+          mkdirSync(caseDir, { recursive: true });
+          writeFileSync(join(caseDir, "prompt.md"), "Do the thing.\n");
+
+          const config = { ...resolved.config, providers: { "claude-code": { command: ["node", "-e", echoConfigDirToMarkerScript] } } };
+
+          const result = yield* runFixture({
+            root: initResult.root,
+            config,
+            bundle: "demo",
+            fixtureCase: "golden-basic",
+            provider: "claude-code",
+            actor,
+          }).pipe(Effect.provide(JournalLayer(join(dir, ".skillmaker", "events.jsonl"))));
+
+          expect(result.status).toBe("completed");
+
+          const runJsonPath = join(bundleDir, "runs", result.runId, "run.json");
+          const runJson = JSON.parse(readFileSync(runJsonPath, "utf8")) as { isolation?: string };
+          expect(runJson.isolation).toBe("sandbox-home");
+        }).pipe(Effect.provide(WorkspaceLayer)),
+      );
+
+      const marker = JSON.parse(readFileSync(markerPath, "utf8")) as { claudeConfigDir: string | null };
+      expect(marker.claudeConfigDir).not.toBeNull();
+      expect(marker.claudeConfigDir).not.toBe(process.env.HOME);
+      // The isolated dir lives INSIDE the disposable per-run sandbox
+      // (mkdtemp'd under "skillmaker-run-"), proving it's genuinely
+      // run-scoped rather than a single shared override.
+      expect(marker.claudeConfigDir).toContain("skillmaker-run-");
+      expect(marker.claudeConfigDir).toContain(".skillmaker-sandbox-config");
+    } finally {
+      if (previousMarkerEnv === undefined) {
+        delete process.env.SKILLMAKER_TEST_MARKER_PATH;
+      } else {
+        process.env.SKILLMAKER_TEST_MARKER_PATH = previousMarkerEnv;
+      }
+      rmSync(markerDir, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

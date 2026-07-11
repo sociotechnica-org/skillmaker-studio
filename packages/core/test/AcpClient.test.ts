@@ -204,6 +204,76 @@ describe("runAcpSession is provider-aware (Phase 12, spike-codex/FINDINGS.md)", 
   }, 10_000);
 });
 
+// Fix F6: verifies the isolation mechanism actually reaches the subprocess,
+// via a fake ACP adapter test double that echoes back whatever env vars it
+// received (through `agentInfo` on the `initialize` response, the one place
+// `runAcpSession` surfaces arbitrary provider-reported data untouched).
+// Before this fix, `runAcpSession` was always called with no `env` at all,
+// so the adapter inherited the operator's real `$HOME`/`CLAUDE_CONFIG_DIR`
+// unfiltered; now RunEngine/StationEngine pass a run-scoped `env` and this
+// confirms it actually lands in the subprocess, not just in the call site.
+describe("runAcpSession env isolation (Fix F6: the sandbox-config-dir mechanism actually reaches the subprocess)", () => {
+  const echoEnvScript = `
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      const msg = JSON.parse(line);
+      if (msg.method === "initialize") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: { agentInfo: { claudeConfigDir: process.env.CLAUDE_CONFIG_DIR ?? null, codexHome: process.env.CODEX_HOME ?? null } },
+        }) + "\\n");
+      } else if (msg.method === "session/new") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } }) + "\\n");
+      } else if (msg.method === "session/prompt") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } }) + "\\n");
+      }
+    });
+  `;
+
+  test("a caller-supplied env var (e.g. an isolated CLAUDE_CONFIG_DIR) reaches the adapter subprocess untouched", async () => {
+    const isolatedDir = "/tmp/skillmaker-test-sandbox-config-dir-not-the-real-home";
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", echoEnvScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+          env: { CLAUDE_CONFIG_DIR: isolatedDir },
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success") {
+      const agentInfo = result.success.agentInfo as { claudeConfigDir: string | null; codexHome: string | null };
+      expect(agentInfo.claudeConfigDir).toBe(isolatedDir);
+      // Never the operator's real value -- proves the caller's override,
+      // not the ambient process.env, is what the subprocess actually sees.
+      expect(agentInfo.claudeConfigDir).not.toBe(process.env.HOME);
+    }
+  }, 10_000);
+
+  test("no env override -> the adapter sees no CLAUDE_CONFIG_DIR/CODEX_HOME set by the client itself (only whatever the test runner's own ambient env already has, if anything)", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", echoEnvScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success") {
+      const agentInfo = result.success.agentInfo as { claudeConfigDir: string | null; codexHome: string | null };
+      expect(agentInfo.claudeConfigDir).toBe(process.env.CLAUDE_CONFIG_DIR ?? null);
+    }
+  }, 10_000);
+});
+
 describe("classification error shape", () => {
   test("AcpAuthError and AcpProtocolError both carry stderr for later persistence", () => {
     const auth = AcpAuthError.make({ message: "auth required", stderr: "please /login" });
