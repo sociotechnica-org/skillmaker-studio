@@ -21,7 +21,7 @@
  */
 import { Schema } from "effect";
 import { Effect } from "effect";
-import { CLAUDE_CODE_PROFILE, type ProviderProfile } from "./ProviderProfile.ts";
+import { CLAUDE_CODE_PROFILE, resolveModelLabel, type ProviderProfile } from "./ProviderProfile.ts";
 
 // ---------------------------------------------------------------------------
 // Env stripping (spike/FINDINGS.md "Critical, non-obvious gotcha")
@@ -450,6 +450,21 @@ export class AcpClient {
     return this.request("session/new", { cwd, mcpServers });
   }
 
+  /**
+   * ACP `session/set_model` (confirmed against the real
+   * `@zed-industries/claude-code-acp@0.16.2` adapter's `dist/acp-agent.js`:
+   * `unstable_setSessionModel({sessionId, modelId})` calling
+   * `query.setModel(modelId)` -- the JS binding name `unstable_setSessionModel`
+   * maps to the wire method `session/set_model`, per
+   * `@agentclientprotocol/sdk@0.14.1`'s `AGENT_METHODS.session_set_model`).
+   * Must be called with a `modelId` already confirmed present in
+   * `session/new`'s `models.availableModels` -- the adapter does not itself
+   * validate the id (Fix 1, Phase 20 Story 2 friction log F1).
+   */
+  async setModel(sessionId: string, modelId: string): Promise<void> {
+    await this.request("session/set_model", { sessionId, modelId });
+  }
+
   async prompt(sessionId: string, text: string): Promise<{ readonly stopReason: string }> {
     return this.request(
       "session/prompt",
@@ -491,6 +506,17 @@ export interface AcpRunOptions {
   readonly onTranscript?: (entry: TranscriptEntry) => void;
   /** Provider-specific model extraction + infra-stderr signatures (ProviderProfile.ts). Defaults to the claude-code-acp profile, whose tolerant `extractModel` also recognizes codex's shapes. */
   readonly providerProfile?: ProviderProfile;
+  /**
+   * Fix 1 (Phase 20 Story 2 friction log F1): a caller-requested model id
+   * (e.g. `skillmaker run --model haiku`). Must match one of `session/new`'s
+   * advertised `models.availableModels[].modelId` values -- an unadvertised
+   * id is rejected with an error that lists what WAS advertised, rather than
+   * silently running on whatever the adapter's own default is (the F1 bug:
+   * an `ANTHROPIC_MODEL` env var that was silently ignored). `undefined`
+   * (the default) leaves the adapter on its own default model, unchanged
+   * from pre-Fix-1 behavior.
+   */
+  readonly requestedModel?: string;
 }
 
 export interface AcpRunResult {
@@ -571,7 +597,25 @@ export const runAcpSession = (opts: AcpRunOptions): Effect.Effect<AcpRunResult, 
       await client.spawn();
       const init = await client.initialize();
       const session = await client.newSession(opts.cwd);
-      const model = providerProfile.extractModel(session);
+      let model = providerProfile.extractModel(session);
+
+      if (opts.requestedModel !== undefined) {
+        const advertised = session.models?.availableModels ?? [];
+        const match = advertised.find((candidate) => candidate.modelId === opts.requestedModel);
+        if (!match) {
+          const advertisedIds = advertised.map((candidate) => candidate.modelId);
+          const list = advertisedIds.length > 0 ? advertisedIds.join(", ") : "(provider advertised no models)";
+          throw new Error(
+            `unknown model "${opts.requestedModel}" -- advertised models: ${list}`,
+          );
+        }
+        await client.setModel(session.sessionId, opts.requestedModel);
+        // Fix 2: record the RESOLVED model (advertised description), never
+        // the bare requested alias -- same resolution `extractModel` applies
+        // to the adapter's own default above.
+        model = resolveModelLabel(session, opts.requestedModel);
+      }
+
       const promptResult = await client.prompt(session.sessionId, opts.prompt);
       return {
         stopReason: promptResult.stopReason,

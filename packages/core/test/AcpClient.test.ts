@@ -274,6 +274,107 @@ describe("runAcpSession env isolation (Fix F6: the sandbox-config-dir mechanism 
   }, 10_000);
 });
 
+// Fix 1 (Phase 20 Story 2 friction log F1): `--model <id>` wired through to
+// the real ACP mechanism confirmed against `@zed-industries/claude-code-acp
+// @0.16.2`'s `dist/acp-agent.js` -- `session/set_model` (JS binding
+// `unstable_setSessionModel`), called AFTER `session/new`, validated against
+// that response's `models.availableModels`.
+//
+// Fix 2 (F2): the recorded model is the RESOLVED advertised description
+// (e.g. "Haiku 4.6 - Fast and efficient"), never the bare alias
+// ("default"/"haiku"/"sonnet") -- closes the pooling hazard where two runs
+// on the alias "default" could silently be two different real models.
+describe("runAcpSession model selection (Fix 1: session/set_model; Fix 2: resolved model, never the alias)", () => {
+  const availableModels = [
+    { modelId: "default", name: "Default (recommended)", description: "Opus 4.6 - Most capable for complex work" },
+    { modelId: "haiku", name: "Haiku", description: "Haiku 4.6 - Fast and efficient" },
+  ];
+
+  const fakeAdapterScript = `
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      const msg = JSON.parse(line);
+      if (msg.method === "initialize") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\\n");
+      } else if (msg.method === "session/new") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", id: msg.id,
+          result: { sessionId: "s1", models: { currentModelId: "default", availableModels: ${JSON.stringify(availableModels)} } },
+        }) + "\\n");
+      } else if (msg.method === "session/set_model") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\\n");
+      } else if (msg.method === "session/prompt") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } }) + "\\n");
+      }
+    });
+  `;
+
+  test("no requestedModel -> the adapter's own default is resolved to its advertised description, never the literal alias \"default\"", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", fakeAdapterScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success") {
+      expect(result.success.model).toBe("Opus 4.6 - Most capable for complex work");
+      expect(result.success.model).not.toBe("default");
+    }
+  }, 10_000);
+
+  test("requestedModel matching an advertised id calls session/set_model and records the RESOLVED model, not the requested alias", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", fakeAdapterScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+          requestedModel: "haiku",
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success") {
+      expect(result.success.model).toBe("Haiku 4.6 - Fast and efficient");
+      expect(result.success.model).not.toBe("haiku");
+      expect(result.success.stopReason).toBe("end_turn");
+    }
+  }, 10_000);
+
+  test("an unadvertised requestedModel is rejected with an error listing the advertised models, never silently ignored (F1's ANTHROPIC_MODEL bug)", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", fakeAdapterScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+          requestedModel: "totally-bogus-model-xyz",
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(AcpProtocolError);
+      if (result.failure instanceof AcpProtocolError) {
+        expect(result.failure.message).toContain("totally-bogus-model-xyz");
+        expect(result.failure.message).toContain("default");
+        expect(result.failure.message).toContain("haiku");
+        // Not an infra fault -- a bad --model value is a task-level usage
+        // problem, distinct from auth/sandbox/connection faults.
+        expect(result.failure.likelyInfra).toBe(false);
+      }
+    }
+  }, 10_000);
+});
+
 describe("classification error shape", () => {
   test("AcpAuthError and AcpProtocolError both carry stderr for later persistence", () => {
     const auth = AcpAuthError.make({ message: "auth required", stderr: "please /login" });

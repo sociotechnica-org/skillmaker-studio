@@ -82,6 +82,22 @@ const shortHash = (hash: string): string => {
   return `${prefix}${hex.slice(0, 10)}`;
 };
 
+/**
+ * Fix 4 (Phase 20 Story 2 friction log F6): prefer the human `label`
+ * recorded via "Record version"; fall back to a short hex fragment (7-8
+ * chars, no `"sha256:"` prefix) only when no label exists. Mirrors core's
+ * `versionLabel` (Versions.ts) so the CLI table and this viewer never
+ * disagree on the fallback rule.
+ */
+const versionLabelFor = (version: VersionRecord | undefined, hash: string): string => {
+  if (version !== undefined && version.label !== undefined && version.label.length > 0) {
+    return version.label;
+  }
+  const prefix = "sha256:";
+  const hex = hash.startsWith(prefix) ? hash.slice(prefix.length) : hash;
+  return hex.length > 8 ? hex.slice(0, 8) : hex;
+};
+
 const DRIFT_LABEL: Record<Drift, string> = {
   "no-version": "No version recorded",
   "in-sync": "In sync",
@@ -866,7 +882,9 @@ const MeasurementChips: FC<{
   measurements: ReadonlyArray<MeasurementRecord>;
   fixtureCase: string;
   latestHash: string | undefined;
-}> = ({ measurements, fixtureCase, latestHash }) => {
+  /** The recorded version at `latestHash`, if any -- Fix 4 (F6): resolves the chip's tooltip hash to its human label. */
+  latestVersion?: VersionRecord;
+}> = ({ measurements, fixtureCase, latestHash, latestVersion }) => {
   const cells = measurements.filter(
     (cell) => cell.fixtureCase === fixtureCase && cell.versionHash === latestHash,
   );
@@ -884,13 +902,19 @@ const MeasurementChips: FC<{
           cell.ci === null
             ? ""
             : ` · [${Math.round(cell.ci[0] * 100)}–${Math.round(cell.ci[1] * 100)}%]`;
+        // Fix 3 (F5): PASS% stays pass-only (passes / n); partial/fail are
+        // their own counts here so a partial verdict never disappears from
+        // the chip, even though it never contributes to the % numerator.
+        const partialFail =
+          cell.partial > 0 || cell.fail > 0 ? ` (${cell.partial} partial, ${cell.fail} fail)` : "";
         return (
           <span
             key={providerLabel}
-            title={`${cell.passes}/${cell.n} passes on ${providerLabel} at ${shortHash(cell.versionHash)}`}
+            title={`${cell.passes}/${cell.n} pass, ${cell.partial} partial, ${cell.fail} fail on ${providerLabel} at ${versionLabelFor(latestVersion, cell.versionHash)}`}
             className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
           >
-            {providerLabel}: n={cell.n} · {Math.round(cell.passRate * 100)}%{ci}
+            {providerLabel}: n={cell.n} · {Math.round(cell.passRate * 100)}%{partialFail}
+            {ci}
           </span>
         );
       })}
@@ -909,18 +933,25 @@ const FixtureRow: FC<{
   runs: ReadonlyArray<RunRecord>;
   measurements: ReadonlyArray<MeasurementRecord>;
   latestHash: string | undefined;
+  latestVersion?: VersionRecord;
   providers: ReadonlyArray<string>;
   onOpenRun: (runId: string) => void;
   onChanged: () => void;
-}> = ({ slug, fixture, runs, measurements, latestHash, providers, onOpenRun, onChanged }) => {
+}> = ({ slug, fixture, runs, measurements, latestHash, latestVersion, providers, onOpenRun, onChanged }) => {
   const [provider, setProvider] = useState<string>(providers[0] ?? "claude-code");
+  // Fix 1 (Phase 20 Story 2 friction log F1): the advertised model list is
+  // only known once an ACP session connects (session/new's
+  // models.availableModels), so this stays a free-text id rather than a
+  // pre-populated <select> -- an unknown id is rejected server-side with the
+  // advertised list once the session starts.
+  const [model, setModel] = useState<string>("");
   const [pending, setPending] = useState(false);
   const [runError, setRunError] = useState<string | undefined>(undefined);
 
   const startRun = (): void => {
     setPending(true);
     setRunError(undefined);
-    triggerRun(slug, fixture.caseName, providers.length > 0 ? provider : undefined)
+    triggerRun(slug, fixture.caseName, providers.length > 0 ? provider : undefined, model.trim())
       .then((result) => {
         if (!result.ok) {
           setRunError(result.error);
@@ -968,6 +999,13 @@ const FixtureRow: FC<{
               ))}
             </select>
           )}
+          <input
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            placeholder="model (optional)"
+            title="Model id from the provider's advertised session/new models (e.g. default, sonnet, haiku). Leave blank for the provider's own default."
+            className="w-24 rounded-md border border-neutral-300 px-1 py-0.5 text-[10px] dark:border-neutral-700 dark:bg-neutral-900"
+          />
           <button
             type="button"
             disabled={pending || !fixture.hasPromptMd}
@@ -980,7 +1018,12 @@ const FixtureRow: FC<{
         </span>
       </div>
       <div className="text-[11px]">
-        <MeasurementChips measurements={measurements} fixtureCase={fixture.caseName} latestHash={latestHash} />
+        <MeasurementChips
+          measurements={measurements}
+          fixtureCase={fixture.caseName}
+          latestHash={latestHash}
+          latestVersion={latestVersion}
+        />
       </div>
       {runError !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
@@ -1040,7 +1083,8 @@ const EvalsTab: FC<{
   const providers = state?.config.providers ?? [];
   // Versions arrive newest-first; measurements only count against the
   // CURRENT latest recorded version (data-model.md §1.6's honest reset).
-  const latestHash = versions[0]?.hash;
+  const latestVersion = versions[0];
+  const latestHash = latestVersion?.hash;
   const families = RISK_FAMILY_ORDER.filter((family) => riskCoverage.some((row) => row.family === family));
   const otherFamilies = Array.from(
     new Set(riskCoverage.map((row) => row.family).filter((family) => !(RISK_FAMILY_ORDER as ReadonlyArray<string>).includes(family))),
@@ -1099,6 +1143,7 @@ const EvalsTab: FC<{
                             measurements={measurements}
                             fixtureCase={row.fixtureCase}
                             latestHash={latestHash}
+                            latestVersion={latestVersion}
                           />
                         ) : (
                           <span className="text-neutral-400">—</span>
@@ -1123,6 +1168,7 @@ const EvalsTab: FC<{
               runs={runs}
               measurements={measurements}
               latestHash={latestHash}
+              latestVersion={latestVersion}
               providers={providers}
               onOpenRun={onOpenRun}
               onChanged={onChanged}

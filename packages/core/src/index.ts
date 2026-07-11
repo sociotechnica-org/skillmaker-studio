@@ -101,6 +101,7 @@ export {
   foldSkillVersions,
   latestSkillVersion,
   shortHash,
+  versionLabel,
   recordSkillVersion,
   skillVersionIdempotencyKey,
   ADOPT_MARKER_FILENAME,

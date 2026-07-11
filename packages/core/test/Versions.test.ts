@@ -13,6 +13,7 @@ import {
   hashOutputTree,
   latestSkillVersion,
   recordSkillVersion,
+  versionLabel,
 } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
@@ -292,5 +293,36 @@ describe("recordSkillVersion (Fix F3: the exact Story-1 duplicate-hash sequence)
         expect(all.filter((e) => e.type === "skill.version_recorded").length).toBe(1);
       }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
     );
+  });
+});
+
+// Fix 4 (Phase 20 Story 2 friction log F6): everywhere a version renders
+// (`skillmaker measurements`, the viewer's Evals validation chips), prefer
+// the human label; fall back to a short (7-8 char, unprefixed) hash
+// fragment only when no label was ever recorded, instead of a raw
+// meaningless hash.
+describe("versionLabel", () => {
+  test("prefers the recorded label when one exists", () => {
+    expect(versionLabel({ hash: "sha256:abcdef0123456789", label: "v0.3" })).toBe("v0.3");
+  });
+
+  test("falls back to a short, unprefixed hash fragment when no label exists", () => {
+    expect(versionLabel({ hash: "sha256:abcdef0123456789" })).toBe("abcdef01");
+  });
+
+  test("falls back the same way for an empty-string label (never renders a blank)", () => {
+    expect(versionLabel({ hash: "sha256:abcdef0123456789", label: "" })).toBe("abcdef01");
+  });
+
+  test("undefined version -> empty string, never throws", () => {
+    expect(versionLabel(undefined)).toBe("");
+  });
+
+  test("a hash shorter than 8 hex chars is used in full, not padded", () => {
+    expect(versionLabel({ hash: "sha256:ab12" })).toBe("ab12");
+  });
+
+  test("a non-sha256-prefixed hash still truncates to 8 chars", () => {
+    expect(versionLabel({ hash: "abcdef0123456789" })).toBe("abcdef01");
   });
 });
