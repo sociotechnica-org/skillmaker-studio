@@ -21,3 +21,10 @@ export const usageError = (stderr: string): CliResult => ({
   stderr,
   exitCode: 2,
 });
+
+/** Auth/sandbox/connection faults (e.g. an eval run's ACP adapter never reached a handshake) — kept a distinct exit code from a task-level failure so calling scripts can tell them apart (data-model.md §2.8). */
+export const infraError = (stderr: string): CliResult => ({
+  stdout: "",
+  stderr,
+  exitCode: 3,
+});

@@ -20,6 +20,7 @@ import {
   type BundleRecord,
   type FixtureRecord,
   type RiskCoverageRecord,
+  type RunIndexRecord,
   type TodoRecord,
   type VersionRecord,
   type WarningRecord,
@@ -124,6 +125,18 @@ const listVersionRecords = (root: string, slug: string): Promise<ReadonlyArray<V
       const index = yield* IndexService;
       yield* index.rebuild();
       return yield* index.listVersions(slug);
+    }),
+  );
+
+/** Runs for one bundle, newest first (data-model.md §2.8, plan.md Phase 8). */
+const listRunRecords = (root: string, slug: string): Promise<ReadonlyArray<RunIndexRecord>> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      const runs = yield* index.listRuns(slug);
+      return [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
     }),
   );
 
@@ -359,6 +372,7 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
 
   const versions = await listVersionRecords(root, slug);
   const { fixtures, riskCoverage, warnings } = await listBundleEvalDetail(root, slug);
+  const runs = await listRunRecords(root, slug);
 
   return jsonResponse({
     bundle,
@@ -368,6 +382,7 @@ const handleBundleDetail = async (root: string, slug: string): Promise<Response>
     fixtures,
     riskCoverage,
     warnings,
+    runs,
   });
 };
 
