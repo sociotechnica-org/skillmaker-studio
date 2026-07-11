@@ -10,12 +10,15 @@ import { useEventStream } from "./useEventStream.ts";
 
 export interface UseBundlesResult {
   readonly bundles: ReadonlyArray<BundleRecord>;
+  /** bundle slug -> fixture count, for the board's subtle fixture-count indicator (plan.md Phase 7). */
+  readonly fixtureCounts: Readonly<Record<string, number>>;
   readonly loading: boolean;
   readonly error: RuntimeError | undefined;
 }
 
 export const useBundles = (): UseBundlesResult => {
   const [bundles, setBundles] = useState<ReadonlyArray<BundleRecord>>([]);
+  const [fixtureCounts, setFixtureCounts] = useState<Readonly<Record<string, number>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<RuntimeError | undefined>(undefined);
 
@@ -23,6 +26,7 @@ export const useBundles = (): UseBundlesResult => {
     getBundles()
       .then((response) => {
         setBundles(response.bundles);
+        setFixtureCounts(response.fixtureCounts);
         setError(undefined);
       })
       .catch((cause: RuntimeError) => {
@@ -39,5 +43,5 @@ export const useBundles = (): UseBundlesResult => {
 
   useEventStream("/api/events-stream", refetch);
 
-  return { bundles, loading, error };
+  return { bundles, fixtureCounts, loading, error };
 };

@@ -33,7 +33,7 @@ const bundlesByColumn = (
 };
 
 export const Board: FC = () => {
-  const { bundles, loading, error } = useBundles();
+  const { bundles, fixtureCounts, loading, error } = useBundles();
   const { state } = useWorkspace();
   const columns = bundlesByColumn(bundles);
   const [selectedSlug, setSelectedSlug] = useState<string | undefined>(undefined);
@@ -57,12 +57,14 @@ export const Board: FC = () => {
                   key={stage}
                   title={title}
                   bundles={columns.get(stage) ?? []}
+                  fixtureCounts={fixtureCounts}
                   onSelect={setSelectedSlug}
                 />
               ))}
               <BoardColumn
                 title="Archived"
                 bundles={columns.get("archived") ?? []}
+                fixtureCounts={fixtureCounts}
                 onSelect={setSelectedSlug}
               />
             </div>
