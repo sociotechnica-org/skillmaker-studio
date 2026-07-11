@@ -349,3 +349,24 @@ Source: docs/research/2026-07-11-anthropic-skill-creator.md.
 - **Verify:** fresh machine-shaped install from the public artifact (no
   repo clone, no bun): script → init/new/start golden path; the .app
   opens from a plain download.
+
+### Phase 19 — self-hosting for real: William's skills live in the studio (ruled 2026-07-11)
+
+- **Value:** the repo's own studio becomes the working environment for its
+  own skills — William's skills are managed AND developed through
+  Skillmaker, not hand-edited files that happen to sit in skills/.
+- **Scope:** bring the repo's self-hosted workspace (skills/ +
+  .skillmaker/, started in Phase 10) to full product use: every William
+  skill (william-draft-skill-md + future station skills: research, eval
+  authoring, grading assistance) gets a real design.md, fixtures by
+  failure class, a risk map, recorded versions, and measured runs on
+  BOTH providers; stages driven through the board/reviews like any
+  bundle; the repo's journal is the studio's own history. New William
+  skills are born via `skillmaker new` + station runs — dogfood the
+  agent-first loop end to end. CI guard: repo-workspace `reindex`
+  warnings surface in CI (warn, never fail — ruling I).
+- **Verify:** open the repo's own studio (`skillmaker start` at repo
+  root) — board shows William's bundles with honest states; at least one
+  William skill reaches published through the full gated loop with
+  measurements on claude-code + codex; the skillbook of the repo's own
+  workspace renders with receipts.
