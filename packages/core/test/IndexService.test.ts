@@ -338,4 +338,176 @@ describe("IndexService.rebuild", () => {
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
   });
+
+  test("populates fixtures, risk_coverage, and warnings tables (Phase 7)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "frame-the-problem" });
+
+        const bundleDir = path.join(dir, "skills", "frame-the-problem");
+        const caseDir = path.join(bundleDir, "evals", "fixtures", "refusal-thin-input");
+        yield* fs.makeDirectory(caseDir, { recursive: true });
+        yield* fs.writeFileString(
+          path.join(caseDir, "case.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            case: "refusal-thin-input",
+            class: "refusal",
+            risks: ["IN-1"],
+          }),
+        );
+        yield* fs.writeFileString(path.join(caseDir, "prompt.md"), "Do the thing.\n");
+
+        yield* fs.writeFileString(
+          path.join(bundleDir, "evals", "risk-map.md"),
+          `---
+bundle: frame-the-problem
+---
+| Risk | Description | Coverage | Fixture |
+|---|---|---|---|
+| IN-1 | Empty/thin input | ● covered | refusal-thin-input |
+| ADV-1 | Prompt injection | ○ gap | — |
+`,
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.warnings).toEqual([]);
+
+          const fixtures = yield* index.listFixtures("frame-the-problem");
+          expect(fixtures).toEqual([
+            {
+              bundle: "frame-the-problem",
+              caseName: "refusal-thin-input",
+              class: "refusal",
+              risks: ["IN-1"],
+              hasPromptMd: true,
+            },
+          ]);
+
+          const coverage = yield* index.listRiskCoverage("frame-the-problem");
+          expect(coverage).toEqual([
+            {
+              bundle: "frame-the-problem",
+              riskId: "ADV-1",
+              family: "ADV",
+              coverage: "gap",
+            },
+            {
+              bundle: "frame-the-problem",
+              riskId: "IN-1",
+              family: "IN",
+              coverage: "covered",
+              fixtureCase: "refusal-thin-input",
+            },
+          ]);
+
+          const warnings = yield* index.listWarnings();
+          expect(warnings).toEqual([]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("a broken case.json produces a persisted, queryable warning without failing rebuild", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "flaky" });
+
+        const caseDir = path.join(dir, "skills", "flaky", "evals", "fixtures", "broken-case");
+        yield* fs.makeDirectory(caseDir, { recursive: true });
+        yield* fs.writeFileString(path.join(caseDir, "case.json"), "{ not valid json");
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.warnings.length).toBe(1);
+          expect(result.warnings[0]).toContain("malformed JSON");
+
+          const persisted = yield* index.listWarnings("flaky");
+          expect(persisted.length).toBe(1);
+          expect(persisted[0]?.source).toBe("fixtures");
+
+          const allWarnings = yield* index.listWarnings();
+          expect(allWarnings.length).toBe(1);
+
+          // The bundle itself still lists and works.
+          const bundle = yield* index.getBundle("flaky");
+          expect(bundle?.slug).toBe("flaky");
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("a risk-map fixture reference to a nonexistent case produces a warning", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "gappy" });
+
+        yield* fs.writeFileString(
+          path.join(dir, "skills", "gappy", "evals", "risk-map.md"),
+          `| Risk | Description | Coverage | Fixture |
+|---|---|---|---|
+| IN-1 | Empty input | ● covered | does-not-exist |
+`,
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.warnings.some((w) => w.includes("does-not-exist"))).toBe(true);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("respects config.skillsDir instead of a hardcoded 'skills'", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+
+        // Repoint skillsDir at a custom directory before scaffolding the
+        // bundle -- WorkspaceService.createBundle re-reads the config each
+        // call, so this alone is enough to relocate where bundles live.
+        const configPath = path.join(dir, "skillmaker.config.json");
+        const rawConfig = yield* fs.readFileString(configPath);
+        const config = JSON.parse(rawConfig) as Record<string, unknown>;
+        config["skillsDir"] = "custom-skills";
+        yield* fs.writeFileString(configPath, JSON.stringify(config, null, 2));
+
+        yield* workspace.createBundle(dir, { slug: "relocated" });
+
+        const defaultSkillsDirExists = yield* fs.exists(path.join(dir, "skills", "relocated"));
+        expect(defaultSkillsDirExists).toBe(false);
+        const customSkillsDirExists = yield* fs.exists(path.join(dir, "custom-skills", "relocated"));
+        expect(customSkillsDirExists).toBe(true);
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.warnings).toEqual([]);
+          expect(result.bundles).toBe(1);
+
+          const bundle = yield* index.getBundle("relocated");
+          expect(bundle?.slug).toBe("relocated");
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
 });

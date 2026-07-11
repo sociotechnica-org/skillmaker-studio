@@ -27,6 +27,10 @@ import { BundleIdentity } from "./Bundle.ts";
 import type { BundleStage, BundleSubstate } from "./Bundle.ts";
 import { BundleState } from "./Bundle.ts";
 import { IndexError, JournalReadError, WorkspaceIOError } from "./Errors.ts";
+import { checkCoverage, COVERAGE_VALUES, parseRiskMap } from "./RiskMap.ts";
+import type { CoverageValue } from "./RiskMap.ts";
+import { scanFixtures } from "./Fixtures.ts";
+import type { FixtureCaseRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
 import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
@@ -35,6 +39,7 @@ import type { JournalEvent } from "./Journal.ts";
 import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
 import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
 import type { Drift } from "./Versions.ts";
+import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
 
 export interface BundleRecord {
   readonly slug: string;
@@ -92,6 +97,37 @@ export interface RebuildResult {
   readonly warnings: ReadonlyArray<string>;
 }
 
+/** A materialized `evals/fixtures/<case>/case.json` row (data-model.md §2.5, §2.11). */
+export interface FixtureRecord {
+  readonly bundle: string;
+  readonly caseName: string;
+  readonly class: string;
+  readonly risks: ReadonlyArray<string>;
+  /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE); the Evals tab's prompt.md indicator. */
+  readonly hasPromptMd: boolean;
+}
+
+/** A materialized `evals/risk-map.md` row (data-model.md §2.6, §2.11). No results column, ever. */
+export interface RiskCoverageRecord {
+  readonly bundle: string;
+  readonly riskId: string;
+  readonly family: string;
+  readonly coverage: CoverageValue;
+  readonly fixtureCase?: string;
+}
+
+/**
+ * One reindex-time warning, persisted so it stays queryable after the
+ * rebuild that produced it (Part 3 ruling I: warnings, never hard fails).
+ * `source` distinguishes what was being scanned, e.g. `"bundle.json"`,
+ * `"journal"`, `"fixtures"`, `"risk-map"`.
+ */
+export interface WarningRecord {
+  readonly bundle?: string;
+  readonly source: string;
+  readonly message: string;
+}
+
 interface BundleRow {
   readonly slug: string;
   readonly name: string;
@@ -128,6 +164,28 @@ interface TodoRow {
   readonly pinned: number;
   readonly archived: number;
   readonly source_json: string;
+}
+
+interface FixtureRow {
+  readonly bundle: string;
+  readonly case_name: string;
+  readonly class: string;
+  readonly risks_json: string;
+  readonly has_prompt_md: number;
+}
+
+interface RiskCoverageRow {
+  readonly bundle: string;
+  readonly risk_id: string;
+  readonly family: string;
+  readonly coverage: string;
+  readonly fixture_case: string | null;
+}
+
+interface WarningRow {
+  readonly bundle: string | null;
+  readonly source: string;
+  readonly message: string;
 }
 
 /** bun:sqlite's named-parameter binding shape. */
@@ -256,6 +314,55 @@ const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
     };
   });
 
+const isCoverageValue = (value: string): value is CoverageValue =>
+  (COVERAGE_VALUES as ReadonlyArray<string>).includes(value);
+
+const rowToFixtureRecord = (row: FixtureRow): Effect.Effect<FixtureRecord, IndexError> =>
+  Effect.gen(function* () {
+    const risks = yield* Effect.try({
+      try: () => JSON.parse(row.risks_json) as unknown,
+      catch: toIndexError(`studio.db: fixture "${row.bundle}/${row.case_name}" has invalid risks_json`),
+    });
+    if (!Array.isArray(risks) || !risks.every((risk) => typeof risk === "string")) {
+      return yield* Effect.fail(
+        IndexError.make({
+          message: `studio.db: fixture "${row.bundle}/${row.case_name}" has non-array risks_json`,
+        }),
+      );
+    }
+    return {
+      bundle: row.bundle,
+      caseName: row.case_name,
+      class: row.class,
+      risks,
+      hasPromptMd: row.has_prompt_md !== 0,
+    };
+  });
+
+const rowToRiskCoverageRecord = (row: RiskCoverageRow): Effect.Effect<RiskCoverageRecord, IndexError> =>
+  Effect.gen(function* () {
+    if (!isCoverageValue(row.coverage)) {
+      return yield* Effect.fail(
+        IndexError.make({
+          message: `studio.db: risk_coverage "${row.bundle}/${row.risk_id}" has invalid coverage "${row.coverage}"`,
+        }),
+      );
+    }
+    return {
+      bundle: row.bundle,
+      riskId: row.risk_id,
+      family: row.family,
+      coverage: row.coverage,
+      ...(row.fixture_case !== null ? { fixtureCase: row.fixture_case } : {}),
+    };
+  });
+
+const rowToWarningRecord = (row: WarningRow): WarningRecord => ({
+  ...(row.bundle !== null ? { bundle: row.bundle } : {}),
+  source: row.source,
+  message: row.message,
+});
+
 const createSchema = (db: Database): void => {
   db.run(`
     CREATE TABLE IF NOT EXISTS bundles (
@@ -314,6 +421,32 @@ const createSchema = (db: Database): void => {
       payload_json TEXT NOT NULL
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS fixtures (
+      bundle TEXT NOT NULL,
+      case_name TEXT NOT NULL,
+      class TEXT NOT NULL,
+      risks_json TEXT NOT NULL,
+      has_prompt_md INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (bundle, case_name)
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS risk_coverage (
+      bundle TEXT NOT NULL,
+      risk_id TEXT NOT NULL,
+      family TEXT NOT NULL,
+      coverage TEXT NOT NULL,
+      fixture_case TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS warnings (
+      bundle TEXT,
+      source TEXT NOT NULL,
+      message TEXT NOT NULL
+    )
+  `);
 };
 
 export class IndexService extends Context.Service<
@@ -329,6 +462,14 @@ export class IndexService extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<TodoRecord>, IndexError>;
     /** All recorded versions for a bundle, newest first (data-model.md §2.7). */
     readonly listVersions: (slug: string) => Effect.Effect<ReadonlyArray<VersionRecord>, IndexError>;
+    /** All scanned fixture cases for a bundle (data-model.md §2.5, §2.11). */
+    readonly listFixtures: (slug: string) => Effect.Effect<ReadonlyArray<FixtureRecord>, IndexError>;
+    /** The authored risk-map coverage axis for a bundle (data-model.md §2.6, §2.11). */
+    readonly listRiskCoverage: (slug: string) => Effect.Effect<ReadonlyArray<RiskCoverageRecord>, IndexError>;
+    /** Reindex-time warnings, optionally filtered to one bundle; app-level warnings have `bundle: undefined`. */
+    readonly listWarnings: (slug?: string) => Effect.Effect<ReadonlyArray<WarningRecord>, IndexError>;
+    /** Fixture count per bundle (board-card indicator; only bundles with >= 1 fixture appear). */
+    readonly listFixtureCounts: () => Effect.Effect<ReadonlyMap<string, number>, IndexError>;
   }
 >()("IndexService") {}
 
@@ -342,13 +483,39 @@ export const layer = (
 ): Layer.Layer<IndexService, IndexError | JournalReadError, FileSystem | Path> => {
   const dbDir = join(workspaceRoot, ".skillmaker");
   const dbPath = join(dbDir, "studio.db");
-  const skillsDir = join(workspaceRoot, "skills");
+  const configPath = join(workspaceRoot, DEFAULT_CONFIG_FILENAME);
   const journalPath = join(workspaceRoot, ".skillmaker", "events.jsonl");
 
   const base = Layer.effect(IndexService)(
     Effect.gen(function* () {
       const fs = yield* FileSystem;
       const journal = yield* Journal;
+
+      // Single source of truth for where bundles live: `config.skillsDir`
+      // (data-model.md §2.2), read the same way `WorkspaceService.resolve`
+      // does, not a hardcoded "skills" (the flagged inconsistency this
+      // phase fixes). Falls back to the documented default "skills" if the
+      // config is missing/malformed -- IndexService tolerates that rather
+      // than failing the whole index (ruling I), since a missing config at
+      // this point is itself surfaced elsewhere (Workspace.resolve).
+      const configExists = yield* fs
+        .exists(configPath)
+        .pipe(Effect.mapError(toIndexError(`could not check ${configPath}`)));
+      const skillsDirOutcome = configExists
+        ? yield* Effect.result(
+            fs.readFileString(configPath).pipe(
+              Effect.flatMap((raw) =>
+                Effect.try({ try: () => JSON.parse(raw) as unknown, catch: (cause) => cause }),
+              ),
+              Effect.flatMap((parsed) => Schema.decodeUnknownEffect(WorkspaceConfig)(parsed)),
+            ),
+          )
+        : undefined;
+      const skillsDirName: string =
+        skillsDirOutcome !== undefined && skillsDirOutcome._tag === "Success"
+          ? skillsDirOutcome.success.skillsDir
+          : "skills";
+      const skillsDir = join(workspaceRoot, skillsDirName);
 
       const dbExisted = yield* fs
         .exists(dbPath)
@@ -378,7 +545,7 @@ export const layer = (
        */
       const scanBundleIdentities = Effect.fn("IndexService.scanBundleIdentities")(function* () {
         const identities = new Map<string, BundleIdentity>();
-        const warnings: string[] = [];
+        const warnings: WarningRecord[] = [];
 
         const skillsDirExists = yield* fs
           .exists(skillsDir)
@@ -411,9 +578,11 @@ export const layer = (
 
           const outcome = yield* Effect.result(attempt);
           if (outcome._tag === "Failure") {
-            warnings.push(
-              `skills/${entry}/bundle.json is malformed and was skipped: ${String(outcome.failure)}`,
-            );
+            warnings.push({
+              bundle: entry,
+              source: "bundle.json",
+              message: `${skillsDirName}/${entry}/bundle.json is malformed and was skipped: ${String(outcome.failure)}`,
+            });
             continue;
           }
           identities.set(entry, outcome.success);
@@ -445,6 +614,9 @@ export const layer = (
         todoRecords: ReadonlyArray<TodoRecord>,
         events: ReadonlyArray<JournalEvent>,
         versionRecords: ReadonlyArray<VersionRecord>,
+        fixtureRecords: ReadonlyArray<FixtureRecord>,
+        riskCoverageRecords: ReadonlyArray<RiskCoverageRecord>,
+        warningRecords: ReadonlyArray<WarningRecord>,
       ): void => {
         const run = db.transaction(() => {
           const insertBundle = db.query(
@@ -513,6 +685,43 @@ export const layer = (
               $payload: JSON.stringify(event.payload),
             });
           }
+
+          const insertFixture = db.query(
+            "INSERT INTO fixtures (bundle, case_name, class, risks_json, has_prompt_md) VALUES ($bundle, $caseName, $class, $risks, $hasPromptMd)",
+          );
+          for (const fixture of fixtureRecords) {
+            insertFixture.run({
+              $bundle: fixture.bundle,
+              $caseName: fixture.caseName,
+              $class: fixture.class,
+              $risks: JSON.stringify(fixture.risks),
+              $hasPromptMd: fixture.hasPromptMd ? 1 : 0,
+            });
+          }
+
+          const insertRiskCoverage = db.query(
+            "INSERT INTO risk_coverage (bundle, risk_id, family, coverage, fixture_case) VALUES ($bundle, $riskId, $family, $coverage, $fixtureCase)",
+          );
+          for (const row of riskCoverageRecords) {
+            insertRiskCoverage.run({
+              $bundle: row.bundle,
+              $riskId: row.riskId,
+              $family: row.family,
+              $coverage: row.coverage,
+              $fixtureCase: row.fixtureCase ?? null,
+            });
+          }
+
+          const insertWarning = db.query(
+            "INSERT INTO warnings (bundle, source, message) VALUES ($bundle, $source, $message)",
+          );
+          for (const warning of warningRecords) {
+            insertWarning.run({
+              $bundle: warning.bundle ?? null,
+              $source: warning.source,
+              $message: warning.message,
+            });
+          }
         });
         run();
       };
@@ -527,12 +736,16 @@ export const layer = (
         const slugs = new Set<string>([...identities.keys(), ...states.keys()]);
         const records: BundleRecord[] = [];
         const versionRecords: VersionRecord[] = [];
+        const fixtureRecords: FixtureRecord[] = [];
+        const riskCoverageRecords: RiskCoverageRecord[] = [];
         for (const slug of slugs) {
           const identity = identities.get(slug);
           if (identity === undefined) {
-            warnings.push(
-              `bundle "${slug}" is recorded in the journal but has no skills/${slug}/bundle.json on disk`,
-            );
+            warnings.push({
+              bundle: slug,
+              source: "journal",
+              message: `bundle "${slug}" is recorded in the journal but has no ${skillsDirName}/${slug}/bundle.json on disk`,
+            });
           }
           const state = states.get(slug) ?? BundleState.make({
             slug,
@@ -563,6 +776,35 @@ export const layer = (
             Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not hash bundle "${slug}"`)(cause)),
           );
           const drift = computeDrift(hashes, latest);
+
+          // Fixtures + risk-map: the honesty layer (data-model.md §2.5/§2.6,
+          // plan.md Phase 7). Both tolerate missing directories/files (an
+          // "idea"-stage or journal-only ghost bundle has neither) and
+          // report defects as warnings, never failures (ruling I).
+          const fixtureScan = yield* scanFixtures(bundleDir).pipe(
+            Effect.provideService(FileSystem, fs),
+            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not scan fixtures for "${slug}"`)(cause)),
+          );
+          for (const warning of fixtureScan.warnings) {
+            warnings.push({ bundle: slug, source: "fixtures", message: warning });
+          }
+          for (const fixtureCase of fixtureScan.cases) {
+            fixtureRecords.push({ bundle: slug, ...fixtureCase });
+          }
+
+          const riskMapScan = yield* parseRiskMap(join(bundleDir, "evals", "risk-map.md")).pipe(
+            Effect.provideService(FileSystem, fs),
+            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not parse risk-map for "${slug}"`)(cause)),
+          );
+          for (const warning of riskMapScan.warnings) {
+            warnings.push({ bundle: slug, source: "risk-map", message: warning });
+          }
+          for (const row of riskMapScan.rows) {
+            riskCoverageRecords.push({ bundle: slug, ...row });
+          }
+          for (const warning of checkCoverage(riskMapScan.rows, fixtureScan.cases)) {
+            warnings.push({ bundle: slug, source: "risk-map", message: warning });
+          }
 
           records.push({
             slug,
@@ -598,7 +840,7 @@ export const layer = (
             const tempDb = new Database(tempPath, { create: true });
             try {
               createSchema(tempDb);
-              populate(tempDb, records, todoRecords, events, versionRecords);
+              populate(tempDb, records, todoRecords, events, versionRecords, fixtureRecords, riskCoverageRecords, warnings);
             } finally {
               tempDb.close();
             }
@@ -619,7 +861,12 @@ export const layer = (
           },
         });
 
-        return { bundles: records.length, todos: todoRecords.length, events: events.length, warnings };
+        return {
+          bundles: records.length,
+          todos: todoRecords.length,
+          events: events.length,
+          warnings: warnings.map((warning) => warning.message),
+        };
       });
 
       // The index is a cache: rebuild once up front if the file didn't
@@ -699,7 +946,77 @@ export const layer = (
         return rows.map(rowToVersionRecord);
       });
 
-      return { rebuild, listBundles, getBundle, listTodos, listVersions };
+      const listFixtures = Effect.fn("IndexService.listFixtures")(function* (slug: string) {
+        const rows = yield* Effect.try({
+          try: () =>
+            handle.current
+              .query<FixtureRow, SqliteBindings>(
+                "SELECT * FROM fixtures WHERE bundle = $bundle ORDER BY case_name ASC",
+              )
+              .all({ $bundle: slug }),
+          catch: toIndexError(`could not query fixtures for "${slug}"`),
+        });
+        const records: FixtureRecord[] = [];
+        for (const row of rows) {
+          records.push(yield* rowToFixtureRecord(row));
+        }
+        return records;
+      });
+
+      const listRiskCoverage = Effect.fn("IndexService.listRiskCoverage")(function* (slug: string) {
+        const rows = yield* Effect.try({
+          try: () =>
+            handle.current
+              .query<RiskCoverageRow, SqliteBindings>(
+                "SELECT * FROM risk_coverage WHERE bundle = $bundle ORDER BY risk_id ASC",
+              )
+              .all({ $bundle: slug }),
+          catch: toIndexError(`could not query risk_coverage for "${slug}"`),
+        });
+        const records: RiskCoverageRecord[] = [];
+        for (const row of rows) {
+          records.push(yield* rowToRiskCoverageRecord(row));
+        }
+        return records;
+      });
+
+      const listWarnings = Effect.fn("IndexService.listWarnings")(function* (slug?: string) {
+        const where = slug !== undefined ? " WHERE bundle = $bundle" : "";
+        const bindings: SqliteBindings = slug !== undefined ? { $bundle: slug } : {};
+        const rows = yield* Effect.try({
+          try: () =>
+            handle.current
+              .query<WarningRow, SqliteBindings>(`SELECT * FROM warnings${where} ORDER BY source ASC, message ASC`)
+              .all(bindings),
+          catch: toIndexError("could not query warnings"),
+        });
+        return rows.map(rowToWarningRecord);
+      });
+
+      const listFixtureCounts = Effect.fn("IndexService.listFixtureCounts")(function* () {
+        const rows = yield* Effect.try({
+          try: () =>
+            handle.current
+              .query<{ readonly bundle: string; readonly n: number }, []>(
+                "SELECT bundle, COUNT(*) as n FROM fixtures GROUP BY bundle",
+              )
+              .all(),
+          catch: toIndexError("could not query fixture counts"),
+        });
+        return new Map(rows.map((row) => [row.bundle, row.n] as const));
+      });
+
+      return {
+        rebuild,
+        listBundles,
+        getBundle,
+        listTodos,
+        listVersions,
+        listFixtures,
+        listRiskCoverage,
+        listWarnings,
+        listFixtureCounts,
+      };
     }),
   );
 
