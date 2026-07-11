@@ -69,6 +69,25 @@ describe("scanFixtures", () => {
     );
   });
 
+  test("happy path: a well-formed trigger case (Phase 12 fold-in -- the prompt must not name the skill)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "trigger-1", {
+          schemaVersion: 1,
+          case: "trigger-1",
+          class: "trigger",
+          risks: [],
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases).toEqual([
+          { caseName: "trigger-1", class: "trigger", risks: [], hasPromptMd: true },
+        ]);
+      }),
+    );
+  });
+
   test("malformed JSON -> warning, case skipped", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {

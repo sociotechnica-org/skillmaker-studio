@@ -63,7 +63,7 @@ Options:
   --priority <n>    (todo add) lower = more urgent; defaults by kind
   --pin             (todo add) pin the todo (exempt from auto-archive)
   --all             (todo list) include archived todos
-  --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case; defaults to golden
+  --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
   --fixture <case>  (run) the fixture case to run (required)
   --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"

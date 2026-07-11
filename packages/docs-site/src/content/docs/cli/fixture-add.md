@@ -16,7 +16,7 @@ journal.
 
 | Flag | Meaning |
 |---|---|
-| `--class <class>` | One of `golden \| refusal \| empty \| rerun \| hard-case`; defaults to `golden` |
+| `--class <class>` | One of `golden \| refusal \| empty \| rerun \| hard-case \| trigger`; defaults to `golden` |
 | `--risks <ids>` | Comma-separated risk-map ids this case buys coverage for, e.g. `IN-1,RE-2` |
 | `--json` | Emit machine-readable JSON instead of text |
 
