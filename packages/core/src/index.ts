@@ -18,6 +18,15 @@ export * from "./Workspace.ts";
 export * from "./Errors.ts";
 export { foldBundleStates, bundleForEvent } from "./Fold.ts";
 export {
+  foldTodos,
+  isTerminalStatus,
+  isArchived,
+  compareTodos,
+  isoDateOnly,
+  DEFAULT_PRIORITY_BY_KIND,
+  ARCHIVE_WINDOW_DAYS,
+} from "./FoldTodos.ts";
+export {
   STAGES,
   checkTransition,
   guardStatus,
@@ -37,5 +46,7 @@ export {
   IndexService,
   layer as IndexServiceLayer,
   type BundleRecord,
+  type TodoRecord,
+  type ListTodosOptions,
   type RebuildResult,
 } from "./IndexService.ts";

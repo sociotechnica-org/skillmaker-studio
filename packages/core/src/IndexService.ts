@@ -3,8 +3,15 @@
  * SQLite-backed, REBUILDABLE CACHE over the two canonical stores — files
  * (`skills/*\/bundle.json`) and the journal (`.skillmaker/events.jsonl`).
  * It is never a source of truth (data-model.md §1.3): `rebuild()` always
- * drops and repopulates the Phase-2 subset of the schema (§2.11) — the
- * `bundles` table and the `events` journal mirror.
+ * repopulates the Phase-2/5 subset of the schema (§2.11) — the `bundles`
+ * table, the `todos` table, and the `events` journal mirror.
+ *
+ * `rebuild()` writes into a fresh temp db file in the same directory, then
+ * renames it over `studio.db` (`renameSync`, same-filesystem, atomic on
+ * POSIX). A concurrent reader that already has `studio.db` open by file
+ * descriptor keeps reading its old, complete snapshot until it reopens —
+ * it never observes a half-written database (queued follow-up from
+ * Phase 4).
  *
  * Malformed `bundle.json` files and bundles that exist in the journal but
  * not on disk are tolerated and reported as warnings, never thrown
@@ -14,13 +21,18 @@ import { Database } from "bun:sqlite";
 import { Context, Effect, Layer, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import type { Path } from "effect/Path";
+import { renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
 import type { BundleStage, BundleSubstate } from "./Bundle.ts";
 import { BundleState } from "./Bundle.ts";
 import { IndexError, JournalReadError } from "./Errors.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
+import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
+import type { Actor } from "./Actor.ts";
+import type { JournalEvent } from "./Journal.ts";
+import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
 
 export interface BundleRecord {
   readonly slug: string;
@@ -33,8 +45,32 @@ export interface BundleRecord {
   readonly archived: boolean;
 }
 
+/** A materialized todo row (data-model.md §2.11), with `archived` derived at rebuild time. */
+export interface TodoRecord {
+  readonly id: string;
+  readonly kind: TodoKind;
+  readonly status: TodoStatus;
+  readonly title: string;
+  readonly detail?: string;
+  readonly checklist?: ReadonlyArray<ChecklistItem>;
+  readonly priority: number;
+  readonly bundle?: string;
+  readonly created: string;
+  readonly terminalAt?: string;
+  readonly pinned?: boolean;
+  readonly archived: boolean;
+  readonly source: Actor;
+}
+
+export interface ListTodosOptions {
+  readonly bundle?: string;
+  /** Include archived todos. Default false (archived todos are hidden). */
+  readonly includeArchived?: boolean;
+}
+
 export interface RebuildResult {
   readonly bundles: number;
+  readonly todos: number;
   readonly events: number;
   readonly warnings: ReadonlyArray<string>;
 }
@@ -50,6 +86,22 @@ interface BundleRow {
   readonly archived: number;
 }
 
+interface TodoRow {
+  readonly id: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly title: string;
+  readonly detail: string | null;
+  readonly checklist_json: string | null;
+  readonly priority: number;
+  readonly bundle: string | null;
+  readonly created: string;
+  readonly terminal_at: string | null;
+  readonly pinned: number;
+  readonly archived: number;
+  readonly source_json: string;
+}
+
 /** bun:sqlite's named-parameter binding shape. */
 type SqliteBindings = Record<string, string | number | boolean | null>;
 
@@ -61,12 +113,20 @@ const BUNDLE_STAGES: ReadonlyArray<BundleStage> = [
   "published",
 ];
 const BUNDLE_SUBSTATES: ReadonlyArray<BundleSubstate> = ["working", "awaiting-review"];
+const TODO_KINDS: ReadonlyArray<TodoKind> = ["task", "bug", "improvement", "eval"];
+const TODO_STATUSES: ReadonlyArray<TodoStatus> = ["open", "in-progress", "done", "wont-do"];
 
 const isBundleStage = (value: string): value is BundleStage =>
   (BUNDLE_STAGES as ReadonlyArray<string>).includes(value);
 
 const isBundleSubstate = (value: string): value is BundleSubstate =>
   (BUNDLE_SUBSTATES as ReadonlyArray<string>).includes(value);
+
+const isTodoKind = (value: string): value is TodoKind =>
+  (TODO_KINDS as ReadonlyArray<string>).includes(value);
+
+const isTodoStatus = (value: string): value is TodoStatus =>
+  (TODO_STATUSES as ReadonlyArray<string>).includes(value);
 
 const toIndexError = (message: string) => (cause: unknown) => IndexError.make({ message, cause });
 
@@ -105,6 +165,44 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
     };
   });
 
+const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
+  Effect.gen(function* () {
+    if (!isTodoKind(row.kind)) {
+      return yield* Effect.fail(
+        IndexError.make({ message: `studio.db: todo "${row.id}" has invalid kind "${row.kind}"` }),
+      );
+    }
+    if (!isTodoStatus(row.status)) {
+      return yield* Effect.fail(
+        IndexError.make({ message: `studio.db: todo "${row.id}" has invalid status "${row.status}"` }),
+      );
+    }
+    const checklist = yield* Effect.try({
+      try: () =>
+        row.checklist_json === null ? undefined : (JSON.parse(row.checklist_json) as ReadonlyArray<ChecklistItem>),
+      catch: toIndexError(`studio.db: todo "${row.id}" has invalid checklist_json`),
+    });
+    const source = yield* Effect.try({
+      try: () => JSON.parse(row.source_json) as Actor,
+      catch: toIndexError(`studio.db: todo "${row.id}" has invalid source_json`),
+    });
+    return {
+      id: row.id,
+      kind: row.kind,
+      status: row.status,
+      title: row.title,
+      ...(row.detail !== null ? { detail: row.detail } : {}),
+      ...(checklist !== undefined ? { checklist } : {}),
+      priority: row.priority,
+      ...(row.bundle !== null ? { bundle: row.bundle } : {}),
+      created: row.created,
+      ...(row.terminal_at !== null ? { terminalAt: row.terminal_at } : {}),
+      ...(row.pinned !== 0 ? { pinned: true } : {}),
+      archived: row.archived !== 0,
+      source,
+    };
+  });
+
 const createSchema = (db: Database): void => {
   db.run(`
     CREATE TABLE IF NOT EXISTS bundles (
@@ -116,6 +214,23 @@ const createSchema = (db: Database): void => {
       stage TEXT NOT NULL,
       substate TEXT NOT NULL,
       archived INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS todos (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      title TEXT NOT NULL,
+      detail TEXT,
+      checklist_json TEXT,
+      priority INTEGER NOT NULL,
+      bundle TEXT,
+      created TEXT NOT NULL,
+      terminal_at TEXT,
+      pinned INTEGER NOT NULL,
+      archived INTEGER NOT NULL,
+      source_json TEXT NOT NULL
     )
   `);
   db.run(`
@@ -138,6 +253,9 @@ export class IndexService extends Context.Service<
     readonly getBundle: (
       slug: string,
     ) => Effect.Effect<BundleRecord | undefined, IndexError>;
+    readonly listTodos: (
+      options?: ListTodosOptions,
+    ) => Effect.Effect<ReadonlyArray<TodoRecord>, IndexError>;
   }
 >()("IndexService") {}
 
@@ -149,7 +267,8 @@ export class IndexService extends Context.Service<
 export const layer = (
   workspaceRoot: string,
 ): Layer.Layer<IndexService, IndexError | JournalReadError, FileSystem | Path> => {
-  const dbPath = join(workspaceRoot, ".skillmaker", "studio.db");
+  const dbDir = join(workspaceRoot, ".skillmaker");
+  const dbPath = join(dbDir, "studio.db");
   const skillsDir = join(workspaceRoot, "skills");
   const journalPath = join(workspaceRoot, ".skillmaker", "events.jsonl");
 
@@ -162,16 +281,20 @@ export const layer = (
         .exists(dbPath)
         .pipe(Effect.mapError(toIndexError(`could not check ${dbPath}`)));
 
-      const db = yield* Effect.acquireRelease(
+      // Held in a mutable box (not a plain `let` closed over by
+      // acquireRelease's *acquire* result) so that `rebuild()` can swap the
+      // live connection out from under a scope-scoped release that must
+      // close whatever the CURRENT connection is when the layer tears down.
+      const handle: { current: Database } = yield* Effect.acquireRelease(
         Effect.try({
-          try: () => new Database(dbPath, { create: true }),
+          try: (): { current: Database } => ({ current: new Database(dbPath, { create: true }) }),
           catch: toIndexError(`could not open ${dbPath}`),
         }),
-        (database) => Effect.sync(() => database.close()),
+        (h) => Effect.sync(() => h.current.close()),
       );
 
       yield* Effect.try({
-        try: () => createSchema(db),
+        try: () => createSchema(handle.current),
         catch: toIndexError(`could not initialize schema in ${dbPath}`),
       });
 
@@ -226,10 +349,84 @@ export const layer = (
         return { identities, warnings };
       });
 
+      const buildTodoRecords = (todos: ReadonlyMap<string, Todo>, now: Date): TodoRecord[] =>
+        [...todos.values()].sort(compareTodos).map((todo) => ({
+          id: todo.id,
+          kind: todo.kind,
+          status: todo.status,
+          title: todo.title,
+          ...(todo.detail !== undefined ? { detail: todo.detail } : {}),
+          ...(todo.checklist !== undefined ? { checklist: todo.checklist } : {}),
+          priority: todo.priority,
+          ...(todo.bundle !== undefined ? { bundle: todo.bundle } : {}),
+          created: todo.created,
+          ...(todo.terminalAt !== undefined ? { terminalAt: todo.terminalAt } : {}),
+          ...(todo.pinned !== undefined ? { pinned: todo.pinned } : {}),
+          archived: isArchived(todo, now),
+          source: todo.source,
+        }));
+
+      const populate = (db: Database, records: ReadonlyArray<BundleRecord>, todoRecords: ReadonlyArray<TodoRecord>, events: ReadonlyArray<JournalEvent>): void => {
+        const run = db.transaction(() => {
+          const insertBundle = db.query(
+            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived)",
+          );
+          for (const record of records) {
+            insertBundle.run({
+              $slug: record.slug,
+              $name: record.name,
+              $oneLiner: record.oneLiner,
+              $tags: JSON.stringify(record.tags),
+              $created: record.created,
+              $stage: record.stage,
+              $substate: record.substate,
+              $archived: record.archived ? 1 : 0,
+            });
+          }
+
+          const insertTodo = db.query(
+            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, archived, source_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $archived, $source)",
+          );
+          for (const todo of todoRecords) {
+            insertTodo.run({
+              $id: todo.id,
+              $kind: todo.kind,
+              $status: todo.status,
+              $title: todo.title,
+              $detail: todo.detail ?? null,
+              $checklist: todo.checklist !== undefined ? JSON.stringify(todo.checklist) : null,
+              $priority: todo.priority,
+              $bundle: todo.bundle ?? null,
+              $created: todo.created,
+              $terminalAt: todo.terminalAt ?? null,
+              $pinned: todo.pinned === true ? 1 : 0,
+              $archived: todo.archived ? 1 : 0,
+              $source: JSON.stringify(todo.source),
+            });
+          }
+
+          const insertEvent = db.query(
+            "INSERT INTO events (id, type, at, actor_json, bundle, payload_json) VALUES ($id, $type, $at, $actor, $bundle, $payload)",
+          );
+          for (const event of events) {
+            insertEvent.run({
+              $id: event.id,
+              $type: event.type,
+              $at: event.at,
+              $actor: JSON.stringify(event.actor),
+              $bundle: bundleForEvent(event) ?? null,
+              $payload: JSON.stringify(event.payload),
+            });
+          }
+        });
+        run();
+      };
+
       const rebuild = Effect.fn("IndexService.rebuild")(function* () {
         const { identities, warnings } = yield* scanBundleIdentities();
         const events = yield* journal.readAll();
         const states = foldBundleStates(events);
+        const todos = foldTodos(events);
 
         const slugs = new Set<string>([...identities.keys(), ...states.keys()]);
         const records: BundleRecord[] = [];
@@ -258,53 +455,52 @@ export const layer = (
           });
         }
 
+        const todoRecords = buildTodoRecords(todos, new Date());
+
+        yield* fs
+          .makeDirectory(dbDir, { recursive: true })
+          .pipe(Effect.mapError(toIndexError(`could not create ${dbDir}`)));
+
+        // Atomic rebuild: populate a fresh temp db file, then rename it
+        // over `studio.db`. A concurrent process with `studio.db` already
+        // open by file descriptor keeps its old, complete snapshot
+        // (POSIX rename semantics) -- it never observes a half-written
+        // database. Only after a successful rename do we close and reopen
+        // this process's own handle.
+        const tempPath = join(dbDir, `studio.db.tmp-${crypto.randomUUID()}`);
+
         yield* Effect.try({
           try: () => {
-            const run = db.transaction(() => {
-              db.run("DROP TABLE IF EXISTS bundles");
-              db.run("DROP TABLE IF EXISTS events");
-              createSchema(db);
+            const tempDb = new Database(tempPath, { create: true });
+            try {
+              createSchema(tempDb);
+              populate(tempDb, records, todoRecords, events);
+            } finally {
+              tempDb.close();
+            }
 
-              const insertBundle = db.query(
-                "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived)",
-              );
-              for (const record of records) {
-                insertBundle.run({
-                  $slug: record.slug,
-                  $name: record.name,
-                  $oneLiner: record.oneLiner,
-                  $tags: JSON.stringify(record.tags),
-                  $created: record.created,
-                  $stage: record.stage,
-                  $substate: record.substate,
-                  $archived: record.archived ? 1 : 0,
-                });
-              }
+            renameSync(tempPath, dbPath);
 
-              const insertEvent = db.query(
-                "INSERT INTO events (id, type, at, actor_json, bundle, payload_json) VALUES ($id, $type, $at, $actor, $bundle, $payload)",
-              );
-              for (const event of events) {
-                insertEvent.run({
-                  $id: event.id,
-                  $type: event.type,
-                  $at: event.at,
-                  $actor: JSON.stringify(event.actor),
-                  $bundle: bundleForEvent(event) ?? null,
-                  $payload: JSON.stringify(event.payload),
-                });
-              }
-            });
-            run();
+            handle.current.close();
+            handle.current = new Database(dbPath, { create: true });
           },
-          catch: toIndexError(`could not write ${dbPath}`),
+          catch: (cause) => {
+            try {
+              unlinkSync(tempPath);
+            } catch {
+              // Best-effort cleanup; the temp file is harmless orphaned
+              // state and never observed by any reader.
+            }
+            return toIndexError(`could not write ${dbPath}`)(cause);
+          },
         });
 
-        return { bundles: records.length, events: events.length, warnings };
+        return { bundles: records.length, todos: todoRecords.length, events: events.length, warnings };
       });
 
       // The index is a cache: rebuild once up front if the file didn't
-      // exist yet, so listBundles/getBundle never read an empty index.
+      // exist yet, so listBundles/getBundle/listTodos never read an empty
+      // index.
       if (!dbExisted) {
         yield* rebuild();
       }
@@ -312,7 +508,7 @@ export const layer = (
       const listBundles = Effect.fn("IndexService.listBundles")(function* () {
         const rows = yield* Effect.try({
           try: () =>
-            db
+            handle.current
               .query<BundleRow, []>("SELECT * FROM bundles ORDER BY created ASC, slug ASC")
               .all(),
           catch: toIndexError("could not query bundles"),
@@ -327,7 +523,7 @@ export const layer = (
       const getBundle = Effect.fn("IndexService.getBundle")(function* (slug: string) {
         const row = yield* Effect.try({
           try: () =>
-            db
+            handle.current
               .query<BundleRow, SqliteBindings>("SELECT * FROM bundles WHERE slug = $slug")
               .get({ $slug: slug }),
           catch: toIndexError(`could not query bundle "${slug}"`),
@@ -338,7 +534,35 @@ export const layer = (
         return yield* rowToBundleRecord(row);
       });
 
-      return { rebuild, listBundles, getBundle };
+      const listTodos = Effect.fn("IndexService.listTodos")(function* (options?: ListTodosOptions) {
+        const conditions: string[] = [];
+        const bindings: SqliteBindings = {};
+        if (options?.bundle !== undefined) {
+          conditions.push("bundle = $bundle");
+          bindings["$bundle"] = options.bundle;
+        }
+        if (options?.includeArchived !== true) {
+          conditions.push("archived = 0");
+        }
+        const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
+
+        const rows = yield* Effect.try({
+          try: () =>
+            handle.current
+              .query<TodoRow, SqliteBindings>(
+                `SELECT * FROM todos${where} ORDER BY priority ASC, created ASC, id ASC`,
+              )
+              .all(bindings),
+          catch: toIndexError("could not query todos"),
+        });
+        const records: TodoRecord[] = [];
+        for (const row of rows) {
+          records.push(yield* rowToTodoRecord(row));
+        }
+        return records;
+      });
+
+      return { rebuild, listBundles, getBundle, listTodos };
     }),
   );
 
