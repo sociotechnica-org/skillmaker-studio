@@ -1,0 +1,55 @@
+---
+const features = [
+  {
+    title: "Two doors, one ground.",
+    body: "CLI and live board share the same journal — agents work the CLI, humans judge in the browser, nothing desyncs.",
+    coming: false,
+  },
+  {
+    title: "Version-pinned evidence.",
+    body: "Measurements bind to the content hash they exercised. Change the skill, and the numbers honestly reset to “not yet measured.”",
+    coming: false,
+  },
+  {
+    title: "Drift you can see.",
+    body: "Hand-finish your SKILL.md freely — the studio shows that it diverged from the design, and when, without policing it.",
+    coming: false,
+  },
+  {
+    title: "Journal-native todos.",
+    body: "The work-tracking lives in the same event stream as everything else. git log is your audit trail.",
+    coming: false,
+  },
+  {
+    title: "The skillbook.",
+    body: "Generated docs for your whole skill set — design rationale, changelogs, and pass rates inline. Publishable.",
+    coming: true,
+  },
+  {
+    title: "Agent-first production.",
+    body: "Stations run over ACP: an agent researches, drafts, and evaluates; you approve at the gates.",
+    coming: true,
+  },
+];
+---
+
+<section class="mx-auto max-w-5xl px-6 py-16 sm:py-20">
+  <h2 class="text-2xl font-semibold tracking-tight text-ink">More under the hood</h2>
+  <div class="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+    {
+      features.map((feature) => (
+        <div class="rounded-lg border border-border bg-surface p-5">
+          <div class="flex items-start justify-between gap-2">
+            <h3 class="text-sm font-semibold text-ink">{feature.title}</h3>
+            {feature.coming && (
+              <span class="shrink-0 rounded-full border border-accent-dim px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-accent">
+                coming
+              </span>
+            )}
+          </div>
+          <p class="mt-2 text-sm leading-relaxed text-ink-dim">{feature.body}</p>
+        </div>
+      ))
+    }
+  </div>
+</section>

@@ -1,0 +1,76 @@
+---
+const steps = [
+  {
+    command: "skillmaker new",
+    title: "Scaffold a Skill Bundle.",
+    body: "skillmaker new <slug> creates a design doc, fixture slot, output slot, and stations for the skill — a real bundle, not a bare file.",
+  },
+  {
+    title: "Build and prove.",
+    body: "Draft SKILL.md from the design, add fixtures by failure class, run them against real agents, grade the read-outs.",
+  },
+  {
+    command: "skillmaker advance",
+    title: "Move through the gates.",
+    body: "Advance the bundle through idea → researching → drafting → evaluating → published, with the journal recording every judgment. Ship the output; keep the asset.",
+  },
+];
+
+const session = [
+  { cmd: "skillmaker init", out: "skillmaker: initialized workspace at ~/projects/my-skills" },
+  {
+    cmd: 'skillmaker new bash-guardrails --name "Bash Guardrails"',
+    out: "skillmaker: created bundle bash-guardrails",
+  },
+  {
+    cmd: "skillmaker status bash-guardrails",
+    out: [
+      "slug:        bash-guardrails",
+      "name:        Bash Guardrails",
+      "stage:       idea",
+      "substate:    working",
+      "events:      1",
+      "last event:  bundle.created at 2026-07-11T09:47:31.618Z",
+      "fixtures:    0",
+      "coverage:    0 covered, 0 partial, 0 gap",
+    ].join("\n"),
+  },
+  { cmd: "skillmaker start", out: "skillmaker: serving my-skills at http://localhost:4322" },
+];
+---
+
+<section id="how-it-works" class="mx-auto max-w-5xl px-6 py-16 sm:py-20">
+  <h2 class="text-2xl font-semibold tracking-tight text-ink">How it works</h2>
+
+  <ol class="mt-8 grid gap-6 sm:grid-cols-3">
+    {
+      steps.map((step, index) => (
+        <li class="rounded-lg border border-border bg-surface p-6">
+          <span class="font-mono text-xs text-accent">{`Step ${index + 1}`}</span>
+          {step.command && (
+            <code class="mt-2 block font-mono text-sm text-ink">{step.command}</code>
+          )}
+          <h3 class="mt-2 text-base font-semibold text-ink">{step.title}</h3>
+          <p class="mt-2 text-sm leading-relaxed text-ink-dim">{step.body}</p>
+        </li>
+      ))
+    }
+  </ol>
+
+  <div class="mt-12 rounded-lg border border-border bg-surface shadow-xl shadow-black/30">
+    <div class="flex items-center justify-between border-b border-border px-4 py-3">
+      <div class="flex items-center gap-1.5" aria-hidden="true">
+        <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+        <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+        <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+      </div>
+      <span class="font-mono text-xs text-ink-dim">skillmaker in 30 seconds</span>
+      <span></span>
+    </div>
+    <pre class="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed text-ink">{
+      session
+        .map((step) => `$ ${step.cmd}\n${step.out}`)
+        .join("\n\n")
+    }</pre>
+  </div>
+</section>

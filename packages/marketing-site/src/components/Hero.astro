@@ -1,0 +1,77 @@
+---
+const repoUrl = "https://github.com/sociotechnica-org/skillmaker-studio";
+const installLines = ["git clone " + repoUrl + ".git", "cd skillmaker-studio", "bun install"];
+---
+
+<section class="mx-auto max-w-5xl px-6 pb-20 pt-16 sm:pb-28 sm:pt-24">
+  <div class="grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+    <div>
+      <p class="mb-4 text-sm font-medium uppercase tracking-widest text-accent">Skillmaker Studio</p>
+      <h1 class="text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl">
+        Ship agent skills with receipts.
+      </h1>
+      <p class="mt-6 max-w-xl text-lg leading-relaxed text-ink-dim">
+        Skillmaker Studio turns SKILL.md from a paste of unknown pedigree into a measured,
+        versioned, human-approved product — research, design rationale, eval fixtures, and pass
+        rates included.
+      </p>
+      <div class="mt-8 flex flex-wrap items-center gap-4">
+        <a
+          href={repoUrl}
+          class="rounded-md bg-accent px-5 py-2.5 text-sm font-semibold text-canvas transition hover:bg-accent-dim"
+          rel="noreferrer"
+        >
+          View on GitHub
+        </a>
+        <a href="#how-it-works" class="text-sm font-medium text-ink-dim transition hover:text-ink">
+          See how it works &rarr;
+        </a>
+      </div>
+    </div>
+
+    <div class="rounded-lg border border-border bg-surface shadow-2xl shadow-black/40">
+      <div class="flex items-center justify-between border-b border-border px-4 py-3">
+        <div class="flex items-center gap-1.5" aria-hidden="true">
+          <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+          <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+          <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+        </div>
+        <span class="font-mono text-xs text-ink-dim">install</span>
+        <button
+          id="copy-install"
+          type="button"
+          class="font-mono text-xs text-ink-dim transition hover:text-accent"
+          aria-label="Copy install commands"
+        >
+          copy
+        </button>
+      </div>
+      <pre
+        class="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed text-ink"
+        id="install-snippet"
+      >{installLines.map((line) => `$ ${line}`).join("\n")}</pre>
+      <p class="border-t border-border px-4 py-3 text-xs text-ink-dim">
+        Pre-alpha. No published binary yet — clone and run from source.
+      </p>
+    </div>
+  </div>
+</section>
+
+<script>
+  const button = document.getElementById("copy-install");
+  const snippet = document.getElementById("install-snippet");
+  if (button && snippet) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(snippet.textContent?.trim() ?? "");
+        const original = button.textContent;
+        button.textContent = "copied";
+        setTimeout(() => {
+          button.textContent = original;
+        }, 1500);
+      } catch {
+        // Clipboard API unavailable — silently no-op, the snippet is still selectable text.
+      }
+    });
+  }
+</script>

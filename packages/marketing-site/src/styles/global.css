@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/* Dark-first palette, matched to the product viewer's near-black family
+   (packages/viewer/src/styles/global.css) with one warm accent used
+   sparingly for the "receipts" motif — links, CTAs, small marks. */
+@theme {
+  --color-canvas: #121316;
+  --color-surface: #191a1e;
+  --color-surface-raised: #202226;
+  --color-border: #2c2e33;
+  --color-ink: #f2f1ee;
+  --color-ink-dim: #a6a8ad;
+  --color-accent: #e0a458;
+  --color-accent-dim: #b98745;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background-color: var(--color-accent-dim);
+  color: var(--color-canvas);
+}

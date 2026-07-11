@@ -1,0 +1,30 @@
+---
+const pillars = [
+  {
+    title: "Design is a first-class artifact.",
+    body: "Every skill carries a design doc: intent, triggers, the workflow, failure hypotheses. Six months later you'll know why the skill is shaped the way it is — and so will the next person.",
+  },
+  {
+    title: "Evals with honest math.",
+    body: "Fixture cases by failure class — golden, refusal, empty-input, rerun, hard-case — mapped against five risk families. Coverage (“a fixture exists”) and validation (“passes at 28/30 on claude-code”) never merge. A single run is a sample, not a measurement.",
+  },
+  {
+    title: "A production line, not a folder.",
+    body: "Skills move idea → researching → drafting → evaluating → published through guarded gates: forward requires an approved review, publishing requires the gate, and moving backward is legal — regression is a modeled fact. Every decision lands on an append-only, git-tracked journal.",
+  },
+];
+---
+
+<section class="mx-auto max-w-5xl px-6 py-16 sm:py-20">
+  <div class="grid gap-8 sm:grid-cols-3">
+    {
+      pillars.map((pillar, index) => (
+        <div class="rounded-lg border border-border bg-surface p-6">
+          <span class="font-mono text-xs text-accent">{`0${index + 1}`}</span>
+          <h3 class="mt-3 text-lg font-semibold text-ink">{pillar.title}</h3>
+          <p class="mt-3 text-sm leading-relaxed text-ink-dim">{pillar.body}</p>
+        </div>
+      ))
+    }
+  </div>
+</section>

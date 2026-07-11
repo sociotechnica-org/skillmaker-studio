@@ -1,0 +1,30 @@
+---
+const items = [
+  {
+    q: "I can just write a SKILL.md by hand.",
+    a: "You can — and Skillmaker won't stop you (hand-edits are legal, drift is displayed, not punished). The studio earns its keep the first time a skill misbehaves and you need to know what changed, what was tested, and what was approved.",
+  },
+  {
+    q: "Is this only for Claude?",
+    a: "Bundles target any ACP-drivable agent; v1 evals run claude-code, with codex next. One skill, measured per provider.",
+  },
+  {
+    q: "Where does my data live?",
+    a: "In your repo. Files plus a git-tracked JSONL journal. SQLite is a throwaway index. No server, no account.",
+  },
+];
+---
+
+<section class="mx-auto max-w-3xl px-6 py-16 sm:py-20">
+  <h2 class="text-2xl font-semibold tracking-tight text-ink">Questions</h2>
+  <dl class="mt-8 divide-y divide-border border-y border-border">
+    {
+      items.map((item) => (
+        <div class="py-6">
+          <dt class="text-base font-semibold text-ink">{item.q}</dt>
+          <dd class="mt-2 text-sm leading-relaxed text-ink-dim">{item.a}</dd>
+        </div>
+      ))
+    }
+  </dl>
+</section>
