@@ -45,6 +45,7 @@ export default defineConfig({
             { label: "Introduction", slug: "getting-started/introduction" },
             { label: "Install from source", slug: "getting-started/install" },
             { label: "Your first Skill Bundle", slug: "getting-started/first-bundle" },
+            { label: "Adopting an existing repo", slug: "getting-started/adopting-an-existing-repo" },
             { label: "Desktop app", slug: "getting-started/desktop-app" },
           ],
         },
@@ -55,6 +56,7 @@ export default defineConfig({
             { label: "The production state machine", slug: "concepts/state-machine" },
             { label: "The journal", slug: "concepts/journal" },
             { label: "Versions and drift", slug: "concepts/versions-and-drift" },
+            { label: "Publishing and the skillbook", slug: "concepts/publishing-and-the-skillbook" },
           ],
         },
         {
@@ -84,6 +86,9 @@ export default defineConfig({
             { label: "run", slug: "cli/run" },
             { label: "grade", slug: "cli/grade" },
             { label: "measurements", slug: "cli/measurements" },
+            { label: "adopt", slug: "cli/adopt" },
+            { label: "publish", slug: "cli/publish" },
+            { label: "book build", slug: "cli/book-build" },
           ],
         },
         {

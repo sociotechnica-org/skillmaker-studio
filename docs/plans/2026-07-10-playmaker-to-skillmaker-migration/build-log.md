@@ -319,3 +319,93 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
   init/new/list, exit 0s). Docs/marketing/README flipped to
   curl-install-first; both sites redeployed.
 - The 18a local proof caught a tarball-nesting bug before CI ever ran.
+
+## Phase 11 — publish (dual marketplace) + skillbook (PR #37)
+
+- core/Publish: git-dir + claude-marketplace + codex-marketplace targets;
+  guards (stage=published AND drift in-sync); lossless manifest
+  round-trips; idempotent per-target `skill.published` events. Codex
+  marketplace shape flagged best-effort in-code (spec gap, not a verified
+  integration).
+- CLI `publish` + `book build` (static skillbook: index + per-bundle pages
+  with design prose, measurement receipts incl. n·rate·CI + version hash,
+  journal changelog); server `/api/skillbook` + publish endpoint; viewer
+  `/skillbook` route + publish-to-targets step in the guided flow.
+- Merged with main (Phase 12) — zero conflicts; full combined suite
+  re-verified by orchestrator post-merge.
+
+## Phase 12 — codex provider parity (PR #36)
+
+- `ProviderProfile` abstraction (skill install dir: `.agents/skills` for
+  codex vs `.claude/skills`; provider-aware model extraction; per-provider
+  infra-stderr signatures). Adapter: `@agentclientprotocol/codex-acp@1.1.2`
+  (live-verified — no model pin needed).
+- Trigger fixture class + `didSkillActivate` fold-in (run detail reports
+  activation; provider-tolerant — codex-acp has no dedicated skill tool
+  and is detected via a `<slug>/SKILL.md` Read-path match instead of
+  claude-code-acp's first-class `Skill` tool call).
+- **Real codex e2e (run once, gated)**: completed — model
+  gpt-5.6-sol[xhigh], artifact produced, 44 session updates, 15.95s.
+- 388 pass / 0 fail (12 new); tsc clean; re-verified by orchestrator. One
+  skill bundle can now be measured on claude-code AND codex — the
+  vendor-agnostic claim is mechanical fact, not aspiration.
+
+## Phase 16 — skillmaker adopt, brownfield import (PR #39)
+
+- The strategic front door: adopt existing skills repos in place — no
+  files moved, `bundle.json` + marker written into discovered dirs,
+  layout-aware output hashing, permissive frontmatter (unknown keys
+  preserved), pathname lifecycle mapping (`deprecated/` → archived,
+  `in-progress/` → idea), generated-SKILL.md detection, idempotent
+  re-adopt, manifests/eval-infra detected report-only.
+- **Real-repo QA (cloned, adopted, verified)**: gstack — 60 found, 59
+  adopted, 54 flagged generated, one symlinked skill deduped with a
+  tolerated warning, nonstandard frontmatter preserved;
+  mattpocock/skills — 39/39 adopted, 4 archived via `deprecated/`, 7
+  landed at `idea` via `in-progress/`, `plugin.json` detected untouched.
+- Real bug found+fixed: gstack puts `AUTO-GENERATED` comments *before*
+  frontmatter — the parser now strips a leading comment (unit + e2e
+  covered).
+- 301 unit + 140 e2e pass, 0 fail; tsc clean; re-verified by orchestrator.
+  Flagged follow-up: publish layout-awareness for adopted bundles
+  (currently unreachable — the stage guard blocks it first).
+
+## Fix: GET /api/skillbook 500s from concurrent index rebuild races (PR #40)
+
+- Found via real-workspace browser verify (`/skillbook` 500'd while curl
+  worked moments earlier).
+- Root cause: concurrent `/api/*` handlers each opened their own
+  `IndexService` and rebuild — a second connection's atomic rename
+  invalidates the first's open vnode (`SQLITE_IOERR_VNODE`, macOS
+  `bun:sqlite`); compounded by N+1 per-bundle rebuilds (13 rebuilds on one
+  `/catalog` call) piling past `Bun.serve`'s 10s `idleTimeout` on cold
+  loads.
+- Fix: per-workspace async mutex around the DB handle (scope-ordered
+  release), one rebuild per request in catalog/detail handlers,
+  `idleTimeout: 30` as a safety net.
+- Evidence: 20× concurrent `loadSkillbook` — reliable IOERR pre-fix, 0
+  post-fix; 5-endpoint cold-load burst — intermittent 500s/6s pre → all
+  200s in <0.7s post. 301 unit green post-merge with Phase 16.
+
+## Phase 14 — library migration: the studio's knowledge, made true (PR #41)
+
+- The predecessor Playmaker's Studio product-knowledge library migrated
+  and rewritten against this leaner, shipped data model — deliberately
+  scheduled after Phases 10-12/16 so the library describes software that
+  actually exists, not aspiration.
+- 101-card manifest: 14 KEEP / 24 REWRITE / 16 MERGE / 5 NEW-HOME / 42
+  RETIRE + 9 net-new cards, spanning production (state machine, stations,
+  bundle identity), board (journal-fold board, unified Todo, archive,
+  activity feed), authoring (design.md, Director, Grader — 22 cards
+  collapsed to 3), evals (the inherited-laws spine, including the
+  `trigger` fixture class and k-tier measurement policy), outputs
+  (Bundle Output, Skill Version, Skillbook, Publish, Publish Target — new
+  context), and runs (Journal, Review Pair, Run State, ACP Provider,
+  Canonical Store Split).
+- Hot spots resolved against shipped code, not the prep doc's guesses:
+  two-advancement-mechanisms (Guarded Transition merge), bank polysemy
+  (Package Bank retired), stage/status polysemy (Bundle Stage), no
+  refused verdict (confirmed shipped), Wake/Subscription retired after
+  confirmed absence.
+- Every prep-doc open question resolved or explicitly carried forward;
+  Raven-reviewed against the shipped code before merge.
