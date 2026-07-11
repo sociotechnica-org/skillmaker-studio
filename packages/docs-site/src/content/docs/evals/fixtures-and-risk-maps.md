@@ -9,7 +9,8 @@ which risks exist, and which fixtures buy coverage for them.
 
 ## Fixture classes
 
-Every fixture belongs to one of five inherited classes:
+Every fixture belongs to one of six classes — five inherited, plus `trigger`
+(added Phase 12):
 
 | Class | Purpose |
 |---|---|
@@ -18,6 +19,7 @@ Every fixture belongs to one of five inherited classes:
 | `empty` | Degenerate/empty input handling |
 | `rerun` | Same input run again — checks for consistency, not just one-shot success |
 | `hard-case` | Deliberately adversarial or edge-case input |
+| `trigger` | The prompt does NOT name the skill; grading asks "did the skill activate on its own?" (does the transcript contain a `Skill` tool_call), not "did the agent do the task correctly" |
 
 ## Scaffolding a fixture
 

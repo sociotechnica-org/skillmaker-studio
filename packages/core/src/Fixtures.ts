@@ -24,8 +24,18 @@ import { WorkspaceIOError } from "./Errors.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
-/** golden | refusal | empty | rerun | hard-case [inherited kit] (data-model.md §2.5). */
-export const FIXTURE_CLASSES = ["golden", "refusal", "empty", "rerun", "hard-case"] as const;
+/**
+ * golden | refusal | empty | rerun | hard-case [inherited kit] | trigger
+ * (data-model.md §2.5; `trigger` added Phase 12, plan.md's trigger-rate
+ * fold-in #2). A `trigger` fixture's `prompt.md` deliberately does NOT name
+ * the skill by slug -- grading asks "did the skill activate on its own?"
+ * (i.e. does the run's transcript contain a `Skill` tool_call for the
+ * bundle), not "did the agent do the task correctly." `didSkillActivate`
+ * below is the grading primitive; full trigger-rate aggregation across
+ * fixtures is out of scope for this fold-in (measurements already work
+ * per-fixture).
+ */
+export const FIXTURE_CLASSES = ["golden", "refusal", "empty", "rerun", "hard-case", "trigger"] as const;
 export const FixtureClass = Schema.Literals(FIXTURE_CLASSES);
 export type FixtureClass = typeof FixtureClass.Type;
 
@@ -166,7 +176,7 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       warnings.push(`evals/fixtures/${entry}/case.json is missing required field "class"`);
     } else if (!(FIXTURE_CLASSES as ReadonlyArray<string>).includes(klass)) {
       warnings.push(
-        `evals/fixtures/${entry}/case.json has unknown class "${klass}" (expected golden|refusal|empty|rerun|hard-case)`,
+        `evals/fixtures/${entry}/case.json has unknown class "${klass}" (expected golden|refusal|empty|rerun|hard-case|trigger)`,
       );
     }
 

@@ -9,6 +9,7 @@ import {
   checkTransition,
   computeBundleHashes,
   computeMeasurements,
+  didSkillActivate,
   foldBundleStates,
   foldTodos,
   guardStatus,
@@ -782,27 +783,36 @@ const handleRunDetail = async (
   // directly and defensively (ruling I: malformed content is tolerated, not
   // a hard failure) rather than via `scanFixtures`, whose tolerant
   // `FixtureCaseRecord` summary deliberately drops `grading` (it is not part
-  // of `IndexService`'s fixtures table).
+  // of `IndexService`'s fixtures table). Also reads `class` here (same
+  // defensive read) so `trigger`-class runs can surface `activated`
+  // (Phase 12, Fixtures.ts's `trigger` class -- `didSkillActivate` scans the
+  // transcript above for evidence the skill fired, since a trigger fixture's
+  // prompt deliberately never names the skill).
   let checks: ReadonlyArray<string> = [];
+  let activated: boolean | null = null;
   const runRecord = run as { readonly fixtureCase?: unknown };
   if (typeof runRecord.fixtureCase === "string") {
     const caseJsonPath = join(bundleDir, "evals", "fixtures", runRecord.fixtureCase, "case.json");
     if (existsSync(caseJsonPath)) {
       try {
         const parsed = JSON.parse(readFileSync(caseJsonPath, "utf8")) as {
+          readonly class?: unknown;
           readonly grading?: { readonly checks?: unknown };
         };
         const rawChecks = parsed.grading?.checks;
         if (Array.isArray(rawChecks)) {
           checks = rawChecks.filter((c): c is string => typeof c === "string");
         }
+        if (parsed.class === "trigger") {
+          activated = didSkillActivate(transcript, slug);
+        }
       } catch {
-        // Malformed case.json -- checklist is just empty, not a hard failure.
+        // Malformed case.json -- checklist/activation are just empty, not a hard failure.
       }
     }
   }
 
-  return jsonResponse({ run, transcript, artifacts, gradingHistory, checks });
+  return jsonResponse({ run, transcript, artifacts, gradingHistory, checks, activated });
 };
 
 interface TriggerRunRequestBody {
