@@ -28,3 +28,12 @@ jobs:
         run: bun run build:viewer
       - name: E2E tests
         run: bun test test/e2e --timeout 30000
+      - name: Reindex self-hosted workspace (warn-only)
+        # `skillmaker reindex` never fails on data-quality issues in
+        # skills/**/evals/risk-map.md or elsewhere (ruling I, data-model.md /
+        # plan.md): it surfaces warnings and always exits 0. `continue-on-error`
+        # is redundant belt-and-suspenders for that same guarantee, so a CI
+        # infra hiccup in this one step (e.g. a corrupt workspace) still can't
+        # fail the build.
+        continue-on-error: true
+        run: bun packages/cli/src/main.ts reindex --json
