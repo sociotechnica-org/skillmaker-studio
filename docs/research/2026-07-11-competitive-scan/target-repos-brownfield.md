@@ -1,0 +1,72 @@
+## 1. mattpocock/skills — https://github.com/mattpocock/skills
+
+**Layout:** `skills/<category>/<name>/SKILL.md` — categories: `engineering/` (16 skills), `productivity/` (5), `personal/` (2), `misc/` (4), `deprecated/` (4, kept with a README noting why), `in-progress/` (6, explicitly unfinished). **21 "active" skills across 5 category dirs, 39 total SKILL.md files** including deprecated/in-progress. `.claude-plugin/plugin.json` exists but is a simple `{name, skills: [array of paths]}` list, **not** a marketplace.json (no `/plugin marketplace add` flow). No `commands/`, `agents/`, or `hooks/` dirs.
+
+**Testing/CI:** No `.github/workflows`. Uses `.changeset/` (changesets tooling, version bumping) but `commit:false` and no visible CHANGELOG generation tied to CI — versioning infra present but lightly used for a skills repo (unusual — changesets is normally for npm packages).
+
+**Frontmatter:** standard `name`/`description`, plus a nonstandard `disable-model-invocation: true` field on router skills (ask-matt) — extra frontmatter key beyond Anthropic's spec.
+
+**Install:** `npx skills@latest add mattpocock/skills` (third-party `skills.sh` installer, picks skills + target agents interactively) — NOT `/plugin marketplace add` or git clone.
+
+**Structural quirks:** many skills carry sibling reference docs at the SAME directory level as SKILL.md (e.g. `codebase-design/DEEPENING.md`, `DESIGN-IT-TWICE.md`; `domain-modeling/ADR-FORMAT.md`, `CONTEXT-FORMAT.md`) rather than in a `references/` subdir — no consistent supporting-file convention. Some skills have `scripts/` subdirs (diagnosing-bugs, git-guardrails-claude-code) with shell scripts. `deprecated/` and `in-progress/` are real signal a brownfield importer must respect — don't treat all SKILL.md files as equally shippable.
+
+## 2. garrytan/gstack — https://github.com/garrytan/gstack
+
+**Layout:** flat at repo root — SKILL.md files live directly as `<skill-name>/SKILL.md` at top level (e.g. `browse/SKILL.md`, `review/SKILL.md`), NOT under a `skills/` parent dir. Also a root-level router `SKILL.md` (gstack itself). One nested exception: `openclaw/skills/gstack-openclaw-*/SKILL.md` (4 skills under an `openclaw/skills/` subtree). **~58 real skills** (62 SKILL.md matches minus 3 test golden fixtures minus template artifacts). No `.claude-plugin/` — this is a **git-clone-and-symlink** distribution model, not a Claude Code plugin.
+
+**Distinctive:** every skill ships as a **paired file**: `SKILL.md` (generated) + `SKILL.md.tmpl` (source template) with an explicit header `<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->` and a `bun run gen:skill-docs` regen step. This is a template/codegen layer over skills — a brownfield importer would need to import the generated `.tmpl` output, not treat SKILL.md as raw source. Frontmatter also carries nonstandard fields: `preamble-tier`, `version` (per-skill semver!), `triggers` (routing keywords), `allowed-tools`. Root `VERSION` file (`1.60.1.0`) plus a detailed `CHANGELOG.md` with per-release before/after metrics tables — by far the most rigorous versioning of the four.
+
+**Testing/CI:** heaviest of the four — 10 GitHub Actions workflows including `evals.yml` and `evals-periodic.yml` (scheduled skill evals), `version-gate.yml`, `windows-setup-e2e.yml`, `skill-docs.yml` (presumably enforces the tmpl→SKILL.md regen). 369 files under `test/` including `test/fixtures/golden/*-ship-SKILL.md` — golden-file tests asserting exact SKILL.md output per target agent (claude/codex/factory), implying a multi-target compiler, not hand-authored per-agent files.
+
+**Install:** `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && ./setup` — clone-to-`~/.claude/skills/` + a setup script, optional `--team` mode that vendors nothing into the consuming repo (just a CLAUDE.md pointer) with an auto-update check. Also ships a `browse/` subtree that is a full TS application (100+ src files, extensive test suite) bundled alongside skills — a monorepo mixing product code with skill content, sharing a top-level namespace.
+
+**Structural quirks:** heaviest brownfield hazard of the four — skills are compiler *output*, not hand-authored source; scripts referenced via absolute `~/.claude/skills/gstack/bin/...` paths baked into skill bodies (portability risk if imported elsewhere); per-skill semver in frontmatter (no other repo has this).
+
+## 3. EveryInc/compound-engineering-plugin — https://github.com/EveryInc/compound-engineering-plugin
+
+**Layout:** `skills/<name>/SKILL.md` at repo root, **35 skills** (e.g. `ce-plan`, `ce-code-review`, `ce-brainstorm`), each with a `references/` subdir (markdown, often `references/agents/*.md` — subagent prompt definitions nested inside a skill) and often a `scripts/` subdir (Python, e.g. `repo-profile-cache.py`). This is the most standardized supporting-file convention of the four: SKILL.md + `references/` + `scripts/` is consistent across skills.
+
+**Plugin manifests — the standout structural feature:** this repo targets *seven* agent platforms simultaneously, each with its own manifest dir at repo root: `.claude-plugin/{plugin.json,marketplace.json}`, `.codex-plugin/plugin.json`, `.cursor-plugin/{plugin.json,marketplace.json}`, `.devin-plugin/plugin.json`, `.grok-plugin/{plugin.json,marketplace.json}`, `.kimi-plugin/{plugin.json,marketplace.json}`, `.agy/plugin.json`, plus `.opencode/`, `.pi/`, `.cline/` install scripts. Root `plugin.json`:
+```json
+{"name":"compound-engineering","version":"3.19.0","description":"Brainstorm, plan, debug, review, and compound learnings with AI agents","author":{"name":"Kieran Klaassen and Trevin Chow"},"repository":"https://github.com/EveryInc/compound-engineering-plugin"}
+```
+`.claude-plugin/marketplace.json` wraps one plugin (`source: "./"`) with tag metadata. No `commands/` or `hooks/` dirs visible at root (grep came up empty — commands/agents live inline as `docs/skills/*.md` reference docs, or possibly nested elsewhere I didn't find).
+
+**Testing/CI:** most mature engineering practice — `.github/workflows/ci.yml` (PR title linting via semantic-pull-request action, test job), `release-please` config (`.github/release-please-config.json` + manifest) driving an auto-generated `CHANGELOG.md` with conventional-commit sections (Features/Bug Fixes) and PR links — this is real semantic-release, the most rigorous of the four alongside gstack. Extensive `tests/*.test.ts` (30+ files) covering per-platform converters (`codex-converter.test.ts`, `copilot-converter.test.ts`, `antigravity-converter.test.ts`) plus `tests/fixtures/*/.claude-plugin/plugin.json` — test fixtures that are themselves miniature plugin repos, confirming this project's core function IS converting Claude-Code-native skills to other agent formats.
+
+**Install:** `/plugin marketplace add` + `/plugin install compound-engineering@...` (canonical Claude Code plugin flow), also documented for Codex/Cursor/etc via their respective plugin dirs.
+
+**Structural quirks:** massive `docs/plans/` (90+ dated planning docs) and `docs/solutions/` (documented lessons-learned/best-practices, ~35 files) sitting alongside the skill tree — a brownfield importer must not mistake these for skill content. Skills reference nested `agents/` subprompts inside `references/agents/` rather than a top-level `agents/` dir — agent defs are skill-scoped, not global.
+
+## 4. elicit/claude-config — https://github.com/elicit/claude-config
+
+**Private, but I have read access** (org membership) — full tree retrieved via `gh api`, so this is real, not guessed.
+
+**Layout:** two parallel structures. (a) `skills/elicit-<name>/SKILL.md` at root — team-wide skills with heavy supporting-file sprawl, e.g. `elicit-ashby/docs-md/` (30+ vendored API reference docs), `elicit-archive-session/` (5 shell/python scripts alongside SKILL.md), `elicit-aikido/get-token.sh`. (b) `plugins/<plugin-name>/` — 15 distinct Claude Code plugins declared in `.claude-plugin/marketplace.json`, each independently versioned (e.g. `elicit-dev-compound-engineering@1.0.0`, `elicit-recruiting@0.3.0`), one of which (`plugins/compound-engineering/`) is literally a vendored copy of EveryInc's repo (own `.claude-plugin/marketplace.json`, `.github/workflows/{ci.yml,deploy-docs.yml}`, own docs/plans tree) — a real-world example of a nested/vendored plugin-within-a-plugin-repo.
+
+Marketplace root `.claude-plugin/marketplace.json` lists all 15 plugins with per-plugin `version` and `source: "./plugins/<name>"`. Other top-level dirs: `devin/`, `niteshift/`, `hooks/`, `sessions/`, `docs/`, `tests/` — a genuine monorepo mixing skills, plugins, hooks, install scripts (`install.command`, `create-zip.command` — macOS double-click installers for non-technical staff), and Python tooling (`pyproject.toml`, `uv.lock`).
+
+**Testing/CI:** `.github/workflows/facade-tests.yml` and `create-zip.yml`; nested `plugins/compound-engineering/.github/workflows/` reruns that repo's own CI. `VERSION` file at root (separate from per-plugin versions in marketplace.json — two versioning layers).
+
+**Install:** hybrid — primary is `git clone` + `./install.command` (symlinks skills into `~/.claude/skills/`, configures MCP servers for Grain/Notion/Figma/Linear), with an *optional* `/plugin marketplace add ~/.elicit-claude-config` layered on top for the plugin-packaged commands/agents. README explicitly says "symlinked skills work without [the plugin step]" — two independent adoption paths for the same content.
+
+**Structural quirks:** this is the messiest/most realistic brownfield target — skills with large vendored-doc subdirs (elicit-ashby has ~40 markdown files just for one skill), a vendored third-party plugin nested inside, dual versioning (root VERSION + per-plugin marketplace versions), and non-technical-user installers (`.command` double-click scripts) that a generic importer has no reason to model.
+
+---
+
+## Synthesis: what a "skillmaker adopt" brownfield importer must handle
+
+1. **No single path convention.** Observed: `skills/<category>/<name>/SKILL.md` (mattpocock), flat `<name>/SKILL.md` at repo root (gstack), `skills/<name>/SKILL.md` flat (compound-engineering, elicit), and nested nonstandard (`openclaw/skills/<name>/SKILL.md`). An importer needs a recursive `**/SKILL.md` discovery pass, not an assumed prefix — and must capture the containing dir as the skill's supporting-file boundary.
+2. **marketplace.json/plugin.json is inconsistent and sometimes plural.** mattpocock has a plugin.json that's actually a flat skill index, not a marketplace manifest. compound-engineering has SEVEN parallel plugin-manifest formats for different agent platforms. elicit has ONE marketplace.json declaring 15 sub-plugins, each independently versioned, one of which vendors another repo's plugin.json wholesale. Import logic can't assume 0-or-1 manifest — must handle N manifests, nested/vendored manifests, and manifests describing a superset of what's actually a "skill."
+3. **Supporting files have no fixed convention.** `references/` + `scripts/` (compound-engineering, consistent) vs. bare sibling `.md` files at skill-root (mattpocock — `DEEPENING.md`, `ADR-FORMAT.md`) vs. `docs-md/` vendored API dumps (elicit-ashby, 30+ files) vs. shell scripts sitting directly next to SKILL.md (elicit-archive-session, mattpocock git-guardrails). Import must treat "everything under the skill's directory, however named" as the bundle, not look for a specific subfolder name.
+4. **Versioning metadata is rare and non-uniform when present.** Only gstack puts semver directly in SKILL.md frontmatter (`version: 1.2.0`). compound-engineering versions at the plugin level via release-please + CHANGELOG.md, not per-skill. mattpocock has changesets tooling installed but not clearly wired to skill-level versions. elicit has two independent version layers (root VERSION + per-plugin marketplace.json version). Default assumption should be: **no per-skill version exists on import; synthesize one (e.g. v0.1.0) rather than expecting to find it.**
+5. **Nonstandard/extra frontmatter fields appear regularly and must be tolerated, not rejected**: `disable-model-invocation` (mattpocock), `preamble-tier`, `triggers`, `allowed-tools`, per-skill `version` (gstack). A brownfield parser needs permissive frontmatter parsing that preserves unknown keys rather than a strict schema that drops/errors on them.
+5b. **Some SKILL.md files are generated, not authored.** gstack's SKILL.md is compiled from a `.tmpl` source via a codegen step, with golden-file tests per target platform. Importing the SKILL.md verbatim may capture stale or platform-specific generated output rather than portable source — worth flagging as an edge case, not blocking.
+6. **Lifecycle/status signals live in path names, not frontmatter.** mattpocock's `deprecated/` and `in-progress/` directories are real editorial signal with no schema field backing them — an importer that flattens all SKILL.md files into one bundle list will silently import abandoned or half-finished skills as if first-class.
+7. **Repos mix skills with large amounts of non-skill content** (docs/plans, docs/solutions, a full TS application in gstack's `browse/`, elicit's `devin/`/`niteshift/`/`hooks/`/`sessions/` dirs) — discovery must be skill-directory-scoped (anchored on SKILL.md presence) rather than "import everything in the repo."
+8. **Absolute/environment-coupled paths inside skill bodies** (gstack's `~/.claude/skills/gstack/bin/...` calls baked into the router skill) — imported bundles may not be portable as-is without a rewrite/relink step.
+9. **Private/permissioned repos are a real case, not a hypothetical** — elicit/claude-config is private; an importer needs an auth path (not just public unauthenticated fetch) and should degrade gracefully (clear "cannot access" signal) when it lacks org access, which several of your target orgs will have.
+
+Given empty design docs/evals is the target end-state, the main design docs. It's worth noting: 3 of the 4 (mattpocock via changesets, gstack via evals CI, compound-engineering via release-please+tests) already have SOME testing/eval or versioning infrastructure that a naive "wrap as bundle, leave design/evals empty" import would discard — worth deciding whether adoption should attempt to detect and carry forward existing eval/test artifacts rather than always starting blank.
+
+All findings sourced directly via `gh api` tree/content fetches against the live repos on 2026-07-11; none guessed.
