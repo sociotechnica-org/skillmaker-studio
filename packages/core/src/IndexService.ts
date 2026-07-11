@@ -43,6 +43,12 @@ import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersio
 import type { Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
 import { computeMeasurements } from "./Measurements.ts";
+import {
+  detectNonDiscriminatingChecks,
+  formatSelfCritiqueWarning,
+  type GradedRunChecks,
+} from "./GraderSelfCritique.ts";
+import type { GradedCheck } from "./Journal.ts";
 import type { MeasurementRecord } from "./Measurements.ts";
 
 export interface BundleRecord {
@@ -870,7 +876,12 @@ export const layer = (
         // earlier one, leaving the latest grade.
         const gradeByRunId = new Map<
           string,
-          { readonly verdict: RunVerdict; readonly gradedAt: string; readonly gradedBy: Actor }
+          {
+            readonly verdict: RunVerdict;
+            readonly gradedAt: string;
+            readonly gradedBy: Actor;
+            readonly checks: ReadonlyArray<GradedCheck> | undefined;
+          }
         >();
         for (const event of events) {
           if (event.type !== "run.graded") continue;
@@ -878,8 +889,14 @@ export const layer = (
             verdict: event.payload.verdict,
             gradedAt: event.at,
             gradedBy: event.actor,
+            checks: event.payload.checks,
           });
         }
+        // Grader self-critique input (Phase 10 fold-in #3): one entry per
+        // graded run that carries checks, gathered as run.json files are
+        // scanned below (so it only includes checks tied to a run that
+        // still exists on disk, not an orphaned run.graded event).
+        const gradedRunsForSelfCritique: GradedRunChecks[] = [];
 
         const slugs = new Set<string>([...identities.keys(), ...states.keys()]);
         const records: BundleRecord[] = [];
@@ -1003,6 +1020,13 @@ export const layer = (
               }
               const runRecord = outcome.success;
               const grade = gradeByRunId.get(runRecord.id);
+              if (grade?.checks !== undefined && grade.checks.length > 0 && runRecord.fixtureCase !== undefined) {
+                gradedRunsForSelfCritique.push({
+                  bundle: slug,
+                  fixtureCase: runRecord.fixtureCase,
+                  checks: grade.checks,
+                });
+              }
               runRecords.push({
                 id: runRecord.id,
                 bundle: slug,
@@ -1032,6 +1056,19 @@ export const layer = (
             designHash: hashes.designHash,
             outputHash: hashes.outputHash,
             drift,
+          });
+        }
+
+        // Grader self-critique (Phase 10 fold-in #3): across ALL graded
+        // runs of a fixture (not per-bundle-loop-iteration, since a check
+        // needs the full picture across every run to judge whether it ever
+        // discriminates), flag any check that passed every time or failed
+        // every time.
+        for (const flag of detectNonDiscriminatingChecks(gradedRunsForSelfCritique)) {
+          warnings.push({
+            bundle: flag.bundle,
+            source: "grader-self-critique",
+            message: formatSelfCritiqueWarning(flag),
           });
         }
 

@@ -138,3 +138,10 @@ export {
   type StationProgressEvent,
   type BuildStationPromptInput,
 } from "./StationEngine.ts";
+export {
+  detectNonDiscriminatingChecks,
+  formatSelfCritiqueWarning,
+  MIN_GRADED_RUNS_FOR_SELF_CRITIQUE,
+  type GradedRunChecks,
+  type NonDiscriminatingCheck,
+} from "./GraderSelfCritique.ts";
