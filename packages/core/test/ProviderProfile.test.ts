@@ -3,6 +3,7 @@ import {
   CLAUDE_CODE_PROFILE,
   CODEX_MODEL_COMPAT_STDERR_SIGNATURE,
   CODEX_PROFILE,
+  resolveModelLabel,
   resolveProviderProfile,
 } from "../src/ProviderProfile.ts";
 
@@ -79,5 +80,45 @@ describe("extractModel -- both session/new shapes (spike-codex/FINDINGS.md's pro
   test("neither shape present -> null, not a throw", () => {
     expect(CLAUDE_CODE_PROFILE.extractModel({ sessionId: "s1" })).toBeNull();
     expect(CODEX_PROFILE.extractModel({ sessionId: "s1", configOptions: [] })).toBeNull();
+  });
+});
+
+// Fix 2 (Phase 20 Story 2 friction log F2): `currentModelId` is a PROTOCOL
+// ALIAS ("default"/"sonnet"/"haiku"), not a stable model identity --
+// "default" resolves to whatever the account's default is *that day*. This
+// module must always resolve it against `availableModels`' `description`
+// before it becomes `run.json`'s/measurements' `model` field, so two runs
+// both showing "default" are never silently pooled as the same real model.
+describe("resolveModelLabel / extractModel resolve the alias to its advertised description (Fix 2, closes the pooling hazard)", () => {
+  const sessionWithDescriptions = {
+    sessionId: "s1",
+    models: {
+      currentModelId: "default",
+      availableModels: [
+        { modelId: "default", name: "Default (recommended)", description: "Opus 4.6 - Most capable for complex work" },
+        { modelId: "sonnet", name: "Sonnet", description: "Sonnet 4.6 - Balanced" },
+      ],
+    },
+  };
+
+  test('resolveModelLabel("default") returns the matched entry\'s description, not the bare alias', () => {
+    expect(resolveModelLabel(sessionWithDescriptions, "default")).toBe(
+      "Opus 4.6 - Most capable for complex work",
+    );
+  });
+
+  test("resolveModelLabel for a requested (non-current) advertised id also resolves, e.g. after session/set_model", () => {
+    expect(resolveModelLabel(sessionWithDescriptions, "sonnet")).toBe("Sonnet 4.6 - Balanced");
+  });
+
+  test("resolveModelLabel falls back to the bare id when no matching availableModels entry exists (defensive, never throws)", () => {
+    expect(resolveModelLabel(sessionWithDescriptions, "unknown-id")).toBe("unknown-id");
+    expect(resolveModelLabel({ sessionId: "s1" }, "default")).toBe("default");
+  });
+
+  test("CLAUDE_CODE_PROFILE.extractModel resolves \"default\" through the same mechanism -- run.json's model field never stores the literal alias when a description is advertised", () => {
+    const resolved = CLAUDE_CODE_PROFILE.extractModel(sessionWithDescriptions);
+    expect(resolved).toBe("Opus 4.6 - Most capable for complex work");
+    expect(resolved).not.toBe("default");
   });
 });

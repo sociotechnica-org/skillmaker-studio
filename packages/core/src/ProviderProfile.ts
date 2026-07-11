@@ -79,8 +79,32 @@ export interface ProviderProfile {
   readonly configDirEnvVar: string;
 }
 
-const extractFromModelsField = (session: SessionModelSource): string | null =>
-  session.models?.currentModelId ?? null;
+/**
+ * Fix (Phase 20 Story 2 friction log F2): joins a `modelId` (typically
+ * `session/new`'s `currentModelId`, or a caller-requested model id after
+ * `session/set_model`) against that same response's `availableModels` list
+ * and returns the matched entry's `description` -- e.g. "Opus 4.6 - Most
+ * capable for complex work" -- instead of the bare alias (`"default"`,
+ * `"sonnet"`, `"haiku"`). The alias is a stable protocol id but NOT a stable
+ * model identity: `"default"` resolves to whatever the user's account
+ * default is *that day*, so two runs recorded as `claude-code/default`
+ * could silently be two different real models pooled into the same
+ * measurement cell -- the exact corruption the product's "never pooled"
+ * guarantee (data-model.md §1.1.5) cannot tolerate. Falls back to the bare
+ * `modelId` only when no matching `availableModels` entry (or no
+ * `description` on it) exists -- e.g. a minimal/legacy adapter response --
+ * so callers never get `null`/throw here, just a best-effort label.
+ */
+export const resolveModelLabel = (session: SessionModelSource, modelId: string): string => {
+  const match = session.models?.availableModels?.find((candidate) => candidate.modelId === modelId);
+  return match?.description ?? modelId;
+};
+
+const extractFromModelsField = (session: SessionModelSource): string | null => {
+  const currentModelId = session.models?.currentModelId;
+  if (currentModelId === undefined) return null;
+  return resolveModelLabel(session, currentModelId);
+};
 
 /** `configOptions` fallback for adapters (the deprecated `@zed-industries/codex-acp`) that report the selected model only there, as `{id: "model", currentValue: "<modelId>"}`. */
 const extractFromConfigOptions = (session: SessionModelSource): string | null => {
