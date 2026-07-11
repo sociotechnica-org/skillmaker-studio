@@ -277,3 +277,23 @@ Two orthogonal tracks run alongside with explicit no-touch fencing:
 - **Standing rule (director):** every feature merge updates the docs site
   and the marketing home page ("what works today") and redeploys both.
   Now part of the per-phase ship checklist alongside the build-log entry.
+
+## Phase 10 — agent-first stations (PR #28)
+
+- StationEngine: sandbox per stations.json `produces`, station skill =
+  a bundle in the same workspace, revise-notes fed into rerun prompts,
+  copyback filtered to produces, review.requested on completion only.
+- **William's first skill is real and proven**: william-draft-skill-md
+  (self-hosted workspace) drafted a genuine output/SKILL.md from design.md
+  over real ACP in the gated e2e. The self-hosted journal has begun.
+- Grader self-critique fold-in shipped (≥2-run floor before flagging).
+- 357 pass / 0 fail (38 new); real run evidence in the PR.
+
+## Phase 9+15 docs freshness (PR #29) + UI-pass prep (PRs #26/#27)
+
+- Docs: grade/measurements/desktop pages with REAL captured CLI output;
+  roadmap pruned; marketing feature cards + README updated; both sites
+  redeployed.
+- ui-pass-spec.md: 448-line cited extraction of the PMS Studio IA +
+  director rulings (publish = distinct guided action; /catalog survives
+  as the skill browser). Phase 17 builder executing it now.
