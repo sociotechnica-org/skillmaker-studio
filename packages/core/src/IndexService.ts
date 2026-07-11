@@ -26,13 +26,15 @@ import { join } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
 import type { BundleStage, BundleSubstate } from "./Bundle.ts";
 import { BundleState } from "./Bundle.ts";
-import { IndexError, JournalReadError } from "./Errors.ts";
+import { IndexError, JournalReadError, WorkspaceIOError } from "./Errors.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
 import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
 import type { Actor } from "./Actor.ts";
 import type { JournalEvent } from "./Journal.ts";
 import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
+import { computeBundleHashes, computeDrift, foldSkillVersions, latestSkillVersion } from "./Versions.ts";
+import type { Drift } from "./Versions.ts";
 
 export interface BundleRecord {
   readonly slug: string;
@@ -43,6 +45,21 @@ export interface BundleRecord {
   readonly stage: BundleStage;
   readonly substate: BundleSubstate;
   readonly archived: boolean;
+  /** Live sha256 of `design.md`, computed at the last `rebuild()`. */
+  readonly designHash: string;
+  /** Live sha256 of the `output/` tree, computed at the last `rebuild()`. */
+  readonly outputHash: string;
+  /** Drift between the live hashes above and the latest recorded version (data-model.md §2.7). */
+  readonly drift: Drift;
+}
+
+/** A materialized `skill.version_recorded` row (data-model.md §2.7, §2.11). */
+export interface VersionRecord {
+  readonly bundle: string;
+  readonly hash: string;
+  readonly designHash: string;
+  readonly label?: string;
+  readonly recordedAt: string;
 }
 
 /** A materialized todo row (data-model.md §2.11), with `archived` derived at rebuild time. */
@@ -84,6 +101,17 @@ interface BundleRow {
   readonly stage: string;
   readonly substate: string;
   readonly archived: number;
+  readonly design_hash: string;
+  readonly output_hash: string;
+  readonly drift: string;
+}
+
+interface VersionRow {
+  readonly bundle: string;
+  readonly hash: string;
+  readonly design_hash: string;
+  readonly label: string | null;
+  readonly recorded_at: string;
 }
 
 interface TodoRow {
@@ -115,12 +143,21 @@ const BUNDLE_STAGES: ReadonlyArray<BundleStage> = [
 const BUNDLE_SUBSTATES: ReadonlyArray<BundleSubstate> = ["working", "awaiting-review"];
 const TODO_KINDS: ReadonlyArray<TodoKind> = ["task", "bug", "improvement", "eval"];
 const TODO_STATUSES: ReadonlyArray<TodoStatus> = ["open", "in-progress", "done", "wont-do"];
+const DRIFT_VALUES: ReadonlyArray<Drift> = [
+  "no-version",
+  "in-sync",
+  "design-changed",
+  "output-hand-edited",
+  "both",
+];
 
 const isBundleStage = (value: string): value is BundleStage =>
   (BUNDLE_STAGES as ReadonlyArray<string>).includes(value);
 
 const isBundleSubstate = (value: string): value is BundleSubstate =>
   (BUNDLE_SUBSTATES as ReadonlyArray<string>).includes(value);
+
+const isDrift = (value: string): value is Drift => (DRIFT_VALUES as ReadonlyArray<string>).includes(value);
 
 const isTodoKind = (value: string): value is TodoKind =>
   (TODO_KINDS as ReadonlyArray<string>).includes(value);
@@ -153,6 +190,11 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
         IndexError.make({ message: `studio.db: bundle "${row.slug}" has non-array tags_json` }),
       );
     }
+    if (!isDrift(row.drift)) {
+      return yield* Effect.fail(
+        IndexError.make({ message: `studio.db: bundle "${row.slug}" has invalid drift "${row.drift}"` }),
+      );
+    }
     return {
       slug: row.slug,
       name: row.name,
@@ -162,8 +204,19 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
       stage: row.stage,
       substate: row.substate,
       archived: row.archived !== 0,
+      designHash: row.design_hash,
+      outputHash: row.output_hash,
+      drift: row.drift,
     };
   });
+
+const rowToVersionRecord = (row: VersionRow): VersionRecord => ({
+  bundle: row.bundle,
+  hash: row.hash,
+  designHash: row.design_hash,
+  ...(row.label !== null ? { label: row.label } : {}),
+  recordedAt: row.recorded_at,
+});
 
 const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
   Effect.gen(function* () {
@@ -213,7 +266,25 @@ const createSchema = (db: Database): void => {
       created TEXT NOT NULL,
       stage TEXT NOT NULL,
       substate TEXT NOT NULL,
-      archived INTEGER NOT NULL
+      archived INTEGER NOT NULL,
+      design_hash TEXT NOT NULL,
+      output_hash TEXT NOT NULL,
+      drift TEXT NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS skill_versions (
+      bundle TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      design_hash TEXT NOT NULL,
+      label TEXT,
+      recorded_at TEXT NOT NULL,
+      -- "hash" is the output/ tree hash alone: a design-only edit between
+      -- two recordings can leave "hash" unchanged while design_hash differs
+      -- (data-model.md §2.7 idempotency is keyed on BOTH -- see Version.ts),
+      -- so the key must include design_hash too or two legitimate versions
+      -- collide.
+      PRIMARY KEY (bundle, hash, design_hash)
     )
   `);
   db.run(`
@@ -256,6 +327,8 @@ export class IndexService extends Context.Service<
     readonly listTodos: (
       options?: ListTodosOptions,
     ) => Effect.Effect<ReadonlyArray<TodoRecord>, IndexError>;
+    /** All recorded versions for a bundle, newest first (data-model.md §2.7). */
+    readonly listVersions: (slug: string) => Effect.Effect<ReadonlyArray<VersionRecord>, IndexError>;
   }
 >()("IndexService") {}
 
@@ -366,10 +439,16 @@ export const layer = (
           source: todo.source,
         }));
 
-      const populate = (db: Database, records: ReadonlyArray<BundleRecord>, todoRecords: ReadonlyArray<TodoRecord>, events: ReadonlyArray<JournalEvent>): void => {
+      const populate = (
+        db: Database,
+        records: ReadonlyArray<BundleRecord>,
+        todoRecords: ReadonlyArray<TodoRecord>,
+        events: ReadonlyArray<JournalEvent>,
+        versionRecords: ReadonlyArray<VersionRecord>,
+      ): void => {
         const run = db.transaction(() => {
           const insertBundle = db.query(
-            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived)",
+            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift)",
           );
           for (const record of records) {
             insertBundle.run({
@@ -381,6 +460,22 @@ export const layer = (
               $stage: record.stage,
               $substate: record.substate,
               $archived: record.archived ? 1 : 0,
+              $designHash: record.designHash,
+              $outputHash: record.outputHash,
+              $drift: record.drift,
+            });
+          }
+
+          const insertVersion = db.query(
+            "INSERT INTO skill_versions (bundle, hash, design_hash, label, recorded_at) VALUES ($bundle, $hash, $designHash, $label, $recordedAt)",
+          );
+          for (const version of versionRecords) {
+            insertVersion.run({
+              $bundle: version.bundle,
+              $hash: version.hash,
+              $designHash: version.designHash,
+              $label: version.label ?? null,
+              $recordedAt: version.recordedAt,
             });
           }
 
@@ -427,9 +522,11 @@ export const layer = (
         const events = yield* journal.readAll();
         const states = foldBundleStates(events);
         const todos = foldTodos(events);
+        const versionsBySlug = foldSkillVersions(events);
 
         const slugs = new Set<string>([...identities.keys(), ...states.keys()]);
         const records: BundleRecord[] = [];
+        const versionRecords: VersionRecord[] = [];
         for (const slug of slugs) {
           const identity = identities.get(slug);
           if (identity === undefined) {
@@ -443,6 +540,30 @@ export const layer = (
             substate: "working",
             archived: false,
           });
+
+          const versions = versionsBySlug.get(slug);
+          for (const version of versions ?? []) {
+            versionRecords.push({
+              bundle: slug,
+              hash: version.hash,
+              designHash: version.designHash,
+              ...(version.label !== undefined ? { label: version.label } : {}),
+              recordedAt: version.recordedAt,
+            });
+          }
+          const latest = latestSkillVersion(versions);
+
+          // `hashDesign`/`hashOutputTree` both tolerate a missing path
+          // (treating it as empty), so this is safe even for a journal-only
+          // "ghost" bundle (identity undefined, see the warning above) that
+          // has no skills/<slug>/ directory on disk.
+          const bundleDir = join(skillsDir, slug);
+          const hashes = yield* computeBundleHashes(bundleDir).pipe(
+            Effect.provideService(FileSystem, fs),
+            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not hash bundle "${slug}"`)(cause)),
+          );
+          const drift = computeDrift(hashes, latest);
+
           records.push({
             slug,
             name: identity?.name ?? slug,
@@ -452,6 +573,9 @@ export const layer = (
             stage: state.stage,
             substate: state.substate,
             archived: state.archived,
+            designHash: hashes.designHash,
+            outputHash: hashes.outputHash,
+            drift,
           });
         }
 
@@ -474,7 +598,7 @@ export const layer = (
             const tempDb = new Database(tempPath, { create: true });
             try {
               createSchema(tempDb);
-              populate(tempDb, records, todoRecords, events);
+              populate(tempDb, records, todoRecords, events, versionRecords);
             } finally {
               tempDb.close();
             }
@@ -562,7 +686,20 @@ export const layer = (
         return records;
       });
 
-      return { rebuild, listBundles, getBundle, listTodos };
+      const listVersions = Effect.fn("IndexService.listVersions")(function* (slug: string) {
+        const rows = yield* Effect.try({
+          try: () =>
+            handle.current
+              .query<VersionRow, SqliteBindings>(
+                "SELECT * FROM skill_versions WHERE bundle = $bundle ORDER BY recorded_at DESC, hash DESC",
+              )
+              .all({ $bundle: slug }),
+          catch: toIndexError(`could not query versions for "${slug}"`),
+        });
+        return rows.map(rowToVersionRecord);
+      });
+
+      return { rebuild, listBundles, getBundle, listTodos, listVersions };
     }),
   );
 
