@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "e53a2ca1-3982-4033-89a7-1f4bd49a708b",
+  "bundle": "william-research-a-skill",
+  "kind": "eval",
+  "station": null,
+  "fixtureCase": "golden-basic",
+  "skillVersionHash": "sha256:a5fa528985fa0025049aee7a8ce0660d72e0c7066d6d42efed6968ace7d1459d",
+  "provider": "claude-code",
+  "model": "",
+  "startedAt": "2026-07-11T15:08:22.838Z",
+  "endedAt": "2026-07-11T15:11:28.392Z",
+  "status": "infra-error",
+  "actor": {
+    "kind": "user",
+    "name": "Jess Martin"
+  }
+}

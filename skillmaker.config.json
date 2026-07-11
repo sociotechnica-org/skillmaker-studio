@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "name": "skillmaker-studio-phase10",
+  "name": "skillmaker-studio",
   "skillsDir": "skills",
   "viewer": {
     "port": 4323
@@ -16,9 +16,21 @@
     },
     "codex": {
       "command": [
-        "codex-acp"
+        "npx",
+        "-y",
+        "@agentclientprotocol/codex-acp@latest"
       ]
     }
   },
-  "publishTargets": []
+  "publishTargets": [
+    {
+      "id": "dist-skills",
+      "kind": "git-dir",
+      "path": "dist/skills"
+    },
+    {
+      "id": "claude-marketplace",
+      "kind": "claude-marketplace"
+    }
+  ]
 }

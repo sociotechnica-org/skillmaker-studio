@@ -110,4 +110,20 @@ eval fixtures (that is the `evaluating` station's job).
   revise-notes prompt asking for a specific change (e.g. "the description
   is too vague, name the exact trigger phrase") -- expect the redrafted
   `SKILL.md` to address that change while leaving the rest of the prior
-  draft recognizably intact. Covers risk #2 and #3.
+  draft recognizably intact. Covers risk #2 and #3. **Not yet authored**
+  (Phase 19 scoped fixtures to golden/refusal/hard-case/trigger below) --
+  a real gap, tracked as a todo (`fixture-add-revise-round`), not silently
+  dropped; see `evals/risk-map.md`'s RE-1/OUT-1 rows.
+- **hard-case-conflicting-sections**: a bundle whose `design.md` sections
+  directly contradict each other (Intent requires user confirmation before
+  a destructive action; the workflow says to skip confirmation) -- probes
+  whether the drafted `SKILL.md` silently reproduces the unsafe reading or
+  surfaces/resolves the conflict. Covers risk #2's cousin, RE-2 (see
+  `evals/risk-map.md`) -- this skill's instructions above do not yet say
+  what to do when design.md contradicts itself; the fixture measures that
+  gap rather than assuming it away.
+- **trigger-basic**: a prompt that describes the drafting task in the same
+  language as `## When to use / triggers` above, without ever naming
+  `william-draft-skill-md` by slug -- expect the skill to activate on its
+  own (`didSkillActivate`, `packages/core/src/SkillActivation.ts`). Covers
+  risk IN-2 (`evals/risk-map.md`); measures activation, not draft quality.

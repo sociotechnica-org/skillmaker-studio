@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "case": "golden-basic",
+  "class": "golden",
+  "risks": [
+    "IN-1",
+    "ADV-1"
+  ]
+}

@@ -1,7 +1,15 @@
 # Dependencies and build output
 node_modules/
-dist/
+# Only ignore dist/'s direct children (not dist/ itself) so dist/skills/
+# below can be re-included -- git cannot re-include a file whose parent
+# directory is itself excluded.
+dist/*
 .astro/
+
+# Exception: dist/skills/ is the self-hosted workspace's git-dir publish
+# target (skillmaker.config.json publishTargets "dist-skills") -- published
+# skill output, not release-build scratch, and is real repo history.
+!dist/skills/
 
 # Skillmaker runtime dir: everything untracked EXCEPT the journal.
 # .skillmaker/events.jsonl is append-only shared history (merge=union in
@@ -11,6 +19,10 @@ dist/
 !.skillmaker/events.jsonl
 
 .repos/effect
+
+# Viewer static build output (bun run build:viewer) -- machine-local build
+# scratch needed to `skillmaker start` locally, not release history.
+packages/viewer/dist/
 
 # Tauri desktop shell build output: cargo target dir, and the staged
 # sidecar binary + viewer-dist (scripts/prepare-desktop-sidecar.sh's

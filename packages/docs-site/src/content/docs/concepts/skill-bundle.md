@@ -113,18 +113,24 @@ bundle's config is frozen at creation time:
   "schemaVersion": 1,
   "template": "default",
   "stations": {
-    "researching": { "doer": "agent", "skill": "william/research-a-skill",
+    "researching": { "doer": "agent", "skill": "william-research-a-skill",
                      "produces": ["research/"], "review": true },
-    "drafting":    { "doer": "agent", "skill": "william/draft-skill-md",
+    "drafting":    { "doer": "agent", "skill": "william-draft-skill-md",
                      "produces": ["design.md", "output/SKILL.md"], "review": true },
     "evaluating":  { "doer": "agent", "produces": ["evals/", "runs/"], "review": true }
   }
 }
 ```
 
-Stations describe **how the work of each production state gets done** —
-today this config is scaffolded but agent-driven station execution
-("station runs") is not yet built; see the [Roadmap](/roadmap/).
+A station's `skill` names another Skill Bundle in the **same workspace**
+(bundle slugs never contain `/`), not a path — `skillmaker start`'s own
+`StationEngine` resolves it and installs that bundle's `output/` as the
+ACP skill for the run.
+
+Stations describe **how the work of each production state gets done**.
+Agent-driven station execution (`skillmaker station run`) is built and, in
+this repo's own self-hosted workspace, in real use — see the
+[Roadmap](/roadmap/) for what's shipped where.
 
 ## Two workflows, never conflated
 

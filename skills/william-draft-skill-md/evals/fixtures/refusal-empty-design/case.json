@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "refusal-empty-design",
+  "class": "refusal",
+  "risks": [
+    "IN-1"
+  ]
+}

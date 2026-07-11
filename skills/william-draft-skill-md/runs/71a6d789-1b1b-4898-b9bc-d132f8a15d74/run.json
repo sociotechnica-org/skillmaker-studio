@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "71a6d789-1b1b-4898-b9bc-d132f8a15d74",
+  "bundle": "william-draft-skill-md",
+  "kind": "eval",
+  "station": null,
+  "fixtureCase": "golden-basic",
+  "skillVersionHash": "sha256:6b28bc53677f2b9ccc050b2b35b9c7cbcb5a6db7248d99c03f6f36363bbe5de4",
+  "provider": "claude-code",
+  "model": "default",
+  "startedAt": "2026-07-11T14:54:47.723Z",
+  "endedAt": "2026-07-11T14:55:28.905Z",
+  "status": "completed",
+  "actor": {
+    "kind": "user",
+    "name": "Jess Martin"
+  }
+}
