@@ -534,6 +534,12 @@ const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
  * artifacts listed/viewable on the run-detail panel).
  */
 const isAllowedBundleFilePath = (relativePath: string): boolean => {
+  // No relative segments, period: `runs/<id>/artifacts/../../<id>/run.json`
+  // would match the artifact pattern AND resolve inside the bundle dir
+  // (passing the containment check), yet escape the allowlisted subtree.
+  if (relativePath.split("/").includes("..")) {
+    return false;
+  }
   if (relativePath === "design.md") {
     return true;
   }
