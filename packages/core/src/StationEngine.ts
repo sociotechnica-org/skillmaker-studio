@@ -41,6 +41,7 @@ import { foldBundleStates } from "./Fold.ts";
 import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
+import { didSkillActivate } from "./SkillActivation.ts";
 import { Station, StationsFile } from "./Stations.ts";
 import { ADOPT_EXCLUDED_NAMES, detectBundleLayout } from "./Versions.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
@@ -78,7 +79,8 @@ export type StationProgressEvent =
   | { readonly type: "session-update" }
   | { readonly type: "permission-decision" }
   | { readonly type: "install-warning"; readonly message: string }
-  | { readonly type: "done"; readonly status: RunStatus };
+  /** Fix F7: `didSkillActivate`'s transcript signal, surfaced for every station run, same as RunEngine.ts. */
+  | { readonly type: "done"; readonly status: RunStatus; readonly skillInvoked: boolean };
 
 export interface RunStationResult {
   readonly runId: string;
@@ -93,6 +95,8 @@ export interface RunStationResult {
   readonly reviewRequested: boolean;
   /** `true` if at least one skill file was installed into the sandbox before the session ran (Fix F2's backstop signal). */
   readonly skillInstalled: boolean;
+  /** Fix F7: `true` if the transcript shows evidence the station's agent invoked/read the referenced skill (`SkillActivation.ts`'s `didSkillActivate`). */
+  readonly skillInvoked: boolean;
 }
 
 const DEFAULT_STATION_PROVIDER = "claude-code";
@@ -541,8 +545,13 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
     const before = snapshotFiles(sandboxDir);
 
     let entryCount = 0;
+    // Fix F7: kept alongside the incremental file write so `didSkillActivate`
+    // can be computed once the session ends without a redundant re-read/
+    // re-parse of transcript.jsonl from disk.
+    const transcriptEntries: TranscriptEntry[] = [];
     const onTranscript = (entry: TranscriptEntry): void => {
       entryCount++;
+      transcriptEntries.push(entry);
       try {
         writeFileSync(transcriptPath, `${JSON.stringify(entry)}\n`, { flag: "a" });
       } catch {
@@ -607,11 +616,20 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       }
     }
 
+    // Fix F7: `didSkillActivate` used to be computed only for "trigger"-
+    // class eval fixtures (Server.ts's `handleRunDetail`); station runs
+    // reference a skill too (`skillSlug`, not `input.bundle` -- a station's
+    // "bundle" is the production state-machine subject, while `skillSlug` is
+    // the actual skill installed/exercised), so it's computed here
+    // unconditionally and persisted on run.json.
+    const skillInvoked = didSkillActivate(transcriptEntries, skillSlug);
+
     const finalRecord = RunRecord.make({
       ...runningRecord,
       endedAt,
       status,
       model,
+      skillInvoked,
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(finalRecord, null, 2)}\n`)
@@ -638,7 +656,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       reviewRequested = true;
     }
 
-    input.onProgress?.({ type: "done", status });
+    input.onProgress?.({ type: "done", status, skillInvoked });
 
     return {
       runId,
@@ -650,6 +668,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
       model,
       reviewRequested,
       skillInstalled,
+      skillInvoked,
     } satisfies RunStationResult;
   } finally {
     rmSync(sandboxDir, { recursive: true, force: true });

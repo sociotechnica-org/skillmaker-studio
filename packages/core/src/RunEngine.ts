@@ -29,6 +29,7 @@ import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
+import { didSkillActivate } from "./SkillActivation.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
   computeBundleHashes,
@@ -77,7 +78,8 @@ export type RunProgressEvent =
   | { readonly type: "session-update" }
   | { readonly type: "permission-decision" }
   | { readonly type: "install-warning"; readonly message: string }
-  | { readonly type: "done"; readonly status: RunStatus };
+  /** Fix F7: `didSkillActivate`'s transcript signal, surfaced for EVERY run (not just "trigger"-class fixtures) so CLI output always reports it. */
+  | { readonly type: "done"; readonly status: RunStatus; readonly skillInvoked: boolean };
 
 export interface RunFixtureResult {
   readonly runId: string;
@@ -91,6 +93,8 @@ export interface RunFixtureResult {
   readonly model: string;
   /** `true` if at least one skill file was installed into the sandbox before the session ran. `false` means the agent ran naked (Fix F2's backstop signal). */
   readonly skillInstalled: boolean;
+  /** Fix F7: `true` if the transcript shows evidence the agent invoked/read the bundle's skill (`SkillActivation.ts`'s `didSkillActivate`), for EVERY run -- not just "trigger"-class fixtures (the previous, narrower `handleRunDetail`-only exposure). */
+  readonly skillInvoked: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -426,8 +430,13 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
 
     // --- Drive the ACP session, streaming the transcript incrementally. ---
     let entryCount = 0;
+    // Fix F7: kept alongside the incremental file write so `didSkillActivate`
+    // can be computed once the session ends without a redundant re-read/
+    // re-parse of transcript.jsonl from disk.
+    const transcriptEntries: TranscriptEntry[] = [];
     const onTranscript = (entry: TranscriptEntry): void => {
       entryCount++;
+      transcriptEntries.push(entry);
       try {
         writeFileSync(transcriptPath, `${JSON.stringify(entry)}\n`, { flag: "a" });
       } catch {
@@ -491,11 +500,21 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       }
     }
 
+    // Fix F7: `didSkillActivate` used to be computed only for "trigger"-
+    // class fixtures (Server.ts's `handleRunDetail`, a narrow viewer-only
+    // path). Every run's transcript carries the same evidence regardless of
+    // fixture class, so it's computed here unconditionally and persisted on
+    // run.json -- available to every caller (viewer, `run` CLI output,
+    // future consumers) without re-deriving it, and without depending on
+    // the fixture even having a case.json at all.
+    const skillInvoked = didSkillActivate(transcriptEntries, input.bundle);
+
     const finalRecord = RunRecord.make({
       ...runningRecord,
       endedAt,
       status,
       model,
+      skillInvoked,
     });
     yield* fs
       .writeFileString(runJsonPath, `${JSON.stringify(finalRecord, null, 2)}\n`)
@@ -507,7 +526,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       payload: { id: runId, status, endedAt },
     });
 
-    input.onProgress?.({ type: "done", status });
+    input.onProgress?.({ type: "done", status, skillInvoked });
 
     return {
       runId,
@@ -518,6 +537,7 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
       artifacts: changedPaths,
       model,
       skillInstalled,
+      skillInvoked,
     } satisfies RunFixtureResult;
   } finally {
     // Sandbox cleanup happens on both the success and failure paths --

@@ -388,3 +388,97 @@ describe("runFixture sandbox isolation (Fix F6: an isolated CLAUDE_CONFIG_DIR re
     }
   }, 15_000);
 });
+
+describe("runFixture skillInvoked (Fix F7: didSkillActivate's signal is computed and persisted on every run, not just trigger-class fixtures)", () => {
+  const actor = Actor.make({ kind: "user", name: "test-user" });
+
+  // Emits a `tool_call` `session/update` notification naming the bundle's
+  // skill (a Skill-tool-shaped update, mirroring claude-code-acp's real
+  // wire shape per SkillActivation.ts's doc comment) before responding to
+  // `session/prompt`, so `didSkillActivate` finds evidence in the
+  // transcript.
+  const invokesSkillScript = `
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      const msg = JSON.parse(line);
+      if (msg.method === "initialize") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\\n");
+      } else if (msg.method === "session/new") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } }) + "\\n");
+      } else if (msg.method === "session/prompt") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: "s1", update: { sessionUpdate: "tool_call", title: "Skill", name: "Skill", input: { skill: "demo" } } },
+        }) + "\\n");
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } }) + "\\n");
+      }
+    });
+  `;
+
+  // Never emits any tool_call update -- a run where the transcript carries
+  // no evidence the skill fired.
+  const silentScript = `
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      const msg = JSON.parse(line);
+      if (msg.method === "initialize") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\\n");
+      } else if (msg.method === "session/new") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } }) + "\\n");
+      } else if (msg.method === "session/prompt") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } }) + "\\n");
+      }
+    });
+  `;
+
+  const setUpBundleAndRun = (script: string) =>
+    withEffectTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const initResult = yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "demo" });
+
+        const resolved = yield* workspace.resolve(dir);
+        const bundleDir = join(initResult.root, resolved.config.skillsDir, "demo");
+        writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Demo Skill\n\nSome instructions.\n");
+        const caseDir = join(bundleDir, "evals", "fixtures", "golden-basic");
+        mkdirSync(caseDir, { recursive: true });
+        writeFileSync(join(caseDir, "prompt.md"), "Do the thing.\n");
+
+        const config = {
+          ...resolved.config,
+          providers: { "claude-code": { command: ["node", "-e", script] } },
+        };
+
+        const result = yield* runFixture({
+          root: initResult.root,
+          config,
+          bundle: "demo",
+          fixtureCase: "golden-basic",
+          provider: "claude-code",
+          actor,
+        }).pipe(Effect.provide(JournalLayer(join(dir, ".skillmaker", "events.jsonl"))));
+
+        const runJsonPath = join(bundleDir, "runs", result.runId, "run.json");
+        const runJson = JSON.parse(readFileSync(runJsonPath, "utf8")) as { skillInvoked?: boolean };
+        return { result, runJson };
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+
+  test("a transcript with a tool_call naming the skill -> skillInvoked: true in both the RunFixtureResult and run.json", async () => {
+    const { result, runJson } = await setUpBundleAndRun(invokesSkillScript);
+    expect(result.status).toBe("completed");
+    expect(result.skillInvoked).toBe(true);
+    expect(runJson.skillInvoked).toBe(true);
+  }, 15_000);
+
+  test("a transcript with no tool_call evidence -> skillInvoked: false, still persisted (not merely absent)", async () => {
+    const { result, runJson } = await setUpBundleAndRun(silentScript);
+    expect(result.status).toBe("completed");
+    expect(result.skillInvoked).toBe(false);
+    expect(runJson.skillInvoked).toBe(false);
+  }, 15_000);
+});

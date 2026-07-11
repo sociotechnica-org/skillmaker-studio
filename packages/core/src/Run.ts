@@ -69,4 +69,13 @@ export class RunRecord extends Schema.Class<RunRecord>("RunRecord")({
    * pre-fix, unisolated behavior) rather than assuming isolation happened.
    */
   isolation: Schema.optionalKey(RunIsolation),
+  /**
+   * Fix F7: `true` if the transcript shows evidence the agent invoked/read
+   * the bundle's skill (`SkillActivation.ts`'s `didSkillActivate`),
+   * computed for EVERY run -- not just "trigger"-class fixtures (the
+   * previous, narrower `handleRunDetail`-only exposure). `optionalKey` so
+   * `run.json` files written before this fix still decode -- absent means
+   * "unknown, predates this field", distinct from a computed `false`.
+   */
+  skillInvoked: Schema.optionalKey(Schema.Boolean),
 }) {}

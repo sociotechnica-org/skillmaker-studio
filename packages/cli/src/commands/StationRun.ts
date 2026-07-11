@@ -83,6 +83,7 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
     readonly type: "sandbox-ready" | "session-update" | "permission-decision" | "install-warning" | "done";
     readonly status?: string;
     readonly message?: string;
+    readonly skillInvoked?: boolean;
   }): void => {
     if (event.type === "sandbox-ready") {
       process.stderr.write(`skillmaker station run: sandbox ready, starting "${provider}" session...\n`);
@@ -94,7 +95,13 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
     } else if (event.type === "install-warning") {
       process.stderr.write(`skillmaker station run: WARNING: ${String(event.message)}\n`);
     } else if (event.type === "done") {
-      process.stderr.write(`\nskillmaker station run: ${String(event.status)} (${updateCount} session update(s))\n`);
+      // Fix F7: surface didSkillActivate's signal on every station run's CLI
+      // output.
+      const invokedNote =
+        event.skillInvoked === undefined ? "" : event.skillInvoked ? ", skill invoked" : ", skill NOT invoked";
+      process.stderr.write(
+        `\nskillmaker station run: ${String(event.status)} (${updateCount} session update(s)${invokedNote})\n`,
+      );
     }
   };
 
@@ -143,6 +150,7 @@ const summarize = (slug: string, result: RunStationResult, json: boolean): CliRe
     changedPaths: result.changedPaths,
     reviewRequested: result.reviewRequested,
     skillInstalled: result.skillInstalled,
+    skillInvoked: result.skillInvoked,
   };
 
   const body = json
@@ -152,6 +160,7 @@ const summarize = (slug: string, result: RunStationResult, json: boolean): CliRe
         `  skill:     ${result.skill}`,
         `  model:     ${result.model || "(unknown)"}`,
         `  installed: ${result.skillInstalled ? "yes" : "NO -- naked agent, see warning above"}`,
+        `  invoked:   ${result.skillInvoked ? "yes (transcript shows the skill was used)" : "no (transcript shows no evidence the skill was used)"}`,
         `  changed:   ${result.changedPaths.length === 0 ? "(none)" : result.changedPaths.join(", ")}`,
         `  review:    ${result.reviewRequested ? "requested -- bundle is now awaiting-review" : "not requested"}`,
         `  run dir:   ${result.runDir}`,
