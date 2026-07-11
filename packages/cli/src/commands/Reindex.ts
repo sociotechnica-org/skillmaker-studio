@@ -46,7 +46,23 @@ export const runReindex = Effect.fn("runReindex")(function* (
   );
 
   if (outcome._tag === "Failure") {
-    return expectedFailure(`skillmaker reindex: ${outcome.failure.message}\n`);
+    const failure = outcome.failure;
+    // Fix F4: honor --json on the failure path too -- before this fix
+    // `reindex --json` printed plain text on any rebuild failure, breaking
+    // scripts/tooling that always expect JSON.
+    if (options.json) {
+      return expectedFailure(
+        `${JSON.stringify({
+          status: "error",
+          message: failure.message,
+          ...("eventId" in failure && failure.eventId !== undefined ? { eventId: failure.eventId } : {}),
+          ...("lineNumber" in failure && failure.lineNumber !== undefined
+            ? { lineNumber: failure.lineNumber }
+            : {}),
+        })}\n`,
+      );
+    }
+    return expectedFailure(`skillmaker reindex: ${failure.message}\n`);
   }
 
   return summarize(outcome.success, options.json);

@@ -1253,7 +1253,12 @@ export const layer = (
               // Best-effort cleanup; the temp file is harmless orphaned
               // state and never observed by any reader.
             }
-            return toIndexError(`could not write ${dbPath}`)(cause);
+            // Fix F4: carry the real underlying reason, not just "could not
+            // write studio.db" -- every rebuild failure surfaced that one
+            // opaque line regardless of cause (a bad journal event, a full
+            // disk, a permissions error all looked identical).
+            const reason = cause instanceof Error ? cause.message : String(cause);
+            return toIndexError(`could not write ${dbPath}: ${reason}`)(cause);
           },
         });
 
