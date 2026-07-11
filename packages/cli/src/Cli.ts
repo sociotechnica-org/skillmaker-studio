@@ -32,7 +32,7 @@ Usage: skillmaker <command> [options]
 Commands:
   init              Initialize a skillmaker workspace in the current directory
   new <slug>        Create a new Skill Bundle under skills/<slug>/
-  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles
+  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles (--source <url-or-path> [--ref <ref>] to record upstream provenance for this batch)
   list              List Skill Bundles by stage/substate (rebuilds the index first)
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
@@ -64,6 +64,8 @@ Options:
   --question <text> (review request) Question for the reviewer
   --decision <d>    (review resolve) approve | revise (required)
   --label <text>    (version record) Human tag for the recorded version, e.g. "v0.3"
+  --source <s>      (adopt) URL or local path this batch was imported from; recorded on each adopted skill's marker
+  --ref <ref>       (adopt) Ref/tag/pointer alongside --source; ignored without --source
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
@@ -125,6 +127,8 @@ const VALUE_FLAGS = new Set([
   "--state",
   "--target",
   "--out",
+  "--source",
+  "--ref",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -194,7 +198,9 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "adopt": {
       const targetPath = positionalAfterCommand(argv);
-      return yield* runAdopt(cwd, targetPath, { json });
+      const source = flagValue(argv, "--source");
+      const ref = flagValue(argv, "--ref");
+      return yield* runAdopt(cwd, targetPath, { json, source, ref });
     }
     case "list":
       return yield* runList(cwd, { json });

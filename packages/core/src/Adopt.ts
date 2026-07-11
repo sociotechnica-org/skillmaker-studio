@@ -295,6 +295,21 @@ const walk = Effect.fn("Adopt.walk")(function* (root: string) {
 // Adopt
 // ---------------------------------------------------------------------------
 
+/**
+ * Fix (Phase 20 Story 3 friction log, upstream provenance): when `adopt` is
+ * run with `--source <url-or-path>`, every skill adopted in THAT batch
+ * records where it came from. Deliberately minimal (record-only) — no
+ * drift-vs-upstream comparison is computed or implied by this field; that's
+ * future work once there's a real need to re-diff against the origin.
+ */
+export class AdoptUpstream extends Schema.Class<AdoptUpstream>("AdoptUpstream")({
+  /** Whatever the operator passed to `--source` — a URL or a local path, not validated or normalized. */
+  source: Schema.String,
+  /** Optional `--ref` (a git ref, tag, or any other origin-specific pointer the operator wants recorded alongside `source`). */
+  ref: Schema.optionalKey(Schema.String),
+  importedAt: Schema.String,
+}) {}
+
 /** Recorded in `.skillmaker-adopt.json` — the in-place layout marker (§3B.8). */
 export class AdoptMarker extends Schema.Class<AdoptMarker>("AdoptMarker")({
   schemaVersion: Schema.Literal(1),
@@ -306,6 +321,8 @@ export class AdoptMarker extends Schema.Class<AdoptMarker>("AdoptMarker")({
     Schema.String,
     Schema.Union([Schema.String, Schema.Boolean, Schema.Array(Schema.String)]),
   ),
+  /** `optionalKey` so pre-fix markers still decode; absent means "not recorded", not "no upstream". */
+  upstream: Schema.optionalKey(AdoptUpstream),
 }) {}
 
 export interface AdoptedSkill {
@@ -331,6 +348,19 @@ export interface AdoptReport {
   readonly evalInfra: ReadonlyArray<EvalInfraDetection>;
 }
 
+export interface AdoptWorkspaceOptions {
+  /**
+   * Fix (Phase 20 Story 3 friction log, upstream provenance): `adopt
+   * --source <url-or-path>` — recorded on every skill adopted in THIS
+   * batch's `.skillmaker-adopt.json` marker as `upstream.source`. Omitted
+   * entirely (no `upstream` key at all) when not passed, so ordinary adopts
+   * are unaffected.
+   */
+  readonly source?: string;
+  /** `adopt --source ... --ref <ref>` — ignored if `source` is absent. */
+  readonly ref?: string;
+}
+
 /**
  * Discovers and wraps every not-yet-adopted `SKILL.md` under `root` as an
  * in-place bundle (§3B.1-§3B.6, §3B.8). Filesystem-only: does not touch the
@@ -339,7 +369,10 @@ export interface AdoptReport {
  * mirroring how `New.ts` layers journal writes on top of
  * `Workspace.createBundle`.
  */
-export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (root: string) {
+export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
+  root: string,
+  options: AdoptWorkspaceOptions = {},
+) {
   const fs = yield* FileSystem;
 
   const { skillMdFiles, existingSlugs, manifests, evalInfra, warnings: walkWarnings } = yield* walk(root);
@@ -398,13 +431,23 @@ export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (root:
       .writeFileString(bundleJsonPath, `${JSON.stringify(identity, null, 2)}\n`)
       .pipe(Effect.mapError(toIOError(`could not write ${bundleJsonPath}`)));
 
+    const adoptedAt = new Date().toISOString();
     const marker = AdoptMarker.make({
       schemaVersion: 1,
-      adoptedAt: new Date().toISOString(),
+      adoptedAt,
       layout: "in-place",
       skillPath: "SKILL.md",
       generated,
       frontmatter,
+      ...(options.source !== undefined
+        ? {
+            upstream: AdoptUpstream.make({
+              source: options.source,
+              ...(options.ref !== undefined ? { ref: options.ref } : {}),
+              importedAt: adoptedAt,
+            }),
+          }
+        : {}),
     });
     yield* fs
       .writeFileString(join(dir, ADOPT_MARKER_FILENAME), `${JSON.stringify(marker, null, 2)}\n`)

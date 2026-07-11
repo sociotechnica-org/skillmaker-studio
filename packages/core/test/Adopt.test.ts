@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { createHash } from "node:crypto";
-import { adoptWorkspace, parseFrontmatter } from "../src/Adopt.ts";
+import { AdoptMarker, adoptWorkspace, parseFrontmatter } from "../src/Adopt.ts";
 import { computeBundleHashes, hashOutputTree } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
@@ -330,6 +330,98 @@ describe("in-place output hashing", () => {
         // Re-running the hash must be stable (no drift from a no-op reindex).
         const again = yield* computeBundleHashes(bundleDir, "in-place");
         expect(again.outputHash).toBe(hashes.outputHash);
+      }),
+    );
+  });
+});
+
+describe("adoptWorkspace: upstream provenance (Fix, Phase 20 Story 3 friction log)", () => {
+  test("adopt --source stamps upstream.source + importedAt on every skill adopted in that batch", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* write(dir, "browse/SKILL.md", skillMd("browse"));
+        yield* write(dir, "deploy/SKILL.md", skillMd("deploy"));
+
+        const report = yield* adoptWorkspace(dir, { source: "https://github.com/example/skills-repo" });
+        expect(report.adopted.length).toBe(2);
+
+        for (const skill of report.adopted) {
+          const markerPath = path.join(skill.dir, ".skillmaker-adopt.json");
+          const raw = yield* fs.readFileString(markerPath);
+          const parsed = yield* Effect.try({
+            try: () => JSON.parse(raw) as unknown,
+            catch: (cause) => cause,
+          });
+          const marker = yield* Schema.decodeUnknownEffect(AdoptMarker)(parsed);
+          expect(marker.upstream?.source).toBe("https://github.com/example/skills-repo");
+          expect(marker.upstream?.ref).toBeUndefined();
+          expect(marker.upstream?.importedAt).toBeDefined();
+        }
+      }),
+    );
+  });
+
+  test("adopt --source --ref records both", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* write(dir, "browse/SKILL.md", skillMd("browse"));
+
+        yield* adoptWorkspace(dir, { source: "/local/skills-repo", ref: "v2.3.0" });
+
+        const markerPath = path.join(dir, "browse", ".skillmaker-adopt.json");
+        const raw = yield* fs.readFileString(markerPath);
+        const parsed = JSON.parse(raw) as { upstream?: { source: string; ref?: string } };
+        expect(parsed.upstream?.source).toBe("/local/skills-repo");
+        expect(parsed.upstream?.ref).toBe("v2.3.0");
+      }),
+    );
+  });
+
+  test("adopt without --source never adds an upstream key at all (not even null)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* write(dir, "browse/SKILL.md", skillMd("browse"));
+
+        yield* adoptWorkspace(dir);
+
+        const markerPath = path.join(dir, "browse", ".skillmaker-adopt.json");
+        const raw = yield* fs.readFileString(markerPath);
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        expect("upstream" in parsed).toBe(false);
+      }),
+    );
+  });
+
+  test("a pre-fix marker (no upstream key at all) still decodes cleanly", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        const bundleDir = path.join(dir, "browse");
+        yield* fs.makeDirectory(bundleDir, { recursive: true });
+        const preFixMarker = {
+          schemaVersion: 1,
+          adoptedAt: "2026-01-01T00:00:00.000Z",
+          layout: "in-place",
+          skillPath: "SKILL.md",
+          generated: false,
+          frontmatter: {},
+        };
+        yield* fs.writeFileString(
+          path.join(bundleDir, ".skillmaker-adopt.json"),
+          `${JSON.stringify(preFixMarker, null, 2)}\n`,
+        );
+
+        const raw = yield* fs.readFileString(path.join(bundleDir, ".skillmaker-adopt.json"));
+        const parsed = JSON.parse(raw) as unknown;
+        const decoded = yield* Schema.decodeUnknownEffect(AdoptMarker)(parsed);
+        expect(decoded.upstream).toBeUndefined();
       }),
     );
   });
