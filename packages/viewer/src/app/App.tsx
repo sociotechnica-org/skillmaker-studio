@@ -19,7 +19,7 @@ const Routes: FC = () => {
     case "board":
       return <Board />;
     case "bundle":
-      return <BundlePanel slug={route.slug} tab={route.tab} runId={route.runId} />;
+      return <BundlePanel slug={route.slug} tab={route.tab} runId={route.runId} file={route.file} />;
     case "catalog":
       return <Catalog />;
     case "activity":

@@ -232,6 +232,8 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   runs: Schema.Array(RunRecord),
   measurements: Schema.Array(MeasurementRecord),
   station: Schema.NullOr(StationAvailability),
+  /** The bundle's reviewable source files (design.md, research/*, output/*) for the Files tab, pipeline-ordered. */
+  files: Schema.Array(Schema.String),
 }) {}
 
 /**

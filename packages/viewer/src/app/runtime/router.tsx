@@ -19,7 +19,13 @@ const isBundleTab = (value: string): value is BundleTab =>
 
 export type Route =
   | { readonly name: "board" }
-  | { readonly name: "bundle"; readonly slug: string; readonly tab: BundleTab; readonly runId: string | undefined }
+  | {
+      readonly name: "bundle";
+      readonly slug: string;
+      readonly tab: BundleTab;
+      readonly runId: string | undefined;
+      readonly file: string | undefined;
+    }
   | { readonly name: "catalog" }
   | { readonly name: "activity" }
   | { readonly name: "skillbook" }
@@ -51,8 +57,10 @@ export const parseRoute = (pathname: string, search: string): Route => {
     if (tabSegment !== undefined && !isBundleTab(tabSegment)) {
       return { name: "not-found" };
     }
-    const runId = new URLSearchParams(search).get("run") ?? undefined;
-    return { name: "bundle", slug, tab: tabSegment ?? "overview", runId };
+    const params = new URLSearchParams(search);
+    const runId = params.get("run") ?? undefined;
+    const file = params.get("file") ?? undefined;
+    return { name: "bundle", slug, tab: tabSegment ?? "overview", runId, file };
   }
   return { name: "not-found" };
 };
@@ -69,6 +77,10 @@ export const bundleRunHref = (slug: string, runId: string | undefined): string =
   const base = bundleHref(slug, "evals");
   return runId === undefined ? base : `${base}?run=${encodeURIComponent(runId)}`;
 };
+
+/** The Files tab with a specific source file pre-selected via `?file=`. */
+export const bundleFileHref = (slug: string, file: string): string =>
+  `${bundleHref(slug, "files")}?file=${encodeURIComponent(file)}`;
 
 interface RouterState {
   readonly route: Route;

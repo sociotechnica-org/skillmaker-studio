@@ -591,6 +591,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     runs,
     measurements,
     station,
+    files: listReviewableBundleFiles(root, config, slug),
   });
 };
 
@@ -669,10 +670,19 @@ const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 const RUN_RESPONSE_PATH = /^runs\/[^/]+\/response\.md$/;
 
 /**
- * Only `design.md`, a non-empty path under `output/`, a run's `artifacts/`
- * contents, or a run's `response.md` may be read back over HTTP
+ * The bundle's reviewable subdirectories, in pipeline order -- the single
+ * source of truth shared by the file-read allowlist below and
+ * `listReviewableBundleFiles`'s enumeration, so the two stay in sync by
+ * construction rather than by hand.
+ */
+const REVIEWABLE_SUBDIRS = ["research", "output"] as const;
+
+/**
+ * Only `design.md`, a non-empty path under `research/` or `output/`, a run's
+ * `artifacts/` contents, or a run's `response.md` may be read back over HTTP
  * (data-model.md §2.12 -- artifacts listed/viewable on the run-detail
- * panel).
+ * panel). `research/` is included so the researching-station review gate can
+ * actually show the reviewer the `research/notes.md` it asks them to approve.
  */
 const isAllowedBundleFilePath = (relativePath: string): boolean => {
   // No relative segments, period: `runs/<id>/artifacts/../../<id>/run.json`
@@ -684,15 +694,16 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
   if (relativePath === "design.md") {
     return true;
   }
-  if (relativePath.startsWith("output/") && relativePath.length > "output/".length) {
+  if (REVIEWABLE_SUBDIRS.some((sub) => relativePath.startsWith(`${sub}/`) && relativePath.length > sub.length + 1)) {
     return true;
   }
   return RUN_ARTIFACT_PATH.test(relativePath) || RUN_RESPONSE_PATH.test(relativePath);
 };
 
 /**
- * `GET /api/bundles/:slug/file?path=design.md|output/...` -- the viewer's
- * read-only Files tab. A strict allowlist (design.md, or under output/) plus
+ * `GET /api/bundles/:slug/file?path=design.md|research/...|output/...` -- the
+ * viewer's read-only Files tab. A strict allowlist (design.md, or under
+ * research/ or output/) plus
  * a resolved-path containment check guards against traversal (`../..`,
  * absolute paths, symlink escapes); anything outside the allowlist or off
  * the bundle directory 404s rather than erroring, so it never leaks whether
@@ -735,6 +746,27 @@ const listFilesRecursive = (dir: string, relPrefix = ""): ReadonlyArray<string> 
     } else if (info.isFile()) {
       out.push(rel);
     }
+  }
+  return out;
+};
+
+/**
+ * The bundle's reviewable source files for the viewer's Files tab -- exactly
+ * the file-endpoint-servable subtree a reviewer should read: `design.md`, then
+ * everything under `research/` and `output/`. Scaffolding dotfiles (`.gitkeep`)
+ * are dropped; run transcripts/artifacts are deliberately excluded (those
+ * belong to the run-detail panel). Ordered design → research → output so the
+ * dropdown reads like the production pipeline.
+ */
+const listReviewableBundleFiles = (root: string, config: WorkspaceConfig, slug: string): ReadonlyArray<string> => {
+  const bundleDir = resolvePath(join(root, config.skillsDir, slug));
+  const noDotSegment = (rel: string): boolean => !rel.split("/").some((segment) => segment.startsWith("."));
+  const out: string[] = [];
+  if (existsSync(join(bundleDir, "design.md"))) {
+    out.push("design.md");
+  }
+  for (const sub of REVIEWABLE_SUBDIRS) {
+    out.push(...listFilesRecursive(join(bundleDir, sub), sub).filter(noDotSegment));
   }
   return out;
 };
