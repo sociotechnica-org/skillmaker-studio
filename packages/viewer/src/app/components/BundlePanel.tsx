@@ -30,6 +30,7 @@
 import { type FC, useEffect, useState } from "react";
 import {
   getBundleFile,
+  type PostEventInput,
   postEvent,
   publishBundle,
   recordVersion,
@@ -53,7 +54,7 @@ import {
 } from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
 import { useWorkspace } from "../runtime/useWorkspace.ts";
-import { nextAction } from "../runtime/nextAction.ts";
+import { nextAction, nextStageOf } from "../runtime/nextAction.ts";
 import { RunDetailModal } from "./RunDetailModal.tsx";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -82,8 +83,6 @@ const formatTime = (iso: string): string => {
 
 const earlierStages = (stage: BundleStage): ReadonlyArray<BundleStage> => STAGES.slice(0, STAGES.indexOf(stage));
 
-const nextStage = (stage: BundleStage): BundleStage | undefined => STAGES[STAGES.indexOf(stage) + 1];
-
 /** Human-facing stage label (the underlying state name stays as-is; the column rename is a separate change). */
 const STAGE_LABEL: Record<BundleStage, string> = {
   idea: "Idea",
@@ -99,7 +98,7 @@ const statusLineFor = (stage: BundleStage, substate: string, forwardReady: boole
   if (substate === "awaiting-review") return "Ready for your review.";
   if (stage === "evaluating") return "In evaluation — clear the publish gate to ship.";
   if (forwardReady) {
-    const next = nextStage(stage);
+    const next = nextStageOf(stage);
     return next === undefined ? "Ready to move on." : `Approved — ready to move to ${STAGE_LABEL[next]}.`;
   }
   return `${STAGE_LABEL[stage]} — in progress.`;
@@ -216,27 +215,11 @@ export const BundlePanel: FC<{
   const [backReason, setBackReason] = useState("");
   const [gateBasis, setGateBasis] = useState("");
 
-  const submit = (type: string, payload: Record<string, unknown>): void => {
-    setPending(true);
-    setActionError(undefined);
-    postEvent({ type, payload })
-      .then((result) => {
-        if (!result.ok) {
-          setActionError(result.error);
-          return;
-        }
-        setActionError(undefined);
-        refetch();
-      })
-      .catch((cause: Error) => setActionError(cause.message))
-      .finally(() => setPending(false));
-  };
-
   // Post a sequence of events in order, stopping at the first failure -- the
   // same collapse `PublishSection` uses for gate+advance, generalized so one
   // guided click can e.g. approve-then-advance. A partial failure leaves a
   // legal intermediate state the panel re-renders the next step from.
-  const submitMany = (events: ReadonlyArray<{ readonly type: string; readonly payload: Record<string, unknown> }>): void => {
+  const submitMany = (events: ReadonlyArray<PostEventInput>): void => {
     setPending(true);
     setActionError(undefined);
     void (async () => {
@@ -253,6 +236,9 @@ export const BundlePanel: FC<{
       .catch((cause: Error) => setActionError(cause.message))
       .finally(() => setPending(false));
   };
+
+  // A single event is just the one-element case of `submitMany`.
+  const submit = (type: string, payload: Record<string, unknown>): void => submitMany([{ type, payload }]);
 
   return (
     <div className="flex max-w-4xl flex-col gap-4">
@@ -355,9 +341,7 @@ interface OverviewTabProps {
   readonly gateBasis: string;
   readonly setGateBasis: (value: string) => void;
   readonly submit: (type: string, payload: Record<string, unknown>) => void;
-  readonly submitMany: (
-    events: ReadonlyArray<{ readonly type: string; readonly payload: Record<string, unknown> }>,
-  ) => void;
+  readonly submitMany: (events: ReadonlyArray<PostEventInput>) => void;
   readonly onChanged: () => void;
 }
 
@@ -443,14 +427,80 @@ const OverviewTab: FC<OverviewTabProps> = ({
       )}
 
       {action.kind === "gate" && (
-        <PublishSection
-          slug={slug}
-          approvedForForward={guardStatus.approvedForForward}
-          gateApproved={guardStatus.gateApproved}
-          gateBasis={gateBasis}
-          setGateBasis={setGateBasis}
-          onChanged={onChanged}
-        />
+        <>
+          {/* Publishing is two conscious steps: approve the evaluation (no
+              advance -- the gate does that), then clear the publish gate. */}
+          {!guardStatus.approvedForForward && (
+            <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                {bundle.substate === "awaiting-review" ? "Ready for your review" : "Approve the evaluation"}
+              </h4>
+              <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+                Then clear the publish gate below to ship.
+              </p>
+              {question !== undefined && question.length > 0 && (
+                <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
+              )}
+              {reviewArtifacts.length > 0 && (
+                <ul className="flex flex-col gap-0.5">
+                  {reviewArtifacts.map((path) => (
+                    <li key={path}>
+                      <Link
+                        href={bundleFileHref(slug, path)}
+                        className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+                      >
+                        {path}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  bundle.substate === "awaiting-review"
+                    ? submit("review.resolved", { bundle: slug, state: stage, decision: "approve" })
+                    : submitMany([
+                        { type: "review.requested", payload: { bundle: slug, state: stage } },
+                        { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                      ])
+                }
+                className="self-start rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+              >
+                Approve the evaluation
+              </button>
+              {bundle.substate === "awaiting-review" && (
+                <>
+                  <textarea
+                    value={reviseNotes}
+                    onChange={(event) => setReviseNotes(event.target.value)}
+                    placeholder="Notes for the author (required to send back)"
+                    className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+                  />
+                  <button
+                    type="button"
+                    disabled={pending || reviseNotes.trim().length === 0}
+                    onClick={() =>
+                      submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
+                    }
+                    className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+                  >
+                    Send back with notes
+                  </button>
+                </>
+              )}
+            </section>
+          )}
+          <PublishSection
+            slug={slug}
+            approvedForForward={guardStatus.approvedForForward}
+            gateApproved={guardStatus.gateApproved}
+            gateBasis={gateBasis}
+            setGateBasis={setGateBasis}
+            onChanged={onChanged}
+          />
+        </>
       )}
 
       {action.kind === "review" && (

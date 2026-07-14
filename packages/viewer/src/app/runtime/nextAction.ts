@@ -7,7 +7,7 @@
  * two guard booleans the detail payload already carries. Kept out of the
  * component so it can be unit-tested without React.
  */
-import { STAGES, type BundleStage } from "./schemas.ts";
+import { STAGES, type BundleStage, type BundleSubstate } from "./schemas.ts";
 
 export interface GuardBits {
   readonly approvedForForward: boolean;
@@ -41,7 +41,7 @@ export const nextStageOf = (stage: BundleStage): BundleStage | undefined =>
  * send-back) only appears once a review is actually pending -- i.e. after an
  * agent station requested one.
  */
-export const nextAction = (stage: BundleStage, substate: string, guard: GuardBits): NextAction => {
+export const nextAction = (stage: BundleStage, substate: BundleSubstate, guard: GuardBits): NextAction => {
   if (stage === "published") {
     return { kind: "terminal" };
   }

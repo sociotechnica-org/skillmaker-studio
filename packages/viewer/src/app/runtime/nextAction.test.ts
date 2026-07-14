@@ -18,9 +18,12 @@ describe("nextAction", () => {
     expect(nextAction("published", "working", guard(true, true))).toEqual({ kind: "terminal" });
   });
 
-  test("evaluating routes to the publish gate regardless of guard", () => {
+  test("evaluating routes to the publish gate regardless of guard or substate", () => {
+    // The gate branch itself renders the approve affordance for each substate,
+    // so evaluating never strands even while awaiting-review / unapproved.
     expect(nextAction("evaluating", "working", guard(false))).toEqual({ kind: "gate" });
     expect(nextAction("evaluating", "working", guard(true))).toEqual({ kind: "gate" });
+    expect(nextAction("evaluating", "awaiting-review", guard(false))).toEqual({ kind: "gate" });
   });
 
   test("a pending review yields the review step (approve & advance / send back)", () => {
