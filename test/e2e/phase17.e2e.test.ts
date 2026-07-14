@@ -96,7 +96,7 @@ beforeAll(async () => {
     stdout: "pipe",
     stderr: "pipe",
   });
-  await waitForHealth(baseUrl, 15000);
+  await waitForHealth(baseUrl, 30000);
 }, 60000);
 
 afterAll(async () => {

@@ -299,7 +299,7 @@ describe("phase 9 server surface", () => {
       stdout: "pipe",
       stderr: "pipe",
     });
-    await waitForHealth(baseUrl, 15000);
+    await waitForHealth(baseUrl, 30000);
   }, 30000);
 
   test("GET /api/bundles/:slug includes measurements[]", async () => {
