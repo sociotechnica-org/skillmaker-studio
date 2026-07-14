@@ -704,7 +704,7 @@ const handleCreateBundle = async (root: string, request: Request): Promise<Respo
         const workspace = yield* Workspace;
         return yield* workspace.createBundle(root, name !== undefined ? { slug, name } : { slug });
       }).pipe(
-        Effect.catchTag("InvalidSlugError", (error) => Effect.succeed({ status: "invalid_slug" as const, slug: error.slug })),
+        Effect.catchTag("InvalidSlugError", () => Effect.succeed({ status: "invalid_slug" as const })),
         Effect.provide(Layer.provide(WorkspaceLayer, BunServices.layer)),
       ),
     );
