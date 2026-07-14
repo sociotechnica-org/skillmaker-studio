@@ -296,6 +296,14 @@ export class RecordVersionResponse extends Schema.Class<RecordVersionResponse>(
   label: Schema.NullOr(Schema.String),
 }) {}
 
+/** `POST /api/bundles` response -- the board's "+ New bundle" create form. */
+export class CreateBundleResponse extends Schema.Class<CreateBundleResponse>(
+  "CreateBundleResponse",
+)({
+  status: Schema.Literals(["created", "already_exists"]),
+  slug: Schema.String,
+}) {}
+
 /** `GET /api/bundles/:slug/file?path=...` response. */
 export class BundleFileResponse extends Schema.Class<BundleFileResponse>("BundleFileResponse")({
   path: Schema.String,

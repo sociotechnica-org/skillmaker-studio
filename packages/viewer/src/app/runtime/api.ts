@@ -11,6 +11,7 @@ import {
   BundleFileResponse,
   BundlesResponse,
   CatalogResponse,
+  CreateBundleResponse,
   EventsResponse,
   HealthResponse,
   PostEventResponse,
@@ -202,6 +203,25 @@ export type RecordVersionResult =
  * CLI uses), not here -- this is a plain typed wrapper, same shape as
  * `postEvent`.
  */
+export type CreateBundleResult =
+  | { readonly ok: true; readonly response: CreateBundleResponse }
+  | { readonly ok: false; readonly error: string };
+
+/** `POST /api/bundles` -- scaffold a new bundle in the idea stage (same as `skillmaker new`). */
+export const createBundle = async (slug: string, name: string | undefined): Promise<CreateBundleResult> => {
+  const raw = await postJson("/api/bundles", { slug, ...(name !== undefined ? { name } : {}) });
+
+  if (raw.ok) {
+    const decoded = await Schema.decodeUnknownPromise(CreateBundleResponse)(raw.body);
+    return { ok: true, response: decoded };
+  }
+
+  const decodedError = await Schema.decodeUnknownPromise(ApiErrorResponse)(raw.body).catch(() =>
+    FALLBACK_ERROR(raw.status),
+  );
+  return { ok: false, error: decodedError.error };
+};
+
 export const recordVersion = async (slug: string, label: string | undefined): Promise<RecordVersionResult> => {
   const raw = await postJson(`/api/bundles/${encodeURIComponent(slug)}/record-version`, {
     ...(label !== undefined ? { label } : {}),

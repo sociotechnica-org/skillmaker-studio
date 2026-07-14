@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import type { BundleRecord } from "../runtime/schemas.ts";
 import { BundleCard } from "./BundleCard.tsx";
 
@@ -7,7 +7,9 @@ export const BoardColumn: FC<{
   bundles: ReadonlyArray<BundleRecord>;
   fixtureCounts?: Readonly<Record<string, number>>;
   onSelect?: (slug: string) => void;
-}> = ({ title, bundles, fixtureCounts, onSelect }) => (
+  /** Optional affordance rendered under the cards -- e.g. the Idea column's "+ New bundle" form. */
+  footer?: ReactNode;
+}> = ({ title, bundles, fixtureCounts, onSelect, footer }) => (
   <div className="flex min-w-56 flex-1 flex-col gap-2 rounded-xl bg-neutral-100/60 p-3 dark:bg-neutral-900/40">
     <header className="flex items-center justify-between px-1">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
@@ -24,6 +26,7 @@ export const BoardColumn: FC<{
           onSelect={onSelect}
         />
       ))}
+      {footer}
     </div>
   </div>
 );

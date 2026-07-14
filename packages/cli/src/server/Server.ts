@@ -22,6 +22,8 @@ import {
   publishBundle,
   runFixture,
   runStation,
+  Workspace,
+  WorkspaceLayer,
   type Actor,
   type BundleStage,
   type BundleRecord,
@@ -663,6 +665,81 @@ const handleRecordVersion = async (
   }
 };
 
+interface CreateBundleRequestBody {
+  readonly slug?: unknown;
+  readonly name?: unknown;
+}
+
+/**
+ * `POST /api/bundles` -- the board's "+ New bundle" affordance (the idea
+ * column's create form). Scaffolds a Skill Bundle via the SAME
+ * `Workspace.createBundle` the CLI's `skillmaker new` calls, then journals
+ * `bundle.created` with the same idempotency key -- rather than widening the
+ * generic `POST /api/events` allowlist, which stays closed to `bundle.created`
+ * (a bundle is born from scaffolding + an event, not an event alone). Slug
+ * validation and "already exists" match the CLI path exactly.
+ */
+const handleCreateBundle = async (root: string, request: Request): Promise<Response> => {
+  let body: CreateBundleRequestBody = {};
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    try {
+      body = JSON.parse(rawText) as CreateBundleRequestBody;
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+  }
+  if (typeof body.slug !== "string" || body.slug.length === 0) {
+    return jsonResponse({ error: "slug is required" }, 400);
+  }
+  if (body.name !== undefined && typeof body.name !== "string") {
+    return jsonResponse({ error: "name must be a string" }, 400);
+  }
+  const slug = body.slug;
+  const name = body.name;
+
+  try {
+    const created = await Effect.runPromise(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        return yield* workspace.createBundle(root, name !== undefined ? { slug, name } : { slug });
+      }).pipe(
+        Effect.catchTag("InvalidSlugError", (error) => Effect.succeed({ status: "invalid_slug" as const, slug: error.slug })),
+        Effect.provide(Layer.provide(WorkspaceLayer, BunServices.layer)),
+      ),
+    );
+
+    if (created.status === "invalid_slug") {
+      return jsonResponse(
+        { status: "invalid_slug", slug, error: `"${slug}" is not a valid slug (expected lowercase words joined by hyphens)` },
+        400,
+      );
+    }
+
+    if (created.status === "already_exists") {
+      return jsonResponse({ status: "already_exists", slug });
+    }
+
+    // Fresh scaffold -- journal its creation, exactly as New.ts does.
+    const actor = await Effect.runPromise(resolveUserActor());
+    await runJournalEffect(
+      root,
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+        yield* journal.append({
+          type: "bundle.created",
+          actor,
+          idempotencyKey: `bundle.created:${slug}`,
+          payload: { bundle: slug },
+        });
+      }),
+    );
+    return jsonResponse({ status: "created", slug }, 201);
+  } catch (cause) {
+    return jsonResponse({ error: `could not create bundle: ${String(cause)}` }, 500);
+  }
+};
+
 /** `runs/<runId>/artifacts/<nonempty>` -- Phase 9's run-detail artifact viewer. */
 const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 
@@ -1271,6 +1348,9 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       }
 
       if (pathname === "/api/bundles") {
+        if (request.method === "POST") {
+          return handleCreateBundle(root, request);
+        }
         try {
           const bundles = await listBundleRecords(root);
           const fixtureCounts = await listFixtureCounts(root);
