@@ -9,8 +9,10 @@
  *     publish flow, forward "advance", "move back", recent events. All
  *     writes go through `POST /api/events` (data-model.md §2.9/§2.13) via
  *     `runtime/api.ts`'s `postEvent`.
- *   - Files: read-only `design.md`/`output/SKILL.md` via
- *     `GET /api/bundles/:slug/file` (a strict allowlist -- see Server.ts).
+ *   - Files: read-only view of the bundle's reviewable sources (design.md +
+ *     research/* + output/*, enumerated in the detail payload's `files`) via
+ *     `GET /api/bundles/:slug/file` (a strict allowlist -- see Server.ts);
+ *     `?file=` deep-links a specific one (the review panel's artifact links).
  *   - Versions: the drift badge (data-model.md §2.7), "Record version", and
  *     version history, via `GET /api/bundles/:slug` (versions + drift are
  *     already in the detail payload) and `POST /api/bundles/:slug/record-version`.
@@ -34,7 +36,7 @@ import {
   triggerRun,
   triggerStationRun,
 } from "../runtime/api.ts";
-import { bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
+import { bundleFileHref, bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
 import {
   STAGES,
   type BundleStage,
@@ -62,6 +64,14 @@ const stringField = (payload: unknown, key: string): string | undefined => {
   }
   const value = payload[key];
   return typeof value === "string" ? value : undefined;
+};
+
+const stringArrayField = (payload: unknown, key: string): ReadonlyArray<string> => {
+  if (!isRecord(payload)) {
+    return [];
+  }
+  const value = payload[key];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 };
 
 const formatTime = (iso: string): string => {
@@ -122,11 +132,6 @@ const DRIFT_BADGE_CLASS: Record<Drift, string> = {
   both: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
 };
 
-const FILE_OPTIONS: ReadonlyArray<{ readonly label: string; readonly path: string }> = [
-  { label: "design.md", path: "design.md" },
-  { label: "output/SKILL.md", path: "output/SKILL.md" },
-];
-
 const TABS: ReadonlyArray<{ readonly key: BundleTab; readonly label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "files", label: "Files" },
@@ -159,11 +164,12 @@ const COVERAGE_LABEL: Record<CoverageValue, string> = {
   "n/a": "n/a",
 };
 
-export const BundlePanel: FC<{ slug: string; tab: BundleTab; runId: string | undefined }> = ({
-  slug,
-  tab,
-  runId,
-}) => {
+export const BundlePanel: FC<{
+  slug: string;
+  tab: BundleTab;
+  runId: string | undefined;
+  file: string | undefined;
+}> = ({ slug, tab, runId, file }) => {
   const { detail, loading, error, refetch } = useBundleDetail(slug);
   const { navigate } = useRouter();
   const [actionError, setActionError] = useState<string | undefined>(undefined);
@@ -249,7 +255,7 @@ export const BundlePanel: FC<{ slug: string; tab: BundleTab; runId: string | und
               onChanged={refetch}
             />
           )}
-          {tab === "files" && <FilesTab slug={slug} />}
+          {tab === "files" && <FilesTab slug={slug} files={detail.files} initialFile={file} />}
           {tab === "versions" && (
             <VersionsTab slug={slug} drift={detail.bundle.drift} versions={detail.versions} onRecorded={refetch} />
           )}
@@ -317,6 +323,10 @@ const OverviewTab: FC<OverviewTabProps> = ({
   const awaitingReview = bundle.substate === "awaiting-review";
   const latestReviewRequest = detail.events.find((event) => event.type === "review.requested");
   const question = stringField(latestReviewRequest?.payload, "question");
+  // The exact files the station changed (review.requested's `artifacts`), so
+  // the reviewer can open what they're being asked to approve -- not just read
+  // its name in the question text.
+  const reviewArtifacts = stringArrayField(latestReviewRequest?.payload, "artifacts");
   const forwardReady = guardStatus.approvedForForward && (stage !== "evaluating" || guardStatus.gateApproved);
   const earlier = earlierStages(stage);
   const [stationPending, setStationPending] = useState(false);
@@ -394,6 +404,20 @@ const OverviewTab: FC<OverviewTabProps> = ({
           </h4>
           {question !== undefined && question.length > 0 && (
             <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
+          )}
+          {reviewArtifacts.length > 0 && (
+            <ul className="flex flex-col gap-0.5">
+              {reviewArtifacts.map((path) => (
+                <li key={path}>
+                  <Link
+                    href={bundleFileHref(slug, path)}
+                    className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+                  >
+                    {path}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
           <button
             type="button"
@@ -725,13 +749,31 @@ const PublishToTargetsSection: FC<{ slug: string }> = ({ slug }) => {
   );
 };
 
-const FilesTab: FC<{ slug: string }> = ({ slug }) => {
-  const [selected, setSelected] = useState<string>(FILE_OPTIONS[0]?.path ?? "design.md");
+const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: string | undefined }> = ({
+  slug,
+  files,
+  initialFile,
+}) => {
+  // The `?file=` deep-link wins when it names a real file (the review panel's
+  // "view the changes" link lands here); otherwise default to the first file.
+  const preferred = initialFile !== undefined && files.includes(initialFile) ? initialFile : files[0];
+  const [selected, setSelected] = useState<string | undefined>(preferred);
   const [content, setContent] = useState<string | undefined>(undefined);
   const [fileError, setFileError] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
 
+  // Keep the selection valid as the list changes under live SSE refresh (a
+  // file the reviewer picked stays picked; a vanished one falls back).
   useEffect(() => {
+    setSelected((current) => (current !== undefined && files.includes(current) ? current : preferred));
+  }, [preferred, files]);
+
+  useEffect(() => {
+    if (selected === undefined) {
+      setContent(undefined);
+      setFileError(undefined);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setFileError(undefined);
@@ -757,16 +799,24 @@ const FilesTab: FC<{ slug: string }> = ({ slug }) => {
     };
   }, [slug, selected]);
 
+  if (files.length === 0) {
+    return (
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        No source files yet — design.md, research/, and output/ appear here as each stage produces them.
+      </p>
+    );
+  }
+
   return (
     <section className="flex flex-col gap-2">
       <select
-        value={selected}
+        value={selected ?? ""}
         onChange={(event) => setSelected(event.target.value)}
         className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
       >
-        {FILE_OPTIONS.map((option) => (
-          <option key={option.path} value={option.path}>
-            {option.label}
+        {files.map((path) => (
+          <option key={path} value={path}>
+            {path}
           </option>
         ))}
       </select>
