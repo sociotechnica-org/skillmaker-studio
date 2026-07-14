@@ -3,6 +3,7 @@ import { useBundles } from "../runtime/useBundles.ts";
 import type { BundleRecord, BundleStage } from "../runtime/schemas.ts";
 import { bundleHref, useRouter } from "../runtime/router.tsx";
 import { BoardColumn } from "./BoardColumn.tsx";
+import { NewBundleForm } from "./NewBundleForm.tsx";
 
 const STAGE_COLUMNS: ReadonlyArray<{ stage: BundleStage; title: string }> = [
   { stage: "idea", title: "Idea" },
@@ -60,6 +61,7 @@ export const Board: FC = () => {
               bundles={columns.get(stage) ?? []}
               fixtureCounts={fixtureCounts}
               onSelect={onSelect}
+              footer={stage === "idea" ? <NewBundleForm /> : undefined}
             />
           ))}
           <BoardColumn
