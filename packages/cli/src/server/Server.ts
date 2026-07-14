@@ -670,6 +670,14 @@ const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 const RUN_RESPONSE_PATH = /^runs\/[^/]+\/response\.md$/;
 
 /**
+ * The bundle's reviewable subdirectories, in pipeline order -- the single
+ * source of truth shared by the file-read allowlist below and
+ * `listReviewableBundleFiles`'s enumeration, so the two stay in sync by
+ * construction rather than by hand.
+ */
+const REVIEWABLE_SUBDIRS = ["research", "output"] as const;
+
+/**
  * Only `design.md`, a non-empty path under `research/` or `output/`, a run's
  * `artifacts/` contents, or a run's `response.md` may be read back over HTTP
  * (data-model.md §2.12 -- artifacts listed/viewable on the run-detail
@@ -686,10 +694,7 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
   if (relativePath === "design.md") {
     return true;
   }
-  if (relativePath.startsWith("research/") && relativePath.length > "research/".length) {
-    return true;
-  }
-  if (relativePath.startsWith("output/") && relativePath.length > "output/".length) {
+  if (REVIEWABLE_SUBDIRS.some((sub) => relativePath.startsWith(`${sub}/`) && relativePath.length > sub.length + 1)) {
     return true;
   }
   return RUN_ARTIFACT_PATH.test(relativePath) || RUN_RESPONSE_PATH.test(relativePath);
@@ -760,7 +765,7 @@ const listReviewableBundleFiles = (root: string, config: WorkspaceConfig, slug: 
   if (existsSync(join(bundleDir, "design.md"))) {
     out.push("design.md");
   }
-  for (const sub of ["research", "output"]) {
+  for (const sub of REVIEWABLE_SUBDIRS) {
     out.push(...listFilesRecursive(join(bundleDir, sub), sub).filter(noDotSegment));
   }
   return out;

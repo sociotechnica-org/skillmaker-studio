@@ -757,16 +757,15 @@ const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: st
   // The `?file=` deep-link wins when it names a real file (the review panel's
   // "view the changes" link lands here); otherwise default to the first file.
   const preferred = initialFile !== undefined && files.includes(initialFile) ? initialFile : files[0];
-  const [selected, setSelected] = useState<string | undefined>(preferred);
+  // Only the reviewer's explicit picks live in state; everything else is
+  // derived each render, so the selection can never drift out of sync with a
+  // `files` list refreshed by live SSE updates (a file the reviewer picked
+  // stays picked; a vanished one falls back to `preferred`).
+  const [userSelected, setUserSelected] = useState<string | undefined>(undefined);
+  const selected = userSelected !== undefined && files.includes(userSelected) ? userSelected : preferred;
   const [content, setContent] = useState<string | undefined>(undefined);
   const [fileError, setFileError] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
-
-  // Keep the selection valid as the list changes under live SSE refresh (a
-  // file the reviewer picked stays picked; a vanished one falls back).
-  useEffect(() => {
-    setSelected((current) => (current !== undefined && files.includes(current) ? current : preferred));
-  }, [preferred, files]);
 
   useEffect(() => {
     if (selected === undefined) {
@@ -811,7 +810,7 @@ const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: st
     <section className="flex flex-col gap-2">
       <select
         value={selected ?? ""}
-        onChange={(event) => setSelected(event.target.value)}
+        onChange={(event) => setUserSelected(event.target.value)}
         className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
       >
         {files.map((path) => (
