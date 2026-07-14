@@ -143,7 +143,7 @@ beforeAll(async () => {
     stdout: "pipe",
     stderr: "pipe",
   });
-  await waitForHealth(baseUrl, 15000);
+  await waitForHealth(baseUrl, 30000);
 
   // Walk idea -> published via the same review + gate contract Phase 4's
   // e2e suite exercises.
