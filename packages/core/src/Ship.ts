@@ -1,5 +1,5 @@
 /**
- * Outbound manifest (issue #66, `Vision - Board Lab Port.md` §HOW): the
+ * Outbound manifest (issue #66, `Vision - Board Lab Ship Receive.md` §HOW): the
  * checkout half of the checkout/return-record primitive. Ships a specific
  * recorded version of a bundle -- appends `skill.shipped` with the
  * measurement receipts snapshotted at ship time. Mirrors `Publish.ts`'s

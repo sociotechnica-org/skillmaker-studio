@@ -5,7 +5,7 @@ context: outputs
 status: new
 links:
   related_to:
-    - "../_index/Vision - Board Lab Port"
+    - "../_index/Vision - Board Lab Ship Receive"
     - "./Entity - Skill Version"
     - "./Mechanism - Drift Hint"
     - "./Mechanism - Publish"
@@ -21,8 +21,8 @@ purpose, receipts}`, where `receipts` is
 `[{fixtureCase, provider, model, n, passes, passRate, ci}]`, the
 `computeMeasurements` snapshot for that version at ship time. It is the
 outbound half of the checkout/return-record primitive the Board · Lab ·
-Port model names but does not yet fully build (`Vision - Board Lab
-Port.md` §HOW) — the bill of lading a skill leaves with. Unlike
+Ship · Receive model names but does not yet fully build (`Vision - Board
+Lab Ship Receive.md` §HOW) — the bill of lading a skill leaves with. Unlike
 `skill.published` (`Mechanism - Publish`), a shipment carries no
 idempotency key: re-shipping the same version to the same destination is
 a real, distinct event, not a duplicate to collapse — a skill can leave
@@ -77,21 +77,21 @@ the `events` mirror and Activity feed, same as every other bundle-scoped
 event — no new SQLite table, the generic mirror is enough to list
 shipments per bundle.
 
-Viewer: the Port's per-bundle chapter (`SkillbookBundlePage`, `Port.tsx`)
+Viewer: Ship's per-bundle chapter (`SkillbookBundlePage`, `Ship.tsx`)
 renders a **Shipments** section — destination · purpose · version · when
 · receipt count — built from `SkillbookBundle.shipments`
 (`packages/cli/src/Skillbook.ts`), which folds every `skill.shipped`
 event for the bundle from the same journal read `buildSkillbook` already
-does. The Port's index rows gain a one-line summary ("Shipped Nx — last
+does. Ship's index rows gain a one-line summary ("Shipped Nx — last
 to `<destination>`") when shipments exist. The viewer does not import
 `@skillmaker/core`, so this shape is hand-mirrored in
 `packages/viewer/src/app/runtime/schemas.ts` (`ShipReceipt`,
 `SkillbookShipment`) — kept in lockstep by hand, not by a shared type.
 
-Deliberately not built yet (`Vision - Board Lab Port.md` §HOW
+Deliberately not built yet (`Vision - Board Lab Ship Receive.md` §HOW
 sequencing, issue #66's own scope line): no inbound channel — the
-`field-report` half of the checkout/return pair — and no viewer ship
-button; this is CLI-first, the viewer only reads.
+`field-report` half of the checkout/return pair, now Receive's job (#72)
+— and no viewer ship button; this is CLI-first, the viewer only reads.
 
 Verified: `packages/core/src/Journal.ts` (`SkillShippedEvent`,
 `ShipReceipt`), `packages/core/src/Ship.ts` (`shipBundle`,
@@ -99,5 +99,5 @@ Verified: `packages/core/src/Journal.ts` (`SkillShippedEvent`,
 `packages/core/src/Fold.ts` (`bundleForEvent`'s `"skill.shipped"` case,
 `foldBundleStates` untouched), `packages/cli/src/commands/Ship.ts`,
 `packages/cli/src/Skillbook.ts` (`SkillbookShipment`,
-`SkillbookBundle.shipments`), and `packages/viewer/src/app/components/Port.tsx`
+`SkillbookBundle.shipments`), and `packages/viewer/src/app/components/Ship.tsx`
 all present and match this description.

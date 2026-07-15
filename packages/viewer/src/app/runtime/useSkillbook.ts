@@ -1,9 +1,9 @@
 /**
- * Fetches `/api/skillbook` for the `/port` page (was `/skillbook`, #64;
- * data-model.md §2.14 -- hook name stays `useSkillbook` since it mirrors
- * the untouched `/api/skillbook` endpoint it wraps, and it also backs the
- * per-bundle Skillbook chapter). Refetches on every SSE journal event,
- * same as `useCatalog`.
+ * Fetches `/api/skillbook` for the `/ship` page (was `/skillbook`, #64;
+ * renamed from `/port`, #72; data-model.md §2.14 -- hook name stays
+ * `useSkillbook` since it mirrors the untouched `/api/skillbook` endpoint
+ * it wraps, and it also backs the per-bundle Skillbook chapter). Refetches
+ * on every SSE journal event, same as `useCatalog`.
  */
 import { useCallback, useEffect, useState } from "react";
 import { getSkillbook } from "./api.ts";

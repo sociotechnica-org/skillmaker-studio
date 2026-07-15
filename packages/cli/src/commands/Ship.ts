@@ -1,7 +1,7 @@
 /**
  * `skillmaker ship <slug> --to <destination> --purpose <text> [--version
  * <hash-prefix>] [--json]` -- the outbound half of the checkout/return-record
- * primitive (issue #66, `Vision - Board Lab Port.md` §HOW). Ships the
+ * primitive (issue #66, `Vision - Board Lab Ship Receive.md` §HOW). Ships the
  * latest recorded version by default (or the version matching `--version`'s
  * hash prefix), appending `skill.shipped` with its measurement receipts
  * snapshotted at ship time. Errors if the bundle has no recorded version at

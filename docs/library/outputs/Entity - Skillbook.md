@@ -24,9 +24,10 @@ per provider/model, pinned to a version hash), and a changelog replayed
 from the journal (versions recorded, publishes, gate decisions). One
 generator produces it, rendered two ways: a live viewer tab (always
 current) and `skillmaker book build` (a static HTML site). The viewer
-tab is the **Port** (was the Skillbook tab, #64) — the Skillbook itself
-survives as the per-bundle chapter it renders, "the paperwork that ships
-with a skill," not the surface's name.
+tab is **Ship** (was the Skillbook tab, #64; was Port, #72 split Port's
+outbound half into its own Ship tab) — the Skillbook itself survives as
+the per-bundle chapter it renders, "the paperwork that ships with a
+skill," not the surface's name.
 
 ## WHY
 
@@ -60,9 +61,9 @@ from `bundle.gate_decided`), sorted newest-first.
 
 Two render doors share this one aggregation:
 
-- Live: the server's `GET /api/skillbook` endpoint (untouched, #64 is
-  display-layer only), rendered by the viewer's Port tab
-  (`packages/viewer/src/app/components/Port.tsx`'s `Port` component for
+- Live: the server's `GET /api/skillbook` endpoint (untouched, #64/#72
+  are display-layer only), rendered by the viewer's Ship tab
+  (`packages/viewer/src/app/components/Ship.tsx`'s `Ship` component for
   the index and `SkillbookBundlePage` for the per-bundle chapter,
   `useSkillbook.ts`) — always current because it re-reads the index and
   journal on request.

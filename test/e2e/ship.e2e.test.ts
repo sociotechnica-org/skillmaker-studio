@@ -1,11 +1,11 @@
 /**
- * End-to-end: `skillmaker ship` (issue #66, `Vision - Board Lab Port.md`
- * §HOW) -- the outbound half of the checkout/return-record primitive.
- * Spawns the real CLI against a scratch workspace, same harness as
- * `cli.e2e.test.ts`/`phase11.e2e.test.ts`: scaffold -> record a version ->
- * `ship` -> assert the journal line, the `--json` shape, and (via the real
- * `skillmaker start` server) that the Port's chapter/changelog surfaces the
- * shipment.
+ * End-to-end: `skillmaker ship` (issue #66, `Vision - Board Lab Ship
+ * Receive.md` §HOW) -- the outbound half of the checkout/return-record
+ * primitive. Spawns the real CLI against a scratch workspace, same harness
+ * as `cli.e2e.test.ts`/`phase11.e2e.test.ts`: scaffold -> record a version
+ * -> `ship` -> assert the journal line, the `--json` shape, and (via the
+ * real `skillmaker start` server) that Ship's chapter/changelog surfaces
+ * the shipment.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -207,7 +207,7 @@ describe("skillmaker ship: happy path", () => {
   });
 });
 
-describe("skillmaker ship: the Port surfaces the shipment", () => {
+describe("skillmaker ship: Ship surfaces the shipment", () => {
   beforeAll(async () => {
     const port = 22000 + Math.floor(Math.random() * 8000);
     baseUrl = `http://localhost:${port}`;

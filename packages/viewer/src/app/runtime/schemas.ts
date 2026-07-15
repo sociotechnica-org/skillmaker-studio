@@ -443,7 +443,7 @@ export class ShipReceipt extends Schema.Class<ShipReceipt>("ShipReceipt")({
 }) {}
 
 /**
- * One `skill.shipped` event, materialized for the Port (issue #66): "where
+ * One `skill.shipped` event, materialized for Ship (issue #66): "where
  * is this in the world" -- destination, purpose, the version that left, and
  * the receipts it shipped with, frozen at that moment.
  */
