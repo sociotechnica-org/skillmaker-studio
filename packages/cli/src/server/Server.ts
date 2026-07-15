@@ -51,10 +51,14 @@ const HEARTBEAT_MS = 15_000;
  * The v1 event catalog (data-model.md §2.9) is much larger than this --
  * `POST /api/events` only ever accepts the subset a human/agent can
  * meaningfully cause from outside the CLI's own scaffolding commands.
- * Everything else (`bundle.created`, `skill.*`, `run.*`, `station.started`)
- * stays CLI/engine-only. `todo.*` joined the allowlist in Phase 5 -- the
- * viewer's todos panel writes directly through this path, same as bundle
- * stage/review actions.
+ * Everything else (`bundle.created`, `skill.version_recorded`/`published`/
+ * `shipped`, `run.*`, `station.started`) stays CLI/engine-only. `todo.*`
+ * joined the allowlist in Phase 5 -- the viewer's todos panel writes
+ * directly through this path, same as bundle stage/review actions.
+ * `skill.field_report` is the one `skill.*` exception (issue #67): unlike
+ * the rest of the `skill.*` family, a field report has no CLI-side
+ * computation to protect (no receipts snapshot, no version resolution
+ * required) -- it is deliberately "the manually pasted channel, verbatim."
  */
 const ALLOWED_API_EVENT_TYPES = new Set([
   "bundle.stage_changed",
@@ -70,6 +74,10 @@ const ALLOWED_API_EVENT_TYPES = new Set([
   // is a brand-new event (no idempotencyKey), latest wins at fold time
   // (data-model.md §2.9).
   "run.graded",
+  // Receive's paste form (issue #67) -- "the manually pasted channel,
+  // verbatim." No idempotencyKey, no guard: a field report never fails to
+  // append once its payload shape is valid.
+  "skill.field_report",
 ]);
 
 const MAX_BUNDLE_DETAIL_EVENTS = 20;
@@ -203,6 +211,36 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
   const nextCursor = hasMore && lastEvent !== undefined ? lastEvent.id : null;
 
   return jsonResponse({ events: page, nextCursor });
+};
+
+/**
+ * `GET /api/field-reports` -- Receive's workspace-wide field-report list
+ * (issue #67, `Vision - Board Lab Ship Receive.md` §HOW): "what is the world
+ * telling me about what I shipped." Reads the same full journal every other
+ * endpoint reads (`readJournalEvents`), filters to `skill.field_report`, and
+ * returns it newest-first, unpaginated -- a manually pasted channel is not
+ * expected to grow the way the whole journal does, so this deliberately
+ * skips `GET /api/events`'s cursor pagination for a small dedicated shape
+ * the Receive tab can render directly, no `EventView.payload: Unknown`
+ * decoding required. No new SQLite table: this is a read-time filter, same
+ * as `handleListEvents`.
+ */
+const handleFieldReports = async (root: string): Promise<Response> => {
+  const events = await readJournalEvents(root);
+  const reports = events
+    .filter((event) => event.type === "skill.field_report")
+    .map((event) => ({
+      id: event.id,
+      bundle: event.payload.bundle,
+      outcome: event.payload.outcome,
+      report: event.payload.report,
+      versionHash: event.payload.versionHash ?? null,
+      destination: event.payload.destination ?? null,
+      at: event.at,
+      actor: event.actor,
+    }))
+    .reverse();
+  return jsonResponse({ reports });
 };
 
 /**
@@ -1369,6 +1407,14 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return await handleListEvents(root, url);
         } catch (cause) {
           return jsonResponse({ error: `could not list events: ${String(cause)}` }, 500);
+        }
+      }
+
+      if (pathname === "/api/field-reports") {
+        try {
+          return await handleFieldReports(root);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list field reports: ${String(cause)}` }, 500);
         }
       }
 

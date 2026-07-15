@@ -414,15 +414,15 @@ export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogRespo
 
 /**
  * `GET /api/skillbook` (data-model.md §2.14): "skills leave the studio with
- * receipts." One changelog entry per version/publish/gate/shipped event,
- * newest first; `designMarkdown` is the raw `design.md` content (rendered
- * client-side, same hand-rolled markdown subset `book build`'s
+ * receipts." One changelog entry per version/publish/gate/shipped/reported
+ * event, newest first; `designMarkdown` is the raw `design.md` content
+ * (rendered client-side, same hand-rolled markdown subset `book build`'s
  * `BookRenderer.ts` renders server/CLI-side).
  */
 export class SkillbookChangelogEntry extends Schema.Class<SkillbookChangelogEntry>(
   "SkillbookChangelogEntry",
 )({
-  type: Schema.Literals(["version", "published", "gate", "shipped"]),
+  type: Schema.Literals(["version", "published", "gate", "shipped", "reported"]),
   at: Schema.String,
   summary: Schema.String,
 }) {}
@@ -470,6 +470,31 @@ export class SkillbookBundle extends Schema.Class<SkillbookBundle>("SkillbookBun
 export class SkillbookResponse extends Schema.Class<SkillbookResponse>("SkillbookResponse")({
   workspaceName: Schema.String,
   bundles: Schema.Array(SkillbookBundle),
+}) {}
+
+/** Mirrors `@skillmaker/core`'s `FieldReportOutcome` (issue #67) -- the reporter's own read, not a pass/fail eval verdict. */
+export const FieldReportOutcome = Schema.Literals(["worked", "failed", "surprise"]);
+export type FieldReportOutcome = typeof FieldReportOutcome.Type;
+
+/**
+ * `GET /api/field-reports` -- Receive's workspace-wide field-report list
+ * (issue #67): "what is the world telling me about what I shipped."
+ * `versionHash`/`destination` are `null` when the reporter didn't know them.
+ */
+export class FieldReportView extends Schema.Class<FieldReportView>("FieldReportView")({
+  id: Schema.String,
+  bundle: Schema.String,
+  outcome: FieldReportOutcome,
+  report: Schema.String,
+  versionHash: Schema.NullOr(Schema.String),
+  destination: Schema.NullOr(Schema.String),
+  at: Schema.String,
+  actor: ActorView,
+}) {}
+
+/** `GET /api/field-reports` response -- newest first, unpaginated (issue #67). */
+export class FieldReportsResponse extends Schema.Class<FieldReportsResponse>("FieldReportsResponse")({
+  reports: Schema.Array(FieldReportView),
 }) {}
 
 /** One `publishTargets` entry (skillmaker.config.json) -- what the viewer's Publish step offers. */

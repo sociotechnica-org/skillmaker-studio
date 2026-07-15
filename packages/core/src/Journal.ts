@@ -170,6 +170,45 @@ export class SkillShippedEvent extends Schema.Class<SkillShippedEvent>(
   }),
 }) {}
 
+/** `worked` | `failed` | `surprise` -- the reporter's own read on how a shipped version held up, not a pass/fail eval verdict. */
+export const FieldReportOutcome = Schema.Literals(["worked", "failed", "surprise"]);
+export type FieldReportOutcome = typeof FieldReportOutcome.Type;
+
+/**
+ * The inbound half of the checkout/return-record primitive (`Vision -
+ * Board Lab Ship Receive.md` §HOW, issue #67): "a dumb inbound channel.
+ * Even a manually pasted field report proves the loop closes once, by
+ * hand, before automating it." `report` is free prose -- the wild is the
+ * best fixture source there is ("a skill that fails in production *is* a
+ * new fixture"), but turning a report into a Lab fixture is #68, not this
+ * event. `versionHash`/`destination` are both optional (unlike
+ * `SkillShippedEvent`'s required fields): the reporter may not know which
+ * version they ran or where it shipped from -- when known, they tie the
+ * report back to a `skill.shipped` record (#71), but a report with neither
+ * is still a real, useful signal. No `idempotencyKey`: two reports about
+ * the same bundle are two distinct pieces of signal, never a duplicate to
+ * collapse. Deliberately no `bundleForEvent`-adjacent board-state effect
+ * either -- a field report doesn't move a bundle's stage (`Fold.ts`'s
+ * `foldBundleStates` is untouched, same house rule `SkillShippedEvent`
+ * follows).
+ */
+export class SkillFieldReportEvent extends Schema.Class<SkillFieldReportEvent>(
+  "SkillFieldReportEvent",
+)({
+  ...envelopeFields,
+  type: Schema.Literal("skill.field_report"),
+  payload: Schema.Struct({
+    bundle: Schema.String,
+    outcome: FieldReportOutcome,
+    /** Free-text: what the wild is saying back. */
+    report: Schema.String,
+    /** A recorded version's hash, when the reporter knows which version they ran. */
+    versionHash: Schema.optionalKey(Schema.String),
+    /** Free-text: where the report came from (an agent, a repo, a runtime), when known. */
+    destination: Schema.optionalKey(Schema.String),
+  }),
+}) {}
+
 // ---------------------------------------------------------------------------
 // todo.*
 // ---------------------------------------------------------------------------
@@ -331,6 +370,7 @@ export const JournalEvent = Schema.Union([
   SkillVersionRecordedEvent,
   SkillPublishedEvent,
   SkillShippedEvent,
+  SkillFieldReportEvent,
   TodoOpenedEvent,
   TodoUpdatedEvent,
   TodoStatusChangedEvent,

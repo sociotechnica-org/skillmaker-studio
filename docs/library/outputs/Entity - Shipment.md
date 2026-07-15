@@ -10,6 +10,7 @@ links:
     - "./Mechanism - Drift Hint"
     - "./Mechanism - Publish"
     - "./Entity - Skillbook"
+    - "./Entity - Field Report"
 ---
 
 ## WHAT
@@ -89,9 +90,12 @@ to `<destination>`") when shipments exist. The viewer does not import
 `SkillbookShipment`) — kept in lockstep by hand, not by a shared type.
 
 Deliberately not built yet (`Vision - Board Lab Ship Receive.md` §HOW
-sequencing, issue #66's own scope line): no inbound channel — the
-`field-report` half of the checkout/return pair, now Receive's job (#72)
-— and no viewer ship button; this is CLI-first, the viewer only reads.
+sequencing, issue #66's own scope line): no viewer ship button -- this
+half is CLI-first, the viewer only reads. The inbound channel this card's
+"not built yet" originally named -- the `field-report` half of the
+checkout/return pair -- shipped in #67 (`Entity - Field Report.md`);
+`skill.field_report` carries an optional `versionHash` back to the
+specific `skill.shipped` this card describes, when the reporter knows it.
 
 Verified: `packages/core/src/Journal.ts` (`SkillShippedEvent`,
 `ShipReceipt`), `packages/core/src/Ship.ts` (`shipBundle`,

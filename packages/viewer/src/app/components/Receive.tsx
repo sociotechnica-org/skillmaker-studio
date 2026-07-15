@@ -2,27 +2,179 @@
  * The `/receive` page (#72, Board · Lab · Ship · Receive · Activity): the
  * receiving bay -- "what the wild sends back." Ship's outbound half of the
  * checkout/return-record primitive (`Vision - Board Lab Ship Receive.md`
- * §HOW) has a manifest (`skill.shipped`, #66); Receive is where its inbound
- * half will land: field reports about shipped skills (issue #67), and later
- * intake/quarantine for arriving skills. That primitive is not built yet,
- * so this page renders an honest empty state naming the job rather than
- * faking data -- no data plumbing in this pass.
+ * §HOW) has a manifest (`skill.shipped`, #66); this is where its inbound
+ * half lands (issue #67): a workspace-wide field-report list, newest first,
+ * plus a minimal paste form -- "even a manually pasted field report proves
+ * the loop closes once, by hand, before automating it." No automation, no
+ * fixture creation (that's #68); the list is read via `GET
+ * /api/field-reports` (`useFieldReports`), the form writes through the
+ * generic `POST /api/events` path (`postEvent`), same as `TodosPanel`.
  */
-import type { FC } from "react";
+import { type FC, type FormEvent, useState } from "react";
+import { postEvent } from "../runtime/api.ts";
+import { shipBundleHref, Link } from "../runtime/router.tsx";
+import type { FieldReportOutcome, FieldReportView } from "../runtime/schemas.ts";
+import { useBundles } from "../runtime/useBundles.ts";
+import { useFieldReports } from "../runtime/useFieldReports.ts";
 
-/** The `/receive` index page: an honest empty state, no data plumbing yet. */
-export const Receive: FC = () => (
-  <div className="flex max-w-3xl flex-col gap-4">
-    <div>
-      <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Receive</h1>
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        the receiving bay — what the wild sends back.
-      </p>
+const OUTCOMES: ReadonlyArray<FieldReportOutcome> = ["worked", "failed", "surprise"];
+
+const OUTCOME_BADGE_CLASS: Readonly<Record<FieldReportOutcome, string>> = {
+  worked: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  failed: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  surprise: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+};
+
+const shortHash = (hash: string): string => {
+  const prefix = "sha256:";
+  return (hash.startsWith(prefix) ? hash.slice(prefix.length) : hash).slice(0, 12);
+};
+
+const ReportRow: FC<{ report: FieldReportView }> = ({ report }) => (
+  <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
+    <div className="flex flex-wrap items-center gap-2">
+      <Link
+        href={shipBundleHref(report.bundle)}
+        className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
+      >
+        {report.bundle}
+      </Link>
+      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${OUTCOME_BADGE_CLASS[report.outcome]}`}>
+        {report.outcome}
+      </span>
     </div>
-
-    <p className="text-sm text-neutral-400">
-      Nothing here yet. Field reports about shipped skills will land here once #67 ships — a skill
-      that fails in the wild is a new fixture.
-    </p>
-  </div>
+    <p className="text-sm text-neutral-700 dark:text-neutral-300">{report.report}</p>
+    <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+      {report.versionHash !== null && <span className="font-mono">{shortHash(report.versionHash)}</span>}
+      {report.destination !== null && <span>from "{report.destination}"</span>}
+      <span>{new Date(report.at).toLocaleString()}</span>
+    </div>
+  </li>
 );
+
+/** The minimal paste form (issue #67): bundle select + outcome select + textarea -- "the manually pasted channel, verbatim." */
+const ReportForm: FC<{ onReported: () => void }> = ({ onReported }) => {
+  const { bundles } = useBundles();
+  const [bundle, setBundle] = useState("");
+  const [outcome, setOutcome] = useState<FieldReportOutcome>("worked");
+  const [report, setReport] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  const submit = (event: FormEvent): void => {
+    event.preventDefault();
+    const text = report.trim();
+    if (bundle.length === 0 || text.length === 0) {
+      return;
+    }
+    setPending(true);
+    setError(undefined);
+    postEvent({ type: "skill.field_report", payload: { bundle, outcome, report: text } })
+      .then((result) => {
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setReport("");
+        onReported();
+      })
+      .catch((cause: Error) => setError(cause.message))
+      .finally(() => setPending(false));
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800"
+    >
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        Paste a field report
+      </h2>
+      {error !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <select
+          value={bundle}
+          onChange={(event) => setBundle(event.target.value)}
+          className="flex-1 rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          <option value="">Select a bundle...</option>
+          {bundles.map((candidate) => (
+            <option key={candidate.slug} value={candidate.slug}>
+              {candidate.slug}
+            </option>
+          ))}
+        </select>
+        <select
+          value={outcome}
+          onChange={(event) => setOutcome(event.target.value as FieldReportOutcome)}
+          className="flex-1 rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          {OUTCOMES.map((candidate) => (
+            <option key={candidate} value={candidate}>
+              {candidate}
+            </option>
+          ))}
+        </select>
+      </div>
+      <textarea
+        value={report}
+        onChange={(event) => setReport(event.target.value)}
+        placeholder="What happened in the wild?"
+        rows={3}
+        className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+      />
+      <button
+        type="submit"
+        disabled={pending || bundle.length === 0 || report.trim().length === 0}
+        className="w-fit rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+      >
+        {pending ? "Recording..." : "+ Add field report"}
+      </button>
+    </form>
+  );
+};
+
+/** The `/receive` index page: a paste form plus the workspace-wide field-report list, newest first. */
+export const Receive: FC = () => {
+  const { reports, loading, error, refetch } = useFieldReports();
+
+  return (
+    <div className="flex max-w-3xl flex-col gap-4">
+      <div>
+        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Receive</h1>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          the receiving bay — what the wild sends back.
+        </p>
+      </div>
+
+      <ReportForm onReported={refetch} />
+
+      {error !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          Could not load field reports: {error.message}
+        </p>
+      )}
+
+      {loading && reports.length === 0 && error === undefined && (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
+      )}
+
+      {reports.length === 0 && !loading ? (
+        <p className="text-sm text-neutral-400">
+          Nothing here yet. Field reports about shipped skills land here once pasted above — a skill that fails in
+          the wild is a new fixture.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {reports.map((report) => (
+            <ReportRow key={report.id} report={report} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};

@@ -113,7 +113,7 @@ describe("foldBundleStates", () => {
     expect(states.get("demo")?.stage).toBe("idea");
   });
 
-  test("unrelated event types (bundle.gate_decided, todo.*, run.*, station.started) do not affect state", () => {
+  test("unrelated event types (bundle.gate_decided, todo.*, run.*, station.started, skill.field_report) do not affect state", () => {
     const events: ReadonlyArray<JournalEvent> = [
       { ...envelope("bundle.created"), payload: { bundle: "demo" } },
       {
@@ -123,6 +123,10 @@ describe("foldBundleStates", () => {
       {
         ...envelope("station.started"),
         payload: { bundle: "demo", state: "researching" },
+      },
+      {
+        ...envelope("skill.field_report"),
+        payload: { bundle: "demo", outcome: "failed", report: "Broke on an edge case." },
       },
     ];
     const states = foldBundleStates(events);
@@ -165,6 +169,14 @@ describe("bundleForEvent", () => {
         purpose: "eval harness",
         receipts: [],
       },
+    } as JournalEvent;
+    expect(bundleForEvent(event)).toBe("demo");
+  });
+
+  test("extracts the bundle field from skill.field_report (issue #67)", () => {
+    const event = {
+      ...envelope("skill.field_report"),
+      payload: { bundle: "demo", outcome: "worked", report: "Worked great." },
     } as JournalEvent;
     expect(bundleForEvent(event)).toBe("demo");
   });

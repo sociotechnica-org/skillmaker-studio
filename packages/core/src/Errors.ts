@@ -124,3 +124,12 @@ export class ShipVersionNotFoundError extends Schema.TaggedErrorClass<ShipVersio
     prefix: Schema.String,
   },
 ) {}
+
+/** `skillmaker report --version <prefix>` didn't match any recorded version's hash for the bundle. */
+export class FieldReportVersionNotFoundError extends Schema.TaggedErrorClass<FieldReportVersionNotFoundError>()(
+  "FieldReportVersionNotFoundError",
+  {
+    bundle: Schema.String,
+    prefix: Schema.String,
+  },
+) {}

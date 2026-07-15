@@ -10,6 +10,7 @@ links:
     - "../board/Surface - Activity Feed"
     - "../outputs/Entity - Skillbook"
     - "../outputs/Entity - Shipment"
+    - "../outputs/Entity - Field Report"
     - "../outputs/Mechanism - Drift Hint"
     - "../evals/Entity - Fixture"
 ---
@@ -123,14 +124,18 @@ Naming: **Board** (keep) · **Lab** (was Catalog) · **Ship** (was
 Skillbook, then Port; #72 split off the outbound half) · **Receive**
 (new tab, #72 split off Port's inbound half) · **Activity** (keep).
 
-Verified: as of this writing there is no deployment/checkout/field-report
-concept in `packages/core/src` or `packages/cli/src` — the only outbound
-path is `skillmaker book build` (static site). `Lab.tsx` (was
-`Catalog.tsx`, #64) renders a `drift` pill unconditionally but
-`archived`/`tags` conditionally; Lab and Ship index rows are structurally
-near-identical (name · stage badge · one-liner · version · fixture count)
-— the rename didn't touch that, on purpose, since it's a separate,
-un-scheduled behavioral change. `Receive.tsx` (#72) is a static empty
-state with no data source. This card is `status: adopted` for the
-naming (now Board · Lab · Ship · Receive · Activity, #72); the
-checkout/field-report primitive and Lab's bench upgrades remain unbuilt.
+Verified: as of this writing both halves of the checkout/return-record
+primitive exist in `packages/core/src`/`packages/cli/src` — `skill.shipped`
+(outbound, #71, `Entity - Shipment.md`) and `skill.field_report` (inbound,
+#67, `Entity - Field Report.md`); `skillmaker book build` (static site)
+remains the only *delivery* mechanism, since neither event copies anything.
+`Lab.tsx` (was `Catalog.tsx`, #64) renders a `drift` pill unconditionally
+but `archived`/`tags` conditionally; Lab and Ship index rows are
+structurally near-identical (name · stage badge · one-liner · version ·
+fixture count) — the rename didn't touch that, on purpose, since it's a
+separate, un-scheduled behavioral change. `Receive.tsx` (#67) now reads
+`GET /api/field-reports` and renders a paste form; a field report never
+moves a bundle's stage, same house rule shipping follows. This card is
+`status: adopted` for the naming (now Board · Lab · Ship · Receive ·
+Activity, #72); Lab's bench upgrades and field drift (a shipped version
+diverging in the wild) remain unbuilt.

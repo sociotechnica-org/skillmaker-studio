@@ -86,6 +86,16 @@ const samples: ReadonlyArray<Record<string, unknown>> = [
       ],
     },
   },
+  {
+    ...envelope("skill.field_report"),
+    payload: {
+      bundle: "demo",
+      outcome: "worked",
+      report: "Ran fine against three prod repos this week.",
+      versionHash: "sha256:aaa",
+      destination: "acme-agent-fleet",
+    },
+  },
   { ...envelope("todo.opened"), payload: { todo } },
   {
     ...envelope("todo.updated"),
@@ -136,6 +146,24 @@ describe("JournalEvent schema round-trip", () => {
       expect(String(redecoded.type)).toBe(String(expectedType));
     });
   }
+
+  test("skill.field_report decodes with versionHash/destination omitted (issue #67: the reporter may not know either)", async () => {
+    const sample = {
+      ...envelope("skill.field_report"),
+      payload: { bundle: "demo", outcome: "surprise", report: "Worked, but used a tool we didn't expect." },
+    };
+    const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(sample));
+    expect(decoded.type).toBe("skill.field_report");
+  });
+
+  test("skill.field_report rejects an outcome outside worked/failed/surprise", async () => {
+    const bad = {
+      ...envelope("skill.field_report"),
+      payload: { bundle: "demo", outcome: "mixed", report: "..." },
+    };
+    const outcome = await Effect.runPromiseExit(Schema.decodeUnknownEffect(JournalEvent)(bad));
+    expect(outcome._tag).toBe("Failure");
+  });
 
   test("rejects an unknown event type", async () => {
     const bad = { ...envelope("bundle.teleported"), payload: {} };
