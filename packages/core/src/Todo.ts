@@ -17,6 +17,31 @@ export class ChecklistItem extends Schema.Class<ChecklistItem>("ChecklistItem")(
   done: Schema.Boolean,
 }) {}
 
+/**
+ * A todo's optional provenance (issue #81): which upstream signal opened
+ * this todo automatically, if any. `"field-report"` is the only `kind`
+ * today -- named generically (`ref`, not `eventId`) so later producers
+ * (`run`, `coverage-gap`) can add a kind without a breaking change to this
+ * shape, same closed-union reasoning as `FixtureSource` (`Fixtures.ts`).
+ * Immutable like `source`: structurally absent from `TodoPatch`, so a
+ * `todo.updated` patch can never retroactively stamp or change it.
+ */
+export class TodoOrigin extends Schema.Class<TodoOrigin>("TodoOrigin")({
+  kind: Schema.Literal("field-report"),
+  /** The journal event id this todo traces back to, e.g. a `skill.field_report`'s id. */
+  ref: Schema.String,
+}) {}
+
+/**
+ * The plain-object form of `TodoOrigin` -- mirrors `FixtureSourceRecord`'s
+ * reasoning (`Fixtures.ts`): the ONE shape every record carrying todo
+ * provenance references, so a future producer kind lands in one place.
+ */
+export interface TodoOriginRecord {
+  readonly kind: "field-report";
+  readonly ref: string;
+}
+
 export class Todo extends Schema.Class<Todo>("Todo")({
   /** "td-<ulid>". */
   id: Schema.String,
@@ -36,12 +61,14 @@ export class Todo extends Schema.Class<Todo>("Todo")({
   /** Derived: terminal + >= 7 days + not pinned. */
   archived: Schema.optionalKey(Schema.Boolean),
   source: Actor,
+  /** Immutable; stamped only at `todo.opened` (issue #81). See `TodoOrigin`. */
+  origin: Schema.optionalKey(TodoOrigin),
 }) {}
 
 /**
  * Shallow patch of a todo's MUTABLE fields, carried by `todo.updated`
- * (data-model.md §2.10). `id`, `kind`, `created`, and `source` are
- * immutable and deliberately absent from this schema -- a patch payload
+ * (data-model.md §2.10). `id`, `kind`, `created`, `source`, and `origin`
+ * are immutable and deliberately absent from this schema -- a patch payload
  * that tries to carry them is decoded with those keys silently stripped
  * (reject-by-ignore), never rejected outright.
  */

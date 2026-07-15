@@ -9,6 +9,7 @@ links:
     - "./Entity - Shipment"
     - "./Entity - Skillbook"
     - "../evals/Entity - Fixture"
+    - "../board/Entity - Todo"
 ---
 
 ## WHAT
@@ -132,6 +133,49 @@ diverging in the wild, distinct from today's local drift, `Mechanism - Drift
 Hint.md`) -- Receive owns that, unbuilt. No intake/quarantine for *arriving*
 skills -- a separate, design-needed issue.
 
+## HOW -- todo (issue #81)
+
+Harvest (#68) is the fixture-shaped exit door out of a field report;
+`Entity - Todo.md`'s `origin` field is the other one -- "a skill that fails
+in production *is* a new fixture" has a sibling sentence: a report is also
+just work someone needs to do. This section is the mirror image of "HOW --
+harvest" above, same shape of honesty, opposite target: a fixture (files)
+vs. a todo (journal-native).
+
+CLI: `skillmaker todo add <title> --from-report <event-id>`
+(`packages/cli/src/commands/Todo.ts`, core logic in `packages/core/src/
+TodoFromReport.ts`'s `openTodoFromReport`). Resolves `--from-report`
+against the full journal and fails honestly on every way that can go wrong
+-- unknown event id, an event that isn't a `skill.field_report`, or an
+explicit `--bundle` that disagrees with the report's own. On success it
+appends the same `todo.opened` event a plain `todo add` does, except
+`bundle`/`kind`/`detail` default off the report (`--bundle` from the
+report's own bundle, `--kind` by outcome -- `failed` -> `bug`, `surprise`
+-> `eval`, `worked` -> `task` -- and `detail` from the report's prose plus
+`Destination:`/`Version:` lines when known), all overridable, and the
+todo's `origin: {kind: "field-report", ref: eventId}` is stamped
+regardless -- immutable, same house rule `fixture harvest`'s `case.json`
+`source` follows.
+
+Viewer: the Receive tab (`packages/viewer/src/app/components/
+Receive.tsx`) gets a second, independent affordance next to the harvest
+one -- still CLI-first, no write button. `GET /api/field-reports`
+(`handleFieldReports`) now also folds the SAME `events` array it already
+read (`foldTodos`, no second journal read) and joins each report to the
+todo, if any, whose `origin.ref` equals that report's event id, returning
+`todo: {id, title, status} | null`. A report with a linked todo shows a
+work chip (title + status); an unharvested `failed`/`surprise` report with
+no linked todo shows `skillmaker todo add "<title>" --from-report <id>` as
+copyable text, `<title>` left for the human to fill in, right next to the
+harvest command. The two doors are independent: a report can be harvested
+into a fixture AND turned into a todo, either, or neither -- there is no
+either/or gating between them.
+
+Deliberately not built in this pass (issue #81's own scope line): no write
+button, no auto-todo on failed reports -- the human decides what the wild
+means. No `run`/`coverage-gap` origin producers. No todo detail page. No
+shipment<->report linkage changes (#73 territory).
+
 Verified: `packages/core/src/Journal.ts` (`SkillFieldReportEvent`,
 `FieldReportOutcome`), `packages/core/src/Fold.ts` (`bundleForEvent`'s
 `"skill.field_report"` case, `foldBundleStates` untouched),
@@ -149,3 +193,14 @@ and `packages/viewer/src/app/components/Receive.tsx` (the paste form,
 `packages/viewer/src/app/components/Receive.tsx`
 (`FieldReportView.fixtureCase`, the harvested-link/harvest-command branch)
 all present and match this description.
+
+Todo (issue #81) verified: `packages/core/src/Todo.ts` (`TodoOrigin`),
+`packages/core/src/TodoFromReport.ts` (`openTodoFromReport`,
+`TODO_KIND_BY_OUTCOME`), `packages/core/src/Errors.ts`'s three
+`TodoFromReport*` tagged errors, `packages/cli/src/commands/Todo.ts` and
+`packages/cli/src/Cli.ts` (`todo add --from-report` routing),
+`packages/cli/src/server/Server.ts` (`handleFieldReports`'s `foldTodos`
+join, `FieldReportView`'s new `todo` field), and
+`packages/viewer/src/app/components/Receive.tsx` (the work-chip/
+todo-add-command branch, independent of the harvest branch above) all
+present and match this description.

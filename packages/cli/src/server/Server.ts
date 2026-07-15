@@ -33,6 +33,7 @@ import {
   type MeasurementRecord,
   type RiskCoverageRecord,
   type RunIndexRecord,
+  type Todo,
   type TodoRecord,
   type VersionRecord,
   type WarningRecord,
@@ -236,6 +237,12 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
  * journal parse + rescan of every bundle in the workspace + a SQLite
  * rewrite) is disproportionate for a read-only lookup over the handful of
  * reported bundles' `case.json` files.
+ *
+ * `todo` (issue #81) is the same read-time join, the other side of the
+ * loop: `foldTodos` over the SAME `events` array already read above (no
+ * second journal read) finds the todo, if any, whose `origin.ref` equals
+ * this report's event id -- `todo add --from-report`'s provenance stamp.
+ * `null` means no todo has been opened from this report yet.
  */
 const handleFieldReports = async (root: string, config: WorkspaceConfig): Promise<Response> => {
   const events = await readJournalEvents(root);
@@ -259,6 +266,17 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
     return harvested?.caseName ?? null;
   };
 
+  const todosByReportEventId = new Map<string, Todo>();
+  for (const todo of foldTodos(events).values()) {
+    if (todo.origin?.kind === "field-report") {
+      todosByReportEventId.set(todo.origin.ref, todo);
+    }
+  }
+  const linkedTodo = (eventId: string): { id: string; title: string; status: string } | null => {
+    const todo = todosByReportEventId.get(eventId);
+    return todo === undefined ? null : { id: todo.id, title: todo.title, status: todo.status };
+  };
+
   const reports = reportEvents
     .map((event) => ({
       id: event.id,
@@ -270,6 +288,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
       at: event.at,
       actor: event.actor,
       fixtureCase: harvestedCase(event.payload.bundle, event.id),
+      todo: linkedTodo(event.id),
     }))
     .reverse();
   return jsonResponse({ reports });

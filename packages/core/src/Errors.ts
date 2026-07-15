@@ -169,3 +169,30 @@ export class HarvestCaseExistsError extends Schema.TaggedErrorClass<HarvestCaseE
     caseName: Schema.String,
   },
 ) {}
+
+/** `skillmaker todo add --from-report <event-id>` named an event id that isn't in the journal at all (issue #81). */
+export class TodoFromReportEventNotFoundError extends Schema.TaggedErrorClass<TodoFromReportEventNotFoundError>()(
+  "TodoFromReportEventNotFoundError",
+  {
+    eventId: Schema.String,
+  },
+) {}
+
+/** The event `--from-report` named is real, but isn't a `skill.field_report` -- only a field report can seed a todo. */
+export class TodoFromReportNotFieldReportError extends Schema.TaggedErrorClass<TodoFromReportNotFieldReportError>()(
+  "TodoFromReportNotFieldReportError",
+  {
+    eventId: Schema.String,
+    eventType: Schema.String,
+  },
+) {}
+
+/** An explicit `--bundle` disagrees with the named `skill.field_report`'s own bundle. */
+export class TodoFromReportBundleMismatchError extends Schema.TaggedErrorClass<TodoFromReportBundleMismatchError>()(
+  "TodoFromReportBundleMismatchError",
+  {
+    eventId: Schema.String,
+    bundle: Schema.String,
+    reportBundle: Schema.String,
+  },
+) {}

@@ -14,6 +14,14 @@
  * links to its fixture on the bundle's Evals tab; an unharvested
  * `failed`/`surprise` report shows `skillmaker fixture harvest`'s command as
  * copyable text instead, `<case>` left for the human to name.
+ *
+ * The todo affordance (issue #81) is the second exit door, independent of
+ * the first: a report with a linked todo (`todo !== null`) shows a work
+ * chip (title + status); an unharvested `failed`/`surprise` report with no
+ * linked todo shows `skillmaker todo add --from-report`'s command as
+ * copyable text next to the harvest command -- CLI-first, no write button,
+ * matching #68 exactly. The two doors are independent: a report can be
+ * harvested into a fixture AND turned into a todo, either, or neither.
  */
 import { type FC, type FormEvent, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
@@ -22,11 +30,20 @@ import type { FieldReportOutcome, FieldReportView } from "../runtime/schemas.ts"
 import { useBundles } from "../runtime/useBundles.ts";
 import { useFieldReports } from "../runtime/useFieldReports.ts";
 
-/** Report outcomes worth harvesting -- a "worked" report has no failure to turn into a fixture. */
+/** Report outcomes worth harvesting -- a "worked" report has no failure to turn into a fixture or work. */
 const HARVESTABLE_OUTCOMES: ReadonlyArray<FieldReportOutcome> = ["failed", "surprise"];
 
 const harvestCommand = (report: FieldReportView): string =>
   `skillmaker fixture harvest ${report.bundle} <case> --from-report ${report.id}`;
+
+const todoAddCommand = (report: FieldReportView): string => `skillmaker todo add "<title>" --from-report ${report.id}`;
+
+const TODO_STATUS_LABEL: Readonly<Record<string, string>> = {
+  open: "open",
+  "in-progress": "in progress",
+  done: "done",
+  "wont-do": "won't do",
+};
 
 const OUTCOMES: ReadonlyArray<FieldReportOutcome> = ["worked", "failed", "surprise"];
 
@@ -60,20 +77,33 @@ const ReportRow: FC<{ report: FieldReportView }> = ({ report }) => (
       {report.destination !== null && <span>from "{report.destination}"</span>}
       <span>{new Date(report.at).toLocaleString()}</span>
     </div>
-    {report.fixtureCase !== null ? (
-      <Link
-        href={bundleHref(report.bundle, "evals")}
-        className="w-fit text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
-      >
-        harvested → {report.fixtureCase} (Evals)
-      </Link>
-    ) : (
-      HARVESTABLE_OUTCOMES.includes(report.outcome) && (
-        <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
-          {harvestCommand(report)}
-        </code>
-      )
-    )}
+    <div className="flex flex-wrap items-center gap-2">
+      {report.fixtureCase !== null ? (
+        <Link
+          href={bundleHref(report.bundle, "evals")}
+          className="w-fit text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
+        >
+          harvested → {report.fixtureCase} (Evals)
+        </Link>
+      ) : (
+        HARVESTABLE_OUTCOMES.includes(report.outcome) && (
+          <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+            {harvestCommand(report)}
+          </code>
+        )
+      )}
+      {report.todo !== null ? (
+        <span className="w-fit rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+          work: {report.todo.title} · {TODO_STATUS_LABEL[report.todo.status] ?? report.todo.status}
+        </span>
+      ) : (
+        HARVESTABLE_OUTCOMES.includes(report.outcome) && (
+          <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+            {todoAddCommand(report)}
+          </code>
+        )
+      )}
+    </div>
   </li>
 );
 

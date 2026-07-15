@@ -11,6 +11,7 @@ links:
     - "../production/Mechanism - Bundle Stage"
     - "./Surface - Board"
     - "../_index/Vision - Board Lab Ship Receive"
+    - "../outputs/Entity - Field Report"
 ---
 
 ## WHAT
@@ -48,14 +49,14 @@ nothing on this card — the journal stays the sole source of truth
 Board's persistent right rail and onto a Lab work view (`Surface - Lab`,
 proposed by #83, not yet a card).
 
-A `Todo.origin` field is **proposed, not yet built**, to stamp provenance
-when a todo is born from field signal rather than typed by a human:
-`origin?: { kind: "field-report", ref: <event-id> }`, immutable like
-`source` and structurally absent from `TodoPatch` for the same reason.
-See the signal-becomes-work issue (#81) for the full shape — the `todos`
-table gaining a column, `skillmaker todo add --from-report <event-id>`
-defaulting `kind`/`bundle`/`detail` from the report, and an origin chip
-("from the field") wherever todo rows render.
+A `Todo.origin` field stamps provenance when a todo is born from field
+signal rather than typed by a human: `origin?: { kind: "field-report",
+ref: <event-id> }`, immutable like `source` and structurally absent from
+`TodoPatch` for the same reason. Proposed here, built in the
+signal-becomes-work issue (#81) -- see "HOW -- origin" below for the full
+shape: the `todos` table gaining a column, `skillmaker todo add
+--from-report <event-id>` defaulting `kind`/`bundle`/`detail` from the
+report, and an origin chip ("from the field") wherever todo rows render.
 
 ## HOW
 
@@ -99,6 +100,51 @@ separate pure function called by the index rebuild/CLI/server with an
 explicit `now`, true when terminal + `terminalAt` is ≥7 days old + not
 pinned. Sort order (`compareTodos`): priority ascending, then created,
 then id — total and stable.
+
+## HOW -- origin (issue #81)
+
+The stock-and-flow ruling (#80) makes the todo queue the heart of the Lab;
+this pass gives Receive's signal a door into it. `Todo` gains an optional,
+IMMUTABLE `origin?: {kind: "field-report", ref: string}` (`packages/core/
+src/Todo.ts`'s `TodoOrigin`/`TodoOriginRecord`) -- `ref` is the journal
+event id of the `skill.field_report` that opened this todo. Named
+generically (`kind`/`ref`, not `eventId`) so a later producer (`run`,
+`coverage-gap`) can add a kind without a breaking change, the same
+closed-union reasoning `FixtureSource` (`Fixtures.ts`, issue #68) already
+established for fixture provenance. Structurally absent from `TodoPatch` --
+same immutability as `source`: a `todo.updated` patch can never
+retroactively stamp or change it. `FoldTodos.ts` needed no changes at all:
+`todo.opened` already sets the full record verbatim, and `todo.updated`
+already can't touch fields `TodoPatch` doesn't carry.
+
+CLI: `skillmaker todo add <title> --from-report <event-id>` (extends
+`packages/cli/src/commands/Todo.ts`). The domain logic lives in a new core
+module, `packages/core/src/TodoFromReport.ts`'s `openTodoFromReport`,
+mirroring `Harvest.ts`'s core-function-plus-thin-CLI layering and its
+honest-failure shape: an unknown event id
+(`TodoFromReportEventNotFoundError`), an event that exists but isn't a
+`skill.field_report` (`TodoFromReportNotFieldReportError`), or an explicit
+`--bundle` that disagrees with the report's own bundle
+(`TodoFromReportBundleMismatchError`). Unlike harvest, there is no
+file-collision case to guard -- todos are journal-native, not files, so a
+plain `todo.opened` append is exactly what this does too, just with
+report-derived defaults: `--bundle` defaults to the report's bundle,
+`--kind` defaults by outcome (`TODO_KIND_BY_OUTCOME`: `failed` -> `bug`,
+`surprise` -> `eval`, `worked` -> `task`), and `detail` defaults to the
+report's prose verbatim plus `Destination:`/`Version:` lines when the
+report carries them. Every default is overridable; overriding never
+suppresses the `origin` stamp.
+
+Viewer: `TodosPanel.tsx` renders a small "from the field" chip next to the
+bundle chip when `todo.origin?.kind === "field-report"` -- provenance, not
+a link (no todo detail page yet, a separate issue). Receive's row-level
+work-chip/copyable-command affordance is described on `Entity - Field
+Report.md`'s "HOW -- todo" section, the mirror image of this one.
+
+Deliberately not in this pass (issue #81's own scope line): no write
+button on Receive, no auto-todo on failed reports -- the human decides what
+the wild means. No `run`/`coverage-gap` producers -- only `field-report`
+exists as an `origin.kind` today. No todo detail page.
 
 **Merged source cards, folded into this one card:**
 
@@ -148,3 +194,13 @@ Also checked `packages/cli/src/commands/Todo.ts`: `skillmaker todo add`
 defaults `kind` to `"task"` and `priority` to the kind default when
 `--priority` is omitted, confirming the default-by-kind rule is enforced
 at the CLI, not just documented.
+
+Origin (issue #81) verified: `packages/core/src/Todo.ts`'s `TodoOrigin`/
+`TodoOriginRecord` (`optionalKey`, structurally absent from `TodoPatch`),
+`packages/core/src/TodoFromReport.ts` (`openTodoFromReport`,
+`TODO_KIND_BY_OUTCOME`), `packages/core/src/Errors.ts`'s three
+`TodoFromReport*` tagged errors, `packages/core/src/IndexService.ts`
+(`todos.origin_json` column, `TodoRecord.origin`), `packages/cli/src/
+commands/Todo.ts` and `packages/cli/src/Cli.ts` (`todo add --from-report`
+routing), and `packages/viewer/src/app/components/TodosPanel.tsx` (the
+"from the field" chip) all present and match this description.

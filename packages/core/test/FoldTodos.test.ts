@@ -82,6 +82,30 @@ describe("foldTodos", () => {
     expect(result?.bundle).toBe("demo");
   });
 
+  test("todo.opened carries origin through verbatim (issue #81)", () => {
+    const todo = baseTodo({ origin: { kind: "field-report", ref: "evt-1" } });
+    const events: ReadonlyArray<JournalEvent> = [
+      { ...envelope("todo.opened"), payload: { todo } } as JournalEvent,
+    ];
+    const todos = foldTodos(events);
+    expect(todos.get("td-1")?.origin).toEqual({ kind: "field-report", ref: "evt-1" });
+  });
+
+  test("todo.updated cannot alter origin -- not representable in the patch, so it survives untouched", () => {
+    const todo = baseTodo({ origin: { kind: "field-report", ref: "evt-1" } });
+    const events: ReadonlyArray<JournalEvent> = [
+      { ...envelope("todo.opened"), payload: { todo } } as JournalEvent,
+      {
+        ...envelope("todo.updated"),
+        payload: { id: "td-1", patch: { title: "Retitled" } },
+      } as JournalEvent,
+    ];
+    const todos = foldTodos(events);
+    const result = todos.get("td-1");
+    expect(result?.title).toBe("Retitled");
+    expect(result?.origin).toEqual({ kind: "field-report", ref: "evt-1" });
+  });
+
   test("todo.updated for an unknown id is ignored (tolerant fold)", () => {
     const events: ReadonlyArray<JournalEvent> = [
       {
