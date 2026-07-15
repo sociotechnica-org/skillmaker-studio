@@ -23,7 +23,10 @@ chapter (from `design.md`), measurement receipts (pass rates × n × CI
 per provider/model, pinned to a version hash), and a changelog replayed
 from the journal (versions recorded, publishes, gate decisions). One
 generator produces it, rendered two ways: a live viewer tab (always
-current) and `skillmaker book build` (a static HTML site).
+current) and `skillmaker book build` (a static HTML site). The viewer
+tab is the **Port** (was the Skillbook tab, #64) — the Skillbook itself
+survives as the per-bundle chapter it renders, "the paperwork that ships
+with a skill," not the surface's name.
 
 ## WHY
 
@@ -57,8 +60,10 @@ from `bundle.gate_decided`), sorted newest-first.
 
 Two render doors share this one aggregation:
 
-- Live: the server's `GET /api/skillbook` endpoint, rendered by the
-  viewer's Skillbook tab (`packages/viewer/src/app/components/Skillbook.tsx`,
+- Live: the server's `GET /api/skillbook` endpoint (untouched, #64 is
+  display-layer only), rendered by the viewer's Port tab
+  (`packages/viewer/src/app/components/Port.tsx`'s `Port` component for
+  the index and `SkillbookBundlePage` for the per-bundle chapter,
   `useSkillbook.ts`) — always current because it re-reads the index and
   journal on request.
 - Static: `skillmaker book build [--out <dir>]`

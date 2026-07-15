@@ -2,7 +2,7 @@
 type: Vision
 prefLabel: Board · Lab · Port
 context: _index
-status: proposed
+status: adopted
 links:
   related_to:
     - "./Concept - Skillmaker Studio"
@@ -17,9 +17,11 @@ links:
 
 A north-star mental model for the four viewer surfaces, framed by the
 **job each one does** rather than by the data it lists. It renames and
-re-scopes two of today's tabs and names one new primitive. This is a
-**proposal**, not shipped reality — it exists so building agents share one
-target picture.
+re-scopes two of today's tabs and names one new primitive. The naming
+half — nav labels, routes, page taglines, Board · Lab · Port · Activity —
+shipped in #64. The re-scoping half — Lab as a pressure bench, Port's
+checkout/field-report loop — has **not**; this card is the target picture
+that work still builds toward.
 
 The model is three rooms plus a ledger:
 
@@ -111,8 +113,11 @@ Skillbook; alt: Dock/Harbor) · **Activity** (keep).
 
 Verified: as of this writing there is no deployment/checkout/field-report
 concept in `packages/core/src` or `packages/cli/src` — the only outbound
-path is `skillmaker book build` (static site). `Catalog.tsx` renders a
-`drift` pill unconditionally but `archived`/`tags` conditionally;
-`Catalog` and `Skillbook` index rows are structurally near-identical
-(name · stage badge · one-liner · version · fixture count). This card is
-`status: proposed` and describes a target, not shipped code.
+path is `skillmaker book build` (static site). `Lab.tsx` (was
+`Catalog.tsx`, #64) renders a `drift` pill unconditionally but
+`archived`/`tags` conditionally; Lab and Port index rows are structurally
+near-identical (name · stage badge · one-liner · version · fixture count)
+— the rename didn't touch that, on purpose, since it's a separate,
+un-scheduled behavioral change. This card is `status: adopted` for the
+naming; the checkout/field-report primitive and Lab's bench upgrades
+remain unbuilt.

@@ -1,6 +1,8 @@
 /**
- * Fetches `/api/catalog` for the `/catalog` skill-browser page. Refetches on
- * every SSE journal event, same as `useBundles`/`useTodos`.
+ * Fetches `/api/catalog` for the `/lab` skill-browser page (was `/catalog`,
+ * #64 -- hook name stays `useCatalog` since it mirrors the untouched
+ * `/api/catalog` endpoint it wraps). Refetches on every SSE journal event,
+ * same as `useBundles`/`useTodos`.
  */
 import { useCallback, useEffect, useState } from "react";
 import { getCatalog } from "./api.ts";

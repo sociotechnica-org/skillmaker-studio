@@ -66,10 +66,10 @@ export const getEvents = (options: { limit?: number; before?: string } = {}): Pr
   return fetchJson(query.length > 0 ? `/api/events?${query}` : "/api/events", EventsResponse);
 };
 
-/** `GET /api/catalog` -- the Catalog page's skill-browser rows. */
+/** `GET /api/catalog` -- the Lab page's skill-browser rows (was the Catalog page, #64). */
 export const getCatalog = (): Promise<CatalogResponse> => fetchJson("/api/catalog", CatalogResponse);
 
-/** `GET /api/skillbook` -- the Skillbook page's data (data-model.md §2.14). */
+/** `GET /api/skillbook` -- the Port page's data (was the Skillbook page, #64; data-model.md §2.14). */
 export const getSkillbook = (): Promise<SkillbookResponse> => fetchJson("/api/skillbook", SkillbookResponse);
 
 export interface PostEventInput {

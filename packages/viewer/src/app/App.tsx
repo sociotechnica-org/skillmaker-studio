@@ -2,9 +2,9 @@ import type { FC } from "react";
 import { AppShell } from "./components/AppShell.tsx";
 import { Board } from "./components/Board.tsx";
 import { BundlePanel } from "./components/BundlePanel.tsx";
-import { Catalog } from "./components/Catalog.tsx";
+import { Lab } from "./components/Lab.tsx";
 import { ActivityFeed } from "./components/ActivityFeed.tsx";
-import { Skillbook, SkillbookBundlePage } from "./components/Skillbook.tsx";
+import { Port, SkillbookBundlePage } from "./components/Port.tsx";
 import { RouterProvider, useRouter } from "./runtime/router.tsx";
 
 /**
@@ -20,13 +20,13 @@ const Routes: FC = () => {
       return <Board />;
     case "bundle":
       return <BundlePanel slug={route.slug} tab={route.tab} runId={route.runId} file={route.file} />;
-    case "catalog":
-      return <Catalog />;
+    case "lab":
+      return <Lab />;
     case "activity":
       return <ActivityFeed />;
-    case "skillbook":
-      return <Skillbook />;
-    case "skillbook-bundle":
+    case "port":
+      return <Port />;
+    case "port-bundle":
       return <SkillbookBundlePage slug={route.slug} />;
     case "not-found":
       return (

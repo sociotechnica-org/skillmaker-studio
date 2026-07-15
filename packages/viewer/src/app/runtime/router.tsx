@@ -26,30 +26,38 @@ export type Route =
       readonly runId: string | undefined;
       readonly file: string | undefined;
     }
-  | { readonly name: "catalog" }
+  | { readonly name: "lab" }
   | { readonly name: "activity" }
-  | { readonly name: "skillbook" }
-  | { readonly name: "skillbook-bundle"; readonly slug: string }
+  | { readonly name: "port" }
+  | { readonly name: "port-bundle"; readonly slug: string }
   | { readonly name: "not-found" };
 
-/** Pure -- parses a pathname + search string into a `Route`. Exported for tests. */
+/**
+ * Pure -- parses a pathname + search string into a `Route`. Exported for
+ * tests. `/lab` and `/port(/:slug)` are canonical (#64, the Board · Lab ·
+ * Port rename); `/catalog` and `/skillbook(/:slug)` are kept as aliases
+ * parsing to the same routes so bookmarks and any deep links survive --
+ * this is display-layer only, the server API paths behind these pages
+ * (`/api/catalog`, `/api/skillbook`) are untouched.
+ */
 export const parseRoute = (pathname: string, search: string): Route => {
   const segments = pathname.split("/").filter((segment) => segment.length > 0);
+  const head = segments[0] === "catalog" ? "lab" : segments[0] === "skillbook" ? "port" : segments[0];
 
   if (segments.length === 0) {
     return { name: "board" };
   }
-  if (segments[0] === "catalog" && segments.length === 1) {
-    return { name: "catalog" };
+  if (head === "lab" && segments.length === 1) {
+    return { name: "lab" };
   }
-  if (segments[0] === "activity" && segments.length === 1) {
+  if (head === "activity" && segments.length === 1) {
     return { name: "activity" };
   }
-  if (segments[0] === "skillbook" && segments.length === 1) {
-    return { name: "skillbook" };
+  if (head === "port" && segments.length === 1) {
+    return { name: "port" };
   }
-  if (segments[0] === "skillbook" && segments[1] !== undefined && segments.length === 2) {
-    return { name: "skillbook-bundle", slug: decodeURIComponent(segments[1]) };
+  if (head === "port" && segments[1] !== undefined && segments.length === 2) {
+    return { name: "port-bundle", slug: decodeURIComponent(segments[1]) };
   }
   if (segments[0] === "bundles" && segments[1] !== undefined && segments.length <= 3) {
     const slug = decodeURIComponent(segments[1]);
@@ -69,8 +77,8 @@ export const parseRoute = (pathname: string, search: string): Route => {
 export const bundleHref = (slug: string, tab: BundleTab = "overview"): string =>
   tab === "overview" ? `/bundles/${encodeURIComponent(slug)}` : `/bundles/${encodeURIComponent(slug)}/${tab}`;
 
-/** The canonical URL for a bundle's Skillbook chapter. */
-export const skillbookBundleHref = (slug: string): string => `/skillbook/${encodeURIComponent(slug)}`;
+/** The canonical URL for a bundle's Skillbook chapter, now docked at Port. */
+export const portBundleHref = (slug: string): string => `/port/${encodeURIComponent(slug)}`;
 
 /** The Evals tab, optionally with a run selected via `?run=`. */
 export const bundleRunHref = (slug: string, runId: string | undefined): string => {
