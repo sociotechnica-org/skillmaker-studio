@@ -18,18 +18,16 @@
  * first, then measurement gaps (no fixtures or under-measured), then clean
  * (fully measured); archived bundles always sink to the bottom regardless
  * of their drift/coverage state, since there's nothing to act on for a
- * shelved bundle. Ties keep the incoming order (an explicit index
- * tie-break, not a reliance on `Array#sort`'s stability guarantee).
+ * shelved bundle. Ties keep the incoming order (`Array#sort` is stable).
  */
 import type { CatalogEntry, Drift } from "./schemas.ts";
 
 /** The three `Drift` values that mean "something changed" -- the ones that earn a pill. */
 export type AttentionDrift = "design-changed" | "output-hand-edited" | "both";
 
-const ATTENTION_DRIFT: ReadonlySet<Drift> = new Set<AttentionDrift>(["design-changed", "output-hand-edited", "both"]);
-
 /** True for the three drift values that mean "something changed" -- the ones that earn a pill. */
-export const driftNeedsAttention = (drift: Drift): drift is AttentionDrift => ATTENTION_DRIFT.has(drift);
+export const driftNeedsAttention = (drift: Drift): drift is AttentionDrift =>
+  drift === "design-changed" || drift === "output-hand-edited" || drift === "both";
 
 export type CoverageState = "no-fixtures" | "under-measured" | "fully-measured";
 
@@ -64,10 +62,4 @@ const attentionRank = (entry: CatalogEntry): number => {
 export const orderForAttention = (
   entries: ReadonlyArray<CatalogEntry>,
 ): ReadonlyArray<CatalogEntry> =>
-  entries
-    .map((entry, index) => ({ entry, index }))
-    .sort((a, b) => {
-      const rankDiff = attentionRank(a.entry) - attentionRank(b.entry);
-      return rankDiff !== 0 ? rankDiff : a.index - b.index;
-    })
-    .map(({ entry }) => entry);
+  entries.slice().sort((a, b) => attentionRank(a) - attentionRank(b));

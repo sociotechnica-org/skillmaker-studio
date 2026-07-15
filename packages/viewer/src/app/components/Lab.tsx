@@ -49,11 +49,7 @@ const DRIFT_LABEL: Record<AttentionDrift, string> = {
   both: "Design + output changed",
 };
 
-const DRIFT_BADGE_CLASS: Record<AttentionDrift, string> = {
-  "design-changed": "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  "output-hand-edited": "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  both: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-};
+const DRIFT_BADGE_CLASS = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
 
 /**
  * Coverage's three honest states (#65): never collapse "a fixture exists"
@@ -72,59 +68,60 @@ const COVERAGE_CLASS: Record<CoverageState, string> = {
   "fully-measured": "text-emerald-700 dark:text-emerald-400",
 };
 
-const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
-  <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
-    <div className="flex flex-wrap items-center gap-2">
-      <Link
-        href={bundleHref(entry.slug)}
-        className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
-      >
-        {entry.name}
-      </Link>
-      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STAGE_BADGE_CLASS[entry.stage]}`}>
-        {STAGE_LABEL[entry.stage]}
-      </span>
-      {entry.archived && (
-        <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-          Archived
+const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => {
+  const coverage = coverageState(entry);
+  return (
+    <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href={bundleHref(entry.slug)}
+          className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
+        >
+          {entry.name}
+        </Link>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STAGE_BADGE_CLASS[entry.stage]}`}>
+          {STAGE_LABEL[entry.stage]}
         </span>
-      )}
-      {driftNeedsAttention(entry.drift) && (
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS[entry.drift]}`}>
-          {DRIFT_LABEL[entry.drift]}
-        </span>
-      )}
-    </div>
-
-    <p className="text-sm text-neutral-600 dark:text-neutral-300">{entry.oneLiner}</p>
-
-    {entry.tags.length > 0 && (
-      <div className="flex flex-wrap gap-1">
-        {entry.tags.map((tag) => (
-          <span
-            key={tag}
-            className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-          >
-            {tag}
+        {entry.archived && (
+          <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+            Archived
           </span>
-        ))}
+        )}
+        {driftNeedsAttention(entry.drift) && (
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS}`}>
+            {DRIFT_LABEL[entry.drift]}
+          </span>
+        )}
       </div>
-    )}
 
-    <div className="flex flex-wrap gap-4 text-xs text-neutral-500 dark:text-neutral-400">
-      <span>
-        {entry.latestVersion === null
-          ? "No recorded version"
-          : `Latest: ${entry.latestVersion.label ?? entry.latestVersion.hash.slice(0, 8)} (${new Date(
-              entry.latestVersion.recordedAt,
-            ).toLocaleDateString()})`}
-      </span>
-      <span className={COVERAGE_CLASS[coverageState(entry)]}>
-        {COVERAGE_LABEL[coverageState(entry)](entry)}
-      </span>
-    </div>
-  </li>
-);
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">{entry.oneLiner}</p>
+
+      {entry.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {entry.tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-4 text-xs text-neutral-500 dark:text-neutral-400">
+        <span>
+          {entry.latestVersion === null
+            ? "No recorded version"
+            : `Latest: ${entry.latestVersion.label ?? entry.latestVersion.hash.slice(0, 8)} (${new Date(
+                entry.latestVersion.recordedAt,
+              ).toLocaleDateString()})`}
+        </span>
+        <span className={COVERAGE_CLASS[coverage]}>{COVERAGE_LABEL[coverage](entry)}</span>
+      </div>
+    </li>
+  );
+};
 
 export const Lab: FC = () => {
   const { entries, loading, error } = useCatalog();
