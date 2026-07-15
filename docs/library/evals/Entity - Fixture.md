@@ -12,6 +12,7 @@ links:
     - "./Capability - Eval Run"
     - "./Reference - Untrusted-Input Rule"
     - "./Reference - Measurements Bind To Version"
+    - "../outputs/Entity - Field Report"
 ---
 
 ## WHAT
@@ -44,6 +45,13 @@ reindex warning, not a hard failure).
 }
 ```
 
+`source` is an optional fifth top-level field (issue #68, [[Entity - Field
+Report]]'s harvest mechanism): `{"kind": "field-report", "eventId": "...",
+"destination"?: "..."}`, present only on a fixture `skillmaker fixture
+harvest` pulled from a `skill.field_report` event -- absent on every
+hand-scaffolded (`fixture add`) case, so every `case.json` written before
+harvest existed keeps validating unchanged.
+
 Deviation from data-model.md §2.5 as written: the task prompt does **not**
 live in `case.json`'s `prompt` field — it lives in a sibling `prompt.md`
 (prose). A legacy `prompt` string in `case.json` is tolerated and produces a
@@ -60,6 +68,6 @@ in `files/`.
 
 Verified: `packages/core/src/Fixtures.ts` — `FixtureCase` schema
 (`schemaVersion`, `case`, `class`, `risks`, `setup?`, `grading?`, legacy
-`prompt?`) and `scanFixtures`'s field-by-field tolerant parsing, including
-the "case.json has a legacy prompt field" and "prompt.md is missing"
-warnings.
+`prompt?`, `source?`) and `scanFixtures`'s field-by-field tolerant parsing,
+including the "case.json has a legacy prompt field", "prompt.md is
+missing", and "case.json has a malformed source field" warnings.

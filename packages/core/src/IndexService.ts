@@ -131,6 +131,8 @@ export interface FixtureRecord {
   readonly risks: ReadonlyArray<string>;
   /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE); the Evals tab's prompt.md indicator. */
   readonly hasPromptMd: boolean;
+  /** Present only for a `fixture harvest`ed case (issue #68) -- lets `GET /api/field-reports` match a report back to the fixture it became. */
+  readonly source?: { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string };
 }
 
 /** A materialized `evals/risk-map.md` row (data-model.md §2.6, §2.11). No results column, ever. */
@@ -220,6 +222,7 @@ interface FixtureRow {
   readonly class: string;
   readonly risks_json: string;
   readonly has_prompt_md: number;
+  readonly source_json: string | null;
 }
 
 interface RiskCoverageRow {
@@ -422,12 +425,17 @@ const rowToFixtureRecord = (row: FixtureRow): Effect.Effect<FixtureRecord, Index
         }),
       );
     }
+    // `source_json` was written from a `FixtureCaseRecord["source"]` that
+    // `scanFixtures` already validated tolerantly (Fixtures.ts) -- no
+    // further shape-checking needed here, just a JSON round-trip.
+    const source = row.source_json !== null ? (JSON.parse(row.source_json) as FixtureRecord["source"]) : undefined;
     return {
       bundle: row.bundle,
       caseName: row.case_name,
       class: row.class,
       risks,
       hasPromptMd: row.has_prompt_md !== 0,
+      ...(source !== undefined ? { source } : {}),
     };
   });
 
@@ -560,6 +568,7 @@ const createSchema = (db: Database): void => {
       class TEXT NOT NULL,
       risks_json TEXT NOT NULL,
       has_prompt_md INTEGER NOT NULL DEFAULT 0,
+      source_json TEXT,
       PRIMARY KEY (bundle, case_name)
     )
   `);
@@ -954,7 +963,7 @@ export const layer = (
           }
 
           const insertFixture = db.query(
-            "INSERT INTO fixtures (bundle, case_name, class, risks_json, has_prompt_md) VALUES ($bundle, $caseName, $class, $risks, $hasPromptMd)",
+            "INSERT INTO fixtures (bundle, case_name, class, risks_json, has_prompt_md, source_json) VALUES ($bundle, $caseName, $class, $risks, $hasPromptMd, $source)",
           );
           for (const fixture of fixtureRecords) {
             insertFixture.run({
@@ -963,6 +972,7 @@ export const layer = (
               $class: fixture.class,
               $risks: JSON.stringify(fixture.risks),
               $hasPromptMd: fixture.hasPromptMd ? 1 : 0,
+              $source: fixture.source !== undefined ? JSON.stringify(fixture.source) : null,
             });
           }
 

@@ -222,13 +222,42 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
  * expected to grow the way the whole journal does, so this deliberately
  * skips `GET /api/events`'s cursor pagination for a small dedicated shape
  * the Receive tab can render directly, no `EventView.payload: Unknown`
- * decoding required. No new SQLite table: this is a read-time filter, same
- * as `handleListEvents`.
+ * decoding required.
+ *
+ * `fixtureCase` (issue #68) closes the loop back the other way: for each
+ * reported bundle, one `IndexService.listFixtures` scan (the SAME scanner
+ * every other fixture list reads, `Fixtures.ts`'s `scanFixtures`) is checked
+ * for a case whose `source.eventId` matches this report's event id --
+ * `fixture harvest`'s provenance stamp. `null` means unharvested. Still no
+ * new SQLite table: `fixtures` already has a row per case, this just reads
+ * its existing `source` column (added to carry that provenance) rather than
+ * inventing a second index of the same files.
  */
 const handleFieldReports = async (root: string): Promise<Response> => {
   const events = await readJournalEvents(root);
-  const reports = events
-    .filter((event) => event.type === "skill.field_report")
+  const reportEvents = events.filter((event) => event.type === "skill.field_report");
+
+  const reportedBundles = [...new Set(reportEvents.map((event) => event.payload.bundle))];
+  const fixturesByBundle = await runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+      const byBundle = new Map<string, ReadonlyArray<FixtureRecord>>();
+      for (const bundle of reportedBundles) {
+        byBundle.set(bundle, yield* index.listFixtures(bundle));
+      }
+      return byBundle;
+    }),
+  );
+
+  const harvestedCase = (bundle: string, eventId: string): string | null => {
+    const fixtures = fixturesByBundle.get(bundle) ?? [];
+    const harvested = fixtures.find((fixture) => fixture.source?.eventId === eventId);
+    return harvested?.caseName ?? null;
+  };
+
+  const reports = reportEvents
     .map((event) => ({
       id: event.id,
       bundle: event.payload.bundle,
@@ -238,6 +267,7 @@ const handleFieldReports = async (root: string): Promise<Response> => {
       destination: event.payload.destination ?? null,
       at: event.at,
       actor: event.actor,
+      fixtureCase: harvestedCase(event.payload.bundle, event.id),
     }))
     .reverse();
   return jsonResponse({ reports });

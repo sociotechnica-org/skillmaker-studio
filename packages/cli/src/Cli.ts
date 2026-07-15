@@ -8,6 +8,7 @@ import { runAdopt } from "./commands/Adopt.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runBookBuild } from "./commands/BookBuild.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
+import { runFixtureHarvest } from "./commands/FixtureHarvest.ts";
 import { runGrade } from "./commands/Grade.ts";
 import { runInit } from "./commands/Init.ts";
 import { runList } from "./commands/List.ts";
@@ -39,6 +40,7 @@ Commands:
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
+  fixture harvest <slug> <case>   Turn a skill.field_report event into a Lab fixture (--from-report <event-id> required, issue #68)
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
   run repair <slug> [runId]   Terminal-state stuck "running" run(s) whose process is gone, so their transcripts become gradeable
   station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
@@ -89,7 +91,9 @@ Options:
   --pin             (todo add) pin the todo (exempt from auto-archive)
   --all             (todo list) include archived todos
   --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
+                    (fixture harvest) same enum; defaults to hard-case
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
+  --from-report <id>   (fixture harvest) the skill.field_report event id to harvest (required)
   --fixture <case>  (run) the fixture case to run (required)
   --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"
   --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
@@ -128,6 +132,7 @@ const VALUE_FLAGS = new Set([
   "--label",
   "--class",
   "--risks",
+  "--from-report",
   "--fixture",
   "--provider",
   "--model",
@@ -227,15 +232,21 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       return yield* runReindex(cwd, { json });
     case "fixture": {
       const subcommand = argv[1];
-      if (subcommand !== "add") {
-        return usageError(
-          `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n`,
-        );
+      if (subcommand === "add") {
+        const [slug, caseName] = twoPositionalsAfter(argv, 2);
+        const klass = flagValue(argv, "--class");
+        const risks = flagValue(argv, "--risks");
+        return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
       }
-      const [slug, caseName] = twoPositionalsAfter(argv, 2);
-      const klass = flagValue(argv, "--class");
-      const risks = flagValue(argv, "--risks");
-      return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
+      if (subcommand === "harvest") {
+        const [slug, caseName] = twoPositionalsAfter(argv, 2);
+        const klass = flagValue(argv, "--class");
+        const fromReport = flagValue(argv, "--from-report");
+        return yield* runFixtureHarvest(cwd, slug, caseName, { json, klass, fromReport });
+      }
+      return usageError(
+        `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker fixture harvest <slug> <case> --from-report <event-id> [--class <class>]\n`,
+      );
     }
     case "run": {
       if (argv[1] === "repair") {

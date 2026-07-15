@@ -133,3 +133,39 @@ export class FieldReportVersionNotFoundError extends Schema.TaggedErrorClass<Fie
     prefix: Schema.String,
   },
 ) {}
+
+/** `skillmaker fixture harvest --from-report <event-id>` named an event id that isn't in the journal at all (issue #68). */
+export class HarvestEventNotFoundError extends Schema.TaggedErrorClass<HarvestEventNotFoundError>()(
+  "HarvestEventNotFoundError",
+  {
+    eventId: Schema.String,
+  },
+) {}
+
+/** The event `--from-report` named is real, but isn't a `skill.field_report` -- only a field report can be harvested into a fixture. */
+export class HarvestNotFieldReportError extends Schema.TaggedErrorClass<HarvestNotFieldReportError>()(
+  "HarvestNotFieldReportError",
+  {
+    eventId: Schema.String,
+    eventType: Schema.String,
+  },
+) {}
+
+/** The `skill.field_report` event `--from-report` named belongs to a different bundle than the one being harvested into. */
+export class HarvestWrongBundleError extends Schema.TaggedErrorClass<HarvestWrongBundleError>()(
+  "HarvestWrongBundleError",
+  {
+    eventId: Schema.String,
+    bundle: Schema.String,
+    reportBundle: Schema.String,
+  },
+) {}
+
+/** `evals/fixtures/<case>/` already exists for this bundle -- same collision `fixture add` guards against. */
+export class HarvestCaseExistsError extends Schema.TaggedErrorClass<HarvestCaseExistsError>()(
+  "HarvestCaseExistsError",
+  {
+    bundle: Schema.String,
+    caseName: Schema.String,
+  },
+) {}

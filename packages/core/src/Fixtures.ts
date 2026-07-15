@@ -4,9 +4,13 @@
  * PROMPT.MD CHANGE (director-ruled deviation from data-model.md §2.5): the
  * eval task prompt lives in a sibling `prompt.md` file (prose), NOT in
  * `case.json`'s `prompt` field. `case.json` keeps: schemaVersion, case,
- * class, risks[], setup? {files?, env?}, grading? {answerKey?, checks?[]}. A
- * `case.json` with a legacy `prompt` string field produces a warning
- * suggesting `prompt.md`, never a hard failure (Part 3 ruling I).
+ * class, risks[], setup? {files?, env?}, grading? {answerKey?, checks?[]},
+ * source? {kind, eventId, destination?}. A `case.json` with a legacy `prompt`
+ * string field produces a warning suggesting `prompt.md`, never a hard
+ * failure (Part 3 ruling I). `source` (issue #68) is optional provenance
+ * `fixture harvest` stamps on a fixture pulled from a field report -- absent
+ * on every hand-scaffolded (`fixture add`) case, so every pre-existing
+ * `case.json` keeps validating unchanged.
  *
  * `scanFixtures` is deliberately NOT a strict `Schema.decodeUnknownEffect`
  * over `FixtureCase` the way `IndexService.scanBundleIdentities` decodes
@@ -66,6 +70,22 @@ export class FixtureGrading extends Schema.Class<FixtureGrading>("FixtureGrading
 }) {}
 
 /**
+ * `case.json`'s optional provenance (issue #68, `fixture harvest`): which
+ * `skill.field_report` event this fixture was harvested from. `"field-
+ * report"` is the only `kind` today -- a closed union so a future
+ * provenance source (e.g. an adopted upstream case) is additive, not a
+ * breaking change to this shape. Optional at every level so every `case.json`
+ * written before harvest existed still validates.
+ */
+export class FixtureSource extends Schema.Class<FixtureSource>("FixtureSource")({
+  kind: Schema.Literal("field-report"),
+  /** The harvested `skill.field_report` event's id. */
+  eventId: Schema.String,
+  /** The report's `destination`, when the reporter gave one. */
+  destination: Schema.optionalKey(Schema.String),
+}) {}
+
+/**
  * The documented `case.json` shape (data-model.md §2.5, PROMPT.MD CHANGE).
  * `prompt` is a legacy field, kept here ONLY so a strict decode can still
  * recognize and report it -- the current model has no `prompt` field, the
@@ -82,6 +102,8 @@ export class FixtureCase extends Schema.Class<FixtureCase>("FixtureCase")({
   grading: Schema.optionalKey(FixtureGrading),
   /** Legacy scaffold-era field; tolerated, never required. */
   prompt: Schema.optionalKey(Schema.String),
+  /** Set by `fixture harvest`; absent on every hand-scaffolded (`fixture add`) case. */
+  source: Schema.optionalKey(FixtureSource),
 }) {}
 
 /** One scanned fixture case, tolerant of defects (data-model.md §2.11's `fixtures` table). */
@@ -92,6 +114,8 @@ export interface FixtureCaseRecord {
   readonly risks: ReadonlyArray<string>;
   /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE); the "prompt.md indicator" the Evals tab shows per fixture. */
   readonly hasPromptMd: boolean;
+  /** Present only for a harvested fixture (issue #68); absent for a hand-scaffolded one. */
+  readonly source?: { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string };
 }
 
 export interface ScanFixturesResult {
@@ -199,6 +223,27 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       );
     }
 
+    // `source` (issue #68, `fixture harvest`): tolerantly read, same as
+    // every other field here -- a valid `{kind: "field-report", eventId}`
+    // is captured silently (no warning, it's expected on a harvested
+    // fixture), a present-but-malformed shape is reported and dropped, and
+    // an absent `source` (every hand-scaffolded fixture) is silently fine.
+    const sourceRaw = parsed.source;
+    let source: FixtureCaseRecord["source"];
+    if (sourceRaw !== undefined) {
+      if (isRecord(sourceRaw) && sourceRaw.kind === "field-report" && typeof sourceRaw.eventId === "string") {
+        source = {
+          kind: "field-report",
+          eventId: sourceRaw.eventId,
+          ...(typeof sourceRaw.destination === "string" ? { destination: sourceRaw.destination } : {}),
+        };
+      } else {
+        warnings.push(
+          `evals/fixtures/${entry}/case.json has a malformed "source" field (expected {kind: "field-report", eventId: string})`,
+        );
+      }
+    }
+
     const promptMdPath = join(caseDir, "prompt.md");
     const promptMdExists = yield* fs
       .exists(promptMdPath)
@@ -220,8 +265,88 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       }
     }
 
-    cases.push({ caseName, class: klass ?? "unknown", risks, hasPromptMd: promptMdExists });
+    cases.push({
+      caseName,
+      class: klass ?? "unknown",
+      risks,
+      hasPromptMd: promptMdExists,
+      ...(source !== undefined ? { source } : {}),
+    });
   }
 
   return { cases, warnings };
+});
+
+const promptSkeleton = (caseName: string): string =>
+  `<!-- The eval task prompt for "${caseName}" (prose, sent to the agent as-is). -->
+`;
+
+const answerKeySkeleton = (caseName: string): string =>
+  `# Answer key — ${caseName}
+
+<!-- Grading-only: never enters the agent's workspace [inherited]. -->
+`;
+
+export interface FixtureScaffoldInput {
+  /** `<bundleDir>/evals/fixtures/<case>`. */
+  readonly caseDir: string;
+  /** Equals the directory name (`case.json`'s `case` field). */
+  readonly caseName: string;
+  readonly class: FixtureClass;
+  readonly risks: ReadonlyArray<string>;
+  /** Seeds `prompt.md` verbatim instead of the empty-task-prompt skeleton comment (`fixture harvest`, issue #68: seeded from a field report's `report` text). */
+  readonly promptText?: string;
+  /** Provenance to stamp onto `case.json` (`fixture harvest`, issue #68); absent for a hand-scaffolded `fixture add` case. */
+  readonly source?: { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string };
+}
+
+/**
+ * Writes one `evals/fixtures/<case>/` directory: `case.json`, `prompt.md`
+ * (the PROMPT.MD CHANGE), `files/.gitkeep`, `expected/answer-key.md`
+ * skeleton -- the scaffolding both `fixture add` (`FixtureAdd.ts`) and
+ * `fixture harvest` (`Harvest.ts`, issue #68) write, factored out here so
+ * harvesting isn't a copy-paste of add's file-writing. Does not check
+ * whether `caseDir` already exists -- callers guard that themselves (`fixture
+ * add`'s "already exists" check, `fixture harvest`'s `HarvestCaseExistsError`)
+ * since what to do about a collision differs (a usage error vs. a tagged
+ * domain error). Fixtures are files, not events -- writes here never touch
+ * the journal.
+ */
+export const writeFixtureScaffold = Effect.fn("Fixtures.writeFixtureScaffold")(function* (
+  input: FixtureScaffoldInput,
+) {
+  const fs = yield* FileSystem;
+
+  yield* fs
+    .makeDirectory(join(input.caseDir, "files"), { recursive: true })
+    .pipe(Effect.mapError(toIOError(`could not create ${join(input.caseDir, "files")}`)));
+  yield* fs
+    .makeDirectory(join(input.caseDir, "expected"), { recursive: true })
+    .pipe(Effect.mapError(toIOError(`could not create ${join(input.caseDir, "expected")}`)));
+
+  yield* fs
+    .writeFileString(
+      join(input.caseDir, "case.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          case: input.caseName,
+          class: input.class,
+          risks: input.risks,
+          ...(input.source !== undefined ? { source: input.source } : {}),
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "case.json")}`)));
+  yield* fs
+    .writeFileString(join(input.caseDir, "prompt.md"), input.promptText ?? promptSkeleton(input.caseName))
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "prompt.md")}`)));
+  yield* fs
+    .writeFileString(join(input.caseDir, "files", ".gitkeep"), "")
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "files", ".gitkeep")}`)));
+  yield* fs
+    .writeFileString(join(input.caseDir, "expected", "answer-key.md"), answerKeySkeleton(input.caseName))
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "expected", "answer-key.md")}`)));
 });
