@@ -22,11 +22,13 @@ import {
   publishBundle,
   runFixture,
   runStation,
+  scanFixtures,
   Workspace,
   WorkspaceLayer,
   type Actor,
   type BundleStage,
   type BundleRecord,
+  type FixtureCaseRecord,
   type FixtureRecord,
   type MeasurementRecord,
   type RiskCoverageRecord,
@@ -224,31 +226,31 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
  * the Receive tab can render directly, no `EventView.payload: Unknown`
  * decoding required.
  *
- * `fixtureCase` (issue #68) closes the loop back the other way: for each
- * reported bundle, one `IndexService.listFixtures` scan (the SAME scanner
- * every other fixture list reads, `Fixtures.ts`'s `scanFixtures`) is checked
+ * `fixtureCase` (issue #68) closes the loop back the other way: each
+ * reported bundle's fixtures are scanned directly (`Fixtures.ts`'s
+ * `scanFixtures`, the same tolerant scanner the index itself is built from)
  * for a case whose `source.eventId` matches this report's event id --
- * `fixture harvest`'s provenance stamp. `null` means unharvested. Still no
- * new SQLite table: `fixtures` already has a row per case, this just reads
- * its existing `source` column (added to carry that provenance) rather than
- * inventing a second index of the same files.
+ * `fixture harvest`'s provenance stamp. `null` means unharvested. This
+ * deliberately does NOT go through `IndexService`: the viewer refetches this
+ * endpoint on every SSE journal event, and a full `rebuild()` (a second
+ * journal parse + rescan of every bundle in the workspace + a SQLite
+ * rewrite) is disproportionate for a read-only lookup over the handful of
+ * reported bundles' `case.json` files.
  */
-const handleFieldReports = async (root: string): Promise<Response> => {
+const handleFieldReports = async (root: string, config: WorkspaceConfig): Promise<Response> => {
   const events = await readJournalEvents(root);
   const reportEvents = events.filter((event) => event.type === "skill.field_report");
 
   const reportedBundles = [...new Set(reportEvents.map((event) => event.payload.bundle))];
-  const fixturesByBundle = await runIndexEffect(
-    root,
+  const fixturesByBundle = await Effect.runPromise(
     Effect.gen(function* () {
-      const index = yield* IndexService;
-      yield* index.rebuild();
-      const byBundle = new Map<string, ReadonlyArray<FixtureRecord>>();
+      const byBundle = new Map<string, ReadonlyArray<FixtureCaseRecord>>();
       for (const bundle of reportedBundles) {
-        byBundle.set(bundle, yield* index.listFixtures(bundle));
+        const scanned = yield* scanFixtures(join(root, config.skillsDir, bundle));
+        byBundle.set(bundle, scanned.cases);
       }
       return byBundle;
-    }),
+    }).pipe(Effect.provide(BunServices.layer)),
   );
 
   const harvestedCase = (bundle: string, eventId: string): string | null => {
@@ -1442,7 +1444,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
       if (pathname === "/api/field-reports") {
         try {
-          return await handleFieldReports(root);
+          return await handleFieldReports(root, config);
         } catch (cause) {
           return jsonResponse({ error: `could not list field reports: ${String(cause)}` }, 500);
         }

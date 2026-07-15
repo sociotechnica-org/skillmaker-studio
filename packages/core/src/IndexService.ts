@@ -30,7 +30,7 @@ import { IndexError, JournalReadError, WorkspaceIOError } from "./Errors.ts";
 import { checkCoverage, COVERAGE_VALUES, parseRiskMap } from "./RiskMap.ts";
 import type { CoverageValue } from "./RiskMap.ts";
 import { scanFixtures } from "./Fixtures.ts";
-import type { FixtureCaseRecord } from "./Fixtures.ts";
+import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
 import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
@@ -132,7 +132,7 @@ export interface FixtureRecord {
   /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE); the Evals tab's prompt.md indicator. */
   readonly hasPromptMd: boolean;
   /** Present only for a `fixture harvest`ed case (issue #68) -- lets `GET /api/field-reports` match a report back to the fixture it became. */
-  readonly source?: { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string };
+  readonly source?: FixtureSourceRecord;
 }
 
 /** A materialized `evals/risk-map.md` row (data-model.md §2.6, §2.11). No results column, ever. */
@@ -426,9 +426,17 @@ const rowToFixtureRecord = (row: FixtureRow): Effect.Effect<FixtureRecord, Index
       );
     }
     // `source_json` was written from a `FixtureCaseRecord["source"]` that
-    // `scanFixtures` already validated tolerantly (Fixtures.ts) -- no
-    // further shape-checking needed here, just a JSON round-trip.
-    const source = row.source_json !== null ? (JSON.parse(row.source_json) as FixtureRecord["source"]) : undefined;
+    // `scanFixtures` already validated tolerantly (Fixtures.ts), but the DB
+    // column can still be corrupted independently (hand edit, interrupted
+    // write) -- so decode through the same guarded path as `risks_json`
+    // above, degrading to a typed `IndexError` instead of an uncaught throw.
+    const source =
+      row.source_json !== null
+        ? yield* Effect.try({
+            try: () => JSON.parse(row.source_json as string) as FixtureRecord["source"],
+            catch: toIndexError(`studio.db: fixture "${row.bundle}/${row.case_name}" has invalid source_json`),
+          })
+        : undefined;
     return {
       bundle: row.bundle,
       caseName: row.case_name,

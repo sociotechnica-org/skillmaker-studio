@@ -14,9 +14,9 @@
 import {
   FIXTURE_CLASSES,
   harvestFixture,
+  isFixtureClass,
   JournalLayer,
   Workspace,
-  type FixtureClass,
   type HarvestFixtureResult,
 } from "@skillmaker/core";
 import { Effect } from "effect";
@@ -29,9 +29,6 @@ export interface FixtureHarvestOptions {
   readonly klass?: string;
   readonly fromReport?: string;
 }
-
-const isFixtureClass = (value: string): value is FixtureClass =>
-  (FIXTURE_CLASSES as ReadonlyArray<string>).includes(value);
 
 export const runFixtureHarvest = Effect.fn("runFixtureHarvest")(function* (
   cwd: string,

@@ -22,7 +22,7 @@ import {
   HarvestWrongBundleError,
   WorkspaceIOError,
 } from "./Errors.ts";
-import { type FixtureClass, writeFixtureScaffold } from "./Fixtures.ts";
+import { type FixtureClass, type FixtureSourceRecord, writeFixtureScaffold } from "./Fixtures.ts";
 import { Journal } from "./JournalService.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -38,18 +38,10 @@ export interface HarvestFixtureInput {
   readonly klass: FixtureClass;
 }
 
-export interface HarvestFixtureSource {
-  readonly kind: "field-report";
-  readonly eventId: string;
-  readonly destination?: string;
-}
-
 export interface HarvestFixtureResult {
   readonly caseName: string;
   readonly class: FixtureClass;
-  /** The report's prose, as seeded verbatim into `prompt.md`. */
-  readonly report: string;
-  readonly source: HarvestFixtureSource;
+  readonly source: FixtureSourceRecord;
 }
 
 /**
@@ -95,7 +87,7 @@ export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (inp
     return yield* Effect.fail(HarvestCaseExistsError.make({ bundle: input.bundle, caseName: input.caseName }));
   }
 
-  const source: HarvestFixtureSource = {
+  const source: FixtureSourceRecord = {
     kind: "field-report",
     eventId: input.eventId,
     ...(event.payload.destination !== undefined ? { destination: event.payload.destination } : {}),
@@ -113,7 +105,6 @@ export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (inp
   const result: HarvestFixtureResult = {
     caseName: input.caseName,
     class: input.klass,
-    report: event.payload.report,
     source,
   };
   return result;

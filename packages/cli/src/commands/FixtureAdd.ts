@@ -11,11 +11,12 @@
  */
 import {
   FIXTURE_CLASSES,
-  type FixtureClass,
+  isFixtureClass,
   isKnownRiskFamily,
   riskFamily,
   Workspace,
   writeFixtureScaffold,
+  type FixtureClass,
 } from "@skillmaker/core";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
@@ -27,9 +28,6 @@ export interface FixtureAddOptions {
   readonly klass?: string;
   readonly risks?: string;
 }
-
-const isFixtureClass = (value: string): value is FixtureClass =>
-  (FIXTURE_CLASSES as ReadonlyArray<string>).includes(value);
 
 export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
   cwd: string,

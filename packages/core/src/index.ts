@@ -74,6 +74,7 @@ export {
   writeFixtureScaffold,
   FIXTURE_CLASSES,
   FixtureClass,
+  isFixtureClass,
   RISK_FAMILIES,
   riskFamily,
   isKnownRiskFamily,
@@ -82,6 +83,7 @@ export {
   FixtureGrading,
   FixtureSource,
   type RiskFamily,
+  type FixtureSourceRecord,
   type FixtureCaseRecord,
   type ScanFixturesResult,
   type FixtureScaffoldInput,
@@ -215,5 +217,4 @@ export {
   harvestFixture,
   type HarvestFixtureInput,
   type HarvestFixtureResult,
-  type HarvestFixtureSource,
 } from "./Harvest.ts";

@@ -43,6 +43,10 @@ export const FIXTURE_CLASSES = ["golden", "refusal", "empty", "rerun", "hard-cas
 export const FixtureClass = Schema.Literals(FIXTURE_CLASSES);
 export type FixtureClass = typeof FixtureClass.Type;
 
+/** Type guard for `class` values arriving as raw strings (CLI `--class`, scanned `case.json`). */
+export const isFixtureClass = (value: string): value is FixtureClass =>
+  (FIXTURE_CLASSES as ReadonlyArray<string>).includes(value);
+
 /** The five inherited risk families a risk id must band into (data-model.md §2.6). */
 export const RISK_FAMILIES = ["IN", "RE", "OUT", "ADV", "CHN"] as const;
 export type RiskFamily = (typeof RISK_FAMILIES)[number];
@@ -86,6 +90,19 @@ export class FixtureSource extends Schema.Class<FixtureSource>("FixtureSource")(
 }) {}
 
 /**
+ * The plain-object form of `FixtureSource` -- the ONE shape every record
+ * carrying fixture provenance references (`FixtureCaseRecord`,
+ * `FixtureScaffoldInput`, `IndexService`'s `FixtureRecord`, harvest's
+ * result), so a future provenance kind lands in one place instead of
+ * structurally-compatible hand copies that can silently drift.
+ */
+export interface FixtureSourceRecord {
+  readonly kind: "field-report";
+  readonly eventId: string;
+  readonly destination?: string;
+}
+
+/**
  * The documented `case.json` shape (data-model.md §2.5, PROMPT.MD CHANGE).
  * `prompt` is a legacy field, kept here ONLY so a strict decode can still
  * recognize and report it -- the current model has no `prompt` field, the
@@ -115,7 +132,7 @@ export interface FixtureCaseRecord {
   /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE); the "prompt.md indicator" the Evals tab shows per fixture. */
   readonly hasPromptMd: boolean;
   /** Present only for a harvested fixture (issue #68); absent for a hand-scaffolded one. */
-  readonly source?: { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string };
+  readonly source?: FixtureSourceRecord;
 }
 
 export interface ScanFixturesResult {
@@ -297,7 +314,7 @@ export interface FixtureScaffoldInput {
   /** Seeds `prompt.md` verbatim instead of the empty-task-prompt skeleton comment (`fixture harvest`, issue #68: seeded from a field report's `report` text). */
   readonly promptText?: string;
   /** Provenance to stamp onto `case.json` (`fixture harvest`, issue #68); absent for a hand-scaffolded `fixture add` case. */
-  readonly source?: { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string };
+  readonly source?: FixtureSourceRecord;
 }
 
 /**
