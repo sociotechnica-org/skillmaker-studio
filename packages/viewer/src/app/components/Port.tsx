@@ -30,8 +30,19 @@ const shortHash = (hash: string): string => {
   return (hash.startsWith(prefix) ? hash.slice(prefix.length) : hash).slice(0, 12);
 };
 
+/** "Shipped 2x -- last to acme-fleet" (issue #66): only shown when at least one shipment exists -- Port's index-row signal of what's out in the world. */
+const shippingLine = (bundle: SkillbookBundle): string | undefined => {
+  if (bundle.shipments.length === 0) {
+    return undefined;
+  }
+  const last = bundle.shipments[0];
+  const count = bundle.shipments.length;
+  return `Shipped ${count}x — last to "${last?.destination}"`;
+};
+
 const PortRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   const measuredCount = new Set(bundle.measurements.map((m) => m.fixtureCase)).size;
+  const shipping = shippingLine(bundle);
   return (
     <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2">
@@ -51,6 +62,9 @@ const PortRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
           {bundle.latestVersion === null ? "No recorded version" : `Version ${shortHash(bundle.latestVersion.hash)}`}
         </span>
         <span>{measuredCount} fixture(s) measured</span>
+        {shipping !== undefined && (
+          <span className="text-emerald-700 dark:text-emerald-400">{shipping}</span>
+        )}
       </div>
     </li>
   );
@@ -294,6 +308,37 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Shipments</h2>
+        {bundle.shipments.length === 0 ? (
+          <p className="text-sm text-neutral-400">Never shipped.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {bundle.shipments.map((shipment, i) => (
+              <li
+                key={i}
+                className="flex flex-col gap-1 rounded-md border border-neutral-200 p-3 text-xs dark:border-neutral-800"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-neutral-700 dark:text-neutral-300">
+                  <span className="font-medium">{shipment.destination}</span>
+                  <span className="text-neutral-400">·</span>
+                  <span>{shipment.purpose}</span>
+                </div>
+                <div className="flex flex-wrap gap-3 text-neutral-500 dark:text-neutral-400">
+                  <span className="font-mono">{shortHash(shipment.versionHash)}</span>
+                  <span>{new Date(shipment.at).toLocaleString()}</span>
+                  <span>
+                    {shipment.receipts.length === 0
+                      ? "no receipts at ship time"
+                      : `${shipment.receipts.length} receipt(s) at ship time`}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

@@ -107,3 +107,20 @@ export class UnknownPublishTargetKindError extends Schema.TaggedErrorClass<Unkno
     kind: Schema.String,
   },
 ) {}
+
+/** `skillmaker ship` was attempted for a bundle with no `skill.version_recorded` event at all -- there is nothing to ship (issue #66: "errors if the bundle has no recorded version"). */
+export class ShipNoVersionError extends Schema.TaggedErrorClass<ShipNoVersionError>()(
+  "ShipNoVersionError",
+  {
+    bundle: Schema.String,
+  },
+) {}
+
+/** `skillmaker ship --version <prefix>` didn't match any recorded version's hash for the bundle. */
+export class ShipVersionNotFoundError extends Schema.TaggedErrorClass<ShipVersionNotFoundError>()(
+  "ShipVersionNotFoundError",
+  {
+    bundle: Schema.String,
+    prefix: Schema.String,
+  },
+) {}

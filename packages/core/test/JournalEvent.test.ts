@@ -66,6 +66,26 @@ const samples: ReadonlyArray<Record<string, unknown>> = [
     ...envelope("skill.published"),
     payload: { bundle: "demo", versionHash: "sha256:aaa", target: "claude-code" },
   },
+  {
+    ...envelope("skill.shipped"),
+    payload: {
+      bundle: "demo",
+      versionHash: "sha256:aaa",
+      destination: "acme-agent-fleet",
+      purpose: "eval harness for team X",
+      receipts: [
+        {
+          fixtureCase: "golden-basic",
+          provider: "claude-code",
+          model: "claude-sonnet-5",
+          n: 30,
+          passes: 29,
+          passRate: 29 / 30,
+          ci: [0.85, 0.99],
+        },
+      ],
+    },
+  },
   { ...envelope("todo.opened"), payload: { todo } },
   {
     ...envelope("todo.updated"),

@@ -95,6 +95,7 @@ export const bundleForEvent = (event: JournalEvent): string | undefined => {
     case "bundle.restored":
     case "skill.version_recorded":
     case "skill.published":
+    case "skill.shipped":
     case "station.started":
     case "review.requested":
     case "review.resolved":

@@ -414,17 +414,45 @@ export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogRespo
 
 /**
  * `GET /api/skillbook` (data-model.md §2.14): "skills leave the studio with
- * receipts." One changelog entry per version/publish/gate event, newest
- * first; `designMarkdown` is the raw `design.md` content (rendered
+ * receipts." One changelog entry per version/publish/gate/shipped event,
+ * newest first; `designMarkdown` is the raw `design.md` content (rendered
  * client-side, same hand-rolled markdown subset `book build`'s
  * `BookRenderer.ts` renders server/CLI-side).
  */
 export class SkillbookChangelogEntry extends Schema.Class<SkillbookChangelogEntry>(
   "SkillbookChangelogEntry",
 )({
-  type: Schema.Literals(["version", "published", "gate"]),
+  type: Schema.Literals(["version", "published", "gate", "shipped"]),
   at: Schema.String,
   summary: Schema.String,
+}) {}
+
+/**
+ * One measurement cell as it stood at ship time (issue #66) -- a narrower
+ * shape than `MeasurementRecord`: `bundle`/`versionHash` are already the
+ * enclosing `SkillbookShipment`'s own fields.
+ */
+export class ShipReceipt extends Schema.Class<ShipReceipt>("ShipReceipt")({
+  fixtureCase: Schema.String,
+  provider: Schema.String,
+  model: Schema.String,
+  n: Schema.Number,
+  passes: Schema.Number,
+  passRate: Schema.Number,
+  ci: Schema.NullOr(Schema.Tuple([Schema.Number, Schema.Number])),
+}) {}
+
+/**
+ * One `skill.shipped` event, materialized for the Port (issue #66): "where
+ * is this in the world" -- destination, purpose, the version that left, and
+ * the receipts it shipped with, frozen at that moment.
+ */
+export class SkillbookShipment extends Schema.Class<SkillbookShipment>("SkillbookShipment")({
+  at: Schema.String,
+  versionHash: Schema.String,
+  destination: Schema.String,
+  purpose: Schema.String,
+  receipts: Schema.Array(ShipReceipt),
 }) {}
 
 export class SkillbookBundle extends Schema.Class<SkillbookBundle>("SkillbookBundle")({
@@ -436,6 +464,7 @@ export class SkillbookBundle extends Schema.Class<SkillbookBundle>("SkillbookBun
   latestVersion: Schema.NullOr(VersionRecord),
   measurements: Schema.Array(MeasurementRecord),
   changelog: Schema.Array(SkillbookChangelogEntry),
+  shipments: Schema.Array(SkillbookShipment),
 }) {}
 
 export class SkillbookResponse extends Schema.Class<SkillbookResponse>("SkillbookResponse")({

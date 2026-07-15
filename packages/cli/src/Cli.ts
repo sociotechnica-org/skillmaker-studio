@@ -19,6 +19,7 @@ import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runReviewResolve } from "./commands/ReviewResolve.ts";
 import { runRun } from "./commands/Run.ts";
 import { runRunRepair } from "./commands/RunRepair.ts";
+import { runShip } from "./commands/Ship.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStationRun } from "./commands/StationRun.ts";
 import { runStatus } from "./commands/Status.ts";
@@ -48,6 +49,7 @@ Commands:
   advance <slug>          Move a bundle along the state machine (guarded)
   version record <slug>   Record a version: hash design.md + output/ (idempotent on content)
   publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
+  ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
   book build              Render the Skillbook to a static site (§2.14)
   todo add <title>        Open a new todo
   todo list               List todos (rebuilds the index first)
@@ -67,8 +69,11 @@ Options:
   --source <s>      (adopt) URL or local path this batch was imported from; recorded on each adopted skill's marker
   --ref <ref>       (adopt) Ref/tag/pointer alongside --source; ignored without --source
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
+  --purpose <text>  (ship) Free-text reason the skill is shipping, e.g. "eval harness for team X"
+  --version <hash>  (ship) Recorded version hash-prefix to ship; defaults to the latest recorded version
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
+                    (ship) Destination the skill is shipping to, e.g. "acme-agent-fleet"
   --back <stage>    (advance) Move backward to an earlier stage (requires --reason)
   --reason <text>   (advance) Reason for a backward move
   --override        (advance) Bypass guards (journaled as a manual override)
@@ -129,6 +134,8 @@ const VALUE_FLAGS = new Set([
   "--out",
   "--source",
   "--ref",
+  "--purpose",
+  "--version",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -304,6 +311,13 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const slug = positionalAfterCommand(argv);
       const target = flagValue(argv, "--target");
       return yield* runPublish(cwd, slug, { json, target });
+    }
+    case "ship": {
+      const slug = positionalAfterCommand(argv);
+      const to = flagValue(argv, "--to");
+      const purpose = flagValue(argv, "--purpose");
+      const version = flagValue(argv, "--version");
+      return yield* runShip(cwd, slug, { json, to, purpose, version });
     }
     case "book": {
       const subcommand = argv[1];
