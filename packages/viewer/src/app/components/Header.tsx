@@ -7,12 +7,12 @@ const NAV_ITEMS: ReadonlyArray<{
   readonly match: (name: Route["name"]) => boolean;
 }> = [
   { href: "/", label: "Board", match: (name) => name === "board" || name === "bundle" },
-  { href: "/catalog", label: "Catalog", match: (name) => name === "catalog" },
+  { href: "/lab", label: "Lab", match: (name) => name === "lab" },
   { href: "/activity", label: "Activity", match: (name) => name === "activity" },
   {
-    href: "/skillbook",
-    label: "Skillbook",
-    match: (name) => name === "skillbook" || name === "skillbook-bundle",
+    href: "/port",
+    label: "Port",
+    match: (name) => name === "port" || name === "port-bundle",
   },
 ];
 

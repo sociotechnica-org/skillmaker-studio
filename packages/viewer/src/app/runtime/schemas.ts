@@ -165,7 +165,7 @@ export const STAGES: ReadonlyArray<BundleStage> = [
  * verbs), kept deliberately separate from the wire/state names
  * (`idea`/`researching`/…) so the journal format, guard logic, and every
  * `stage === "idea"` check stay untouched. The column rename lives here, in one
- * map, consumed by the Board, the bundle Overview, and the Catalog.
+ * map, consumed by the Board, the bundle Overview, and the Lab.
  */
 export const STAGE_LABEL: Record<BundleStage, string> = {
   idea: "Frame",
@@ -380,13 +380,14 @@ export class EventsResponse extends Schema.Class<EventsResponse>("EventsResponse
 }) {}
 
 /**
- * One `GET /api/catalog` row (Phase 17, director ruling: the Catalog page
- * survives as a skill browser -- "what skills do we have," discovery at
- * repo scale). `latestVersion` mirrors `VersionRecord` but is nullable (no
- * version recorded yet); `measuredFixtureCount`/`fixtureCount` is the
- * measurements-summary the ruling calls for, derived server-side from the
- * same fixtures/measurements data `BundleDetailResponse` already exposes
- * per-bundle.
+ * One `GET /api/catalog` row (Phase 17, director ruling: the Catalog page,
+ * now the Lab (#64), survives as a skill browser -- "what skills do we
+ * have," discovery at repo scale). `latestVersion` mirrors `VersionRecord`
+ * but is nullable (no version recorded yet); `measuredFixtureCount`/
+ * `fixtureCount` is the measurements-summary the ruling calls for, derived
+ * server-side from the same fixtures/measurements data `BundleDetailResponse`
+ * already exposes per-bundle. Class/endpoint names stay `Catalog*`/
+ * `/api/catalog` -- they mirror the untouched server wire format.
  */
 export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
   slug: Schema.String,

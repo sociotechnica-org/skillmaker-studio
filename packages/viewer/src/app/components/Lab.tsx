@@ -1,10 +1,12 @@
 /**
- * The `/catalog` page: the skill browser that survives from the old
- * single-page Catalog view (director ruling, ui-pass-spec end-of-doc) --
- * name, one-liner, tags, stage, latest version + drift, and a measurements
- * summary, each row linking to its bundle-detail page. Reads `GET
- * /api/catalog`, a dedicated aggregate endpoint (not `/api/bundles`) so this
- * page doesn't need to fetch every bundle's detail individually.
+ * The `/lab` page (#64, Board · Lab · Port): the hardening bench -- the skill
+ * browser that survives from the old single-page Catalog view (director
+ * ruling, ui-pass-spec end-of-doc) -- name, one-liner, tags, stage, latest
+ * version + drift, and a measurements summary, each row linking to its
+ * bundle-detail page. Reads `GET /api/catalog`, a dedicated aggregate
+ * endpoint (not `/api/bundles`) so this page doesn't need to fetch every
+ * bundle's detail individually -- the endpoint name is server wire format
+ * and stays `/api/catalog` (#64 is display-layer only).
  */
 import type { FC } from "react";
 import { bundleHref, Link } from "../runtime/router.tsx";
@@ -35,7 +37,7 @@ const DRIFT_BADGE_CLASS: Record<Drift, string> = {
   both: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
 };
 
-const CatalogRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
+const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
   <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
     <div className="flex flex-wrap items-center gap-2">
       <Link
@@ -87,16 +89,21 @@ const CatalogRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
   </li>
 );
 
-export const Catalog: FC = () => {
+export const Lab: FC = () => {
   const { entries, loading, error } = useCatalog();
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Catalog</h1>
+      <div>
+        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Lab</h1>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          the hardening bench — stage, drift, and coverage at a glance.
+        </p>
+      </div>
 
       {error !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
-          Could not load catalog: {error.message}
+          Could not load lab: {error.message}
         </p>
       )}
 
@@ -106,7 +113,7 @@ export const Catalog: FC = () => {
 
       <ul className="flex flex-col gap-3">
         {entries.map((entry) => (
-          <CatalogRow key={entry.slug} entry={entry} />
+          <LabRow key={entry.slug} entry={entry} />
         ))}
         {entries.length === 0 && !loading && (
           <li className="text-sm text-neutral-400">No bundles yet.</li>
