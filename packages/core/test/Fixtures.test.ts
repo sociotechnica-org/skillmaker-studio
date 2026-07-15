@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { isKnownRiskFamily, riskFamily, scanFixtures } from "../src/Fixtures.ts";
+import { FixtureCase, isKnownRiskFamily, riskFamily, scanFixtures, writeFixtureScaffold } from "../src/Fixtures.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
 const writeCase = (
@@ -270,6 +270,166 @@ describe("scanFixtures", () => {
         const result = yield* scanFixtures(dir);
         expect(result.cases).toEqual([]);
         expect(result.warnings.some((w) => w.includes("must be a JSON object"))).toBe(true);
+      }),
+    );
+  });
+
+  // Issue #68 (`fixture harvest`): `source` is optional provenance --
+  // absent on every case predating harvest, present only on a harvested one.
+  test("a well-formed source field -> captured, no warning", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "harvested-1", {
+          schemaVersion: 1,
+          case: "harvested-1",
+          class: "hard-case",
+          risks: [],
+          source: { kind: "field-report", eventId: "11111111-1111-1111-1111-111111111111" },
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases).toEqual([
+          {
+            caseName: "harvested-1",
+            class: "hard-case",
+            risks: [],
+            hasPromptMd: true,
+            source: { kind: "field-report", eventId: "11111111-1111-1111-1111-111111111111" },
+          },
+        ]);
+      }),
+    );
+  });
+
+  test("a source field with a destination -> captured verbatim", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "harvested-2", {
+          schemaVersion: 1,
+          case: "harvested-2",
+          class: "hard-case",
+          risks: [],
+          source: {
+            kind: "field-report",
+            eventId: "22222222-2222-2222-2222-222222222222",
+            destination: "acme-agent-fleet",
+          },
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.source).toEqual({
+          kind: "field-report",
+          eventId: "22222222-2222-2222-2222-222222222222",
+          destination: "acme-agent-fleet",
+        });
+      }),
+    );
+  });
+
+  test("no source field -> absent, no warning (every pre-harvest case.json)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "no-source", { schemaVersion: 1, case: "no-source", class: "golden", risks: [] });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.source).toBeUndefined();
+      }),
+    );
+  });
+
+  test("a malformed source field -> warning, case still scanned", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "bad-source", {
+          schemaVersion: 1,
+          case: "bad-source",
+          class: "hard-case",
+          risks: [],
+          source: { kind: "manual" },
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings.some((w) => w.includes('malformed "source" field'))).toBe(true);
+        expect(result.cases[0]?.source).toBeUndefined();
+      }),
+    );
+  });
+});
+
+describe("FixtureCase schema round-trip", () => {
+  const decode = Schema.decodeUnknownEffect(FixtureCase);
+
+  test("decodes without a source field (every fixture predating harvest)", async () => {
+    const decoded = await Effect.runPromise(
+      decode({ schemaVersion: 1, case: "golden-1", class: "golden", risks: ["IN-1"] }),
+    );
+    expect(decoded.source).toBeUndefined();
+  });
+
+  test("decodes with a source field (a harvested fixture, issue #68)", async () => {
+    const decoded = await Effect.runPromise(
+      decode({
+        schemaVersion: 1,
+        case: "hard-case-1",
+        class: "hard-case",
+        risks: [],
+        source: { kind: "field-report", eventId: "11111111-1111-1111-1111-111111111111" },
+      }),
+    );
+    expect(decoded.source?.kind).toBe("field-report");
+    expect(decoded.source?.eventId).toBe("11111111-1111-1111-1111-111111111111");
+    expect(decoded.source?.destination).toBeUndefined();
+  });
+});
+
+describe("writeFixtureScaffold", () => {
+  test("writes case.json/prompt.md/files/expected the same way for a plain scaffold", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        const caseDir = path.join(dir, "evals", "fixtures", "golden-1");
+
+        yield* writeFixtureScaffold({ caseDir, caseName: "golden-1", class: "golden", risks: ["IN-1"] });
+
+        const caseJson = JSON.parse(yield* fs.readFileString(path.join(caseDir, "case.json"))) as unknown;
+        expect(caseJson).toEqual({ schemaVersion: 1, case: "golden-1", class: "golden", risks: ["IN-1"] });
+        const prompt = yield* fs.readFileString(path.join(caseDir, "prompt.md"));
+        expect(prompt).toContain("golden-1");
+        expect(yield* fs.exists(path.join(caseDir, "files", ".gitkeep"))).toBe(true);
+        expect(yield* fs.exists(path.join(caseDir, "expected", "answer-key.md"))).toBe(true);
+      }),
+    );
+  });
+
+  test("seeds prompt.md from promptText and stamps source, when given (fixture harvest's use)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        const caseDir = path.join(dir, "evals", "fixtures", "hard-case-1");
+
+        yield* writeFixtureScaffold({
+          caseDir,
+          caseName: "hard-case-1",
+          class: "hard-case",
+          risks: [],
+          promptText: "Broke on a repo with no package.json.\n",
+          source: { kind: "field-report", eventId: "33333333-3333-3333-3333-333333333333" },
+        });
+
+        const prompt = yield* fs.readFileString(path.join(caseDir, "prompt.md"));
+        expect(prompt).toBe("Broke on a repo with no package.json.\n");
+        const caseJson = JSON.parse(yield* fs.readFileString(path.join(caseDir, "case.json"))) as {
+          readonly source: unknown;
+        };
+        expect(caseJson.source).toEqual({
+          kind: "field-report",
+          eventId: "33333333-3333-3333-3333-333333333333",
+        });
       }),
     );
   });

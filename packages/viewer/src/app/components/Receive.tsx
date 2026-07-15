@@ -5,17 +5,28 @@
  * §HOW) has a manifest (`skill.shipped`, #66); this is where its inbound
  * half lands (issue #67): a workspace-wide field-report list, newest first,
  * plus a minimal paste form -- "even a manually pasted field report proves
- * the loop closes once, by hand, before automating it." No automation, no
- * fixture creation (that's #68); the list is read via `GET
- * /api/field-reports` (`useFieldReports`), the form writes through the
+ * the loop closes once, by hand, before automating it." The list is read via
+ * `GET /api/field-reports` (`useFieldReports`), the form writes through the
  * generic `POST /api/events` path (`postEvent`), same as `TodosPanel`.
+ *
+ * The harvest affordance (issue #68) closes the loop visibly, CLI-first --
+ * no write button in this pass: a harvested report (`fixtureCase !== null`)
+ * links to its fixture on the bundle's Evals tab; an unharvested
+ * `failed`/`surprise` report shows `skillmaker fixture harvest`'s command as
+ * copyable text instead, `<case>` left for the human to name.
  */
 import { type FC, type FormEvent, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
-import { shipBundleHref, Link } from "../runtime/router.tsx";
+import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
 import type { FieldReportOutcome, FieldReportView } from "../runtime/schemas.ts";
 import { useBundles } from "../runtime/useBundles.ts";
 import { useFieldReports } from "../runtime/useFieldReports.ts";
+
+/** Report outcomes worth harvesting -- a "worked" report has no failure to turn into a fixture. */
+const HARVESTABLE_OUTCOMES: ReadonlyArray<FieldReportOutcome> = ["failed", "surprise"];
+
+const harvestCommand = (report: FieldReportView): string =>
+  `skillmaker fixture harvest ${report.bundle} <case> --from-report ${report.id}`;
 
 const OUTCOMES: ReadonlyArray<FieldReportOutcome> = ["worked", "failed", "surprise"];
 
@@ -49,6 +60,20 @@ const ReportRow: FC<{ report: FieldReportView }> = ({ report }) => (
       {report.destination !== null && <span>from "{report.destination}"</span>}
       <span>{new Date(report.at).toLocaleString()}</span>
     </div>
+    {report.fixtureCase !== null ? (
+      <Link
+        href={bundleHref(report.bundle, "evals")}
+        className="w-fit text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
+      >
+        harvested → {report.fixtureCase} (Evals)
+      </Link>
+    ) : (
+      HARVESTABLE_OUTCOMES.includes(report.outcome) && (
+        <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+          {harvestCommand(report)}
+        </code>
+      )
+    )}
   </li>
 );
 

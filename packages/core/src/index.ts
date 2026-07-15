@@ -71,17 +71,22 @@ export {
 } from "./Measurements.ts";
 export {
   scanFixtures,
+  writeFixtureScaffold,
   FIXTURE_CLASSES,
   FixtureClass,
+  isFixtureClass,
   RISK_FAMILIES,
   riskFamily,
   isKnownRiskFamily,
   FixtureCase,
   FixtureSetup,
   FixtureGrading,
+  FixtureSource,
   type RiskFamily,
+  type FixtureSourceRecord,
   type FixtureCaseRecord,
   type ScanFixturesResult,
+  type FixtureScaffoldInput,
 } from "./Fixtures.ts";
 export {
   parseRiskMap,
@@ -208,3 +213,8 @@ export {
   type RecordFieldReportInput,
   type RecordFieldReportResult,
 } from "./FieldReport.ts";
+export {
+  harvestFixture,
+  type HarvestFixtureInput,
+  type HarvestFixtureResult,
+} from "./Harvest.ts";

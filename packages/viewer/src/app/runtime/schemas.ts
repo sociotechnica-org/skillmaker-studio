@@ -480,6 +480,9 @@ export type FieldReportOutcome = typeof FieldReportOutcome.Type;
  * `GET /api/field-reports` -- Receive's workspace-wide field-report list
  * (issue #67): "what is the world telling me about what I shipped."
  * `versionHash`/`destination` are `null` when the reporter didn't know them.
+ * `fixtureCase` (issue #68) is the harvested fixture's case name on this
+ * bundle's Evals tab, when `fixture harvest --from-report` has turned this
+ * exact report into a fixture; `null` when it hasn't been harvested yet.
  */
 export class FieldReportView extends Schema.Class<FieldReportView>("FieldReportView")({
   id: Schema.String,
@@ -490,6 +493,7 @@ export class FieldReportView extends Schema.Class<FieldReportView>("FieldReportV
   destination: Schema.NullOr(Schema.String),
   at: Schema.String,
   actor: ActorView,
+  fixtureCase: Schema.NullOr(Schema.String),
 }) {}
 
 /** `GET /api/field-reports` response -- newest first, unpaginated (issue #67). */

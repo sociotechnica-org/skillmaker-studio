@@ -3,10 +3,21 @@
  * scaffolds `evals/fixtures/<case>/` for an existing bundle: `case.json`,
  * `prompt.md` (the PROMPT.MD CHANGE — the task prompt lives here, not in
  * `case.json`, data-model.md §2.5), `files/.gitkeep`, and
- * `expected/answer-key.md` skeleton. Fixtures are files, not journal events
- * — nothing is appended to the journal here (plan.md Phase 7).
+ * `expected/answer-key.md` skeleton, via the shared `writeFixtureScaffold`
+ * (`@skillmaker/core`, `Fixtures.ts`) -- `fixture harvest` (`FixtureHarvest.ts`,
+ * issue #68) writes the same shape from a field report, through the same
+ * function. Fixtures are files, not journal events — nothing is appended to
+ * the journal here (plan.md Phase 7).
  */
-import { FIXTURE_CLASSES, type FixtureClass, isKnownRiskFamily, riskFamily, Workspace } from "@skillmaker/core";
+import {
+  FIXTURE_CLASSES,
+  isFixtureClass,
+  isKnownRiskFamily,
+  riskFamily,
+  Workspace,
+  writeFixtureScaffold,
+  type FixtureClass,
+} from "@skillmaker/core";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
@@ -17,19 +28,6 @@ export interface FixtureAddOptions {
   readonly klass?: string;
   readonly risks?: string;
 }
-
-const isFixtureClass = (value: string): value is FixtureClass =>
-  (FIXTURE_CLASSES as ReadonlyArray<string>).includes(value);
-
-const promptSkeleton = (caseName: string): string =>
-  `<!-- The eval task prompt for "${caseName}" (prose, sent to the agent as-is). -->
-`;
-
-const answerKeySkeleton = (caseName: string): string =>
-  `# Answer key — ${caseName}
-
-<!-- Grading-only: never enters the agent's workspace [inherited]. -->
-`;
 
 export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
   cwd: string,
@@ -91,25 +89,7 @@ export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
     );
   }
 
-  yield* fs.makeDirectory(path.join(caseDir, "files"), { recursive: true });
-  yield* fs.makeDirectory(path.join(caseDir, "expected"), { recursive: true });
-
-  yield* fs.writeFileString(
-    path.join(caseDir, "case.json"),
-    `${JSON.stringify(
-      {
-        schemaVersion: 1,
-        case: caseName,
-        class: klass,
-        risks,
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  yield* fs.writeFileString(path.join(caseDir, "prompt.md"), promptSkeleton(caseName));
-  yield* fs.writeFileString(path.join(caseDir, "files", ".gitkeep"), "");
-  yield* fs.writeFileString(path.join(caseDir, "expected", "answer-key.md"), answerKeySkeleton(caseName));
+  yield* writeFixtureScaffold({ caseDir, caseName, class: klass, risks });
 
   return summarize(slug, caseName, klass, risks, options.json);
 });
