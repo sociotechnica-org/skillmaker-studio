@@ -39,22 +39,14 @@ Todo-only axis, wholly independent of `bundle.stage` — inherited law "Todo
 status and bundle stage are independent axes" (data-model.md §1.1).
 
 Director ruling (2026-07-15, #80 — "stock and flow"): **the Lab is this
-record's home surface.** The ruling's own distinction is the reason —
-**stage is a property of the skill** (how far its existence has come);
-**a todo is a unit of work** (bug, experiment, eval, improvement). A
-brand-new skill's genesis has exactly one unit of work, "bring this thing
-into existence," which is why the Board's kanban fits it and nothing
-after it; every todo born once a skill already exists belongs to the
-Lab, not the Board. The rule for where work lands, stated plainly: work
-that changes what a skill *is* — its frame, its design — re-enters the
-Board as a stage move backward, already legal; work that changes how
-*well* a skill already does what it is stays a todo. The ruling names the
-todo queue directly as **the heart of the Lab**. That does not change
-anything on this card — the journal stays the sole source of truth
+record's home surface** — a todo is a unit of work on a skill that
+already exists, and the ruling names the todo queue directly as **the
+heart of the Lab** (full ruling: `../_index/Vision - Board Lab Ship
+Receive`; the Board-as-flow half: `./Surface - Board`). That changes
+nothing on this card — the journal stays the sole source of truth
 (`todo.*` events, folded, as below) — only presentation moves, off the
 Board's persistent right rail and onto a Lab work view (`Surface - Lab`,
-proposed by #83, not yet a card). `../board/Surface - Board` records the
-Board-as-flow half of the same ruling.
+proposed by #83, not yet a card).
 
 A `Todo.origin` field is **proposed, not yet built**, to stamp provenance
 when a todo is born from field signal rather than typed by a human:

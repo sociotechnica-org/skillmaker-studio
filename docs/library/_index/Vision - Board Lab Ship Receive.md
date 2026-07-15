@@ -48,27 +48,33 @@ completely; GitHub doesn't drag a repo across a kanban when you fix a
 bug, the issue moves, not the repo. Named directly onto the rooms above:
 **Board is the flow view** (skills in genesis and re-conception); **Lab
 is the stock view** (the portfolio under care, once a skill exists).
-Stock and flow. The rule for where work lands: work that changes what a
-skill *is* — its frame, its design — re-enters the Board as a stage move
-backward, already legal-with-a-reason; work that changes how *well* a
-skill does what it already is is a todo, and it lives in the Lab. A
-shipped skill's eval work never moves a stage. **"Evaluated once" is a
-stage** — first risk map, first fixtures, first green graded run;
-**"statistically valid" is a pursuit** the Lab owns and that never ends,
-which is exactly why it is not a stage. The todo queue is named directly
-as *the heart of the Lab* — the journal stays the sole source of truth
-(`todo.*` events, folded; see `../board/Entity - Todo`), only presentation
-moves, from a persistent right-rail panel to a Lab work view (#83). The
-Published column follows the same ruling: it is a **doorway, not a
-shelf** (#82) — recently graduated skills pass through it into the Lab,
-they do not accumulate on the Board (see `../board/Surface - Board`).
+
+The rule for where work lands: work that changes what a skill *is* — its
+frame, its design — re-enters the Board as a stage move backward, already
+legal-with-a-reason; work that changes how *well* a skill does what it
+already is is a todo, and it lives in the Lab. A shipped skill's eval
+work never moves a stage. **"Evaluated once" is a stage** — first risk
+map, first fixtures, first green graded run; **"statistically valid" is
+a pursuit** the Lab owns and that never ends, which is exactly why it is
+not a stage.
+
+The consequences, one issue each. The todo queue is named directly as
+*the heart of the Lab* — the journal stays the sole source of truth
+(`todo.*` events, folded; see `../board/Entity - Todo`), only
+presentation would move, from a persistent right-rail panel to a Lab
+work view (#83). The Published column is meant to become a **doorway,
+not a shelf** (#82, proposed, not yet built): recently graduated skills
+would pass through it into the Lab instead of accumulating on the Board
+indefinitely, as they do today (see `../board/Surface - Board`). Field
+signal becoming Lab work — a todo with its provenance stamped — is the
+batch's connective tissue (#81), the counterpart to harvest's
+report→fixture path (#68).
+
 Shipping stays stage-independent throughout, already true in code today
 (`skill.shipped` never touches the stage fold) — a Lab skill can ship,
 the patch flow is fix → `skill.version_recorded` → `skill.shipped` with
 fresh receipts; "skills in the Lab aren't shipped" is old-Catalog vibes,
-not the data model. Field signal becoming Lab work — a todo with its
-provenance stamped — is the batch's connective tissue (#81), the
-counterpart to harvest's report→fixture path (#68).
+not the data model.
 
 The model is four rooms plus a ledger:
 
