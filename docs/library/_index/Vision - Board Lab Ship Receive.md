@@ -7,6 +7,7 @@ links:
   related_to:
     - "./Concept - Skillmaker Studio"
     - "../board/Surface - Board"
+    - "../board/Entity - Todo"
     - "../board/Surface - Activity Feed"
     - "../outputs/Entity - Skillbook"
     - "../outputs/Entity - Shipment"
@@ -29,8 +30,51 @@ receiving (field signal, later intake/quarantine) — so it split into its
 own tabs, **Ship** and **Receive**, landing the current
 Board · Lab · Ship · Receive · Activity order in #72. The re-scoping half
 — Lab as a pressure bench, the checkout/field-report loop Ship and
-Receive exist to carry — has **not** shipped; this card is the target
-picture that work still builds toward.
+Receive exist to carry — has **not** shipped, but as of #80 it is no
+longer wholly unscheduled: the director's stock-and-flow ruling below
+turns it into a batch of three specced issues (#81, #82, #83). This card
+remains the target picture that work still builds toward.
+
+A second director ruling, same day (2026-07-15, #80 — "stock and flow"),
+closes a question the rebuild had drifted on: *"getting clear on source
+of truth for to-dos and getting clear on source of truth versus views for
+the work process."* The distinction that resolves it: **stage is a
+property of the skill** (how far its existence has come); **a todo is a
+unit of work** (bug, experiment, eval, improvement). For a brand-new
+skill the two coincide — there is exactly one unit of work, "bring this
+thing into existence," and its phases are the skill's own phases — which
+is why the kanban Board fits genesis perfectly and fails maintenance
+completely; GitHub doesn't drag a repo across a kanban when you fix a
+bug, the issue moves, not the repo. Named directly onto the rooms above:
+**Board is the flow view** (skills in genesis and re-conception); **Lab
+is the stock view** (the portfolio under care, once a skill exists).
+
+The rule for where work lands: work that changes what a skill *is* — its
+frame, its design — re-enters the Board as a stage move backward, already
+legal-with-a-reason; work that changes how *well* a skill does what it
+already is is a todo, and it lives in the Lab. A shipped skill's eval
+work never moves a stage. **"Evaluated once" is a stage** — first risk
+map, first fixtures, first green graded run; **"statistically valid" is
+a pursuit** the Lab owns and that never ends, which is exactly why it is
+not a stage.
+
+The consequences, one issue each. The todo queue is named directly as
+*the heart of the Lab* — the journal stays the sole source of truth
+(`todo.*` events, folded; see `../board/Entity - Todo`), only
+presentation would move, from a persistent right-rail panel to a Lab
+work view (#83). The Published column is meant to become a **doorway,
+not a shelf** (#82, proposed, not yet built): recently graduated skills
+would pass through it into the Lab instead of accumulating on the Board
+indefinitely, as they do today (see `../board/Surface - Board`). Field
+signal becoming Lab work — a todo with its provenance stamped — is the
+batch's connective tissue (#81), the counterpart to harvest's
+report→fixture path (#68).
+
+Shipping stays stage-independent throughout, already true in code today
+(`skill.shipped` never touches the stage fold) — a Lab skill can ship,
+the patch flow is fix → `skill.version_recorded` → `skill.shipped` with
+fresh receipts; "skills in the Lab aren't shipped" is old-Catalog vibes,
+not the data model.
 
 The model is four rooms plus a ledger:
 
@@ -139,4 +183,8 @@ separate, un-scheduled behavioral change. `Receive.tsx` (#67) now reads
 moves a bundle's stage, same house rule shipping follows. This card is
 `status: adopted` for the naming (now Board · Lab · Ship · Receive ·
 Activity, #72); Lab's bench upgrades and field drift (a shipped version
-diverging in the wild) remain unbuilt.
+diverging in the wild) remain unbuilt. The stock-and-flow ruling (#80)
+is `adopted` too — the director has ruled — but is docs-only as of this
+writing: no code in `packages/core/src` or `packages/viewer/src` yet
+implements the todo-origin field, the Published doorway window, or the
+Lab's Bench/Queue split; #81/#82/#83 spec each in turn.

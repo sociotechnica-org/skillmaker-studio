@@ -13,6 +13,8 @@ links:
     - "./Surface - Activity Feed"
     - "../authoring/Role - Director"
     - "../production/Entity - Skill Bundle"
+    - "./Entity - Todo"
+    - "../_index/Vision - Board Lab Ship Receive"
 ---
 
 ## WHAT
@@ -30,11 +32,32 @@ mutable `board-state.json` it rendered from are both gone. The Board now
 has nothing to be out of sync with: it is a live projection of the
 journal, not a second copy of the truth.
 
+Director ruling (2026-07-15, #80 — "stock and flow"): **the Board is the
+flow view** — skills in genesis and re-conception only. Maintenance work
+on an existing skill (bugs, evals, improvements) is a todo, not a stage
+move, and lives in the Lab, the ruling's stock view (full ruling:
+`../_index/Vision - Board Lab Ship Receive`; the todo/stage split:
+`./Entity - Todo`).
+
+The same ruling makes the Published column a **doorway, not a shelf**
+(#82, proposed, not yet built): recently graduated bundles should pass
+through it into the Lab rather than accumulate here indefinitely. This
+card does not yet implement that — the `published` column below has no
+time window today, so every published, non-archived bundle renders there
+for as long as it stays published.
+
+#82 specs the fix: a derived `stageChangedAt` timestamp (the `at` of the
+last `bundle.stage_changed`, same pattern as `isArchived`'s window in
+`./Entity - Todo`) and a `DOORWAY_WINDOW_DAYS` cutoff, past which a
+graduated bundle drops off this column with a "N in the Lab →" pointer
+instead of silently vanishing.
+
 ## HOW
 
-`Board.tsx` defines `STAGE_COLUMNS` as the five production states (`idea`,
-`researching`, `drafting`, `evaluating`, `published`) plus a sixth,
-always-present `archived` column. Bundles are bucketed by
+`Board.tsx` renders a column per entry in `STAGES` (the five production
+states — `idea`, `researching`, `drafting`, `evaluating`, `published` —
+declared in `runtime/schemas.ts`) plus a sixth, always-present `archived`
+column. Bundles are bucketed by
 `bundle.archived ? "archived" : bundle.stage` — archived status wins over
 whatever stage the bundle is nominally parked at, so a bundle never
 appears in two columns. Each column is a `BoardColumn` (see
@@ -47,7 +70,7 @@ anywhere in the shipped code; `Bundle selection is a real navigation
 panel state.
 
 Verified: read `packages/viewer/src/app/components/Board.tsx` directly —
-`STAGE_COLUMNS` is exactly `idea/researching/drafting/evaluating/published`
+`STAGES` is exactly `idea/researching/drafting/evaluating/published`
 plus a literal `"Archived"` column appended outside the array, and
 `bundlesByColumn` keys strictly off `bundle.stage`/`bundle.archived` (both
 journal-fold-derived fields per `IndexService.ts`'s `bundles` table), never

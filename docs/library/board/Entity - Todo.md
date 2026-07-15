@@ -10,6 +10,7 @@ links:
     - "../production/Entity - Skill Bundle"
     - "../production/Mechanism - Bundle Stage"
     - "./Surface - Board"
+    - "../_index/Vision - Board Lab Ship Receive"
 ---
 
 ## WHAT
@@ -36,6 +37,25 @@ at all). Consolidating into one `Todo` type also finally resolves the old
 model's stage/status polysemy at the *todo* layer: `Todo.status` is a
 Todo-only axis, wholly independent of `bundle.stage` — inherited law "Todo
 status and bundle stage are independent axes" (data-model.md §1.1).
+
+Director ruling (2026-07-15, #80 — "stock and flow"): **the Lab is this
+record's home surface** — a todo is a unit of work on a skill that
+already exists, and the ruling names the todo queue directly as **the
+heart of the Lab** (full ruling: `../_index/Vision - Board Lab Ship
+Receive`; the Board-as-flow half: `./Surface - Board`). That changes
+nothing on this card — the journal stays the sole source of truth
+(`todo.*` events, folded, as below) — only presentation moves, off the
+Board's persistent right rail and onto a Lab work view (`Surface - Lab`,
+proposed by #83, not yet a card).
+
+A `Todo.origin` field is **proposed, not yet built**, to stamp provenance
+when a todo is born from field signal rather than typed by a human:
+`origin?: { kind: "field-report", ref: <event-id> }`, immutable like
+`source` and structurally absent from `TodoPatch` for the same reason.
+See the signal-becomes-work issue (#81) for the full shape — the `todos`
+table gaining a column, `skillmaker todo add --from-report <event-id>`
+defaulting `kind`/`bundle`/`detail` from the report, and an origin chip
+("from the field") wherever todo rows render.
 
 ## HOW
 
