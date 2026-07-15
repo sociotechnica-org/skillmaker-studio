@@ -15,6 +15,7 @@ import { runMeasurements } from "./commands/Measurements.ts";
 import { runNew } from "./commands/New.ts";
 import { runPublish } from "./commands/Publish.ts";
 import { runReindex } from "./commands/Reindex.ts";
+import { runReport } from "./commands/Report.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runReviewResolve } from "./commands/ReviewResolve.ts";
 import { runRun } from "./commands/Run.ts";
@@ -50,6 +51,7 @@ Commands:
   version record <slug>   Record a version: hash design.md + output/ (idempotent on content)
   publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
   ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
+  report <slug>           Record a field report on a shipped skill -- what the wild says back (§2.9, issue #67)
   book build              Render the Skillbook to a static site (§2.14)
   todo add <title>        Open a new todo
   todo list               List todos (rebuilds the index first)
@@ -70,7 +72,10 @@ Options:
   --ref <ref>       (adopt) Ref/tag/pointer alongside --source; ignored without --source
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
   --purpose <text>  (ship) Free-text reason the skill is shipping, e.g. "eval harness for team X"
-  --version <hash>  (ship) Recorded version hash-prefix to ship; defaults to the latest recorded version
+  --version <hash>  (ship, report) Recorded version hash-prefix; ship defaults to the latest recorded version, report leaves it unset when omitted
+  --outcome <o>     (report) worked | failed | surprise (required)
+  --note <text>     (report) Free-text field report (required)
+  --from <dest>     (report) Where the report came from, e.g. "acme-agent-fleet"; optional
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
                     (ship) Destination the skill is shipping to, e.g. "acme-agent-fleet"
@@ -136,6 +141,9 @@ const VALUE_FLAGS = new Set([
   "--ref",
   "--purpose",
   "--version",
+  "--outcome",
+  "--note",
+  "--from",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -318,6 +326,14 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const purpose = flagValue(argv, "--purpose");
       const version = flagValue(argv, "--version");
       return yield* runShip(cwd, slug, { json, to, purpose, version });
+    }
+    case "report": {
+      const slug = positionalAfterCommand(argv);
+      const outcome = flagValue(argv, "--outcome");
+      const note = flagValue(argv, "--note");
+      const version = flagValue(argv, "--version");
+      const from = flagValue(argv, "--from");
+      return yield* runReport(cwd, slug, { json, outcome, note, version, from });
     }
     case "book": {
       const subcommand = argv[1];

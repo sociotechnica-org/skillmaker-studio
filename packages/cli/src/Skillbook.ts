@@ -26,7 +26,7 @@ import { Path } from "effect/Path";
 import { join } from "node:path";
 
 export interface SkillbookChangelogEntry {
-  readonly type: "version" | "published" | "gate" | "shipped";
+  readonly type: "version" | "published" | "gate" | "shipped" | "reported";
   readonly at: string;
   readonly summary: string;
 }
@@ -55,7 +55,7 @@ export interface SkillbookBundle {
   readonly latestVersion: VersionRecord | null;
   /** Never pooled (data-model.md §1.1 laws 5-6) -- one cell per {fixture, version, provider, model}. */
   readonly measurements: ReadonlyArray<MeasurementRecord>;
-  /** Versions/publishes/gates/shipments, newest first. */
+  /** Versions/publishes/gates/shipments/field reports, newest first. */
   readonly changelog: ReadonlyArray<SkillbookChangelogEntry>;
   /** Every `skill.shipped` event for this bundle, newest first (issue #66: "where is this in the world"). */
   readonly shipments: ReadonlyArray<SkillbookShipment>;
@@ -132,6 +132,15 @@ export const buildSkillbook = Effect.fn("Skillbook.build")(function* (
           destination: event.payload.destination,
           purpose: event.payload.purpose,
           receipts: event.payload.receipts,
+        });
+      } else if (event.type === "skill.field_report") {
+        const versionSuffix =
+          event.payload.versionHash !== undefined ? ` (${shortHash(event.payload.versionHash)})` : "";
+        const fromSuffix = event.payload.destination !== undefined ? ` from "${event.payload.destination}"` : "";
+        changelog.push({
+          type: "reported",
+          at: event.at,
+          summary: `Field report: ${event.payload.outcome}${versionSuffix}${fromSuffix} -- ${event.payload.report}`,
         });
       }
     }

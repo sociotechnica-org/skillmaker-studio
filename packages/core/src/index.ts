@@ -101,6 +101,7 @@ export {
   detectBundleLayout,
   foldSkillVersions,
   latestSkillVersion,
+  resolveSkillVersion,
   shortHash,
   versionLabel,
   recordSkillVersion,

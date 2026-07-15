@@ -13,6 +13,7 @@ import {
   CatalogResponse,
   CreateBundleResponse,
   EventsResponse,
+  FieldReportsResponse,
   HealthResponse,
   PostEventResponse,
   PublishBundleResponse,
@@ -71,6 +72,10 @@ export const getCatalog = (): Promise<CatalogResponse> => fetchJson("/api/catalo
 
 /** `GET /api/skillbook` -- the Ship page's data (was the Skillbook page, #64; was the Port page, #72; data-model.md §2.14). */
 export const getSkillbook = (): Promise<SkillbookResponse> => fetchJson("/api/skillbook", SkillbookResponse);
+
+/** `GET /api/field-reports` -- the Receive page's workspace-wide field-report list (issue #67), newest first. */
+export const getFieldReports = (): Promise<FieldReportsResponse> =>
+  fetchJson("/api/field-reports", FieldReportsResponse);
 
 export interface PostEventInput {
   readonly type: string;
