@@ -19,6 +19,7 @@ import {
 import { Effect, Layer } from "effect";
 import { Path } from "effect/Path";
 import { type CliResult, expectedFailure, ok, usageError } from "../CliResult.ts";
+import { STAGE_LABEL } from "../StageVocab.ts";
 
 export interface StatusOptions {
   readonly json: boolean;
@@ -188,7 +189,7 @@ const summarize = (view: StatusView, json: boolean): CliResult => {
     `one-liner:   ${bundle.oneLiner}`,
     `tags:        ${bundle.tags.join(", ")}`,
     `created:     ${bundle.created}`,
-    `stage:       ${bundle.stage}`,
+    `stage:       ${STAGE_LABEL[bundle.stage]}`,
     `substate:    ${bundle.substate}`,
     `archived:    ${bundle.archived}`,
     `events:      ${view.eventCount}`,

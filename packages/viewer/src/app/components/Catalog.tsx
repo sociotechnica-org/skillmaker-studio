@@ -8,16 +8,8 @@
  */
 import type { FC } from "react";
 import { bundleHref, Link } from "../runtime/router.tsx";
-import type { BundleStage, CatalogEntry, Drift } from "../runtime/schemas.ts";
+import { STAGE_LABEL, type BundleStage, type CatalogEntry, type Drift } from "../runtime/schemas.ts";
 import { useCatalog } from "../runtime/useCatalog.ts";
-
-const STAGE_LABEL: Record<BundleStage, string> = {
-  idea: "Idea",
-  researching: "Researching",
-  drafting: "Drafting",
-  evaluating: "Evaluating",
-  published: "Published",
-};
 
 const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
   idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
