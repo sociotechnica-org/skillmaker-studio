@@ -12,7 +12,9 @@ import {
   IndexServiceLayer,
   Journal,
   JournalLayer,
+  openTodoFromReport,
   Workspace,
+  type OpenTodoFromReportResult,
   type TodoKind,
   type TodoRecord,
   type TodoStatus,
@@ -41,7 +43,12 @@ export interface TodoAddOptions {
   readonly detail?: string;
   readonly priority?: string;
   readonly pin: boolean;
+  /** `--from-report <event-id>` (issue #81): opens the todo with bundle/kind/detail defaulted from the named `skill.field_report`. */
+  readonly fromReport?: string;
 }
+
+const TODO_ADD_USAGE =
+  "Usage: skillmaker todo add <title> [--kind task|bug|improvement|eval] [--bundle <slug>] [--detail <text>] [--priority <n>] [--pin] [--from-report <event-id>]\n";
 
 export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
   cwd: string,
@@ -49,9 +56,7 @@ export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
   options: TodoAddOptions,
 ) {
   if (title === undefined || title.trim().length === 0) {
-    return usageError(
-      "skillmaker todo add: missing <title>\n\nUsage: skillmaker todo add <title> [--kind task|bug|improvement|eval] [--bundle <slug>] [--detail <text>] [--priority <n>] [--pin]\n",
-    );
+    return usageError(`skillmaker todo add: missing <title>\n\n${TODO_ADD_USAGE}`);
   }
 
   if (options.kind !== undefined && !isTodoKind(options.kind)) {
@@ -62,15 +67,16 @@ export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
   // Re-narrow here: a closure captures the *declared* type of a captured
   // variable, not a prior flow-narrowing of it (same reasoning as
   // Advance.ts's `backStage`/`toStage`).
-  const kind: TodoKind = options.kind !== undefined && isTodoKind(options.kind) ? options.kind : "task";
+  const explicitKind: TodoKind | undefined =
+    options.kind !== undefined && isTodoKind(options.kind) ? options.kind : undefined;
 
-  let priority = DEFAULT_PRIORITY_BY_KIND[kind];
+  let explicitPriority: number | undefined;
   if (options.priority !== undefined) {
     const parsed = Number.parseInt(options.priority, 10);
     if (Number.isNaN(parsed)) {
       return usageError(`skillmaker todo add: invalid --priority "${options.priority}"\n`);
     }
-    priority = parsed;
+    explicitPriority = parsed;
   }
 
   const workspace = yield* Workspace;
@@ -88,17 +94,76 @@ export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
   const id = `td-${crypto.randomUUID()}`;
+  const created = todayIsoDate();
+  const trimmedTitle = title.trim();
+
+  if (options.fromReport !== undefined && options.fromReport.trim().length > 0) {
+    const eventId = options.fromReport.trim();
+
+    const outcome = yield* openTodoFromReport({
+      title: trimmedTitle,
+      eventId,
+      actor,
+      id,
+      created,
+      ...(explicitKind !== undefined ? { kind: explicitKind } : {}),
+      ...(options.bundle !== undefined ? { bundle: options.bundle } : {}),
+      ...(options.detail !== undefined ? { detail: options.detail } : {}),
+      ...(explicitPriority !== undefined ? { priority: explicitPriority } : {}),
+      ...(options.pin ? { pinned: true } : {}),
+    }).pipe(
+      Effect.provide(JournalLayer(journalPath)),
+      Effect.map((result) => ({ kind: "ok" as const, result })),
+      Effect.catchTag("TodoFromReportEventNotFoundError", (error) =>
+        Effect.succeed({ kind: "event_not_found" as const, eventId: error.eventId }),
+      ),
+      Effect.catchTag("TodoFromReportNotFieldReportError", (error) =>
+        Effect.succeed({
+          kind: "not_field_report" as const,
+          eventId: error.eventId,
+          eventType: error.eventType,
+        }),
+      ),
+      Effect.catchTag("TodoFromReportBundleMismatchError", (error) =>
+        Effect.succeed({
+          kind: "bundle_mismatch" as const,
+          eventId: error.eventId,
+          bundle: error.bundle,
+          reportBundle: error.reportBundle,
+        }),
+      ),
+    );
+
+    if (outcome.kind === "event_not_found") {
+      return expectedFailure(`skillmaker todo add: no such event "${outcome.eventId}"\n`);
+    }
+    if (outcome.kind === "not_field_report") {
+      return expectedFailure(
+        `skillmaker todo add: event "${outcome.eventId}" is a "${outcome.eventType}" event, not a skill.field_report\n`,
+      );
+    }
+    if (outcome.kind === "bundle_mismatch") {
+      return expectedFailure(
+        `skillmaker todo add: --bundle "${outcome.bundle}" disagrees with report "${outcome.eventId}"'s bundle "${outcome.reportBundle}"\n`,
+      );
+    }
+
+    return summarizeFromReport(outcome.result, eventId, options.json);
+  }
+
+  const kind: TodoKind = explicitKind ?? "task";
+  const priority = explicitPriority ?? DEFAULT_PRIORITY_BY_KIND[kind];
 
   const status: TodoStatus = "open";
   const todo = {
     id,
     kind,
     status,
-    title: title.trim(),
+    title: trimmedTitle,
     ...(options.detail !== undefined ? { detail: options.detail } : {}),
     priority,
     ...(options.bundle !== undefined ? { bundle: options.bundle } : {}),
-    created: todayIsoDate(),
+    created,
     ...(options.pin ? { pinned: true } : {}),
     source: actor,
   };
@@ -117,6 +182,15 @@ export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
   }
   return ok(`skillmaker: opened todo ${id} — ${todo.title}\n`);
 });
+
+const summarizeFromReport = (result: OpenTodoFromReportResult, eventId: string, json: boolean): CliResult => {
+  if (json) {
+    return ok(`${JSON.stringify({ status: "opened", id: result.todo.id, todo: result.todo })}\n`);
+  }
+  return ok(
+    `skillmaker: opened todo ${result.todo.id} — ${result.todo.title} (from field report ${eventId})\n`,
+  );
+};
 
 // ---------------------------------------------------------------------------
 // todo list

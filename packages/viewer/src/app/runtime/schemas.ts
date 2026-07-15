@@ -350,6 +350,16 @@ export class ChecklistItemView extends Schema.Class<ChecklistItemView>("Checklis
   done: Schema.Boolean,
 }) {}
 
+/**
+ * Mirrors `@skillmaker/core`'s `TodoOrigin`/`TodoOriginRecord` (issue #81):
+ * which upstream signal opened this todo automatically, if any.
+ * `"field-report"` is the only `kind` today.
+ */
+export class TodoOriginView extends Schema.Class<TodoOriginView>("TodoOriginView")({
+  kind: Schema.Literal("field-report"),
+  ref: Schema.String,
+}) {}
+
 export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
   id: Schema.String,
   kind: TodoKind,
@@ -364,6 +374,7 @@ export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
   pinned: Schema.optionalKey(Schema.Boolean),
   archived: Schema.Boolean,
   source: ActorView,
+  origin: Schema.optionalKey(TodoOriginView),
 }) {}
 
 export class TodosResponse extends Schema.Class<TodosResponse>("TodosResponse")({
@@ -485,6 +496,9 @@ export type FieldReportOutcome = typeof FieldReportOutcome.Type;
  * `fixtureCase` (issue #68) is the harvested fixture's case name on this
  * bundle's Evals tab, when `fixture harvest --from-report` has turned this
  * exact report into a fixture; `null` when it hasn't been harvested yet.
+ * `todo` (issue #81) is the other exit door: the todo, if any, opened via
+ * `todo add --from-report` against this exact report -- `null` when no todo
+ * has been opened from it yet.
  */
 export class FieldReportView extends Schema.Class<FieldReportView>("FieldReportView")({
   id: Schema.String,
@@ -496,6 +510,13 @@ export class FieldReportView extends Schema.Class<FieldReportView>("FieldReportV
   at: Schema.String,
   actor: ActorView,
   fixtureCase: Schema.NullOr(Schema.String),
+  todo: Schema.NullOr(
+    Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      status: TodoStatus,
+    }),
+  ),
 }) {}
 
 /** `GET /api/field-reports` response -- newest first, unpaginated (issue #67). */

@@ -218,3 +218,9 @@ export {
   type HarvestFixtureInput,
   type HarvestFixtureResult,
 } from "./Harvest.ts";
+export {
+  openTodoFromReport,
+  TODO_KIND_BY_OUTCOME,
+  type OpenTodoFromReportInput,
+  type OpenTodoFromReportResult,
+} from "./TodoFromReport.ts";

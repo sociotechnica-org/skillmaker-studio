@@ -38,7 +38,7 @@ import type { Actor } from "./Actor.ts";
 import type { JournalEvent, RunVerdict } from "./Journal.ts";
 import { RunRecord } from "./Run.ts";
 import type { RunStatus } from "./Run.ts";
-import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
+import type { ChecklistItem, Todo, TodoKind, TodoOriginRecord, TodoStatus } from "./Todo.ts";
 import { AdoptMarker } from "./Adopt.ts";
 import {
   ADOPT_MARKER_FILENAME,
@@ -110,6 +110,8 @@ export interface TodoRecord {
   readonly pinned?: boolean;
   readonly archived: boolean;
   readonly source: Actor;
+  /** Present only for a todo opened via `todo add --from-report` (issue #81); absent for every hand-opened todo. */
+  readonly origin?: TodoOriginRecord;
 }
 
 export interface ListTodosOptions {
@@ -217,6 +219,7 @@ interface TodoRow {
   readonly pinned: number;
   readonly archived: number;
   readonly source_json: string;
+  readonly origin_json: string | null;
 }
 
 interface FixtureRow {
@@ -396,6 +399,17 @@ const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
       try: () => JSON.parse(row.source_json) as Actor,
       catch: toIndexError(`studio.db: todo "${row.id}" has invalid source_json`),
     });
+    // `origin_json` was written from a `Todo["origin"]` the journal fold
+    // already validated tolerantly, but the DB column can still be
+    // corrupted independently (hand edit, interrupted write) -- same
+    // guarded decode path `rowToFixtureRecord` uses for `source_json`.
+    const origin =
+      row.origin_json !== null
+        ? yield* Effect.try({
+            try: () => JSON.parse(row.origin_json as string) as TodoOriginRecord,
+            catch: toIndexError(`studio.db: todo "${row.id}" has invalid origin_json`),
+          })
+        : undefined;
     return {
       id: row.id,
       kind: row.kind,
@@ -410,6 +424,7 @@ const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
       ...(row.pinned !== 0 ? { pinned: true } : {}),
       archived: row.archived !== 0,
       source,
+      ...(origin !== undefined ? { origin } : {}),
     };
   });
 
@@ -561,7 +576,8 @@ const createSchema = (db: Database): void => {
       terminal_at TEXT,
       pinned INTEGER NOT NULL,
       archived INTEGER NOT NULL,
-      source_json TEXT NOT NULL
+      source_json TEXT NOT NULL,
+      origin_json TEXT
     )
   `);
   db.run(`
@@ -893,6 +909,7 @@ export const layer = (
           ...(todo.pinned !== undefined ? { pinned: todo.pinned } : {}),
           archived: isArchived(todo, now),
           source: todo.source,
+          ...(todo.origin !== undefined ? { origin: todo.origin } : {}),
         }));
 
       const populate = (
@@ -942,7 +959,7 @@ export const layer = (
           }
 
           const insertTodo = db.query(
-            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, archived, source_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $archived, $source)",
+            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, archived, source_json, origin_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $archived, $source, $origin)",
           );
           for (const todo of todoRecords) {
             insertTodo.run({
@@ -959,6 +976,7 @@ export const layer = (
               $pinned: todo.pinned === true ? 1 : 0,
               $archived: todo.archived ? 1 : 0,
               $source: JSON.stringify(todo.source),
+              $origin: todo.origin !== undefined ? JSON.stringify(todo.origin) : null,
             });
           }
 

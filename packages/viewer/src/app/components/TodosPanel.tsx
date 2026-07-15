@@ -9,6 +9,11 @@
  * data-model.md §2.10) -- a "show archived" toggle switches `useTodos` to
  * `?all=1`. All writes go through `POST /api/events` (data-model.md
  * §2.9/§2.10) via `runtime/api.ts`'s `postEvent`, same as `BundlePanel`.
+ *
+ * A todo opened via `todo add --from-report` (issue #81) carries
+ * `origin: {kind: "field-report", ref}`; here that renders as a small "from
+ * the field" chip next to the bundle chip -- provenance, not a link (no
+ * todo detail page yet, a separate issue).
  */
 import { type FC, type FormEvent, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
@@ -211,10 +216,22 @@ export const TodosPanel: FC<{ bundles: ReadonlyArray<BundleRecord> }> = ({ bundl
               >
                 {todo.title}
               </p>
-              {todo.bundle !== undefined && (
-                <span className="w-fit rounded bg-neutral-100 px-1 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                  {todo.bundle}
-                </span>
+              {(todo.bundle !== undefined || todo.origin !== undefined) && (
+                <div className="flex flex-wrap gap-1">
+                  {todo.bundle !== undefined && (
+                    <span className="w-fit rounded bg-neutral-100 px-1 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                      {todo.bundle}
+                    </span>
+                  )}
+                  {todo.origin !== undefined && (
+                    <span
+                      title={`from field report ${todo.origin.ref}`}
+                      className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                    >
+                      from the field
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </li>

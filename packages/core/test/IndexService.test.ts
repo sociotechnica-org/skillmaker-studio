@@ -261,6 +261,25 @@ describe("IndexService.rebuild", () => {
               },
             },
           });
+          // Opened via `todo add --from-report` (issue #81) -- proves
+          // `origin` round-trips through the `todos` table's `origin_json`
+          // column, same guarded decode path fixtures' `source_json` uses.
+          yield* journal.append({
+            type: "todo.opened",
+            actor,
+            payload: {
+              todo: {
+                id: "td-3",
+                kind: "bug",
+                status: "open",
+                title: "Investigate crash reported in the field",
+                priority: 10,
+                created: "2026-07-01",
+                source: actor,
+                origin: { kind: "field-report", ref: "evt-abc" },
+              },
+            },
+          });
         }).pipe(Effect.provide(JournalLayer(journalPath)));
 
         const staleStatusChange = JSON.stringify({
@@ -276,16 +295,20 @@ describe("IndexService.rebuild", () => {
         yield* Effect.gen(function* () {
           const index = yield* IndexService;
           const result = yield* index.rebuild();
-          expect(result.todos).toBe(2);
+          expect(result.todos).toBe(3);
 
           const openOnly = yield* index.listTodos();
-          expect(openOnly.map((t) => t.id)).toEqual(["td-1"]);
+          expect(openOnly.map((t) => t.id)).toEqual(["td-1", "td-3"]);
 
           const all = yield* index.listTodos({ includeArchived: true });
-          expect(all.map((t) => t.id)).toEqual(["td-1", "td-2"]);
+          expect(all.map((t) => t.id)).toEqual(["td-1", "td-3", "td-2"]);
           const done = all.find((t) => t.id === "td-2");
           expect(done?.archived).toBe(true);
           expect(done?.status).toBe("done");
+          expect(done?.origin).toBeUndefined();
+
+          const fromReport = all.find((t) => t.id === "td-3");
+          expect(fromReport?.origin).toEqual({ kind: "field-report", ref: "evt-abc" });
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );

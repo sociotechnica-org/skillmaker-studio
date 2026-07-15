@@ -55,7 +55,7 @@ Commands:
   ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
   report <slug>           Record a field report on a shipped skill -- what the wild says back (§2.9, issue #67)
   book build              Render the Skillbook to a static site (§2.14)
-  todo add <title>        Open a new todo
+  todo add <title>        Open a new todo (--from-report <event-id> to seed it from a skill.field_report, issue #81)
   todo list               List todos (rebuilds the index first)
   todo done <id>          Mark a todo done
   todo start <id>         Mark a todo in-progress
@@ -94,6 +94,7 @@ Options:
                     (fixture harvest) same enum; defaults to hard-case
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
   --from-report <id>   (fixture harvest) the skill.field_report event id to harvest (required)
+                    (todo add) the skill.field_report event id to seed the todo from (optional, issue #81); defaults --bundle/--kind/--detail from the report
   --fixture <case>  (run) the fixture case to run (required)
   --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"
   --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
@@ -364,6 +365,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         const bundle = flagValue(argv, "--bundle");
         const detail = flagValue(argv, "--detail");
         const priority = flagValue(argv, "--priority");
+        const fromReport = flagValue(argv, "--from-report");
         return yield* runTodoAdd(cwd, title, {
           json,
           kind,
@@ -371,6 +373,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
           detail,
           priority,
           pin: hasFlag(argv, "--pin"),
+          fromReport,
         });
       }
       if (subcommand === "list") {
