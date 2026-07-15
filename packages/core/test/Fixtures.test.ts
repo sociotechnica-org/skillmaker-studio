@@ -50,6 +50,26 @@ describe("scanFixtures", () => {
     );
   });
 
+  test("cases come back sorted by name regardless of creation order", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        // Created deliberately out of alphabetical order: raw readdir order is
+        // OS-dependent, and consumers (e.g. field-report -> fixture
+        // attribution) rely on scan order being stable.
+        for (const name of ["hard-case-1-copy", "golden-1", "hard-case-1"]) {
+          yield* writeCase(dir, name, { schemaVersion: 1, case: name, class: "golden", risks: [] });
+        }
+
+        const result = yield* scanFixtures(dir);
+        expect(result.cases.map((c) => c.caseName)).toEqual([
+          "golden-1",
+          "hard-case-1",
+          "hard-case-1-copy",
+        ]);
+      }),
+    );
+  });
+
   test("happy path: a well-formed golden case with prompt.md", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {

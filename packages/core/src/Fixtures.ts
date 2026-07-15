@@ -167,7 +167,10 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
     .readDirectory(fixturesDir)
     .pipe(Effect.mapError(toIOError(`could not list ${fixturesDir}`)));
 
-  for (const entry of entries) {
+  // Raw readdir order is OS-dependent (ext4 hash order vs APFS alphabetical);
+  // consumers rely on scan order being stable -- e.g. the server attributes a
+  // field report to the FIRST fixture whose source.eventId matches.
+  for (const entry of entries.slice().sort()) {
     const caseDir = join(fixturesDir, entry);
     const info = yield* fs.stat(caseDir).pipe(Effect.mapError(toIOError(`could not stat ${caseDir}`)));
     if (info.type !== "Directory") {
