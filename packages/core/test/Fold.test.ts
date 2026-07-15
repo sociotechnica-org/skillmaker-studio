@@ -155,6 +155,20 @@ describe("bundleForEvent", () => {
     expect(bundleForEvent(event)).toBe("demo");
   });
 
+  test("extracts the bundle field from skill.shipped (issue #66)", () => {
+    const event = {
+      ...envelope("skill.shipped"),
+      payload: {
+        bundle: "demo",
+        versionHash: "sha256:aaa",
+        destination: "acme-agent-fleet",
+        purpose: "eval harness",
+        receipts: [],
+      },
+    } as JournalEvent;
+    expect(bundleForEvent(event)).toBe("demo");
+  });
+
   test("returns undefined for event types with no bundle association", () => {
     const event = {
       ...envelope("run.completed"),

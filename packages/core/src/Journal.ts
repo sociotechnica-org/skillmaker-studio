@@ -123,6 +123,53 @@ export class SkillPublishedEvent extends Schema.Class<SkillPublishedEvent>(
   }),
 }) {}
 
+/**
+ * One measurement cell as it stood at ship time (Ship.ts, `computeMeasurements`
+ * -- `Measurements.ts:150-220`). Deliberately a narrower shape than
+ * `MeasurementRecord`: no `bundle`/`versionHash`, since both are already the
+ * enclosing `SkillShippedEvent`'s own fields, so restating them per-cell
+ * would just be redundant journal bytes for data the envelope already
+ * carries.
+ */
+export class ShipReceipt extends Schema.Class<ShipReceipt>("ShipReceipt")({
+  fixtureCase: Schema.String,
+  provider: Schema.String,
+  model: Schema.String,
+  n: Schema.Number,
+  passes: Schema.Number,
+  passRate: Schema.Number,
+  ci: Schema.NullOr(Schema.Tuple([Schema.Number, Schema.Number])),
+}) {}
+
+/**
+ * The outbound half of the checkout/return primitive (`Vision - Board Lab
+ * Port.md` §HOW, issue #66): a specific recorded version of a bundle left
+ * for a destination and purpose, with its measurement receipts snapshotted
+ * at ship time. Measurements are computed-at-read and move as runs land --
+ * the snapshot IS the point: it is what the skill *shipped as*, not what it
+ * measures as today. Deliberately carries no `idempotencyKey` (unlike
+ * `SkillPublishedEvent`): re-shipping the same version to the same
+ * destination is a real, distinct event, not a duplicate to be collapsed.
+ * No `bundleForEvent`-adjacent board-state effect either -- shipping is not
+ * a stage change (`Fold.ts`'s `foldBundleStates` is untouched).
+ */
+export class SkillShippedEvent extends Schema.Class<SkillShippedEvent>(
+  "SkillShippedEvent",
+)({
+  ...envelopeFields,
+  type: Schema.Literal("skill.shipped"),
+  payload: Schema.Struct({
+    bundle: Schema.String,
+    versionHash: Schema.String,
+    /** Free-text: where the skill went (an agent, a repo, a runtime -- v1 records this as a label, not a resolvable address). */
+    destination: Schema.String,
+    /** Free-text: why it shipped, e.g. "eval harness for team X". */
+    purpose: Schema.String,
+    /** The measurement snapshot at ship time, never re-derived after the fact. */
+    receipts: Schema.Array(ShipReceipt),
+  }),
+}) {}
+
 // ---------------------------------------------------------------------------
 // todo.*
 // ---------------------------------------------------------------------------
@@ -283,6 +330,7 @@ export const JournalEvent = Schema.Union([
   BundleRestoredEvent,
   SkillVersionRecordedEvent,
   SkillPublishedEvent,
+  SkillShippedEvent,
   TodoOpenedEvent,
   TodoUpdatedEvent,
   TodoStatusChangedEvent,

@@ -9,6 +9,7 @@ links:
     - "../board/Surface - Board"
     - "../board/Surface - Activity Feed"
     - "../outputs/Entity - Skillbook"
+    - "../outputs/Entity - Shipment"
     - "../outputs/Mechanism - Drift Hint"
     - "../evals/Entity - Fixture"
 ---

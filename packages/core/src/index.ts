@@ -201,3 +201,4 @@ export {
   type PublishBundleResult,
   type PublishBundleInput,
 } from "./Publish.ts";
+export { shipBundle, type ShipBundleInput, type ShipBundleResult } from "./Ship.ts";

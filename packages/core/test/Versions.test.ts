@@ -13,6 +13,7 @@ import {
   hashOutputTree,
   latestSkillVersion,
   recordSkillVersion,
+  resolveSkillVersion,
   versionLabel,
 } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
@@ -222,6 +223,30 @@ describe("foldSkillVersions / latestSkillVersion", () => {
     ];
     const versions = foldSkillVersions(events);
     expect(versions.get("alpha")?.length).toBe(1);
+  });
+});
+
+describe("resolveSkillVersion", () => {
+  const events: ReadonlyArray<JournalEvent> = [
+    versionRecordedEvent("alpha", "sha256:abc111", "sha256:d1", "2026-07-01T00:00:00.000Z", "v1"),
+    versionRecordedEvent("alpha", "sha256:abc222", "sha256:d2", "2026-07-02T00:00:00.000Z", "v2"),
+    versionRecordedEvent("alpha", "sha256:def333", "sha256:d3", "2026-07-03T00:00:00.000Z", "v3"),
+  ];
+  const versions = foldSkillVersions(events).get("alpha") ?? [];
+
+  test("no prefix picks the latest recorded version", () => {
+    expect(resolveSkillVersion(versions, undefined)?.hash).toBe("sha256:def333");
+    expect(resolveSkillVersion([], undefined)).toBeUndefined();
+  });
+
+  test("a prefix is left-anchored, never a substring match", () => {
+    expect(resolveSkillVersion(versions, "sha256:def")?.hash).toBe("sha256:def333");
+    // "def" appears inside "sha256:def333" but no hash STARTS with it.
+    expect(resolveSkillVersion(versions, "def")).toBeUndefined();
+  });
+
+  test("an ambiguous prefix resolves to the newest match", () => {
+    expect(resolveSkillVersion(versions, "sha256:abc")?.label).toBe("v2");
   });
 });
 
