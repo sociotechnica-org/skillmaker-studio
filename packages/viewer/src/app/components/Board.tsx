@@ -1,21 +1,16 @@
 import type { FC } from "react";
 import { useBundles } from "../runtime/useBundles.ts";
-import { ARCHIVED_LABEL, STAGE_LABEL, STAGES, type BundleRecord, type BundleStage } from "../runtime/schemas.ts";
+import { ARCHIVED_LABEL, STAGE_LABEL, STAGES, type BundleRecord } from "../runtime/schemas.ts";
 import { bundleHref, useRouter } from "../runtime/router.tsx";
 import { BoardColumn } from "./BoardColumn.tsx";
 import { NewBundleForm } from "./NewBundleForm.tsx";
-
-const STAGE_COLUMNS: ReadonlyArray<{ stage: BundleStage; title: string }> = STAGES.map((stage) => ({
-  stage,
-  title: STAGE_LABEL[stage],
-}));
 
 /** Archived bundles render in the archived column regardless of stage. */
 const bundlesByColumn = (
   bundles: ReadonlyArray<BundleRecord>,
 ): ReadonlyMap<string, ReadonlyArray<BundleRecord>> => {
   const columns = new Map<string, BundleRecord[]>();
-  for (const { stage } of STAGE_COLUMNS) {
+  for (const stage of STAGES) {
     columns.set(stage, []);
   }
   columns.set("archived", []);
@@ -51,10 +46,10 @@ export const Board: FC = () => {
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
       ) : (
         <div className="flex gap-4">
-          {STAGE_COLUMNS.map(({ stage, title }) => (
+          {STAGES.map((stage) => (
             <BoardColumn
               key={stage}
-              title={title}
+              title={STAGE_LABEL[stage]}
               bundles={columns.get(stage) ?? []}
               fixtureCounts={fixtureCounts}
               onSelect={onSelect}

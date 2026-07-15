@@ -19,14 +19,14 @@ export const STAGE_LABEL: Record<BundleStage, string> = {
   published: "Publish",
 };
 
-/** Verb alias -> canonical stage literal. The literal itself is always accepted too (see `resolveStage`). */
-const ALIAS_TO_STAGE: Record<string, BundleStage> = {
-  frame: "idea",
-  research: "researching",
-  draft: "drafting",
-  evaluate: "evaluating",
-  publish: "published",
-};
+/**
+ * Verb alias -> canonical stage literal, derived from `STAGE_LABEL` (lowercased)
+ * so the alias table can't drift from the labels it's aliasing. The literal
+ * itself is always accepted too (see `resolveStage`).
+ */
+const ALIAS_TO_STAGE: Record<string, BundleStage> = Object.fromEntries(
+  STAGES.map((stage) => [STAGE_LABEL[stage].toLowerCase(), stage] as const),
+);
 
 /** Resolve a user-supplied stage to its canonical literal, accepting either the literal (`researching`) or its verb alias (`research`). `undefined` when neither. */
 export const resolveStage = (input: string): BundleStage | undefined =>

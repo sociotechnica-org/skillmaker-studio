@@ -48,10 +48,12 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
     return usageError("skillmaker advance: pass either --to or --back, not both\n");
   }
 
-  if (options.to !== undefined && resolveStage(options.to) === undefined) {
+  const toStage: BundleStage | undefined = options.to !== undefined ? resolveStage(options.to) : undefined;
+  if (options.to !== undefined && toStage === undefined) {
     return usageError(`skillmaker advance: invalid --to stage "${options.to}"\n`);
   }
-  if (options.back !== undefined && resolveStage(options.back) === undefined) {
+  const backStage: BundleStage | undefined = options.back !== undefined ? resolveStage(options.back) : undefined;
+  if (options.back !== undefined && backStage === undefined) {
     return usageError(`skillmaker advance: invalid --back stage "${options.back}"\n`);
   }
   if (options.back !== undefined && (options.reason === undefined || options.reason.trim().length === 0)) {
@@ -72,13 +74,6 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
   const path = yield* Path;
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
-
-  // Resolve to canonical stage literals here (accepting verb aliases like
-  // "research" for "researching"): a closure captures the *declared* type of a
-  // captured variable, not a prior flow-narrowing, so the checks above don't
-  // carry into the `Effect.gen` below.
-  const backStage: BundleStage | undefined = options.back !== undefined ? resolveStage(options.back) : undefined;
-  const toStage: BundleStage | undefined = options.to !== undefined ? resolveStage(options.to) : undefined;
 
   const outcome: AdvanceOutcome = yield* Effect.gen(function* () {
     const journal = yield* Journal;
