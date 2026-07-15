@@ -42,24 +42,21 @@ export type Route =
  */
 export const parseRoute = (pathname: string, search: string): Route => {
   const segments = pathname.split("/").filter((segment) => segment.length > 0);
+  const head = segments[0] === "catalog" ? "lab" : segments[0] === "skillbook" ? "port" : segments[0];
 
   if (segments.length === 0) {
     return { name: "board" };
   }
-  if ((segments[0] === "lab" || segments[0] === "catalog") && segments.length === 1) {
+  if (head === "lab" && segments.length === 1) {
     return { name: "lab" };
   }
-  if (segments[0] === "activity" && segments.length === 1) {
+  if (head === "activity" && segments.length === 1) {
     return { name: "activity" };
   }
-  if ((segments[0] === "port" || segments[0] === "skillbook") && segments.length === 1) {
+  if (head === "port" && segments.length === 1) {
     return { name: "port" };
   }
-  if (
-    (segments[0] === "port" || segments[0] === "skillbook") &&
-    segments[1] !== undefined &&
-    segments.length === 2
-  ) {
+  if (head === "port" && segments[1] !== undefined && segments.length === 2) {
     return { name: "port-bundle", slug: decodeURIComponent(segments[1]) };
   }
   if (segments[0] === "bundles" && segments[1] !== undefined && segments.length <= 3) {
