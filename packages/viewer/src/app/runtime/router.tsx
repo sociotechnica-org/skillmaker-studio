@@ -1,5 +1,5 @@
 /**
- * A hand-rolled client router (ui-pass-spec.md §4.2): five flat routes, one
+ * A hand-rolled client router (ui-pass-spec.md §4.2): six flat routes, one
  * dynamic segment (`:slug`), one query param (`run`) -- not enough surface
  * to justify a router dependency (`packages/viewer/package.json` pulls in
  * none, and no other workspace package does either). `navigate()` calls
