@@ -1,5 +1,5 @@
 /**
- * A hand-rolled client router (ui-pass-spec.md §4.2): five flat routes, one
+ * A hand-rolled client router (ui-pass-spec.md §4.2): six flat routes, one
  * dynamic segment (`:slug`), one query param (`run`) -- not enough surface
  * to justify a router dependency (`packages/viewer/package.json` pulls in
  * none, and no other workspace package does either). `navigate()` calls
@@ -28,21 +28,28 @@ export type Route =
     }
   | { readonly name: "lab" }
   | { readonly name: "activity" }
-  | { readonly name: "port" }
-  | { readonly name: "port-bundle"; readonly slug: string }
+  | { readonly name: "ship" }
+  | { readonly name: "ship-bundle"; readonly slug: string }
+  | { readonly name: "receive" }
   | { readonly name: "not-found" };
 
 /**
  * Pure -- parses a pathname + search string into a `Route`. Exported for
- * tests. `/lab` and `/port(/:slug)` are canonical (#64, the Board · Lab ·
- * Port rename); `/catalog` and `/skillbook(/:slug)` are kept as aliases
- * parsing to the same routes so bookmarks and any deep links survive --
- * this is display-layer only, the server API paths behind these pages
- * (`/api/catalog`, `/api/skillbook`) are untouched.
+ * tests. `/lab`, `/ship(/:slug)`, and `/receive` are canonical (#72, the
+ * Board · Lab · Ship · Receive · Activity rename that splits Port into its
+ * two jobs). `/catalog`, `/port(/:slug)`, and `/skillbook(/:slug)` are kept
+ * as aliases parsing to the same routes so bookmarks and any deep links
+ * survive -- this is display-layer only, the server API paths behind these
+ * pages (`/api/catalog`, `/api/skillbook`) are untouched.
  */
 export const parseRoute = (pathname: string, search: string): Route => {
   const segments = pathname.split("/").filter((segment) => segment.length > 0);
-  const head = segments[0] === "catalog" ? "lab" : segments[0] === "skillbook" ? "port" : segments[0];
+  const head =
+    segments[0] === "catalog"
+      ? "lab"
+      : segments[0] === "skillbook" || segments[0] === "port"
+        ? "ship"
+        : segments[0];
 
   if (segments.length === 0) {
     return { name: "board" };
@@ -53,11 +60,14 @@ export const parseRoute = (pathname: string, search: string): Route => {
   if (head === "activity" && segments.length === 1) {
     return { name: "activity" };
   }
-  if (head === "port" && segments.length === 1) {
-    return { name: "port" };
+  if (head === "ship" && segments.length === 1) {
+    return { name: "ship" };
   }
-  if (head === "port" && segments[1] !== undefined && segments.length === 2) {
-    return { name: "port-bundle", slug: decodeURIComponent(segments[1]) };
+  if (head === "ship" && segments[1] !== undefined && segments.length === 2) {
+    return { name: "ship-bundle", slug: decodeURIComponent(segments[1]) };
+  }
+  if (head === "receive" && segments.length === 1) {
+    return { name: "receive" };
   }
   if (segments[0] === "bundles" && segments[1] !== undefined && segments.length <= 3) {
     const slug = decodeURIComponent(segments[1]);
@@ -77,8 +87,8 @@ export const parseRoute = (pathname: string, search: string): Route => {
 export const bundleHref = (slug: string, tab: BundleTab = "overview"): string =>
   tab === "overview" ? `/bundles/${encodeURIComponent(slug)}` : `/bundles/${encodeURIComponent(slug)}/${tab}`;
 
-/** The canonical URL for a bundle's Skillbook chapter, now docked at Port. */
-export const portBundleHref = (slug: string): string => `/port/${encodeURIComponent(slug)}`;
+/** The canonical URL for a bundle's Skillbook chapter, now docked at Ship. */
+export const shipBundleHref = (slug: string): string => `/ship/${encodeURIComponent(slug)}`;
 
 /** The Evals tab, optionally with a run selected via `?run=`. */
 export const bundleRunHref = (slug: string, runId: string | undefined): string => {

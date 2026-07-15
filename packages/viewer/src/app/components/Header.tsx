@@ -8,12 +8,13 @@ const NAV_ITEMS: ReadonlyArray<{
 }> = [
   { href: "/", label: "Board", match: (name) => name === "board" || name === "bundle" },
   { href: "/lab", label: "Lab", match: (name) => name === "lab" },
-  { href: "/activity", label: "Activity", match: (name) => name === "activity" },
   {
-    href: "/port",
-    label: "Port",
-    match: (name) => name === "port" || name === "port-bundle",
+    href: "/ship",
+    label: "Ship",
+    match: (name) => name === "ship" || name === "ship-bundle",
   },
+  { href: "/receive", label: "Receive", match: (name) => name === "receive" },
+  { href: "/activity", label: "Activity", match: (name) => name === "activity" },
 ];
 
 const NAV_LINK_ACTIVE =

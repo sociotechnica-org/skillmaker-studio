@@ -1,6 +1,6 @@
 ---
 type: Vision
-prefLabel: Board · Lab · Port
+prefLabel: Board · Lab · Ship · Receive
 context: _index
 status: adopted
 links:
@@ -16,15 +16,21 @@ links:
 
 ## WHAT
 
-A north-star mental model for the four viewer surfaces, framed by the
+A north-star mental model for the five viewer surfaces, framed by the
 **job each one does** rather than by the data it lists. It renames and
 re-scopes two of today's tabs and names one new primitive. The naming
-half — nav labels, routes, page taglines, Board · Lab · Port · Activity —
-shipped in #64. The re-scoping half — Lab as a pressure bench, Port's
-checkout/field-report loop — has **not**; this card is the target picture
-that work still builds toward.
+shipped in two passes: nav labels, routes, and page taglines for
+Board · Lab · Port · Activity landed in #64. Director ruling
+(2026-07-15): Port was one tab doing two jobs with different paperwork —
+outbound shipping (manifests, destinations, receipts) and inbound
+receiving (field signal, later intake/quarantine) — so it split into its
+own tabs, **Ship** and **Receive**, landing the current
+Board · Lab · Ship · Receive · Activity order in #72. The re-scoping half
+— Lab as a pressure bench, the checkout/field-report loop Ship and
+Receive exist to carry — has **not** shipped; this card is the target
+picture that work still builds toward.
 
-The model is three rooms plus a ledger:
+The model is four rooms plus a ledger:
 
 - **Board — the production floor.** *"Does this exist and roughly work?"*
   Build a skill to a first working version: research → draft → a single
@@ -33,12 +39,16 @@ The model is three rooms plus a ledger:
   Everything you do to a skill **after** it exists: run evals to
   statistical validity, harden, regress, split/merge, compare versions
   and providers. (Today's `Catalog`, re-scoped and renamed.)
-- **Port — the shipping *and* receiving bay.** *"Where is this in the
-  world, and what is it telling me?"* Skills leave in a known state for a
-  known destination and purpose; field signal comes back. (Today's
-  `Skillbook`, re-scoped and renamed. The *Skillbook* — receipts +
-  design + changelog — survives as the paperwork that ships **with** a
-  skill, not as the whole surface.)
+- **Ship — the shipping bay.** *"Where did this go, and in what state?"*
+  Skills leave in a known state for a known destination and purpose,
+  carrying their receipts. (The outbound half of the old `Port`; today's
+  per-bundle `Skillbook` chapter — receipts + design + changelog —
+  survives as the paperwork that ships **with** a skill, not as the whole
+  surface.)
+- **Receive — the receiving bay.** *"What is the world telling me about
+  what I shipped?"* Field signal comes back from shipped skills, and
+  later, arriving skills get intake/quarantine. (The inbound half of the
+  old `Port`, split out #72; unbuilt beyond an empty state until #67.)
 - **Activity — the ledger.** The journal of everything that happened,
   unchanged.
 
@@ -103,22 +113,24 @@ Guardrails for whoever builds this:
   *attention needed* — consider hiding `in-sync`/`no-version`.
 - **Skillbook is paperwork, not the surface.** Keep the receipts +
   design + changelog view (`SkillbookBundlePage`) as the doc for one
-  shipped version; the Port is the bay it moves through.
+  shipped version; Ship is the bay it moves through.
 - **Field drift ≠ local drift.** Today's `drift` (Mechanism - Drift Hint)
   compares live on-disk files to the last recorded version. Field drift —
   a shipped version diverging in the wild, or its pass rate moving under a
-  model upgrade — is a distinct, unbuilt concept the Port owns.
+  model upgrade — is a distinct, unbuilt concept Receive owns.
 
-Naming: **Board** (keep) · **Lab** (was Catalog) · **Port** (was
-Skillbook; alt: Dock/Harbor) · **Activity** (keep).
+Naming: **Board** (keep) · **Lab** (was Catalog) · **Ship** (was
+Skillbook, then Port; #72 split off the outbound half) · **Receive**
+(new tab, #72 split off Port's inbound half) · **Activity** (keep).
 
 Verified: as of this writing there is no deployment/checkout/field-report
 concept in `packages/core/src` or `packages/cli/src` — the only outbound
 path is `skillmaker book build` (static site). `Lab.tsx` (was
 `Catalog.tsx`, #64) renders a `drift` pill unconditionally but
-`archived`/`tags` conditionally; Lab and Port index rows are structurally
+`archived`/`tags` conditionally; Lab and Ship index rows are structurally
 near-identical (name · stage badge · one-liner · version · fixture count)
 — the rename didn't touch that, on purpose, since it's a separate,
-un-scheduled behavioral change. This card is `status: adopted` for the
-naming; the checkout/field-report primitive and Lab's bench upgrades
-remain unbuilt.
+un-scheduled behavioral change. `Receive.tsx` (#72) is a static empty
+state with no data source. This card is `status: adopted` for the
+naming (now Board · Lab · Ship · Receive · Activity, #72); the
+checkout/field-report primitive and Lab's bench upgrades remain unbuilt.

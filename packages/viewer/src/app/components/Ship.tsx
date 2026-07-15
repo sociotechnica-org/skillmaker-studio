@@ -1,16 +1,18 @@
 /**
- * The `/port` page (#64, Board · Lab · Port): the shipping and receiving bay
- * -- "skills leave with receipts." An index of every bundle (name,
- * one-liner, stage, latest version, measurements summary) plus per-bundle
- * chapters (`/port/:slug`) rendering the same data `skillmaker book build`
- * renders to a static site -- design.md, measurement receipts, and a
- * journal changelog. That per-bundle chapter is still the *Skillbook* --
- * the paperwork that ships with a skill, not the surface it left through
- * (`SkillbookBundlePage` below keeps its name for exactly that reason).
- * Reuses `Lab.tsx`'s stage-badge patterns.
+ * The `/ship` page (#72, Board · Lab · Ship · Receive · Activity): the
+ * shipping bay -- "skills leave with receipts." An index of every bundle
+ * (name, one-liner, stage, latest version, measurements summary) plus
+ * per-bundle chapters (`/ship/:slug`) rendering the same data `skillmaker
+ * book build` renders to a static site -- design.md, measurement receipts,
+ * and a journal changelog. That per-bundle chapter is still the
+ * *Skillbook* -- the paperwork that ships with a skill, not the surface it
+ * left through (`SkillbookBundlePage` below keeps its name for exactly
+ * that reason). Split out of the old two-job `Port` (#64); Receive
+ * (`Receive.tsx`) now owns the inbound half. Reuses `Lab.tsx`'s
+ * stage-badge patterns.
  */
 import type { FC } from "react";
-import { Link, portBundleHref, useRouter } from "../runtime/router.tsx";
+import { Link, shipBundleHref, useRouter } from "../runtime/router.tsx";
 import type { SkillbookBundle } from "../runtime/schemas.ts";
 import { useSkillbook } from "../runtime/useSkillbook.ts";
 
@@ -30,7 +32,7 @@ const shortHash = (hash: string): string => {
   return (hash.startsWith(prefix) ? hash.slice(prefix.length) : hash).slice(0, 12);
 };
 
-/** "Shipped 2x -- last to acme-fleet" (issue #66): only shown when at least one shipment exists -- Port's index-row signal of what's out in the world. */
+/** "Shipped 2x -- last to acme-fleet" (issue #66): only shown when at least one shipment exists -- Ship's index-row signal of what's out in the world. */
 const shippingLine = (bundle: SkillbookBundle): string | undefined => {
   if (bundle.shipments.length === 0) {
     return undefined;
@@ -40,14 +42,14 @@ const shippingLine = (bundle: SkillbookBundle): string | undefined => {
   return `Shipped ${count}x — last to "${last?.destination}"`;
 };
 
-const PortRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
+const ShipRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   const measuredCount = new Set(bundle.measurements.map((m) => m.fixtureCase)).size;
   const shipping = shippingLine(bundle);
   return (
     <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2">
         <Link
-          href={portBundleHref(bundle.slug)}
+          href={shipBundleHref(bundle.slug)}
           className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
         >
           {bundle.name}
@@ -70,22 +72,22 @@ const PortRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   );
 };
 
-/** The `/port` index page: one card per bundle. */
-export const Port: FC = () => {
+/** The `/ship` index page: one card per bundle. */
+export const Ship: FC = () => {
   const { bundles, loading, error } = useSkillbook();
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
       <div>
-        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Port</h1>
+        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Ship</h1>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          the shipping and receiving bay — skills leave with receipts.
+          the shipping bay — skills leave with receipts.
         </p>
       </div>
 
       {error !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
-          Could not load port: {error.message}
+          Could not load ship: {error.message}
         </p>
       )}
 
@@ -95,7 +97,7 @@ export const Port: FC = () => {
 
       <ul className="flex flex-col gap-3">
         {bundles.map((bundle) => (
-          <PortRow key={bundle.slug} bundle={bundle} />
+          <ShipRow key={bundle.slug} bundle={bundle} />
         ))}
         {bundles.length === 0 && !loading && (
           <li className="text-sm text-neutral-400">No Skill Bundles yet.</li>
@@ -203,10 +205,10 @@ const renderMarkdown = (markdown: string): ReadonlyArray<{ readonly key: string;
 };
 
 /**
- * The `/port/:slug` chapter page: design.md + measurement receipts + a
- * changelog -- the bundle's *Skillbook* entry (#64: the paperwork that
+ * The `/ship/:slug` chapter page: design.md + measurement receipts + a
+ * changelog -- the bundle's *Skillbook* entry (#72: the paperwork that
  * ships with a skill keeps the Skillbook name; the surface it moves
- * through is the Port, hence the back-link below).
+ * through is Ship, hence the back-link below).
  */
 export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
   const { bundles, loading, error } = useSkillbook();
@@ -224,7 +226,7 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
     );
   }
   if (bundle === undefined) {
-    return <p className="text-sm text-neutral-400">No such skill in the Port.</p>;
+    return <p className="text-sm text-neutral-400">No such skill in Ship.</p>;
   }
 
   const blocks = renderMarkdown(bundle.designMarkdown);
@@ -233,10 +235,10 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
     <div className="flex max-w-3xl flex-col gap-4">
       <button
         type="button"
-        onClick={() => navigate("/port")}
+        onClick={() => navigate("/ship")}
         className="w-fit text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
       >
-        ← Port
+        ← Ship
       </button>
 
       <div>

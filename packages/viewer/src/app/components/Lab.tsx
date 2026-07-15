@@ -1,5 +1,6 @@
 /**
- * The `/lab` page (#64, Board · Lab · Port): the hardening bench -- the skill
+ * The `/lab` page (#64, Board · Lab · Ship · Receive · Activity as of #72):
+ * the hardening bench -- the skill
  * browser that survives from the old single-page Catalog view (director
  * ruling, ui-pass-spec end-of-doc) -- name, one-liner, tags, stage, latest
  * version + drift, and a measurements summary, each row linking to its
