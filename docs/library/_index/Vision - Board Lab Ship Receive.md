@@ -11,6 +11,7 @@ links:
     - "../outputs/Entity - Skillbook"
     - "../outputs/Entity - Shipment"
     - "../outputs/Entity - Field Report"
+    - "../outputs/Mechanism - Intake"
     - "../outputs/Mechanism - Drift Hint"
     - "../evals/Entity - Fixture"
 ---
