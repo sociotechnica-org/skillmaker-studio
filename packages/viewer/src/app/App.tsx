@@ -10,8 +10,9 @@ import { RouterProvider, useRouter } from "./runtime/router.tsx";
 
 /**
  * The whole client-routed React app (ui-pass-spec §3.1/§4.2): a hand-rolled
- * pushState router feeding a route switch, with `AppShell` (nav + persistent
- * TodosPanel) wrapping every route.
+ * pushState router feeding a route switch, with `AppShell` (nav chrome only
+ * as of #83 -- the persistent TodosPanel rail is retired) wrapping every
+ * route.
  */
 const Routes: FC = () => {
   const { route } = useRouter();
@@ -22,7 +23,7 @@ const Routes: FC = () => {
     case "bundle":
       return <BundlePanel slug={route.slug} tab={route.tab} runId={route.runId} file={route.file} />;
     case "lab":
-      return <Lab />;
+      return <Lab view={route.view} bundle={route.bundle} />;
     case "activity":
       return <ActivityFeed />;
     case "ship":

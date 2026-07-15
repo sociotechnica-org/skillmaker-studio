@@ -401,6 +401,11 @@ export class EventsResponse extends Schema.Class<EventsResponse>("EventsResponse
  * server-side from the same fixtures/measurements data `BundleDetailResponse`
  * already exposes per-bundle. Class/endpoint names stay `Catalog*`/
  * `/api/catalog` -- they mirror the untouched server wire format.
+ *
+ * `openTodoCount` (issue #83): the count of non-terminal todos on this
+ * bundle, folded server-side from the journal on every request (see
+ * `handleCatalog`'s doc comment) -- never stored. Feeds the Lab Bench
+ * mode's open-work signal and `orderForAttention`'s new rank.
  */
 export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
   slug: Schema.String,
@@ -419,6 +424,7 @@ export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
   ),
   fixtureCount: Schema.Number,
   measuredFixtureCount: Schema.Number,
+  openTodoCount: Schema.Number,
 }) {}
 
 export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogResponse")({

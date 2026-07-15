@@ -14,6 +14,7 @@ import {
   foldBundleStates,
   foldTodos,
   guardStatus,
+  isTerminalStatus,
   IndexService,
   IndexServiceLayer,
   Journal,
@@ -309,6 +310,15 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  * `runIndexEffect`) meant N bundles cost 1 + 3N full index rebuilds for one
  * `GET /api/catalog` -- 13 rebuilds for a 4-bundle workspace. Mirrors
  * `Skillbook.ts#buildSkillbook`, which already does this correctly.
+ *
+ * `openTodoCount` (issue #83, the Lab Bench mode's open-work signal per
+ * row): counts non-terminal (not `done`/`wont-do`) todos per `bundle`,
+ * never stored -- recomputed on every request, same as the rest of this
+ * handler's rows. `rebuild()` above already folds the journal's `todo.*`
+ * events into the index's `todos` table (the same `foldTodos` fold
+ * `handleFieldReports` runs over its own separately-read `events`), so this
+ * reads that table back via `listTodos()` instead of re-reading and
+ * re-folding the journal a second time in this handler.
  */
 const handleCatalog = async (root: string): Promise<Response> =>
   runIndexEffect(
@@ -317,6 +327,18 @@ const handleCatalog = async (root: string): Promise<Response> =>
       const index = yield* IndexService;
       yield* index.rebuild();
       const bundles = yield* index.listBundles();
+
+      // Default listTodos() (archived excluded) is exact here: a todo can
+      // only be archived once terminal (FoldTodos.ts's isArchived), and the
+      // loop below skips terminal todos anyway.
+      const allTodos = yield* index.listTodos();
+      const openTodoCountByBundle = new Map<string, number>();
+      for (const todo of allTodos) {
+        if (todo.bundle === undefined || isTerminalStatus(todo.status)) {
+          continue;
+        }
+        openTodoCountByBundle.set(todo.bundle, (openTodoCountByBundle.get(todo.bundle) ?? 0) + 1);
+      }
 
       const entries = [];
       for (const bundle of bundles) {
@@ -350,6 +372,7 @@ const handleCatalog = async (root: string): Promise<Response> =>
                 },
           fixtureCount: fixtures.length,
           measuredFixtureCount: measuredFixtureCases.size,
+          openTodoCount: openTodoCountByBundle.get(bundle.slug) ?? 0,
         });
       }
       return jsonResponse({ entries });

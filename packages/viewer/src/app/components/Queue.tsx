@@ -1,23 +1,26 @@
 /**
- * The todos panel (plan.md Phase 5): a persistent right-side, collapsible
- * panel on the board page -- NOT bundle-scoped, visible without selecting a
- * bundle (unlike `BundlePanel`, which only renders once a bundle is
- * selected). Renders alongside `BundlePanel` when both are open; the board
- * layout stays a simple flex row of `main | BundlePanel? | TodosPanel`.
+ * The Lab's Queue mode (#83): "to-do mode," the whole workspace's work as
+ * one bookmarkable place, not a popup. This is the former `TodosPanel`'s
+ * powers moved here wholesale, per the issue -- the row/form/toggle pieces
+ * below are the SAME logic that used to live in the retired persistent
+ * right-rail panel (kind chips, the origin chip #86 added, the checkbox
+ * status control, the add form, the show-archived toggle), just rendered
+ * full-page instead of in a collapsible `<aside>`, since there is no
+ * sibling route content to share the row with anymore.
  *
- * Default view hides archived todos (terminal + >=7 days + not pinned,
- * data-model.md §2.10) -- a "show archived" toggle switches `useTodos` to
- * `?all=1`. All writes go through `POST /api/events` (data-model.md
- * §2.9/§2.10) via `runtime/api.ts`'s `postEvent`, same as `BundlePanel`.
- *
- * A todo opened via `todo add --from-report` (issue #81) carries
- * `origin: {kind: "field-report", ref}`; here that renders as a small "from
- * the field" chip next to the bundle chip -- provenance, not a link (no
- * todo detail page yet, a separate issue).
+ * Bench's per-row "N open" signal links in via `labHref("queue", slug)`
+ * (`?bundle=<slug>`); `route.bundle` is threaded down from `Lab.tsx` and
+ * applied with the pure `filterTodosByBundle` helper (`runtime/
+ * todoQueue.ts`) -- filtering is explicit and clearable (a visible chip
+ * with a link back to the unfiltered queue), never a silent truncation of
+ * the list underneath it.
  */
 import { type FC, type FormEvent, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
-import type { BundleRecord, TodoKind, TodoRecord, TodoStatus } from "../runtime/schemas.ts";
+import { Link, labHref } from "../runtime/router.tsx";
+import type { TodoKind, TodoRecord, TodoStatus } from "../runtime/schemas.ts";
+import { filterTodosByBundle, isDone } from "../runtime/todoQueue.ts";
+import { useBundles } from "../runtime/useBundles.ts";
 import { useTodos } from "../runtime/useTodos.ts";
 
 const TODO_KINDS: ReadonlyArray<TodoKind> = ["task", "bug", "improvement", "eval"];
@@ -29,18 +32,77 @@ const KIND_CHIP_CLASS: Readonly<Record<TodoKind, string>> = {
   task: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
 };
 
-const isDone = (status: TodoStatus): boolean => status === "done";
+/** Mirrors `@skillmaker/core`'s `DEFAULT_PRIORITY_BY_KIND` (data-model.md §2.10). */
+const DEFAULT_PRIORITY_BY_KIND: Readonly<Record<TodoKind, number>> = {
+  bug: 10,
+  eval: 15,
+  improvement: 20,
+  task: 30,
+};
 
-export const TodosPanel: FC<{ bundles: ReadonlyArray<BundleRecord> }> = ({ bundles }) => {
-  const [open, setOpen] = useState(true);
+const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRecord) => void }> = ({
+  todo,
+  pending,
+  onToggle,
+}) => (
+  <li className="flex items-start gap-2 rounded-md border border-neutral-200 p-2 text-xs dark:border-neutral-800">
+    <input
+      type="checkbox"
+      checked={isDone(todo.status)}
+      disabled={pending}
+      onChange={() => onToggle(todo)}
+      className="mt-0.5"
+    />
+    <div className="flex flex-1 flex-col gap-1">
+      <div className="flex items-center gap-1">
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${KIND_CHIP_CLASS[todo.kind]}`}>
+          {todo.kind}
+        </span>
+        <span className="text-[10px] text-neutral-400">p{todo.priority}</span>
+        {todo.archived && <span className="text-[10px] text-neutral-400">(archived)</span>}
+      </div>
+      <p
+        className={
+          isDone(todo.status) || todo.status === "wont-do"
+            ? "text-neutral-400 line-through dark:text-neutral-500"
+            : "text-neutral-800 dark:text-neutral-100"
+        }
+      >
+        {todo.title}
+      </p>
+      {(todo.bundle !== undefined || todo.origin !== undefined) && (
+        <div className="flex flex-wrap gap-1">
+          {todo.bundle !== undefined && (
+            <span className="w-fit rounded bg-neutral-100 px-1 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              {todo.bundle}
+            </span>
+          )}
+          {todo.origin !== undefined && (
+            <span
+              title={`from field report ${todo.origin.ref}`}
+              className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+            >
+              from the field
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  </li>
+);
+
+export const Queue: FC<{ bundleFilter: string | undefined }> = ({ bundleFilter }) => {
   const [showArchived, setShowArchived] = useState(false);
   const { todos, loading, error, refetch } = useTodos(showArchived);
+  const { bundles } = useBundles();
   const [pending, setPending] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<string | undefined>(undefined);
 
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<TodoKind>("task");
-  const [newBundle, setNewBundle] = useState("");
+  const [newBundle, setNewBundle] = useState(bundleFilter ?? "");
+
+  const visibleTodos = filterTodosByBundle(todos, bundleFilter);
 
   const toggleDone = (todo: TodoRecord): void => {
     const to: TodoStatus = isDone(todo.status) ? "open" : "done";
@@ -87,39 +149,25 @@ export const TodosPanel: FC<{ bundles: ReadonlyArray<BundleRecord> }> = ({ bundl
           return;
         }
         setNewTitle("");
-        setNewBundle("");
         refetch();
       })
       .catch((cause: Error) => setActionError(cause.message))
       .finally(() => setPending(undefined));
   };
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="h-fit shrink-0 self-start rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:border-neutral-800 dark:hover:text-neutral-200"
-      >
-        Todos ▸
-      </button>
-    );
-  }
-
   return (
-    <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-neutral-200 p-4 dark:border-neutral-800">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          Todos
-        </h2>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
-        >
-          Collapse
-        </button>
-      </div>
+    <div className="flex max-w-2xl flex-col gap-3">
+      {bundleFilter !== undefined && (
+        <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+          <span>
+            Filtered to <span className="font-medium text-neutral-800 dark:text-neutral-100">{bundleFilter}</span> --
+            showing {visibleTodos.length} of {todos.length}
+          </span>
+          <Link href={labHref("queue")} className="text-neutral-500 underline hover:text-neutral-800 dark:hover:text-neutral-200">
+            Clear
+          </Link>
+        </div>
+      )}
 
       {error !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
@@ -187,67 +235,15 @@ export const TodosPanel: FC<{ bundles: ReadonlyArray<BundleRecord> }> = ({ bundl
       )}
 
       <ul className="flex flex-col gap-2">
-        {todos.map((todo) => (
-          <li
-            key={todo.id}
-            className="flex items-start gap-2 rounded-md border border-neutral-200 p-2 text-xs dark:border-neutral-800"
-          >
-            <input
-              type="checkbox"
-              checked={isDone(todo.status)}
-              disabled={pending === todo.id}
-              onChange={() => toggleDone(todo)}
-              className="mt-0.5"
-            />
-            <div className="flex flex-1 flex-col gap-1">
-              <div className="flex items-center gap-1">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${KIND_CHIP_CLASS[todo.kind]}`}>
-                  {todo.kind}
-                </span>
-                <span className="text-[10px] text-neutral-400">p{todo.priority}</span>
-                {todo.archived && <span className="text-[10px] text-neutral-400">(archived)</span>}
-              </div>
-              <p
-                className={
-                  isDone(todo.status) || todo.status === "wont-do"
-                    ? "text-neutral-400 line-through dark:text-neutral-500"
-                    : "text-neutral-800 dark:text-neutral-100"
-                }
-              >
-                {todo.title}
-              </p>
-              {(todo.bundle !== undefined || todo.origin !== undefined) && (
-                <div className="flex flex-wrap gap-1">
-                  {todo.bundle !== undefined && (
-                    <span className="w-fit rounded bg-neutral-100 px-1 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                      {todo.bundle}
-                    </span>
-                  )}
-                  {todo.origin !== undefined && (
-                    <span
-                      title={`from field report ${todo.origin.ref}`}
-                      className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                    >
-                      from the field
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          </li>
+        {visibleTodos.map((todo) => (
+          <TodoRow key={todo.id} todo={todo} pending={pending === todo.id} onToggle={toggleDone} />
         ))}
-        {todos.length === 0 && !loading && (
-          <li className="text-[11px] text-neutral-400">No todos yet.</li>
+        {visibleTodos.length === 0 && !loading && (
+          <li className="text-[11px] text-neutral-400">
+            {bundleFilter !== undefined ? "No todos for this bundle." : "No todos yet."}
+          </li>
         )}
       </ul>
-    </aside>
+    </div>
   );
-};
-
-/** Mirrors `@skillmaker/core`'s `DEFAULT_PRIORITY_BY_KIND` (data-model.md §2.10). */
-const DEFAULT_PRIORITY_BY_KIND: Readonly<Record<TodoKind, number>> = {
-  bug: 10,
-  eval: 15,
-  improvement: 20,
-  task: 30,
 };

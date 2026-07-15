@@ -12,6 +12,7 @@ const entry = (overrides: Partial<CatalogEntry> & { slug: string }): CatalogEntr
   latestVersion: null,
   fixtureCount: 0,
   measuredFixtureCount: 0,
+  openTodoCount: 0,
   ...overrides,
 });
 
@@ -45,7 +46,7 @@ describe("coverageState", () => {
 });
 
 describe("orderForAttention", () => {
-  test("drifted, then measurement gaps, then clean, then archived -- stable within groups", () => {
+  test("drifted, then open todos, then measurement gaps, then clean, then archived -- stable within groups", () => {
     const clean1 = entry({ slug: "clean-1", drift: "in-sync", fixtureCount: 2, measuredFixtureCount: 2 });
     const gapNoFixtures = entry({ slug: "gap-no-fixtures", drift: "in-sync", fixtureCount: 0, measuredFixtureCount: 0 });
     const gapUnderMeasured = entry({
@@ -56,6 +57,20 @@ describe("orderForAttention", () => {
     });
     const drifted1 = entry({ slug: "drifted-1", drift: "design-changed", fixtureCount: 2, measuredFixtureCount: 2 });
     const drifted2 = entry({ slug: "drifted-2", drift: "both", fixtureCount: 0, measuredFixtureCount: 0 });
+    const openTodos1 = entry({
+      slug: "open-todos-1",
+      drift: "in-sync",
+      fixtureCount: 2,
+      measuredFixtureCount: 2,
+      openTodoCount: 3,
+    });
+    const openTodos2 = entry({
+      slug: "open-todos-2",
+      drift: "no-version",
+      fixtureCount: 0,
+      measuredFixtureCount: 0,
+      openTodoCount: 1,
+    });
     const archived = entry({
       slug: "archived-drifted",
       drift: "both",
@@ -64,16 +79,30 @@ describe("orderForAttention", () => {
       measuredFixtureCount: 0,
     });
 
-    const input = [clean1, gapNoFixtures, drifted1, archived, gapUnderMeasured, drifted2];
+    const input = [clean1, gapNoFixtures, drifted1, archived, openTodos1, gapUnderMeasured, drifted2, openTodos2];
     const ordered = orderForAttention(input);
 
     expect(ordered.map((e) => e.slug)).toEqual([
       "drifted-1",
       "drifted-2",
+      "open-todos-1",
+      "open-todos-2",
       "gap-no-fixtures",
       "gap-under-measured",
       "clean-1",
       "archived-drifted",
+    ]);
+  });
+
+  test("open todos outrank a measurement gap but not drift", () => {
+    const gap = entry({ slug: "gap", fixtureCount: 3, measuredFixtureCount: 0 });
+    const openTodos = entry({ slug: "open-todos", fixtureCount: 3, measuredFixtureCount: 3, openTodoCount: 1 });
+    const drifted = entry({ slug: "drifted", drift: "both", fixtureCount: 3, measuredFixtureCount: 3, openTodoCount: 5 });
+
+    expect(orderForAttention([gap, openTodos, drifted]).map((e) => e.slug)).toEqual([
+      "drifted",
+      "open-todos",
+      "gap",
     ]);
   });
 
@@ -84,6 +113,16 @@ describe("orderForAttention", () => {
     expect(orderForAttention([archivedDrifted, activeClean]).map((e) => e.slug)).toEqual([
       "active-clean",
       "archived-drifted",
+    ]);
+  });
+
+  test("archived sinks below everything even with open todos", () => {
+    const activeClean = entry({ slug: "active-clean", fixtureCount: 1, measuredFixtureCount: 1 });
+    const archivedWithTodos = entry({ slug: "archived-with-todos", archived: true, openTodoCount: 4 });
+
+    expect(orderForAttention([archivedWithTodos, activeClean]).map((e) => e.slug)).toEqual([
+      "active-clean",
+      "archived-with-todos",
     ]);
   });
 

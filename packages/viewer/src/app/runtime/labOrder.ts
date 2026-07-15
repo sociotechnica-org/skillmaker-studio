@@ -1,7 +1,8 @@
 /**
- * Lab's bench-not-shelf logic (#65): what needs attention, and in what
- * order. Two pure, exported functions kept out of `Lab.tsx` so they're
- * unit-testable without React -- same pattern as `nextAction.ts`.
+ * Lab's bench-not-shelf logic (#65, ranks extended #83): what needs
+ * attention, and in what order. Two pure, exported functions kept out of
+ * `Lab.tsx` so they're unit-testable without React -- same pattern as
+ * `nextAction.ts`.
  *
  * `driftNeedsAttention` decides which `Drift` values earn a pill: only the
  * three states where something actually moved (`design-changed`,
@@ -14,11 +15,15 @@
  * per the README rule that coverage (a fixture exists) and validation (it
  * passes) never merge into one signal.
  *
- * `orderForAttention` sorts a catalog page for triage: drifted bundles
- * first, then measurement gaps (no fixtures or under-measured), then clean
- * (fully measured); archived bundles always sink to the bottom regardless
- * of their drift/coverage state, since there's nothing to act on for a
- * shelved bundle. Ties keep the incoming order (`Array#sort` is stable).
+ * `orderForAttention` sorts a catalog page for triage (#83's proposed
+ * ranks, adopted as-is): drifted bundles first, then bundles with open
+ * todos (`openTodoCount > 0`), then measurement gaps (no fixtures or
+ * under-measured), then clean (fully measured); archived bundles always
+ * sink to the bottom regardless of their drift/todo/coverage state, since
+ * there's nothing to act on for a shelved bundle. Open work outranks a
+ * measurement gap -- a todo is a concrete, already-scoped unit of work,
+ * while a coverage gap is just an absence, so the queue with something in
+ * it goes first. Ties keep the incoming order (`Array#sort` is stable).
  */
 import type { CatalogEntry, Drift } from "./schemas.ts";
 
@@ -47,18 +52,21 @@ export const coverageState = (
 /** Attention-first sort rank: lower sorts earlier. Archived always ranks last, ahead of nothing. */
 const attentionRank = (entry: CatalogEntry): number => {
   if (entry.archived) {
-    return 3;
+    return 4;
   }
   if (driftNeedsAttention(entry.drift)) {
     return 0;
   }
-  if (coverageState(entry) !== "fully-measured") {
+  if (entry.openTodoCount > 0) {
     return 1;
   }
-  return 2;
+  if (coverageState(entry) !== "fully-measured") {
+    return 2;
+  }
+  return 3;
 };
 
-/** Reorders catalog entries for triage: drifted, then measurement gaps, then clean, then archived. */
+/** Reorders catalog entries for triage: drifted, then open todos, then measurement gaps, then clean, then archived. */
 export const orderForAttention = (
   entries: ReadonlyArray<CatalogEntry>,
 ): ReadonlyArray<CatalogEntry> =>
