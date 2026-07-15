@@ -203,3 +203,8 @@ export {
   type PublishBundleInput,
 } from "./Publish.ts";
 export { shipBundle, type ShipBundleInput, type ShipBundleResult } from "./Ship.ts";
+export {
+  recordFieldReport,
+  type RecordFieldReportInput,
+  type RecordFieldReportResult,
+} from "./FieldReport.ts";

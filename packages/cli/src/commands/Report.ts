@@ -9,20 +9,21 @@
  * lighter than `ship`: no receipts snapshot, no drift check.
  *
  * `--version`, when given, resolves through the same left-anchored-prefix
- * semantics `ship` uses (`resolveSkillVersion`), erroring only when it fails
- * to match a recorded version. Unlike `ship`, an *unset* `--version` is not
- * an error -- the reporter may not know which version they ran, and the
- * event's `versionHash` is optional for exactly that reason.
+ * semantics `ship` uses, erroring only when it fails to match a recorded
+ * version. Unlike `ship`, an *unset* `--version` is not an error -- the
+ * reporter may not know which version they ran, and the event's
+ * `versionHash` is optional for exactly that reason. The domain logic lives
+ * in core (`recordFieldReport`), same layering as `shipBundle`; this command
+ * is the thin argument/output wrapper.
  */
 import {
   Actor,
-  foldSkillVersions,
-  resolveSkillVersion,
+  recordFieldReport,
   shortHash,
   JournalLayer,
-  Journal,
   Workspace,
   type FieldReportOutcome,
+  type RecordFieldReportResult,
 } from "@skillmaker/core";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
@@ -43,12 +44,6 @@ export interface ReportOptions {
   readonly from?: string;
 }
 
-interface ReportSummary {
-  readonly outcome: FieldReportOutcome;
-  readonly report: string;
-  readonly versionHash?: string;
-  readonly destination?: string;
-}
 
 export const runReport = Effect.fn("runReport")(function* (
   cwd: string,
@@ -94,59 +89,33 @@ export const runReport = Effect.fn("runReport")(function* (
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor: Actor = yield* resolveUserActor();
   const outcome: FieldReportOutcome = options.outcome;
-  const report = options.note.trim();
   const destination = options.from !== undefined && options.from.trim().length > 0 ? options.from.trim() : undefined;
-  const versionPrefix = options.version;
 
-  const outcomeResult:
-    | { readonly kind: "ok"; readonly summary: ReportSummary }
-    | { readonly kind: "version_not_found" } = yield* Effect.gen(function* () {
-    const journal = yield* Journal;
-
-    let versionHash: string | undefined;
-    if (versionPrefix !== undefined) {
-      const events = yield* journal.readAll();
-      const versions = foldSkillVersions(events).get(slug) ?? [];
-      const match = resolveSkillVersion(versions, versionPrefix);
-      if (match === undefined) {
-        return { kind: "version_not_found" as const };
-      }
-      versionHash = match.hash;
-    }
-
-    yield* journal.append({
-      type: "skill.field_report",
-      actor,
-      payload: {
-        bundle: slug,
-        outcome,
-        report,
-        ...(versionHash !== undefined ? { versionHash } : {}),
-        ...(destination !== undefined ? { destination } : {}),
-      },
-    });
-
-    return {
-      kind: "ok" as const,
-      summary: {
-        outcome,
-        report,
-        ...(versionHash !== undefined ? { versionHash } : {}),
-        ...(destination !== undefined ? { destination } : {}),
-      },
-    };
-  }).pipe(Effect.provide(JournalLayer(journalPath)));
+  const outcomeResult = yield* recordFieldReport({
+    bundle: slug,
+    outcome,
+    report: options.note.trim(),
+    actor,
+    ...(options.version !== undefined ? { versionHashPrefix: options.version } : {}),
+    ...(destination !== undefined ? { destination } : {}),
+  }).pipe(
+    Effect.provide(JournalLayer(journalPath)),
+    Effect.map((result) => ({ kind: "ok" as const, result })),
+    Effect.catchTag("FieldReportVersionNotFoundError", (error) =>
+      Effect.succeed({ kind: "version_not_found" as const, prefix: error.prefix }),
+    ),
+  );
 
   if (outcomeResult.kind === "version_not_found") {
     return expectedFailure(
-      `skillmaker report: no recorded version of "${slug}" matches --version "${versionPrefix}"\n`,
+      `skillmaker report: no recorded version of "${slug}" matches --version "${outcomeResult.prefix}"\n`,
     );
   }
 
-  return summarize(slug, outcomeResult.summary, options.json);
+  return summarize(slug, outcomeResult.result, options.json);
 });
 
-const summarize = (slug: string, summary: ReportSummary, json: boolean): CliResult => {
+const summarize = (slug: string, summary: RecordFieldReportResult, json: boolean): CliResult => {
   if (json) {
     return ok(
       `${JSON.stringify({
