@@ -1,9 +1,12 @@
 ---
 // Spine B — the pull infomercial, one continuous motion (Turbo Pump grammar).
 // Head-to-head experiment against the Structure C spine on /.
+// Round 2 (director notes): entropy named as the enemy, the studio as the
+// entropy-crushing machine; timestamps dropped (the accent eyebrows stay as
+// the scan rail); fan-out expanded into a real pain board with answers; the
+// storyboard promoted from video-placeholder to the medium — the story of
+// bringing the problem child in, fixing it, then doing every skill that way.
 // Copy rationale: docs/gtm/2026-07-12-pull-driven-sales/site-strategy-2026-07-15.md
-// (see the head-to-head addendum). Timestamp eyebrows are the design motif:
-// the infomercial grammar, worn openly.
 import Footer from "../components/Footer.astro";
 import Header from "../components/Header.astro";
 import "../styles/global.css";
@@ -17,48 +20,80 @@ const installLines = [
 
 const title = "Skillmaker Studio — Your agent did something weird again.";
 const description =
-  "Receipts on every skill: what it passed, on which version, on which model. When your agent goes weird, you know first, you can say why, and you fix it on the same surface.";
+  "Skills rot in a world that never stops changing them. Skillmaker Studio turns drift into a number, blame into a lookup, and breakage into a fix — receipts on every skill.";
 
-const storyboard = [
+const story = [
   {
     shot: "01",
     frame: "$ skillmaker adopt",
-    caption: "Point it at the repo you already have. Skills become measurable in place — zero files moved.",
+    caption:
+      "That skill everyone quietly distrusts? Bring it into the studio first. Nothing moves — it becomes measurable right where it lives.",
   },
   {
     shot: "02",
-    frame: "the board",
-    caption: "Every skill, its stage, its last honest number. Nothing orphaned, nothing in a tab you can't find.",
+    frame: "what does “good” mean?",
+    caption:
+      "You and the agent write down what it's actually supposed to do — evals in plain English. For most skills, this is the first time it's ever been written down.",
   },
   {
     shot: "03",
-    frame: "designing an eval",
-    caption: "You and the agent decide what “good” means, in plain English. No evals background.",
+    frame: "$ skillmaker run",
+    caption:
+      "The first honest number. Lower than you hoped — and the first time you can see the flake instead of just feeling it.",
   },
   {
     shot: "04",
-    frame: "$ skillmaker run",
-    caption: "Real runs on the real agent. n, pass rate, confidence interval — pinned to the exact version and model.",
+    frame: "the operating table",
+    caption:
+      "Trail each failure back to the choice that caused it. Fix the process, not just the prompt.",
   },
   {
     shot: "05",
-    frame: "a number moves",
-    caption: "New model ships; a skill dips below its floor. You find out from the board — not from a customer.",
+    frame: "green, with a receipt",
+    caption:
+      "Re-measure. The number climbs, pinned to the exact version and model that earned it. The problem child has a report card.",
   },
   {
     shot: "06",
-    frame: "the operating table",
-    caption: "Trail back to why. Fix the process, not just the prompt. Re-measure. Receipt attached.",
+    frame: "now the rest of them",
+    caption:
+      "Adopt the whole repo. Every skill gets the same treatment; every new skill is born this way. Next time entropy swings, the board tells you — not a customer.",
   },
 ];
 
-const fanout = [
-  "A new model just shipped.",
-  "A teammate “improved” your skill.",
-  "You inherited a repo of skills you didn't write.",
-  "Someone ran yours on a model it never met.",
-  "Your first commercial skill is due.",
-  "Your team wants one blessed set.",
+const painBoard = [
+  {
+    pain: "Model just got updated.",
+    fix: "Re-run the receipts. Know what survived by lunch.",
+  },
+  {
+    pain: "Skill drifted.",
+    fix: "The number moved and you found out first. The trail shows what changed.",
+  },
+  {
+    pain: "Someone else made it. Is it any good?",
+    fix: "Adopt it, measure it, get an answer with a confidence interval.",
+  },
+  {
+    pain: "Was working great. Just did something crazy.",
+    fix: "Version, model, trail — reconstruct why in minutes, not a postmortem.",
+  },
+  {
+    pain: "A teammate “improved” it. Same name.",
+    fix: "Your version passed on the model it was rated for. The failure is theirs, provably.",
+  },
+  {
+    pain: "It's running on models it was never tested on.",
+    fix: "Receipts are per-model. Untested reads untested — loudly.",
+  },
+  {
+    pain: "It's due Friday and it has to be good.",
+    fix: "Design, measure, fix, re-measure — one surface, plain English.",
+  },
+  {
+    pain: "Thirty skills. Which ones still work?",
+    fix: "Adopt the repo. The board answers, skill by skill.",
+  },
 ];
 
 const objections = [
@@ -97,9 +132,9 @@ const objections = [
   <body class="min-h-screen bg-canvas text-ink antialiased">
     <Header />
     <main>
-      <!-- 0:00 — THE PULL -->
+      <!-- THE PULL -->
       <section class="mx-auto max-w-5xl px-6 pb-14 pt-16 sm:pt-24">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:00 &middot; the pull</p>
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the pull</p>
         <h1 class="max-w-3xl text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl">
           Your agent did something weird again.
         </h1>
@@ -110,54 +145,54 @@ const objections = [
         </p>
       </section>
 
-      <!-- 0:05 — SUPPLY THAT FITS -->
+      <!-- THE ENEMY -->
       <section class="border-y border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:05 &middot; not anymore</p>
-          <p class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
-            Skillmaker Studio puts receipts on every skill: what it passed, on
-            which version, on which model.
-          </p>
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the enemy</p>
+          <h2 class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
+            It&#39;s not you. It&#39;s entropy.
+          </h2>
           <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-dim">
-            When something goes weird, you know first, you can say why, and you
-            fix it on the same surface.
+            Every skill you ship goes out into a world that never stops changing
+            it: new models on someone else&#39;s schedule, teammates with edit
+            access, runtimes it never met. Skills don&#39;t fail like servers.
+            They rot quietly — and the weirdness lands on you.
           </p>
         </div>
       </section>
 
-      <!-- 0:10 — WATCH -->
+      <!-- THE MACHINE -->
       <section class="mx-auto max-w-5xl px-6 py-14">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:10 &middot; watch</p>
-        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-          Ninety seconds, start to receipt.
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the machine</p>
+        <h2 class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
+          Skillmaker Studio is the machine that crushes entropy.
         </h2>
+        <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-dim">
+          It turns drift into a number, blame into a lookup, and breakage into a
+          work order. Receipts on every skill — what it passed, on which version,
+          on which model. When the world moves, you know first.
+        </p>
+      </section>
 
-        <div class="mt-8 overflow-hidden rounded-lg border border-border bg-surface shadow-2xl shadow-black/40">
-          <div class="relative flex aspect-video items-center justify-center border-b border-border">
-            <div class="flex flex-col items-center gap-3">
-              <span
-                class="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-canvas text-accent"
-                aria-hidden="true"
-              >
-                <svg width="20" height="24" viewBox="0 0 20 24" fill="currentColor"><path d="M0 0v24l20-12z"></path></svg>
-              </span>
-              <span class="font-mono text-xs uppercase tracking-widest text-ink-dim">
-                30&ndash;60s demo goes here
-              </span>
-            </div>
-            <span
-              class="absolute right-3 top-3 rounded border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-ink-dim"
-            >
-              storyboard &mdash; not captured footage
-            </span>
-          </div>
-          <ol class="grid gap-px bg-border sm:grid-cols-3">
+      <!-- WATCH IT HAPPEN — the storyboard IS the demo -->
+      <section class="border-y border-border bg-surface">
+        <div class="mx-auto max-w-5xl px-6 py-14">
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">watch it happen</p>
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            Bring the problem child in first.
+          </h2>
+          <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
+            You have one — the skill everyone works around. Here&#39;s its week in
+            the studio, and what happens after.
+          </p>
+
+          <ol class="mt-8 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
             {
-              storyboard.map((s) => (
-                <li class="bg-surface p-4">
+              story.map((s) => (
+                <li class="bg-canvas p-6">
                   <span class="font-mono text-xs text-accent">{s.shot}</span>
-                  <p class="mt-1 font-mono text-sm text-ink">{s.frame}</p>
-                  <p class="mt-2 text-xs leading-relaxed text-ink-dim">{s.caption}</p>
+                  <p class="mt-2 font-mono text-base text-ink">{s.frame}</p>
+                  <p class="mt-3 text-sm leading-relaxed text-ink-dim">{s.caption}</p>
                 </li>
               ))
             }
@@ -165,98 +200,107 @@ const objections = [
         </div>
       </section>
 
-      <!-- 0:30 — THE SECRET -->
-      <section class="border-y border-border bg-surface">
-        <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:30 &middot; the secret</p>
-          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-            The secret is the trail.
-          </h2>
-          <p class="mt-4 max-w-3xl leading-relaxed text-ink-dim">
-            Every number is pinned to the exact skill version and model that
-            earned it. Every design choice is linked to the evidence behind it.
-            So when a skill is stable but wrong — running clean, doing the job
-            badly — you can see it, trace it, and fix the process, not just the
-            prompt.
-          </p>
-        </div>
-      </section>
-
-      <!-- 1:00 — OTHER TIMES YOU HAVE THIS PULL -->
+      <!-- THE SECRET -->
       <section class="mx-auto max-w-5xl px-6 py-14">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">1:00 &middot; sound familiar?</p>
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the secret</p>
         <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-          It&#39;s not just the weird Tuesday.
+          The secret is the trail.
         </h2>
-        <ul class="mt-8 flex flex-wrap gap-3">
-          {
-            fanout.map((item) => (
-              <li class="rounded-full border border-border bg-surface px-4 py-2 text-sm text-ink">{item}</li>
-            ))
-          }
-        </ul>
-        <p class="mt-6 font-medium text-ink">Same pull. Same fix.</p>
+        <p class="mt-4 max-w-3xl leading-relaxed text-ink-dim">
+          Every number is pinned to the exact skill version and model that earned
+          it. Every design choice is linked to the evidence behind it. So when a
+          skill is stable but wrong — running clean, doing the job badly — you can
+          see it, trace it, and fix the process, not just the prompt.
+        </p>
+        <p class="mt-4 max-w-3xl font-medium leading-relaxed text-ink">
+          Entropy doesn&#39;t stop. With the trail, it stops mattering.
+        </p>
       </section>
 
-      <!-- 1:30 — OBJECTIONS -->
+      <!-- THE PAIN BOARD -->
       <section class="border-y border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">1:30 &middot; you&#39;re already objecting. good.</p>
-          <div class="grid gap-6 sm:grid-cols-2">
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the pain board</p>
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            You know these. Or you&#39;re waiting on them.
+          </h2>
+
+          <div class="mt-8 grid gap-6 sm:grid-cols-2">
             {
-              objections.map((o) => (
-                <div class="rounded-lg border border-border bg-canvas p-6">
-                  <h3 class="font-semibold text-ink">{o.q}</h3>
-                  <p class="mt-2 text-sm leading-relaxed text-ink-dim">{o.a}</p>
+              painBoard.map((item) => (
+                <div class="rounded-lg border border-border bg-canvas p-5">
+                  <p class="text-lg font-semibold leading-snug text-ink">{item.pain}</p>
+                  <p class="mt-2 text-sm leading-relaxed text-ink-dim">{item.fix}</p>
                 </div>
               ))
             }
           </div>
+
+          <p class="mt-8 max-w-3xl font-medium leading-relaxed text-ink">
+            Same enemy every time. Same machine every time.
+          </p>
         </div>
       </section>
 
-      <!-- 1:59 — ACT -->
-      <section class="mx-auto max-w-5xl px-6 py-16">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">1:59 &middot; the next ninety seconds</p>
-        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Find out first.</h2>
-
-        <div class="mt-8 max-w-3xl rounded-lg border border-border bg-surface shadow-2xl shadow-black/40">
-          <div class="flex items-center justify-between border-b border-border px-4 py-3">
-            <div class="flex items-center gap-1.5" aria-hidden="true">
-              <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
-              <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
-              <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
-            </div>
-            <span class="font-mono text-xs text-ink-dim">ninety seconds</span>
-            <span></span>
-          </div>
-          <pre class="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed text-ink">{installLines.map((line) => `$ ${line}`).join("\n")}</pre>
-          <p class="border-t border-border px-4 py-3 text-xs text-ink-dim">
-            Free. Local. MIT. Phones nothing home. On the repo you already have.
-          </p>
+      <!-- OBJECTIONS -->
+      <section class="mx-auto max-w-5xl px-6 py-14">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">you&#39;re already objecting. good.</p>
+        <div class="grid gap-6 sm:grid-cols-2">
+          {
+            objections.map((o) => (
+              <div class="rounded-lg border border-border bg-surface p-6">
+                <h3 class="font-semibold text-ink">{o.q}</h3>
+                <p class="mt-2 text-sm leading-relaxed text-ink-dim">{o.a}</p>
+              </div>
+            ))
+          }
         </div>
+      </section>
 
-        <p class="mt-8 max-w-2xl text-sm leading-relaxed text-ink-dim">
-          Want hands-on help? We&#39;re working with a small first round of design
-          partners —
-          <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">open an issue</a>
-          and tell us what broke. Running skills as a team?
-          <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">Talk to us</a>
-          — we&#39;re designing the multi-player studio with a handful of companies.
-        </p>
+      <!-- ACT -->
+      <section class="border-t border-border bg-surface">
+        <div class="mx-auto max-w-5xl px-6 py-16">
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the next ninety seconds</p>
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Find out first.</h2>
 
-        <div class="mt-12 max-w-3xl border-t border-border pt-10">
-          <p class="leading-relaxed text-ink-dim">
-            We can&#39;t make your agent predictable — nobody can; that&#39;s what
-            you hired it for. We can make sure nothing drifts silently, nothing
-            fails anonymously, and nothing stays wrong.
+          <div class="mt-8 max-w-3xl rounded-lg border border-border bg-canvas shadow-2xl shadow-black/40">
+            <div class="flex items-center justify-between border-b border-border px-4 py-3">
+              <div class="flex items-center gap-1.5" aria-hidden="true">
+                <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+                <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+                <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+              </div>
+              <span class="font-mono text-xs text-ink-dim">ninety seconds</span>
+              <span></span>
+            </div>
+            <pre class="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed text-ink">{installLines.map((line) => `$ ${line}`).join("\n")}</pre>
+            <p class="border-t border-border px-4 py-3 text-xs text-ink-dim">
+              Free. Local. MIT. Phones nothing home. On the repo you already have.
+            </p>
+          </div>
+
+          <p class="mt-8 max-w-2xl text-sm leading-relaxed text-ink-dim">
+            Want hands-on help? We&#39;re working with a small first round of design
+            partners —
+            <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">open an issue</a>
+            and tell us what broke. Running skills as a team?
+            <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">Talk to us</a>
+            — we&#39;re designing the multi-player studio with a handful of companies.
           </p>
-          <p class="mt-4 text-lg font-medium text-ink">The only thing you risk is finding out.</p>
-          <p class="mt-8">
-            <a href={repoUrl} class="text-sm font-medium text-accent transition hover:text-accent-dim" rel="noreferrer">
-              View on GitHub &rarr;
-            </a>
-          </p>
+
+          <div class="mt-12 max-w-3xl border-t border-border pt-10">
+            <p class="leading-relaxed text-ink-dim">
+              We can&#39;t make your agent predictable — nobody can; that&#39;s what
+              you hired it for. We can make sure nothing drifts silently, nothing
+              fails anonymously, and nothing stays wrong.
+            </p>
+            <p class="mt-4 text-lg font-medium text-ink">The only thing you risk is finding out.</p>
+            <p class="mt-8">
+              <a href={repoUrl} class="text-sm font-medium text-accent transition hover:text-accent-dim" rel="noreferrer">
+                View on GitHub &rarr;
+              </a>
+            </p>
+          </div>
         </div>
       </section>
     </main>
