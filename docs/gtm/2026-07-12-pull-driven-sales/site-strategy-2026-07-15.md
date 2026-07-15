@@ -214,6 +214,36 @@ only thing you risk is finding out.**
    door-3 discovery line (framework rule: "coming soon" signals "not
    ready").
 
+## Head-to-head addendum (2026-07-15, later)
+
+Director review of the built Structure C page: **much better, but
+fairly cold** — the Coping section specifically reads as a momentum
+kill. Rather than tweak in place, we built the competing spine for a
+real comparison:
+
+- **`/` — Structure C** (this doc's spine): staged persuasion, the
+  insight earned slowly. Bet: the custody reveal converts *because* it
+  is staged.
+- **`/b` — the pull infomercial** (`src/pages/b.astro`): one continuous
+  motion in Turbo Pump grammar — pull (0:00) → not-anymore supply
+  (0:05) → **watch** (0:10, a 30–60s demo/animated-flow slot,
+  storyboarded in six shots and labeled "storyboard — not captured
+  footage" until real footage exists) → the secret is the trail (0:30)
+  → fan-out chips (1:00) → objections (1:30) → act (1:59). Timestamp
+  eyebrows worn openly as the design motif. No coping section, no
+  staged insight — the mechanism carries the custody idea in one
+  paragraph.
+
+The bet difference in one line: Structure C persuades by *staging*;
+the infomercial persuades by *momentum and demo*. What Structure C
+calls the insight section, the infomercial compresses into "the
+secret." The demo video is B's load-bearing element — without real
+footage, B is running on a storyboard and the comparison understates
+it.
+
+Judge with the out-loud test and real visitors (three humans each,
+count winces and scroll-throughs), not by which one we're prouder of.
+
 ## Open tests (unchanged from the workshop, now doubly load-bearing)
 
 The out-loud test (three humans, count winces), the agent→skill bridge

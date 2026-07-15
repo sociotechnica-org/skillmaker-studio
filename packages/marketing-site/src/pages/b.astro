@@ -1,0 +1,265 @@
+---
+// Spine B — the pull infomercial, one continuous motion (Turbo Pump grammar).
+// Head-to-head experiment against the Structure C spine on /.
+// Copy rationale: docs/gtm/2026-07-12-pull-driven-sales/site-strategy-2026-07-15.md
+// (see the head-to-head addendum). Timestamp eyebrows are the design motif:
+// the infomercial grammar, worn openly.
+import Footer from "../components/Footer.astro";
+import Header from "../components/Header.astro";
+import "../styles/global.css";
+
+const repoUrl = "https://github.com/sociotechnica-org/skillmaker-studio";
+const issuesUrl = "https://github.com/sociotechnica-org/skillmaker-studio/issues";
+const installLines = [
+  "curl -fsSL https://skillmaker.studio/install.sh | sh",
+  "skillmaker adopt",
+];
+
+const title = "Skillmaker Studio — Your agent did something weird again.";
+const description =
+  "Receipts on every skill: what it passed, on which version, on which model. When your agent goes weird, you know first, you can say why, and you fix it on the same surface.";
+
+const storyboard = [
+  {
+    shot: "01",
+    frame: "$ skillmaker adopt",
+    caption: "Point it at the repo you already have. Skills become measurable in place — zero files moved.",
+  },
+  {
+    shot: "02",
+    frame: "the board",
+    caption: "Every skill, its stage, its last honest number. Nothing orphaned, nothing in a tab you can't find.",
+  },
+  {
+    shot: "03",
+    frame: "designing an eval",
+    caption: "You and the agent decide what “good” means, in plain English. No evals background.",
+  },
+  {
+    shot: "04",
+    frame: "$ skillmaker run",
+    caption: "Real runs on the real agent. n, pass rate, confidence interval — pinned to the exact version and model.",
+  },
+  {
+    shot: "05",
+    frame: "a number moves",
+    caption: "New model ships; a skill dips below its floor. You find out from the board — not from a customer.",
+  },
+  {
+    shot: "06",
+    frame: "the operating table",
+    caption: "Trail back to why. Fix the process, not just the prompt. Re-measure. Receipt attached.",
+  },
+];
+
+const fanout = [
+  "A new model just shipped.",
+  "A teammate “improved” your skill.",
+  "You inherited a repo of skills you didn't write.",
+  "Someone ran yours on a model it never met.",
+  "Your first commercial skill is due.",
+  "Your team wants one blessed set.",
+];
+
+const objections = [
+  {
+    q: "“Do we have to restructure our repo?”",
+    a: "No. adopt works in place — 59/60 and 39/39 skills adopted cleanly on real public repos. Zero files moved.",
+  },
+  {
+    q: "“I'm not an evals person.”",
+    a: "You don't need to be. Our agents co-design the evals with you, in plain English. You judge; they build.",
+  },
+  {
+    q: "“Won't the numbers flatter you?”",
+    a: "They refuse to. Three runs reads “below smoke” on our own case study — even when the percentage looks great.",
+  },
+  {
+    q: "“Where does my data go?”",
+    a: "Nowhere. Free, local, MIT-licensed, no account. It phones nothing home.",
+  },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="icon" href="data:," />
+  </head>
+  <body class="min-h-screen bg-canvas text-ink antialiased">
+    <Header />
+    <main>
+      <!-- 0:00 — THE PULL -->
+      <section class="mx-auto max-w-5xl px-6 pb-14 pt-16 sm:pt-24">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:00 &middot; the pull</p>
+        <h1 class="max-w-3xl text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl">
+          Your agent did something weird again.
+        </h1>
+        <p class="mt-6 max-w-2xl text-lg leading-relaxed text-ink-dim">
+          No crash. No error. Nothing in the logs — just <em>off</em>, in front of
+          someone who matters. And you can&#39;t say why, which version did it, or
+          what changed.
+        </p>
+      </section>
+
+      <!-- 0:05 — SUPPLY THAT FITS -->
+      <section class="border-y border-border bg-surface">
+        <div class="mx-auto max-w-5xl px-6 py-14">
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:05 &middot; not anymore</p>
+          <p class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
+            Skillmaker Studio puts receipts on every skill: what it passed, on
+            which version, on which model.
+          </p>
+          <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-dim">
+            When something goes weird, you know first, you can say why, and you
+            fix it on the same surface.
+          </p>
+        </div>
+      </section>
+
+      <!-- 0:10 — WATCH -->
+      <section class="mx-auto max-w-5xl px-6 py-14">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:10 &middot; watch</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          Ninety seconds, start to receipt.
+        </h2>
+
+        <div class="mt-8 overflow-hidden rounded-lg border border-border bg-surface shadow-2xl shadow-black/40">
+          <div class="relative flex aspect-video items-center justify-center border-b border-border">
+            <div class="flex flex-col items-center gap-3">
+              <span
+                class="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-canvas text-accent"
+                aria-hidden="true"
+              >
+                <svg width="20" height="24" viewBox="0 0 20 24" fill="currentColor"><path d="M0 0v24l20-12z"></path></svg>
+              </span>
+              <span class="font-mono text-xs uppercase tracking-widest text-ink-dim">
+                30&ndash;60s demo goes here
+              </span>
+            </div>
+            <span
+              class="absolute right-3 top-3 rounded border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-ink-dim"
+            >
+              storyboard &mdash; not captured footage
+            </span>
+          </div>
+          <ol class="grid gap-px bg-border sm:grid-cols-3">
+            {
+              storyboard.map((s) => (
+                <li class="bg-surface p-4">
+                  <span class="font-mono text-xs text-accent">{s.shot}</span>
+                  <p class="mt-1 font-mono text-sm text-ink">{s.frame}</p>
+                  <p class="mt-2 text-xs leading-relaxed text-ink-dim">{s.caption}</p>
+                </li>
+              ))
+            }
+          </ol>
+        </div>
+      </section>
+
+      <!-- 0:30 — THE SECRET -->
+      <section class="border-y border-border bg-surface">
+        <div class="mx-auto max-w-5xl px-6 py-14">
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">0:30 &middot; the secret</p>
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            The secret is the trail.
+          </h2>
+          <p class="mt-4 max-w-3xl leading-relaxed text-ink-dim">
+            Every number is pinned to the exact skill version and model that
+            earned it. Every design choice is linked to the evidence behind it.
+            So when a skill is stable but wrong — running clean, doing the job
+            badly — you can see it, trace it, and fix the process, not just the
+            prompt.
+          </p>
+        </div>
+      </section>
+
+      <!-- 1:00 — OTHER TIMES YOU HAVE THIS PULL -->
+      <section class="mx-auto max-w-5xl px-6 py-14">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">1:00 &middot; sound familiar?</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          It&#39;s not just the weird Tuesday.
+        </h2>
+        <ul class="mt-8 flex flex-wrap gap-3">
+          {
+            fanout.map((item) => (
+              <li class="rounded-full border border-border bg-surface px-4 py-2 text-sm text-ink">{item}</li>
+            ))
+          }
+        </ul>
+        <p class="mt-6 font-medium text-ink">Same pull. Same fix.</p>
+      </section>
+
+      <!-- 1:30 — OBJECTIONS -->
+      <section class="border-y border-border bg-surface">
+        <div class="mx-auto max-w-5xl px-6 py-14">
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">1:30 &middot; you&#39;re already objecting. good.</p>
+          <div class="grid gap-6 sm:grid-cols-2">
+            {
+              objections.map((o) => (
+                <div class="rounded-lg border border-border bg-canvas p-6">
+                  <h3 class="font-semibold text-ink">{o.q}</h3>
+                  <p class="mt-2 text-sm leading-relaxed text-ink-dim">{o.a}</p>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </section>
+
+      <!-- 1:59 — ACT -->
+      <section class="mx-auto max-w-5xl px-6 py-16">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">1:59 &middot; the next ninety seconds</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Find out first.</h2>
+
+        <div class="mt-8 max-w-3xl rounded-lg border border-border bg-surface shadow-2xl shadow-black/40">
+          <div class="flex items-center justify-between border-b border-border px-4 py-3">
+            <div class="flex items-center gap-1.5" aria-hidden="true">
+              <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+            </div>
+            <span class="font-mono text-xs text-ink-dim">ninety seconds</span>
+            <span></span>
+          </div>
+          <pre class="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed text-ink">{installLines.map((line) => `$ ${line}`).join("\n")}</pre>
+          <p class="border-t border-border px-4 py-3 text-xs text-ink-dim">
+            Free. Local. MIT. Phones nothing home. On the repo you already have.
+          </p>
+        </div>
+
+        <p class="mt-8 max-w-2xl text-sm leading-relaxed text-ink-dim">
+          Want hands-on help? We&#39;re working with a small first round of design
+          partners —
+          <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">open an issue</a>
+          and tell us what broke. Running skills as a team?
+          <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">Talk to us</a>
+          — we&#39;re designing the multi-player studio with a handful of companies.
+        </p>
+
+        <div class="mt-12 max-w-3xl border-t border-border pt-10">
+          <p class="leading-relaxed text-ink-dim">
+            We can&#39;t make your agent predictable — nobody can; that&#39;s what
+            you hired it for. We can make sure nothing drifts silently, nothing
+            fails anonymously, and nothing stays wrong.
+          </p>
+          <p class="mt-4 text-lg font-medium text-ink">The only thing you risk is finding out.</p>
+          <p class="mt-8">
+            <a href={repoUrl} class="text-sm font-medium text-accent transition hover:text-accent-dim" rel="noreferrer">
+              View on GitHub &rarr;
+            </a>
+          </p>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>
