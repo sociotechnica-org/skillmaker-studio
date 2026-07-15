@@ -17,6 +17,9 @@ const BUNDLE_TABS: ReadonlyArray<BundleTab> = ["overview", "files", "versions", 
 const isBundleTab = (value: string): value is BundleTab =>
   (BUNDLE_TABS as ReadonlyArray<string>).includes(value);
 
+/** The Lab's two modes (#83): Bench (default, the triage rows) and Queue (the whole workspace's todos). */
+export type LabView = "bench" | "queue";
+
 export type Route =
   | { readonly name: "board" }
   | {
@@ -26,7 +29,7 @@ export type Route =
       readonly runId: string | undefined;
       readonly file: string | undefined;
     }
-  | { readonly name: "lab" }
+  | { readonly name: "lab"; readonly view: LabView; readonly bundle: string | undefined }
   | { readonly name: "activity" }
   | { readonly name: "ship" }
   | { readonly name: "ship-bundle"; readonly slug: string }
@@ -41,6 +44,14 @@ export type Route =
  * as aliases parsing to the same routes so bookmarks and any deep links
  * survive -- this is display-layer only, the server API paths behind these
  * pages (`/api/catalog`, `/api/skillbook`) are untouched.
+ *
+ * `/lab`'s mode is a URL query, not a path segment (#83): `?view=queue`
+ * selects Queue, anything else (including the param's absence) is Bench --
+ * old `/lab` and `/catalog` deep links keep working untouched, they just
+ * default to Bench like they always rendered. `?bundle=<slug>` is Queue's
+ * optional bundle filter (how Bench's per-row open-work signal links in);
+ * it round-trips through the querystring on Bench too so a bookmark never
+ * silently drops it, even though Bench itself ignores it.
  */
 export const parseRoute = (pathname: string, search: string): Route => {
   const segments = pathname.split("/").filter((segment) => segment.length > 0);
@@ -55,7 +66,10 @@ export const parseRoute = (pathname: string, search: string): Route => {
     return { name: "board" };
   }
   if (head === "lab" && segments.length === 1) {
-    return { name: "lab" };
+    const params = new URLSearchParams(search);
+    const view: LabView = params.get("view") === "queue" ? "queue" : "bench";
+    const bundle = params.get("bundle") ?? undefined;
+    return { name: "lab", view, bundle };
   }
   if (head === "activity" && segments.length === 1) {
     return { name: "activity" };
@@ -89,6 +103,23 @@ export const bundleHref = (slug: string, tab: BundleTab = "overview"): string =>
 
 /** The canonical URL for a bundle's Skillbook chapter, now docked at Ship. */
 export const shipBundleHref = (slug: string): string => `/ship/${encodeURIComponent(slug)}`;
+
+/**
+ * The Lab's URL for a given mode, optionally filtered to one bundle's todos
+ * (#83) -- Bench's default view has no query string at all, so the
+ * long-lived bare `/lab` URL is exactly what `labHref("bench")` produces.
+ */
+export const labHref = (view: LabView, bundle?: string): string => {
+  const params = new URLSearchParams();
+  if (view === "queue") {
+    params.set("view", "queue");
+  }
+  if (bundle !== undefined) {
+    params.set("bundle", bundle);
+  }
+  const query = params.toString();
+  return query.length > 0 ? `/lab?${query}` : "/lab";
+};
 
 /** The Evals tab, optionally with a run selected via `?run=`. */
 export const bundleRunHref = (slug: string, runId: string | undefined): string => {

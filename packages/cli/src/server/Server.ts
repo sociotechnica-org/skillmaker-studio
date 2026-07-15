@@ -14,6 +14,7 @@ import {
   foldBundleStates,
   foldTodos,
   guardStatus,
+  isTerminalStatus,
   IndexService,
   IndexServiceLayer,
   Journal,
@@ -309,9 +310,28 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  * `runIndexEffect`) meant N bundles cost 1 + 3N full index rebuilds for one
  * `GET /api/catalog` -- 13 rebuilds for a 4-bundle workspace. Mirrors
  * `Skillbook.ts#buildSkillbook`, which already does this correctly.
+ *
+ * `openTodoCount` (issue #83, the Lab Bench mode's open-work signal per
+ * row): a second, independent read of the SAME journal (`readJournalEvents`)
+ * folded with `foldTodos`, the same read-time join `handleFieldReports`
+ * already does for its `todo` field. Counts non-terminal (not `done`/
+ * `wont-do`) todos per `bundle`, never stored -- recomputed on every
+ * request, same as the rest of this handler's rows. Deliberately not
+ * folded into the `IndexService` rebuild above: todos already have their
+ * own materialized table and CLI/server surface (`listTodos`); this
+ * handler only needs a count, not per-todo detail.
  */
-const handleCatalog = async (root: string): Promise<Response> =>
-  runIndexEffect(
+const handleCatalog = async (root: string): Promise<Response> => {
+  const events = await readJournalEvents(root);
+  const openTodoCountByBundle = new Map<string, number>();
+  for (const todo of foldTodos(events).values()) {
+    if (todo.bundle === undefined || isTerminalStatus(todo.status)) {
+      continue;
+    }
+    openTodoCountByBundle.set(todo.bundle, (openTodoCountByBundle.get(todo.bundle) ?? 0) + 1);
+  }
+
+  return runIndexEffect(
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
@@ -350,11 +370,13 @@ const handleCatalog = async (root: string): Promise<Response> =>
                 },
           fixtureCount: fixtures.length,
           measuredFixtureCount: measuredFixtureCases.size,
+          openTodoCount: openTodoCountByBundle.get(bundle.slug) ?? 0,
         });
       }
       return jsonResponse({ entries });
     }),
   );
+};
 
 type AppendVersionOutcome =
   | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }

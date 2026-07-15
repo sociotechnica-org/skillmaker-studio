@@ -12,10 +12,23 @@
  * #65, "bench not shelf": the drift pill only renders for the three states
  * that mean something moved, the coverage line distinguishes its three
  * honest measurement states instead of one flat fraction, and rows are
- * reordered for triage (drifted, then measurement gaps, then clean, then
- * archived) -- all via the pure helpers in `runtime/labOrder.ts`. Still
- * display-layer only: no new endpoint, `GET /api/catalog` already carries
- * everything this needs.
+ * reordered for triage -- all via the pure helpers in `runtime/labOrder.ts`.
+ * Still display-layer only: no new endpoint, `GET /api/catalog` already
+ * carries everything this needs.
+ *
+ * #83, "the Lab's two modes": the stock-and-flow ruling names the todo
+ * queue as the heart of the Lab, so this page now has a mode toggle,
+ * deep-linkable via `?view=` (`runtime/router.tsx`'s `labHref`/`LabView`)
+ * so "to-do mode" is a bookmarkable place, not a popup:
+ *  - **Bench** (default, `view=bench` or the param absent -- old `/lab`
+ *    URLs are untouched) is the triage list below, now with a per-row
+ *    open-work signal ("N open") wherever `openTodoCount > 0`, linking into
+ *    Queue filtered to that bundle. `orderForAttention` learned the new
+ *    rank: drifted, then open todos, then measurement gaps, then clean,
+ *    archived last.
+ *  - **Queue** (`?view=queue`) is the whole workspace's flat,
+ *    priority-sorted todo list -- the retired `TodosPanel`'s powers,
+ *    rendered here instead of a persistent rail (`Queue.tsx`).
  */
 import type { FC } from "react";
 import {
@@ -25,9 +38,10 @@ import {
   type AttentionDrift,
   type CoverageState,
 } from "../runtime/labOrder.ts";
-import { bundleHref, Link } from "../runtime/router.tsx";
+import { bundleHref, labHref, Link, type LabView } from "../runtime/router.tsx";
 import { STAGE_LABEL, type BundleStage, type CatalogEntry } from "../runtime/schemas.ts";
 import { useCatalog } from "../runtime/useCatalog.ts";
+import { Queue } from "./Queue.tsx";
 
 const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
   idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
@@ -93,6 +107,14 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => {
             {DRIFT_LABEL[entry.drift]}
           </span>
         )}
+        {entry.openTodoCount > 0 && (
+          <Link
+            href={labHref("queue", entry.slug)}
+            className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800 hover:underline dark:bg-sky-950 dark:text-sky-300"
+          >
+            {entry.openTodoCount} open
+          </Link>
+        )}
       </div>
 
       <p className="text-sm text-neutral-600 dark:text-neutral-300">{entry.oneLiner}</p>
@@ -124,19 +146,28 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => {
   );
 };
 
-export const Lab: FC = () => {
+const MODE_TAB_ACTIVE =
+  "font-display uppercase tracking-wide rounded-md bg-neutral-900 px-3 py-1 text-xs text-white dark:bg-neutral-100 dark:text-neutral-900";
+const MODE_TAB_INACTIVE =
+  "font-display uppercase tracking-wide rounded-md px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100";
+
+const ModeTabs: FC<{ view: LabView }> = ({ view }) => (
+  <nav className="flex items-center gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
+    <Link href={labHref("bench")} className={view === "bench" ? MODE_TAB_ACTIVE : MODE_TAB_INACTIVE}>
+      Bench
+    </Link>
+    <Link href={labHref("queue")} className={view === "queue" ? MODE_TAB_ACTIVE : MODE_TAB_INACTIVE}>
+      Queue
+    </Link>
+  </nav>
+);
+
+const Bench: FC = () => {
   const { entries, loading, error } = useCatalog();
   const orderedEntries = orderForAttention(entries);
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
-      <div>
-        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Lab</h1>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          the hardening bench — stage, drift, and coverage at a glance.
-        </p>
-      </div>
-
+    <div className="flex flex-col gap-4">
       {error !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
           Could not load lab: {error.message}
@@ -158,3 +189,21 @@ export const Lab: FC = () => {
     </div>
   );
 };
+
+const MODE_TAGLINE: Record<LabView, string> = {
+  bench: "the hardening bench — stage, drift, coverage, and open work at a glance.",
+  queue: "to-do mode — every unit of work across the workspace, priority-sorted.",
+};
+
+export const Lab: FC<{ view: LabView; bundle: string | undefined }> = ({ view, bundle }) => (
+  <div className="flex max-w-3xl flex-col gap-4">
+    <div>
+      <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Lab</h1>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{MODE_TAGLINE[view]}</p>
+    </div>
+
+    <ModeTabs view={view} />
+
+    {view === "bench" ? <Bench /> : <Queue bundleFilter={bundle} />}
+  </div>
+);

@@ -7,7 +7,8 @@
  * plus a minimal paste form -- "even a manually pasted field report proves
  * the loop closes once, by hand, before automating it." The list is read via
  * `GET /api/field-reports` (`useFieldReports`), the form writes through the
- * generic `POST /api/events` path (`postEvent`), same as `TodosPanel`.
+ * generic `POST /api/events` path (`postEvent`), same as the Lab's Queue
+ * mode (`Queue.tsx`, formerly `TodosPanel`).
  *
  * The harvest affordance (issue #68) closes the loop visibly, CLI-first --
  * no write button in this pass: a harvested report (`fixtureCase !== null`)

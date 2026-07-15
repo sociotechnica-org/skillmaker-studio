@@ -8,6 +8,7 @@ links:
     - "./Concept - Skillmaker Studio"
     - "../board/Surface - Board"
     - "../board/Entity - Todo"
+    - "../board/Surface - Lab"
     - "../board/Surface - Activity Feed"
     - "../outputs/Entity - Skillbook"
     - "../outputs/Entity - Shipment"
@@ -60,9 +61,10 @@ not a stage.
 
 The consequences, one issue each. The todo queue is named directly as
 *the heart of the Lab* — the journal stays the sole source of truth
-(`todo.*` events, folded; see `../board/Entity - Todo`), only
-presentation would move, from a persistent right-rail panel to a Lab
-work view (#83). The Published column is meant to become a **doorway,
+(`todo.*` events, folded; see `../board/Entity - Todo`); only
+presentation moved, **shipped in #83**, from the persistent right-rail
+panel to the Lab's Queue mode (`../board/Surface - Lab`). The Published
+column is meant to become a **doorway,
 not a shelf** (#82, proposed, not yet built): recently graduated skills
 would pass through it into the Lab instead of accumulating on the Board
 indefinitely, as they do today (see `../board/Surface - Board`). Field
@@ -182,9 +184,10 @@ separate, un-scheduled behavioral change. `Receive.tsx` (#67) now reads
 `GET /api/field-reports` and renders a paste form; a field report never
 moves a bundle's stage, same house rule shipping follows. This card is
 `status: adopted` for the naming (now Board · Lab · Ship · Receive ·
-Activity, #72); Lab's bench upgrades and field drift (a shipped version
-diverging in the wild) remain unbuilt. The stock-and-flow ruling (#80)
-is `adopted` too — the director has ruled — but is docs-only as of this
-writing: no code in `packages/core/src` or `packages/viewer/src` yet
-implements the todo-origin field, the Published doorway window, or the
-Lab's Bench/Queue split; #81/#82/#83 spec each in turn.
+Activity, #72); field drift (a shipped version diverging in the wild)
+remains unbuilt. The stock-and-flow ruling (#80) is `adopted` too — the
+director has ruled — and #83, the Lab's Bench/Queue split, is no longer
+docs-only: `Lab.tsx` now has a deep-linkable mode toggle
+(`../board/Surface - Lab`), `AppShell.tsx`'s persistent todo rail is
+retired, and `GET /api/catalog`'s `openTodoCount` feeds Bench's open-work
+signal and rank. #81/#82 spec the batch's other two issues.
