@@ -40,17 +40,18 @@ move, and lives in the Lab, the ruling's stock view (full ruling:
 `./Entity - Todo`).
 
 The same ruling makes the Published column a **doorway, not a shelf**
-(#82, proposed, not yet built): recently graduated bundles should pass
-through it into the Lab rather than accumulate here indefinitely. This
-card does not yet implement that — the `published` column below has no
-time window today, so every published, non-archived bundle renders there
-for as long as it stays published.
-
-#82 specs the fix: a derived `stageChangedAt` timestamp (the `at` of the
-last `bundle.stage_changed`, same pattern as `isArchived`'s window in
-`./Entity - Todo`) and a `DOORWAY_WINDOW_DAYS` cutoff, past which a
-graduated bundle drops off this column with a "N in the Lab →" pointer
-instead of silently vanishing.
+(#82): a graduated bundle passes through it into the Lab rather than
+accumulating there indefinitely. A published bundle keeps its Published
+card only while its `stageChangedAt` (`../production/Mechanism - Bundle
+Stage`) is within `DOORWAY_WINDOW_DAYS = 7` days; past that it renders no
+card, and the column's footer reads "N in the Lab →" (linking `/lab`)
+whenever at least one is elided — never a silent drop, always a counted
+one. A bundle pulled backward out of Published (re-conception) reappears
+in the flow automatically: that's just its stage changing, no special
+case. This is display-only — `GET /api/bundles` and the `bundles`
+materialized table still carry every published bundle regardless of age,
+so the Lab lists all of them and a bundle's own page is unaffected; only
+this one column's cards are windowed.
 
 ## HOW
 
@@ -69,9 +70,21 @@ anywhere in the shipped code; `Bundle selection is a real navigation
 (navigate(bundleHref(slug)))`, per the component's own comment, not local
 panel state.
 
+The Published column's doorway (#82) is computed by a pure, React-free
+helper, `packages/viewer/src/app/runtime/boardDoorway.ts`'s
+`partitionDoorway`, called from `Board.tsx` with `new Date()` on every
+render (never memoized to a stale value) — mirroring `FoldTodos.ts`'s
+`isArchived`/`ARCHIVE_WINDOW_DAYS` pattern: an explicit `now` threaded in,
+never read from the wall clock inside the fold itself. It returns
+`{ visible, elidedCount }`; `visible` becomes the column's card list and
+`elidedCount` feeds a `Link` to `/lab` rendered through `BoardColumn`'s
+existing generic `footer` slot — the same mechanism the Idea column
+already used for `NewBundleForm`. Every other column is unaffected.
+
 Verified: read `packages/viewer/src/app/components/Board.tsx` directly —
 `STAGES` is exactly `idea/researching/drafting/evaluating/published`
 plus a literal `"Archived"` column appended outside the array, and
 `bundlesByColumn` keys strictly off `bundle.stage`/`bundle.archived` (both
 journal-fold-derived fields per `IndexService.ts`'s `bundles` table), never
-off any mutable per-bundle ordering file.
+off any mutable per-bundle ordering file; `partitionDoorway` is applied
+only to the `"published"` column's bundles before they reach `BoardColumn`.

@@ -82,6 +82,8 @@ export interface BundleRecord {
   readonly drift: Drift;
   /** Present only for an adopted bundle whose `.skillmaker-adopt.json` marker recorded an `upstream` (i.e. `adopt --source ...` was used for it). */
   readonly upstream?: BundleUpstream;
+  /** Mirrors `BundleState.stageChangedAt` (issue #82) -- absent for a bundle the fold never saw a `bundle.created`/`bundle.stage_changed` for. */
+  readonly stageChangedAt?: string;
 }
 
 /** A materialized `skill.version_recorded` row (data-model.md §2.7, §2.11). */
@@ -190,6 +192,7 @@ interface BundleRow {
   readonly output_hash: string;
   readonly drift: string;
   readonly upstream_json: string | null;
+  readonly stage_changed_at: string | null;
 }
 
 interface VersionRow {
@@ -360,6 +363,7 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
       outputHash: row.output_hash,
       drift: row.drift,
       ...(upstream !== undefined ? { upstream } : {}),
+      ...(row.stage_changed_at !== null ? { stageChangedAt: row.stage_changed_at } : {}),
     };
   });
 
@@ -524,7 +528,8 @@ const createSchema = (db: Database): void => {
       design_hash TEXT NOT NULL,
       output_hash TEXT NOT NULL,
       drift TEXT NOT NULL,
-      upstream_json TEXT
+      upstream_json TEXT,
+      stage_changed_at TEXT
     )
   `);
   db.run(`
@@ -903,7 +908,7 @@ export const layer = (
       ): void => {
         const run = db.transaction(() => {
           const insertBundle = db.query(
-            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson)",
+            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json, stage_changed_at) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson, $stageChangedAt)",
           );
           for (const record of records) {
             insertBundle.run({
@@ -919,6 +924,7 @@ export const layer = (
               $outputHash: record.outputHash,
               $drift: record.drift,
               $upstreamJson: record.upstream !== undefined ? JSON.stringify(record.upstream) : null,
+              $stageChangedAt: record.stageChangedAt ?? null,
             });
           }
 
@@ -1253,6 +1259,7 @@ export const layer = (
             outputHash: hashes.outputHash,
             drift,
             ...(located?.upstream !== undefined ? { upstream: located.upstream } : {}),
+            ...(state.stageChangedAt !== undefined ? { stageChangedAt: state.stageChangedAt } : {}),
           });
         }
 

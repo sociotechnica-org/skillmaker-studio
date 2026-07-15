@@ -83,6 +83,47 @@ describe("IndexService.rebuild", () => {
     );
   });
 
+  test("stageChangedAt (issue #82): mirrors the fold's timestamp and survives a reindex", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "alpha" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:alpha",
+            payload: { bundle: "alpha" },
+          });
+          yield* journal.append({
+            type: "bundle.stage_changed",
+            actor,
+            payload: { bundle: "alpha", from: "idea", to: "published" },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const alpha = yield* index.getBundle("alpha");
+          expect(typeof alpha?.stageChangedAt).toBe("string");
+          const firstStageChangedAt = alpha?.stageChangedAt;
+
+          // Reindex is a full rebuild from the same journal (no schema
+          // migration code) -- the timestamp is derived fresh every time
+          // and must come out identical, not drift or reset.
+          yield* index.rebuild();
+          const alphaAgain = yield* index.getBundle("alpha");
+          expect(alphaAgain?.stageChangedAt).toBe(firstStageChangedAt);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
   test("a bundle on disk but absent from the journal appears with default state", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {

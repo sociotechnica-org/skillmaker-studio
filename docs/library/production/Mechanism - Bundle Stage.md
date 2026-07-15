@@ -55,3 +55,32 @@ replay ... never stored as a mutable file — there is no board-state.json
 descendant"; `packages/core/src/Machine.ts`'s `currentStageOf` reads it via
 `foldBundleStates(events).get(bundle)?.stage ?? "idea"`, confirming the
 journal-fold-only sourcing.
+
+## STAGECHANGEDAT: WHEN, NOT JUST WHAT (issue #82)
+
+`bundle.stage` says which rung a bundle is on; it never said *when it got
+there*, and the Board's Published-column doorway (`../board/Surface -
+Board`) needed exactly that to know a publish had aged out. Rather than a
+one-off field bolted onto the Board's read path, `BundleState` gained a
+sibling column, `stageChangedAt`: the `at` of the bundle's last
+`bundle.stage_changed`, or of `bundle.created` if the stage has never
+changed since. It is folded by the same `foldBundleStates` that produces
+`stage` itself (`Fold.ts`), mirrors into the same `bundles` SQLite table
+(rebuildable via `skillmaker reindex` — no schema migration code, reindex
+*is* the migration), and rides the same wire path into the viewer's
+`BundleRecord`. Deliberately generic: it answers "when did this bundle
+last land on its current rung," useful for any future recency question,
+not just the doorway that motivated it.
+
+A bundle pulled backward re-stamps `stageChangedAt` exactly like a
+forward move — there is no special case for direction, and no special
+case in the fold at all: every `bundle.stage_changed` event re-stamps it
+to that event's own `at`, whichever way the transition points. A bundle
+that the tolerant fold created implicitly (referenced by an event before
+any `bundle.created`) has no `stageChangedAt` — there is no honest
+timestamp to give it, so the field is simply absent, not a guessed value.
+
+Verified: `packages/core/src/Fold.ts`'s `bundle.created` and
+`bundle.stage_changed` cases both set `stageChangedAt: event.at` on the
+next `BundleState`; `packages/core/test/Fold.test.ts` covers the
+created-only, forward, and backward-move cases explicitly.
