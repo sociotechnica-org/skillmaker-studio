@@ -73,11 +73,14 @@ Ties keep the incoming order (`Array#sort` is stable, unit-tested in
 `entry.openTodoCount` rides on `CatalogEntry` (`GET /api/catalog`): a
 count of that bundle's non-terminal (not `done`/`wont-do`) todos, derived
 at read time in `handleCatalog` (`packages/cli/src/server/Server.ts`) --
-never stored. It's a second, independent read of the same journal
-(`readJournalEvents`) folded with `foldTodos`, the same read-time join
-`handleFieldReports` already does for its `todo` field (#86); this handler
-only needs a count, not per-todo detail, so it doesn't touch the
-`IndexService` rebuild the rest of the row's fields come from.
+never stored. `rebuild()` (the same one this handler already runs once for
+every bundle's fields) folds the journal's `todo.*` events into the
+index's `todos` table; `handleCatalog` reads that table back via
+`listTodos()` rather than re-reading and re-folding the journal a second
+time -- one journal read for the whole request, same discipline as the
+"ONE `rebuild()` for the whole request" rule above it. (The default
+archived-excluded listing is exact: a todo can only be archived once
+terminal, and terminal todos never count as open.)
 **Deviation from the issue's illustrative row copy** ("3 open · 2 bugs"):
 the issue's own data contract names a single derived count, so that's what
 shipped -- a kind breakdown would need a second derived field
@@ -119,7 +122,8 @@ forward from the deleted `TodosPanel.tsx` near-verbatim;
 renders `TodosPanel`; `packages/viewer/src/app/runtime/labOrder.ts`'s
 `attentionRank` checks `entry.openTodoCount > 0` between the drift check
 and the coverage check; `packages/cli/src/server/Server.ts`'s
-`handleCatalog` reads the journal, folds todos, and sets
+`handleCatalog` calls `index.listTodos()` after its one `rebuild()` and
+sets
 `openTodoCount: openTodoCountByBundle.get(bundle.slug) ?? 0` per entry;
 `packages/viewer/src/app/runtime/router.tsx`'s `parseRoute` parses `/lab`'s
 `?view=`/`?bundle=` query into the `lab` route variant and `labHref`

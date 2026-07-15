@@ -26,9 +26,7 @@ export const AppShell: FC<{ children: ReactNode }> = ({ children }) => {
   return (
     <div className="flex min-h-screen flex-col">
       <Header workspaceName={state?.workspace.name} bundleCount={bundles.length} />
-      <div className="flex flex-1">
-        <main className="flex-1 overflow-x-auto p-6">{children}</main>
-      </div>
+      <main className="flex-1 overflow-x-auto p-6">{children}</main>
     </div>
   );
 };

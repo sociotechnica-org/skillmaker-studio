@@ -151,14 +151,15 @@ const MODE_TAB_ACTIVE =
 const MODE_TAB_INACTIVE =
   "font-display uppercase tracking-wide rounded-md px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100";
 
+const MODE_LABEL: Record<LabView, string> = { bench: "Bench", queue: "Queue" };
+
 const ModeTabs: FC<{ view: LabView }> = ({ view }) => (
   <nav className="flex items-center gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
-    <Link href={labHref("bench")} className={view === "bench" ? MODE_TAB_ACTIVE : MODE_TAB_INACTIVE}>
-      Bench
-    </Link>
-    <Link href={labHref("queue")} className={view === "queue" ? MODE_TAB_ACTIVE : MODE_TAB_INACTIVE}>
-      Queue
-    </Link>
+    {(["bench", "queue"] as const).map((mode) => (
+      <Link key={mode} href={labHref(mode)} className={view === mode ? MODE_TAB_ACTIVE : MODE_TAB_INACTIVE}>
+        {MODE_LABEL[mode]}
+      </Link>
+    ))}
   </nav>
 );
 
