@@ -1,17 +1,14 @@
 import type { FC } from "react";
 import { useBundles } from "../runtime/useBundles.ts";
-import type { BundleRecord, BundleStage } from "../runtime/schemas.ts";
+import { ARCHIVED_LABEL, STAGE_LABEL, STAGES, type BundleRecord, type BundleStage } from "../runtime/schemas.ts";
 import { bundleHref, useRouter } from "../runtime/router.tsx";
 import { BoardColumn } from "./BoardColumn.tsx";
 import { NewBundleForm } from "./NewBundleForm.tsx";
 
-const STAGE_COLUMNS: ReadonlyArray<{ stage: BundleStage; title: string }> = [
-  { stage: "idea", title: "Idea" },
-  { stage: "researching", title: "Researching" },
-  { stage: "drafting", title: "Drafting" },
-  { stage: "evaluating", title: "Evaluating" },
-  { stage: "published", title: "Published" },
-];
+const STAGE_COLUMNS: ReadonlyArray<{ stage: BundleStage; title: string }> = STAGES.map((stage) => ({
+  stage,
+  title: STAGE_LABEL[stage],
+}));
 
 /** Archived bundles render in the archived column regardless of stage. */
 const bundlesByColumn = (
@@ -65,7 +62,7 @@ export const Board: FC = () => {
             />
           ))}
           <BoardColumn
-            title="Archived"
+            title={ARCHIVED_LABEL}
             bundles={columns.get("archived") ?? []}
             fixtureCounts={fixtureCounts}
             onSelect={onSelect}

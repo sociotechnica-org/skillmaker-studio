@@ -160,6 +160,24 @@ export const STAGES: ReadonlyArray<BundleStage> = [
   "published",
 ];
 
+/**
+ * Human-facing labels for the pipeline — the *display* vocabulary (parallel
+ * verbs), kept deliberately separate from the wire/state names
+ * (`idea`/`researching`/…) so the journal format, guard logic, and every
+ * `stage === "idea"` check stay untouched. The column rename lives here, in one
+ * map, consumed by the Board, the bundle Overview, and the Catalog.
+ */
+export const STAGE_LABEL: Record<BundleStage, string> = {
+  idea: "Frame",
+  researching: "Research",
+  drafting: "Draft",
+  evaluating: "Evaluate",
+  published: "Publish",
+};
+
+/** Archived isn't a stage (it's the `archived` flag) — this is its board column label. */
+export const ARCHIVED_LABEL = "Archive";
+
 /** Mirrors `@skillmaker/core`'s `Machine.GuardStatus` (data-model.md §2.13). */
 export class GuardStatus extends Schema.Class<GuardStatus>("GuardStatus")({
   stage: BundleStage,

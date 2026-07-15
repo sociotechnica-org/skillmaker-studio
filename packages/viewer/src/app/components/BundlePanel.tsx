@@ -40,6 +40,7 @@ import {
 import { bundleFileHref, bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
 import {
   STAGES,
+  STAGE_LABEL,
   type BundleStage,
   type CoverageValue,
   type Drift,
@@ -82,15 +83,6 @@ const formatTime = (iso: string): string => {
 };
 
 const earlierStages = (stage: BundleStage): ReadonlyArray<BundleStage> => STAGES.slice(0, STAGES.indexOf(stage));
-
-/** Human-facing stage label (the underlying state name stays as-is; the column rename is a separate change). */
-const STAGE_LABEL: Record<BundleStage, string> = {
-  idea: "Idea",
-  researching: "Researching",
-  drafting: "Drafting",
-  evaluating: "Evaluating",
-  published: "Published",
-};
 
 /** A plain-language status line for the top of Overview -- replaces the raw stage/substate/guard-booleans dump. */
 const statusLineFor = (stage: BundleStage, substate: string, forwardReady: boolean): string => {
@@ -595,7 +587,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
               {detail.station !== null && (
                 <div className="flex flex-col gap-1">
                   <p className="text-neutral-600 dark:text-neutral-300">
-                    Have an agent do the {STAGE_LABEL[stage].toLowerCase()} work (skill{" "}
+                    Have an agent do the {STAGE_LABEL[stage]} stage's work (skill{" "}
                     <span className="font-mono">{detail.station.skill}</span>) — it requests your review when done.
                   </p>
                   {stationError !== undefined && (
