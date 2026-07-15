@@ -10,6 +10,7 @@ links:
     - "../production/Entity - Skill Bundle"
     - "../production/Mechanism - Bundle Stage"
     - "./Surface - Board"
+    - "../_index/Vision - Board Lab Ship Receive"
 ---
 
 ## WHAT
@@ -36,6 +37,33 @@ at all). Consolidating into one `Todo` type also finally resolves the old
 model's stage/status polysemy at the *todo* layer: `Todo.status` is a
 Todo-only axis, wholly independent of `bundle.stage` — inherited law "Todo
 status and bundle stage are independent axes" (data-model.md §1.1).
+
+Director ruling (2026-07-15, #80 — "stock and flow"): **the Lab is this
+record's home surface.** The ruling's own distinction is the reason —
+**stage is a property of the skill** (how far its existence has come);
+**a todo is a unit of work** (bug, experiment, eval, improvement). A
+brand-new skill's genesis has exactly one unit of work, "bring this thing
+into existence," which is why the Board's kanban fits it and nothing
+after it; every todo born once a skill already exists belongs to the
+Lab, not the Board. The rule for where work lands, stated plainly: work
+that changes what a skill *is* — its frame, its design — re-enters the
+Board as a stage move backward, already legal; work that changes how
+*well* a skill already does what it is stays a todo. The ruling names the
+todo queue directly as **the heart of the Lab**. That does not change
+anything on this card — the journal stays the sole source of truth
+(`todo.*` events, folded, as below) — only presentation moves, off the
+Board's persistent right rail and onto a Lab work view (`Surface - Lab`,
+proposed by #83, not yet a card). `../board/Surface - Board` records the
+Board-as-flow half of the same ruling.
+
+A `Todo.origin` field is **proposed, not yet built**, to stamp provenance
+when a todo is born from field signal rather than typed by a human:
+`origin?: { kind: "field-report", ref: <event-id> }`, immutable like
+`source` and structurally absent from `TodoPatch` for the same reason.
+See the signal-becomes-work issue (#81) for the full shape — the `todos`
+table gaining a column, `skillmaker todo add --from-report <event-id>`
+defaulting `kind`/`bundle`/`detail` from the report, and an origin chip
+("from the field") wherever todo rows render.
 
 ## HOW
 
