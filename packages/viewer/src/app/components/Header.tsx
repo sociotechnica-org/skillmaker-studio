@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import { useEffect, useState, type FC } from "react";
 import { Link, useRouter, type Route } from "../runtime/router.tsx";
 
 const NAV_ITEMS: ReadonlyArray<{
@@ -18,15 +18,34 @@ const NAV_ITEMS: ReadonlyArray<{
 ];
 
 const NAV_LINK_ACTIVE =
-  "rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-neutral-100 dark:text-neutral-900";
+  "font-display uppercase tracking-wide rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-white dark:bg-neutral-100 dark:text-neutral-900";
 const NAV_LINK_INACTIVE =
-  "rounded-md px-3 py-1.5 text-sm font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100";
+  "font-display uppercase tracking-wide rounded-md px-3 py-1.5 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100";
+
+const useTheme = (): { dark: boolean; toggle: () => void } => {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    setDark(document.documentElement.classList.contains("dark"));
+  }, []);
+  const toggle = (): void => {
+    const next = !dark;
+    document.documentElement.classList.toggle("dark", next);
+    try {
+      localStorage.setItem("sm-theme", next ? "dark" : "light");
+    } catch {
+      /* private mode / storage disabled — theme just won't persist */
+    }
+    setDark(next);
+  };
+  return { dark, toggle };
+};
 
 export const Header: FC<{ workspaceName: string | undefined; bundleCount: number }> = ({
   workspaceName,
   bundleCount,
 }) => {
   const { route } = useRouter();
+  const { dark, toggle } = useTheme();
 
   return (
     <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
@@ -37,13 +56,22 @@ export const Header: FC<{ workspaceName: string | undefined; bundleCount: number
           </Link>
         ))}
       </nav>
-      <div className="text-right">
-        <h1 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          {workspaceName ?? "Skillmaker Studio"}
-        </h1>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          {bundleCount} {bundleCount === 1 ? "bundle" : "bundles"}
-        </p>
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+          className="font-display rounded-md border border-neutral-300 px-2 py-1 text-xs uppercase tracking-wide text-neutral-600 hover:border-neutral-400 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:text-neutral-100"
+        >
+          {dark ? "☀ Light" : "☾ Dark"}
+        </button>
+        <Link href="/" className="flex flex-col items-end">
+          <span className="skillmaker-logo" aria-hidden="true" />
+          <span className="sr-only">{workspaceName ?? "Skillmaker Studio"} home</span>
+          <span className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+            {bundleCount} {bundleCount === 1 ? "bundle" : "bundles"}
+          </span>
+        </Link>
       </div>
     </header>
   );
