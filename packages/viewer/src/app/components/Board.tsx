@@ -1,7 +1,8 @@
 import type { FC } from "react";
 import { useBundles } from "../runtime/useBundles.ts";
 import { ARCHIVED_LABEL, STAGE_LABEL, STAGES, type BundleRecord } from "../runtime/schemas.ts";
-import { bundleHref, useRouter } from "../runtime/router.tsx";
+import { bundleHref, Link, useRouter } from "../runtime/router.tsx";
+import { partitionDoorway } from "../runtime/boardDoorway.ts";
 import { BoardColumn } from "./BoardColumn.tsx";
 import { NewBundleForm } from "./NewBundleForm.tsx";
 
@@ -23,6 +24,22 @@ const bundlesByColumn = (
 };
 
 /**
+ * The Published column's doorway footer (issue #82): "N in the Lab →"
+ * whenever ≥1 published bundle has aged out of the doorway window --
+ * nothing is hidden from the Lab or the journal, only elided from this
+ * one column's cards, and the count says exactly where it went.
+ */
+const DoorwayFooter: FC<{ elidedCount: number }> = ({ elidedCount }) =>
+  elidedCount === 0 ? null : (
+    <Link
+      href="/lab"
+      className="block px-1 text-xs text-neutral-500 hover:underline dark:text-neutral-400"
+    >
+      {elidedCount} in the Lab →
+    </Link>
+  );
+
+/**
  * The Board -- stage columns + an archived column (route `/`). Bundle
  * selection is a real navigation (`navigate(bundleHref(slug))`), not local
  * state: `BundlePanel` moved from a side panel to its own route
@@ -34,6 +51,12 @@ export const Board: FC = () => {
   const { navigate } = useRouter();
   const columns = bundlesByColumn(bundles);
   const onSelect = (slug: string): void => navigate(bundleHref(slug));
+  // Evaluated fresh on every render -- the doorway window is real wall-clock
+  // time, not a value computed once at fetch time (issue #82).
+  const { visible: publishedVisible, elidedCount } = partitionDoorway(
+    columns.get("published") ?? [],
+    new Date(),
+  );
 
   return (
     <>
@@ -50,10 +73,16 @@ export const Board: FC = () => {
             <BoardColumn
               key={stage}
               title={STAGE_LABEL[stage]}
-              bundles={columns.get(stage) ?? []}
+              bundles={stage === "published" ? publishedVisible : (columns.get(stage) ?? [])}
               fixtureCounts={fixtureCounts}
               onSelect={onSelect}
-              footer={stage === "idea" ? <NewBundleForm /> : undefined}
+              footer={
+                stage === "idea" ? (
+                  <NewBundleForm />
+                ) : stage === "published" ? (
+                  <DoorwayFooter elidedCount={elidedCount} />
+                ) : undefined
+              }
             />
           ))}
           <BoardColumn

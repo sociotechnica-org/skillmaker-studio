@@ -8,6 +8,14 @@
  * job — this fold never rejects an event). Bundles referenced by an event
  * before any `bundle.created` are created implicitly with that event's
  * effect applied on top of the default state (tolerant fold).
+ *
+ * `stageChangedAt` (issue #82) is stamped with the `at` of `bundle.created`
+ * and of every `bundle.stage_changed`, forward or backward -- there is no
+ * special case for a bundle pulled backward (e.g. published -> drafting):
+ * it is just another stage change, and the timestamp always reflects the
+ * most recent one. A bundle created only by the tolerant fold (no
+ * `bundle.created` seen) has no `stageChangedAt` -- there is no honest
+ * timestamp to give it.
  */
 import { BundleState } from "./Bundle.ts";
 import type { JournalEvent } from "./Journal.ts";
@@ -39,12 +47,16 @@ export const foldBundleStates = (
   for (const event of events) {
     switch (event.type) {
       case "bundle.created": {
-        ensure(event.payload.bundle);
+        const current = ensure(event.payload.bundle);
+        states.set(current.slug, BundleState.make({ ...current, stageChangedAt: event.at }));
         break;
       }
       case "bundle.stage_changed": {
         const current = ensure(event.payload.bundle);
-        states.set(current.slug, BundleState.make({ ...current, stage: event.payload.to }));
+        states.set(
+          current.slug,
+          BundleState.make({ ...current, stage: event.payload.to, stageChangedAt: event.at }),
+        );
         break;
       }
       case "bundle.archived": {

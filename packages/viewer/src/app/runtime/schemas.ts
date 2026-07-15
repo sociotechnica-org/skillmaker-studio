@@ -46,6 +46,8 @@ export class BundleRecord extends Schema.Class<BundleRecord>("BundleRecord")({
   designHash: Schema.String,
   outputHash: Schema.String,
   drift: Drift,
+  /** The `at` of the bundle's last stage change, or of its creation if it's never moved (issue #82). Absent for old wire clients/journals -- tolerant decode. */
+  stageChangedAt: Schema.optionalKey(Schema.String),
 }) {}
 
 /** One recorded `skill.version_recorded` event (data-model.md §2.7, §2.11). */
