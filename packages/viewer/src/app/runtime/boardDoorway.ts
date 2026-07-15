@@ -51,14 +51,6 @@ export const partitionDoorway = (
   bundles: ReadonlyArray<BundleRecord>,
   now: Date,
 ): DoorwayPartition => {
-  const visible: BundleRecord[] = [];
-  let elidedCount = 0;
-  for (const bundle of bundles) {
-    if (isWithinDoorway(bundle, now)) {
-      visible.push(bundle);
-    } else {
-      elidedCount += 1;
-    }
-  }
-  return { visible, elidedCount };
+  const visible = bundles.filter((bundle) => isWithinDoorway(bundle, now));
+  return { visible, elidedCount: bundles.length - visible.length };
 };
