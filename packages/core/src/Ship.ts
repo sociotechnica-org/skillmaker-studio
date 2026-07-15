@@ -19,7 +19,7 @@ import {
   computeDrift,
   detectBundleLayout,
   foldSkillVersions,
-  latestSkillVersion,
+  resolveSkillVersion,
   type Drift,
   type SkillVersion,
 } from "./Versions.ts";
@@ -37,7 +37,6 @@ export interface ShipBundleInput {
 }
 
 export interface ShipBundleResult {
-  readonly bundle: string;
   readonly versionHash: string;
   /** The recorded version's human label (e.g. "v2"), when one was given at `skillmaker version record` time. */
   readonly versionLabel?: string;
@@ -49,38 +48,25 @@ export interface ShipBundleResult {
 }
 
 /**
- * Picks the version to ship: the latest recorded one by default, or the
- * newest version whose hash contains `prefix` when one is given (mirrors
- * `shortHash`'s "prefix of the hex digest" convention). Fails with
- * `ShipNoVersionError` when the bundle has never had a version recorded at
- * all -- there is nothing to ship (issue #66) -- and with
- * `ShipVersionNotFoundError` when a given `prefix` matches nothing.
+ * Picks the version to ship via `resolveSkillVersion` (latest by default,
+ * newest left-anchored hash-prefix match with `--version`), mapping the two
+ * ways that can come up empty to ship's errors: `ShipNoVersionError` when
+ * the bundle has never had a version recorded at all -- there is nothing to
+ * ship (issue #66) -- and `ShipVersionNotFoundError` when versions exist but
+ * a given `prefix` matches none of them.
  */
 const resolveVersion = (
   versions: ReadonlyArray<SkillVersion>,
   bundle: string,
   prefix: string | undefined,
 ): Effect.Effect<SkillVersion, ShipNoVersionError | ShipVersionNotFoundError> => {
-  if (versions.length === 0) {
-    return Effect.fail(ShipNoVersionError.make({ bundle }));
+  const match = resolveSkillVersion(versions, prefix);
+  if (match !== undefined) {
+    return Effect.succeed(match);
   }
-  if (prefix === undefined) {
-    const latest = latestSkillVersion(versions);
-    return latest === undefined
-      ? Effect.fail(ShipNoVersionError.make({ bundle }))
-      : Effect.succeed(latest);
-  }
-  // A true left-anchored prefix of the full "sha256:<hex>" string -- the
-  // same convention `shortHash` uses (a slice from the start), not an
-  // anywhere-in-the-string substring match, which could otherwise pick an
-  // unintended version whose hash merely CONTAINS the given text partway
-  // through. Newest match wins when a prefix is still ambiguous -- `versions`
-  // is chronological oldest-first (`foldSkillVersions`), so the last match is
-  // the most recently recorded one.
-  const match = versions.filter((version) => version.hash.startsWith(prefix)).at(-1);
-  return match === undefined
+  return prefix !== undefined && versions.length > 0
     ? Effect.fail(ShipVersionNotFoundError.make({ bundle, prefix }))
-    : Effect.succeed(match);
+    : Effect.fail(ShipNoVersionError.make({ bundle }));
 };
 
 /**
@@ -146,7 +132,6 @@ export const shipBundle = Effect.fn("Ship.shipBundle")(function* (input: ShipBun
   });
 
   const result: ShipBundleResult = {
-    bundle: input.bundle,
     versionHash: target.hash,
     ...(target.label !== undefined ? { versionLabel: target.label } : {}),
     destination: input.destination,
