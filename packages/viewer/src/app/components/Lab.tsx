@@ -7,10 +7,25 @@
  * endpoint (not `/api/bundles`) so this page doesn't need to fetch every
  * bundle's detail individually -- the endpoint name is server wire format
  * and stays `/api/catalog` (#64 is display-layer only).
+ *
+ * #65, "bench not shelf": the drift pill only renders for the three states
+ * that mean something moved, the coverage line distinguishes its three
+ * honest measurement states instead of one flat fraction, and rows are
+ * reordered for triage (drifted, then measurement gaps, then clean, then
+ * archived) -- all via the pure helpers in `runtime/labOrder.ts`. Still
+ * display-layer only: no new endpoint, `GET /api/catalog` already carries
+ * everything this needs.
  */
 import type { FC } from "react";
+import {
+  coverageState,
+  driftNeedsAttention,
+  orderForAttention,
+  type AttentionDrift,
+  type CoverageState,
+} from "../runtime/labOrder.ts";
 import { bundleHref, Link } from "../runtime/router.tsx";
-import { STAGE_LABEL, type BundleStage, type CatalogEntry, type Drift } from "../runtime/schemas.ts";
+import { STAGE_LABEL, type BundleStage, type CatalogEntry } from "../runtime/schemas.ts";
 import { useCatalog } from "../runtime/useCatalog.ts";
 
 const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
@@ -21,20 +36,40 @@ const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
   published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
 };
 
-const DRIFT_LABEL: Record<Drift, string> = {
-  "no-version": "No version",
-  "in-sync": "In sync",
+/**
+ * #65: a Lab pill means attention needed, so it only exists for the three
+ * `Drift` values where something actually changed -- `in-sync` and
+ * `no-version` never reach this map (see `driftNeedsAttention`). `in-sync`
+ * still gets a mention, just as plain metadata ("No recorded version" in
+ * the line below), not a loud pill.
+ */
+const DRIFT_LABEL: Record<AttentionDrift, string> = {
   "design-changed": "Design changed",
   "output-hand-edited": "Output hand-edited",
   both: "Design + output changed",
 };
 
-const DRIFT_BADGE_CLASS: Record<Drift, string> = {
-  "in-sync": "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  "no-version": "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+const DRIFT_BADGE_CLASS: Record<AttentionDrift, string> = {
   "design-changed": "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
   "output-hand-edited": "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
   both: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+};
+
+/**
+ * Coverage's three honest states (#65): never collapse "a fixture exists"
+ * into "it passes" (README: coverage and validation don't merge). Raw
+ * numbers stay visible whenever there's anything to count.
+ */
+const COVERAGE_LABEL: Record<CoverageState, (entry: CatalogEntry) => string> = {
+  "no-fixtures": () => "No fixtures yet",
+  "under-measured": (entry) => `${entry.measuredFixtureCount}/${entry.fixtureCount} fixtures measured`,
+  "fully-measured": (entry) => `All ${entry.fixtureCount} fixtures measured`,
+};
+
+const COVERAGE_CLASS: Record<CoverageState, string> = {
+  "no-fixtures": "text-neutral-400 dark:text-neutral-500",
+  "under-measured": "text-amber-700 dark:text-amber-400",
+  "fully-measured": "text-emerald-700 dark:text-emerald-400",
 };
 
 const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
@@ -54,9 +89,11 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
           Archived
         </span>
       )}
-      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS[entry.drift]}`}>
-        {DRIFT_LABEL[entry.drift]}
-      </span>
+      {driftNeedsAttention(entry.drift) && (
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS[entry.drift]}`}>
+          {DRIFT_LABEL[entry.drift]}
+        </span>
+      )}
     </div>
 
     <p className="text-sm text-neutral-600 dark:text-neutral-300">{entry.oneLiner}</p>
@@ -82,8 +119,8 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
               entry.latestVersion.recordedAt,
             ).toLocaleDateString()})`}
       </span>
-      <span>
-        Measurements: {entry.measuredFixtureCount}/{entry.fixtureCount} fixtures
+      <span className={COVERAGE_CLASS[coverageState(entry)]}>
+        {COVERAGE_LABEL[coverageState(entry)](entry)}
       </span>
     </div>
   </li>
@@ -91,6 +128,7 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
 
 export const Lab: FC = () => {
   const { entries, loading, error } = useCatalog();
+  const orderedEntries = orderForAttention(entries);
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
@@ -112,7 +150,7 @@ export const Lab: FC = () => {
       )}
 
       <ul className="flex flex-col gap-3">
-        {entries.map((entry) => (
+        {orderedEntries.map((entry) => (
           <LabRow key={entry.slug} entry={entry} />
         ))}
         {entries.length === 0 && !loading && (
