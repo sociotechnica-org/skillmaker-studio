@@ -28,9 +28,8 @@ const useTheme = (): { dark: boolean; toggle: () => void } => {
     setDark(document.documentElement.classList.contains("dark"));
   }, []);
   const toggle = (): void => {
-    const el = document.documentElement;
-    const next = !el.classList.contains("dark");
-    el.classList.toggle("dark", next);
+    const next = !dark;
+    document.documentElement.classList.toggle("dark", next);
     try {
       localStorage.setItem("sm-theme", next ? "dark" : "light");
     } catch {

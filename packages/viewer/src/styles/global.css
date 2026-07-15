@@ -28,16 +28,16 @@
   --font-mono: "Special Elite", ui-monospace, "SF Mono", monospace;
 
   /* --- Brand surfaces --- */
-  --color-canvas: #f1e6d3;   /* parchment ground (body) */
+  --color-canvas: var(--color-neutral-100);   /* parchment ground (body) */
   --color-surface: #fff9f0;  /* card "paper" */
-  --color-border: #e5d6bd;
+  --color-border: var(--color-neutral-200);
 
   /* --- Brand palette (available as bg-ink, text-amber, etc.) --- */
-  --color-ink: #2c2416;
+  --color-ink: var(--color-neutral-900);
   --color-ink-muted: #5b5143;
   --color-paper: #f4ece0;
   --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */
-  --color-amber: #d4a052;
+  --color-amber: var(--color-amber-500);
   --color-amber-glow: #e8b86d;
   --color-amber-deep: #b8863a;
   --color-rust: #8b3a3a;
