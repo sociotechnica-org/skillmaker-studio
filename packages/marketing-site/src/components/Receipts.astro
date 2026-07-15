@@ -1,0 +1,65 @@
+---
+const issuesUrl = "https://github.com/sociotechnica-org/skillmaker-studio/issues";
+const qaLogUrl =
+  "https://github.com/sociotechnica-org/skillmaker-studio/tree/main/docs/phase20";
+
+const rows = [
+  { version: "as adopted", n: "3", passRate: "67%", ci: "[21%, 94%]", label: "below smoke" },
+  { version: "v2 (revised)", n: "3", passRate: "100%", ci: "[44%, 100%]", label: "below smoke" },
+];
+---
+
+<section class="mx-auto max-w-5xl px-6 py-16 sm:py-20">
+  <div class="max-w-3xl">
+    <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+      What honest numbers look like
+    </h2>
+    <p class="mt-4 text-ink-dim leading-relaxed">
+      We don&#39;t have customer logos to show you — pre-alpha, no customers yet.
+      What we have is <a href={qaLogUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">our own QA logs</a>:
+      a hand-written skill adopted from a real repo, measured, revised, and
+      measured again on claude-code.
+    </p>
+  </div>
+
+  <div class="mt-8 max-w-3xl overflow-x-auto rounded-lg border border-border bg-surface">
+    <table class="w-full text-left text-sm">
+      <thead>
+        <tr class="border-b border-border font-mono text-xs uppercase tracking-wider text-ink-dim">
+          <th class="px-4 py-3 font-medium">version</th>
+          <th class="px-4 py-3 font-medium">n</th>
+          <th class="px-4 py-3 font-medium">pass rate</th>
+          <th class="px-4 py-3 font-medium">95% ci</th>
+          <th class="px-4 py-3 font-medium">label</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          rows.map((row) => (
+            <tr class="border-b border-border last:border-b-0">
+              <td class="px-4 py-3 text-ink">{row.version}</td>
+              <td class="px-4 py-3 font-mono text-ink-dim">{row.n}</td>
+              <td class="px-4 py-3 font-mono text-ink">{row.passRate}</td>
+              <td class="px-4 py-3 font-mono text-ink-dim">{row.ci}</td>
+              <td class="px-4 py-3 font-mono text-ink-dim">{row.label}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-6 max-w-3xl">
+    <p class="text-sm leading-relaxed text-ink-dim">
+      Both cells say &ldquo;below smoke&rdquo; because three runs is a sample, not a
+      proof — the product refuses to let you over-trust the numbers, even when
+      they flatter us. That refusal is the product.
+    </p>
+    <p class="mt-4 text-sm leading-relaxed text-ink">
+      If your skills are load-bearing and you want receipts on them, we&#39;re
+      working hands-on with a first round of design partners —
+      <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">open an issue</a>
+      and tell us what broke.
+    </p>
+  </div>
+</section>
