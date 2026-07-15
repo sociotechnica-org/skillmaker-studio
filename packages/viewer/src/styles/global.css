@@ -1,15 +1,280 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------ *
+ * LifeBuild "90s" brand — EXPERIMENTAL skin for Skillmaker Studio.
+ *
+ * Vibe: analog manuscript / retro strategy-game. Warm parchment ground,
+ * distressed typewriter headings (Special Elite), humanist serif body
+ * (Source Serif 4), a single amber accent, and paper-craft devices
+ * (grain texture, hard flat offset shadows, ambient amber glow).
+ *
+ * Everything brand-specific lives in this file plus the font <link> in
+ * src/pages/index.astro. To revert, restore the 3-token @theme block.
+ *
+ * How it works: the app styles almost everything with Tailwind's default
+ * palette used inline (neutral-*, sky, indigo, amber, emerald, red). We
+ * re-tint the whole app by overriding those palette ramps here, and pin
+ * the app to light so the parchment reads consistently.
+ * ------------------------------------------------------------------ */
+
+/* Retarget the dark: variant to a class that never appears, so the OS's
+ * dark mode can't fight the parchment theme. The app becomes light-only. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  --color-canvas: light-dark(#f6f6f4, #16171a);
-  --color-surface: light-dark(#ffffff, #1e2024);
-  --color-border: light-dark(#e2e2e0, #2c2e33);
+  /* --- Fonts (loaded via Google Fonts <link> in index.astro) --- */
+  --font-sans: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-display: "Special Elite", "Courier New", ui-monospace, monospace;
+  --font-mono: "Special Elite", ui-monospace, "SF Mono", monospace;
+
+  /* --- Brand surfaces --- */
+  --color-canvas: #f1e6d3;   /* parchment ground (body) */
+  --color-surface: #fff9f0;  /* card "paper" */
+  --color-border: #e5d6bd;
+
+  /* --- Brand palette (available as bg-ink, text-amber, etc.) --- */
+  --color-ink: #2c2416;
+  --color-ink-muted: #5b5143;
+  --color-paper: #f4ece0;
+  --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */
+  --color-amber: #d4a052;
+  --color-amber-glow: #e8b86d;
+  --color-amber-deep: #b8863a;
+  --color-rust: #8b3a3a;
+  --color-teal: #4a7c7c;
+
+  /* --- Warm the whole white→black ramp to paper→ink. ---
+   * The app uses neutral-* inline everywhere, so this re-skins it all. */
+  --color-white: #fdf8ef;
+  --color-neutral-50: #faf5ea;
+  --color-neutral-100: #f1e6d3;
+  --color-neutral-200: #e5d6bd;
+  --color-neutral-300: #d5c3a3;
+  --color-neutral-400: #b0a184;
+  --color-neutral-500: #857a61;
+  --color-neutral-600: #5b5143;
+  --color-neutral-700: #453c2c;
+  --color-neutral-800: #35301f;
+  --color-neutral-900: #2c2416;
+  --color-neutral-950: #1c1810;
+
+  /* --- Stage / status accents, retinted warm but kept distinguishable. ---
+   * evaluating (amber)  -> brand gold
+   * researching (sky)   -> teal
+   * drafting (indigo)   -> plum
+   * published / in-sync (emerald) -> moss
+   * revise / error (red)-> rust */
+  --color-amber-50: #fbf3e2;
+  --color-amber-100: #f6e6c4;
+  --color-amber-200: #eed6a0;
+  --color-amber-300: #e3c073;
+  --color-amber-500: #d4a052;
+  --color-amber-600: #b8863a;
+  --color-amber-700: #8f6a2e;
+  --color-amber-800: #6e5124;
+  --color-amber-900: #4d3a1a;
+
+  --color-sky-50: #eef4f4;
+  --color-sky-100: #d9e6e6;
+  --color-sky-200: #bcd2d2;
+  --color-sky-300: #94b4b4;
+  --color-sky-500: #4a7c7c;
+  --color-sky-600: #3d6767;
+  --color-sky-700: #315252;
+  --color-sky-800: #274040;
+  --color-sky-900: #1d3030;
+
+  --color-indigo-50: #f3eef1;
+  --color-indigo-100: #e6d9e0;
+  --color-indigo-200: #d0b8c6;
+  --color-indigo-300: #b493a6;
+  --color-indigo-500: #7c5a6a;
+  --color-indigo-600: #664a57;
+  --color-indigo-700: #513a45;
+  --color-indigo-800: #3f2e36;
+  --color-indigo-900: #2e2128;
+
+  --color-emerald-50: #f1f3e9;
+  --color-emerald-100: #e2e6cd;
+  --color-emerald-200: #ccd3a8;
+  --color-emerald-300: #b0ba80;
+  --color-emerald-500: #78854a;
+  --color-emerald-600: #626e3d;
+  --color-emerald-700: #4e5731;
+  --color-emerald-800: #3c4326;
+  --color-emerald-900: #2b301c;
+
+  --color-red-50: #f6ecea;
+  --color-red-100: #ecd6d3;
+  --color-red-200: #dcb2ac;
+  --color-red-300: #c88880;
+  --color-red-500: #984841;
+  --color-red-600: #8b3a3a;
+  --color-red-700: #6f2f2f;
+  --color-red-800: #552626;
+  --color-red-900: #3f1e1e;
+
+  /* Extra shades the app reaches for in dark mode / newer surfaces — kept warm
+   * so no cool default (-400 / -950) leaks through. */
+  --color-amber-400: #dbb063;
+  --color-amber-950: #33260f;
+  --color-sky-950: #142222;
+  --color-indigo-950: #211820;
+  --color-emerald-400: #93a05f;
+  --color-emerald-950: #1e2114;
+  --color-red-400: #b25f56;
+  --color-red-950: #2e1414;
+
+  /* New todo-kind badges from main: improvement (blue → teal), eval
+   * (purple → plum), so task/bug/improvement/eval stay distinct and warm. */
+  --color-blue-100: #d9e6e6;
+  --color-blue-300: #94b4b4;
+  --color-blue-400: #6d9797;
+  --color-blue-600: #3d6767;
+  --color-blue-800: #274040;
+  --color-blue-950: #142222;
+  --color-purple-100: #e6d9e0;
+  --color-purple-300: #b493a6;
+  --color-purple-800: #3f2e36;
+  --color-purple-950: #211820;
 }
 
 html {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
   background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Paper-grain texture — subtle layered dots over the whole canvas. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(44, 36, 22, 0.03) 0%, transparent 1%),
+    radial-gradient(circle at 80% 70%, rgba(44, 36, 22, 0.025) 0%, transparent 1%),
+    radial-gradient(circle at 45% 55%, rgba(44, 36, 22, 0.02) 0%, transparent 1%),
+    radial-gradient(circle at 65% 20%, rgba(44, 36, 22, 0.02) 0%, transparent 1%),
+    radial-gradient(circle at 10% 85%, rgba(44, 36, 22, 0.02) 0%, transparent 1%);
+  background-size: 7px 7px, 11px 11px, 5px 5px, 9px 9px, 6px 6px;
+}
+
+/* Ambient amber glow — warm light bleeding in from the top-right. */
+body::after {
+  content: "";
+  position: fixed;
+  top: -10%;
+  right: -5%;
+  width: 45vw;
+  height: 45vw;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(212, 160, 82, 0.12) 0%, transparent 60%);
+  filter: blur(120px);
+}
+
+/* Keep real content above the texture layers. */
+#app-root {
+  position: relative;
+  z-index: 1;
+}
+
+/* Headings & UI chrome in the distressed typewriter face. Special Elite
+ * ships a single (400) weight, so disable synthesis to avoid faux-bold. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+:where(h1, h2, h3, h4, h5, h6, .font-display) {
+  font-synthesis: none;
+}
+
+/* Hard flat "sticker / riso print" offset shadows — the signature
+ * LifeBuild paper-craft depth. Compound selectors out-specify Tailwind's
+ * shadow-* utilities; rounded-full badges are excluded on purpose, and
+ * shadow-xl surfaces (modals) keep their real elevation. */
+.rounded-md.border,
+.rounded-lg.border:not(.shadow-xl) {
+  box-shadow: 2px 2px 0 var(--color-paper-dark);
+}
+.rounded-xl:not(.border) {
+  box-shadow: 3px 3px 0 var(--color-paper-dark);
+}
+
+/* Hand-drawn amber underline beneath page titles — a LifeBuild signature.
+ * Scoped to main-content h1s; inline-block keeps the bar to the text width. */
+main h1 {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+  margin-bottom: 0.55rem; /* clear the hand-underline from any subtitle beneath */
+}
+main h1::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 3px;
+  background: var(--color-amber);
+  transform: rotate(-0.5deg) scaleX(1.02);
+  transform-origin: left center;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+/* Brand wordmark. The logo art is a single black-on-transparent PNG; we paint
+ * it with the theme ink colour via a mask, so it flips cleanly light↔dark. */
+.skillmaker-logo {
+  display: block;
+  height: 42px;
+  aspect-ratio: 1776 / 608;
+  background-color: var(--color-ink);
+  -webkit-mask: url("/skillmaker-logo.png") no-repeat center / contain;
+  mask: url("/skillmaker-logo.png") no-repeat center / contain;
+}
+
+/* Amber text selection. */
+::selection {
+  background: var(--color-amber);
+  color: var(--color-ink);
+}
+
+/* ------------------------------------------------------------------ *
+ * DARK MODE — "manuscript at night". Applied via a `.dark` class on
+ * <html> (toggle in Header.tsx, persisted + FOUC-guarded in index.astro).
+ * The app's own dark: utilities (dark:bg-neutral-900, dark:text-neutral-100,
+ * …) do the heavy lifting against the warm ramp above; here we only flip the
+ * ground, the ink, the shadow colour, and the texture.
+ * ------------------------------------------------------------------ */
+.dark {
+  color-scheme: dark;
+  --color-canvas: #16110a;      /* warm near-black ground */
+  --color-surface: #221a10;
+  --color-border: #3a3220;
+  --color-ink: #ece3d2;         /* parchment ink — body text + wordmark */
+  --color-ink-muted: #b6a988;
+  --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */
+}
+
+/* Paper grain inverts to faint light specks on the dark ground. */
+.dark body::before {
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(236, 227, 210, 0.022) 0%, transparent 1%),
+    radial-gradient(circle at 80% 70%, rgba(236, 227, 210, 0.018) 0%, transparent 1%),
+    radial-gradient(circle at 45% 55%, rgba(236, 227, 210, 0.015) 0%, transparent 1%),
+    radial-gradient(circle at 65% 20%, rgba(236, 227, 210, 0.015) 0%, transparent 1%),
+    radial-gradient(circle at 10% 85%, rgba(236, 227, 210, 0.015) 0%, transparent 1%);
+}
+
+/* A touch more amber glow to keep the night warm. */
+.dark body::after {
+  background: radial-gradient(circle, rgba(212, 160, 82, 0.16) 0%, transparent 60%);
 }
