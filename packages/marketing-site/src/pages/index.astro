@@ -1,15 +1,17 @@
 ---
+import AfterState from "../components/AfterState.astro";
+import Coping from "../components/Coping.astro";
+import CredBar from "../components/CredBar.astro";
 import Faq from "../components/Faq.astro";
-import Features from "../components/Features.astro";
+import FinalCta from "../components/FinalCta.astro";
 import Footer from "../components/Footer.astro";
 import Header from "../components/Header.astro";
 import Hero from "../components/Hero.astro";
 import HowItWorks from "../components/HowItWorks.astro";
-import Pillars from "../components/Pillars.astro";
+import Insight from "../components/Insight.astro";
 import Receipts from "../components/Receipts.astro";
 import Situations from "../components/Situations.astro";
 import VsTheBench from "../components/VsTheBench.astro";
-import Why from "../components/Why.astro";
 import "../styles/global.css";
 
 const title = "Skillmaker Studio — Ship agent skills with receipts.";
@@ -34,14 +36,16 @@ const description =
     <Header />
     <main>
       <Hero />
-      <Why />
-      <Situations />
-      <Pillars />
-      <HowItWorks />
+      <CredBar />
+      <Coping />
+      <Insight />
+      <AfterState />
       <VsTheBench />
+      <HowItWorks />
+      <Situations />
       <Receipts />
-      <Features />
       <Faq />
+      <FinalCta />
     </main>
     <Footer />
   </body>

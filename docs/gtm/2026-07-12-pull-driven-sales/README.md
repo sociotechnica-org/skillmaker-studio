@@ -41,6 +41,15 @@ where we test it, on whom, and what counts as pull.
   things… it's also YOUR problem"), the commission vector, the
   commercial-grade-skills category, custody-not-scoring positioning vs.
   Braintrust, the kills, and the tests before any of it hardens.
+- [`site-strategy-2026-07-15.md`](site-strategy-2026-07-15.md) — the
+  Structure C ruling (symptom-aware/cause-unaware buyer) and the full
+  page spine with copy source of record; supersedes `website.md` for the
+  site. Synthesizes the infomercial grammar with the Keller GTM
+  framework (Schwartz awareness levels). "No more grafts."
+- [`business-model-brief.md`](business-model-brief.md) — thesis for the
+  CTO conversation: OSS as demand instrument, consulting as revenue-now,
+  hosted multi-player as hypothesis; the single-player-free /
+  shared-custody-paid boundary and the phones-nothing-home tension.
 
 ## What "buying" means here
 
