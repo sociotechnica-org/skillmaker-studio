@@ -290,3 +290,9 @@ export {
   type ExecuteManifestSummary,
   type ExecuteManifestOptions,
 } from "./Triage.ts";
+export {
+  IDENTITY_GRANTING_DISPOSITIONS,
+  isIdentityGrantingDisposition,
+  foldEverReceivedBundles,
+  isUnverified,
+} from "./Verification.ts";
