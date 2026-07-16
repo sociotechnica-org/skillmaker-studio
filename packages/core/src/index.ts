@@ -1,7 +1,7 @@
 /**
  * @skillmaker/core — v1 domain model + services.
  *
- * Translated from docs/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md.
+ * Translated from docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md.
  * The canonical-store split: content lives in files (`skills/<slug>/`), state
  * and decisions live in the append-only journal (`.skillmaker/events.jsonl`),
  * and SQLite is a rebuildable index (`studio.db`, rebuilt via the journal

@@ -2,7 +2,7 @@
 
 Playmaker's Studio card library → `docs/library/` (Skillmaker Studio),
 executed 2026-07-11 against the disposition table in
-`docs/plans/2026-07-10-playmaker-to-skillmaker-migration/library-migration-prep.md`.
+`docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/library-migration-prep.md`.
 
 Sources (read-only, in `alexandria-internal`):
 `studio/sweeps/playmaker-studio/` (92 cards) and `studio/library/` (9 cards)

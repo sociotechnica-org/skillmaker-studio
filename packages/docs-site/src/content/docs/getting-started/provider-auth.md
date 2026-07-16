@@ -134,8 +134,8 @@ fixing auth above — it costs you a run, not a data point.
 - [Running fixtures](/evals/running-fixtures/) — the full sandbox
   isolation model this page's seeding fits into.
 - The real friction that drove this page:
-  [Story 3](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/phase20/story-3-friction-log.md#f4-p2--provider-auth-is-undocumented-and-sandbox-hostile),
-  [Story 5](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/phase20/story-5-friction-log.md#p1--both-providers-fail-auth-out-of-the-box-on-a-keychain-machine),
+  [Story 3](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/_archive/phase20/story-3-friction-log.md#f4-p2--provider-auth-is-undocumented-and-sandbox-hostile),
+  [Story 5](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/_archive/phase20/story-5-friction-log.md#p1--both-providers-fail-auth-out-of-the-box-on-a-keychain-machine),
   and
-  [Story 6](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/phase20/story-6-friction-log.md#p1-sandbox-auth-is-undocumented-and-effectively-unsupported-keychain-mac-20min)
+  [Story 6](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/_archive/phase20/story-6-friction-log.md#p1-sandbox-auth-is-undocumented-and-effectively-unsupported-keychain-mac-20min)
   friction logs.

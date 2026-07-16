@@ -56,7 +56,7 @@ export const defaultConfig = (name: string): typeof WorkspaceConfig.Type => ({
     // `@agentclientprotocol/codex-acp` (not the npm-deprecated
     // `@zed-industries/codex-acp`) rides the machine's already-logged-in
     // `codex` CLI over ChatGPT auth, exactly like the claude-code provider
-    // rides `claude`. Validated with a real handshake (docs/plans/2026-07-10
+    // rides `claude`. Validated with a real handshake (docs/_archive/plans/2026-07-10
     // -playmaker-to-skillmaker-migration/data-model.md's provider section,
     // Phase 12): this package's model catalog tracks the installed CLI, so
     // no `-c model=<id>` pin is needed (unlike the deprecated zed package,

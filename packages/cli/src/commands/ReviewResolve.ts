@@ -4,7 +4,7 @@
  * §2.13, §2.9), the same journal path `POST /api/events` uses from the
  * viewer's review panel (Server.ts's `review.resolved` guard). Two doors,
  * one guard: a solo publisher must never *need* the browser to resolve a
- * review -- see docs/phase20/story-4-friction-log.md finding #3. Rejects if
+ * review -- see docs/_archive/phase20/story-4-friction-log.md finding #3. Rejects if
  * the bundle isn't currently `awaiting-review` at the given stage, same as
  * the server-side check.
  */
