@@ -352,8 +352,9 @@ export class ChecklistItemView extends Schema.Class<ChecklistItemView>("Checklis
 
 /**
  * Mirrors `@skillmaker/core`'s `TodoOrigin`/`TodoOriginRecord` (issue #81,
- * `"intake"` added issue #91): which upstream signal opened this todo
- * automatically, if any.
+ * `"intake"` added issues #91/#92): which upstream signal opened this todo
+ * automatically, if any -- a field report, or an intake (salvage mining /
+ * the triage manifest's "what hurts").
  */
 export class TodoOriginView extends Schema.Class<TodoOriginView>("TodoOriginView")({
   kind: Schema.Literals(["field-report", "intake"]),

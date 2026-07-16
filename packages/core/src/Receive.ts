@@ -79,7 +79,16 @@ export interface IntakeRegistryBundle {
 
 export interface IntakeRegistry {
   readonly bundles: ReadonlyArray<IntakeRegistryBundle>;
-  readonly recordedHashes: ReadonlySet<string>;
+  /**
+   * hash -> owning bundle slug (issue #92's triage manifest needs to name
+   * WHICH bundle a hash-match belongs to, not just that one exists;
+   * `deriveIntakeVerdict`'s `"return"` only needs the membership test,
+   * `hashOwners.has(...)` -- one map answers both questions, so there is no
+   * separate `recordedHashes` set to keep in sync with it). First writer
+   * wins on a hash collision across bundles (pathological, arbitrary
+   * tie-break, never expected in practice).
+   */
+  readonly hashOwners: ReadonlyMap<string, string>;
 }
 
 /**
@@ -98,18 +107,89 @@ export const gatherIntakeRegistry = Effect.fn("Receive.gatherIntakeRegistry")(fu
   yield* index.rebuild();
   const bundles = yield* index.listBundles();
 
-  const recordedHashes = new Set<string>();
-  for (const versions of foldSkillVersions(events).values()) {
+  const hashOwners = new Map<string, string>();
+  for (const [slug, versions] of foldSkillVersions(events)) {
     for (const version of versions) {
-      recordedHashes.add(version.hash);
+      if (!hashOwners.has(version.hash)) {
+        hashOwners.set(version.hash, slug);
+      }
     }
   }
 
   return {
     bundles: bundles.map((bundle) => ({ slug: bundle.slug, name: bundle.name })),
-    recordedHashes,
+    hashOwners,
   } satisfies IntakeRegistry;
 });
+
+/**
+ * The one place hash-match/name-collision precedence against `registry` is
+ * decided (issue #92: `classifyIntakeEvidence` used to hand-copy this same
+ * precedence from `deriveIntakeVerdict` rather than share it -- two
+ * algorithms a reader had to trust stayed in sync by eye). `undefined` means
+ * neither matched; both callers below fold that into their own "no
+ * evidence" case.
+ */
+const findRegistryMatch = (
+  computedHash: string,
+  claimedName: string | undefined,
+  registry: IntakeRegistry,
+): { readonly kind: "hash" | "name"; readonly bundle: string } | undefined => {
+  const hashOwner = registry.hashOwners.get(computedHash);
+  if (hashOwner !== undefined) {
+    return { kind: "hash", bundle: hashOwner };
+  }
+  if (claimedName !== undefined) {
+    const claimedSlug = slugify(claimedName);
+    const collision = registry.bundles.find(
+      (bundle) => bundle.slug === claimedSlug || slugify(bundle.name) === claimedSlug,
+    );
+    if (collision !== undefined) {
+      return { kind: "name", bundle: collision.slug };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * The triage manifest's/adopt tripwire's evidence classification (issue
+ * #92, `Mechanism - Receiving Dock.md` §CLI): reuses `deriveIntakeVerdict`'s
+ * exact precedence (hash-match beats name-collision beats bare -- both now
+ * call the shared `findRegistryMatch` above, not a hand-copy of it) so both
+ * the single-crate dock verdict and the bulk manifest's "registry evidence"
+ * column agree on what counts as provable -- with the owning bundle
+ * attached (`"hash matches recorded version X"` / `"name collides with
+ * bundle Y"`), and one check `deriveIntakeVerdict` doesn't need: a foreign
+ * `.skillmaker-adopt.json` marker on a directory this workspace's own
+ * registry has no `bundle.json` for (evidence someone else's skillmaker
+ * workspace already accessioned it, and it arrived here without that
+ * record -- `hasForeignMarker` is the caller's own filesystem check, e.g.
+ * `Adopt.ts`'s walk already knows a candidate has no `bundle.json`).
+ */
+export type IntakeEvidence =
+  | { readonly kind: "hash-match"; readonly bundle: string }
+  | { readonly kind: "name-collision"; readonly bundle: string }
+  | { readonly kind: "foreign-marker" }
+  | { readonly kind: "bare" };
+
+export const classifyIntakeEvidence = (
+  computedHash: string,
+  claimedName: string | undefined,
+  hasForeignMarker: boolean,
+  registry: IntakeRegistry,
+): IntakeEvidence => {
+  const match = findRegistryMatch(computedHash, claimedName, registry);
+  if (match?.kind === "hash") {
+    return { kind: "hash-match", bundle: match.bundle };
+  }
+  if (match?.kind === "name") {
+    return { kind: "name-collision", bundle: match.bundle };
+  }
+  if (hasForeignMarker) {
+    return { kind: "foreign-marker" };
+  }
+  return { kind: "bare" };
+};
 
 /**
  * The dock verdict itself (`Mechanism - Receiving Dock.md` §HOW): `"return"`
@@ -125,17 +205,12 @@ export const deriveIntakeVerdict = (
   claimedName: string | undefined,
   registry: IntakeRegistry,
 ): IntakeVerdict => {
-  if (registry.recordedHashes.has(computedHash)) {
+  const match = findRegistryMatch(computedHash, claimedName, registry);
+  if (match?.kind === "hash") {
     return "return";
   }
-  if (claimedName !== undefined) {
-    const claimedSlug = slugify(claimedName);
-    const overlapsExisting = registry.bundles.some(
-      (bundle) => bundle.slug === claimedSlug || slugify(bundle.name) === claimedSlug,
-    );
-    if (overlapsExisting) {
-      return "conflict";
-    }
+  if (match?.kind === "name") {
+    return "conflict";
   }
   return "new";
 };

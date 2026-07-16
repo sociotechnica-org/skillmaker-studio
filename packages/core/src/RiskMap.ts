@@ -20,6 +20,7 @@ import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { WorkspaceIOError } from "./Errors.ts";
 import { RISK_FAMILIES, isKnownRiskFamily, riskFamily, type FixtureCaseRecord } from "./Fixtures.ts";
+import { collectTableLines, splitTableCells } from "./MarkdownTable.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
@@ -68,24 +69,6 @@ export interface ParseRiskMapResult {
   readonly warnings: ReadonlyArray<string>;
 }
 
-/** A markdown table separator row, e.g. `|---|---|---|---|`. */
-const isSeparatorRow = (line: string): boolean =>
-  /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(line.trim());
-
-const isTableRow = (line: string): boolean => line.trim().startsWith("|");
-
-/** Splits `| a | b | c |` into `["a", "b", "c"]`, tolerating a missing leading/trailing pipe. */
-const splitCells = (line: string): string[] => {
-  let trimmed = line.trim();
-  if (trimmed.startsWith("|")) {
-    trimmed = trimmed.slice(1);
-  }
-  if (trimmed.endsWith("|")) {
-    trimmed = trimmed.slice(0, -1);
-  }
-  return trimmed.split("|").map((cell) => cell.trim());
-};
-
 const EMPTY_FIXTURE_CELLS = new Set(["", "-", "—", "–", "n/a"]);
 
 /**
@@ -120,30 +103,19 @@ export const parseRiskMap = Effect.fn("RiskMap.parseRiskMap")(function* (riskMap
   }
 
   const lines = body.split(/\r?\n/);
-  const tableLines: string[] = [];
-  for (const line of lines) {
-    if (isTableRow(line)) {
-      tableLines.push(line);
-    } else if (tableLines.length > 0) {
-      // A table is one contiguous block -- stop at the first non-table line
-      // after we've started collecting one.
-      break;
-    }
-  }
-
-  if (tableLines.length === 0) {
+  const collected = collectTableLines(lines);
+  if (collected.kind === "no-table") {
     return { rows: [], warnings };
   }
-
-  const [header, separator, ...dataLines] = tableLines;
-  if (header === undefined || separator === undefined || !isSeparatorRow(separator)) {
+  if (collected.kind === "invalid-header") {
     warnings.push("evals/risk-map.md: could not find a valid table header/separator; no rows parsed");
     return { rows: [], warnings };
   }
+  const { dataLines } = collected;
 
   const rows: RiskRow[] = [];
   for (const line of dataLines) {
-    const cells = splitCells(line);
+    const cells = splitTableCells(line);
     if (cells.length < 3) {
       warnings.push(`evals/risk-map.md: could not parse row "${line.trim()}" (expected 4 columns)`);
       continue;

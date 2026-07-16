@@ -4,7 +4,8 @@ import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { createHash } from "node:crypto";
 import { AdoptMarker, adoptWorkspace, parseFrontmatter } from "../src/Adopt.ts";
-import { computeBundleHashes, hashOutputTree } from "../src/Versions.ts";
+import type { IntakeRegistry } from "../src/Receive.ts";
+import { ADOPT_EXCLUDED_NAMES, computeBundleHashes, hashOutputTree } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
 const write = (dir: string, relativePath: string, content: string) =>
@@ -422,6 +423,117 @@ describe("adoptWorkspace: upstream provenance (Fix, Phase 20 Story 3 friction lo
         const parsed = JSON.parse(raw) as unknown;
         const decoded = yield* Schema.decodeUnknownEffect(AdoptMarker)(parsed);
         expect(decoded.upstream).toBeUndefined();
+      }),
+    );
+  });
+});
+
+describe("adoptWorkspace: the registry/paperwork tripwire (issue #92)", () => {
+  const emptyRegistry: IntakeRegistry = { bundles: [], hashOwners: new Map() };
+
+  test("without a registry option, the tripwire is entirely off -- unchanged behavior", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* write(dir, "browse/SKILL.md", skillMd("browse"));
+        const report = yield* adoptWorkspace(dir);
+        expect(report.adopted.length).toBe(1);
+        expect(report.challenged).toEqual([]);
+      }),
+    );
+  });
+
+  test("a bare candidate against an empty registry is adopted normally", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* write(dir, "browse/SKILL.md", skillMd("browse"));
+        const report = yield* adoptWorkspace(dir, { registry: emptyRegistry });
+        expect(report.adopted.length).toBe(1);
+        expect(report.challenged).toEqual([]);
+      }),
+    );
+  });
+
+  test("hash-match: a candidate whose computed hash matches a recorded version is challenged, not adopted", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const path = yield* Path;
+        yield* write(dir, "stray/SKILL.md", skillMd("stray"));
+        const strayDir = path.join(dir, "stray");
+        const computedHash = yield* hashOutputTree(strayDir, { excludeTopLevel: ADOPT_EXCLUDED_NAMES });
+
+        const registry: IntakeRegistry = {
+          bundles: [{ slug: "original", name: "Original" }],
+          hashOwners: new Map([[computedHash, "original"]]),
+        };
+
+        const report = yield* adoptWorkspace(dir, { registry });
+        expect(report.adopted.length).toBe(0);
+        expect(report.challenged).toHaveLength(1);
+        expect(report.challenged[0]?.relativePath).toBe("stray");
+        expect(report.challenged[0]?.evidence).toEqual({ kind: "hash-match", bundle: "original" });
+
+        // Never written to disk -- "evidence surfaced, human decides, never enforced."
+        const fs = yield* FileSystem;
+        expect(yield* fs.exists(path.join(strayDir, "bundle.json"))).toBe(false);
+      }),
+    );
+  });
+
+  test("name-collision: a candidate whose frontmatter name overlaps an existing bundle's slug is challenged", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* write(dir, "impostor/SKILL.md", skillMd("demo-skill", "a different implementation"));
+        const registry: IntakeRegistry = {
+          bundles: [{ slug: "demo-skill", name: "Demo Skill" }],
+          hashOwners: new Map(),
+        };
+
+        const report = yield* adoptWorkspace(dir, { registry });
+        expect(report.adopted.length).toBe(0);
+        expect(report.challenged).toHaveLength(1);
+        expect(report.challenged[0]?.evidence).toEqual({ kind: "name-collision", bundle: "demo-skill" });
+      }),
+    );
+  });
+
+  test("foreign-marker: a candidate carrying an adopt marker but no bundle.json is challenged", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* write(dir, "wandered-in/SKILL.md", skillMd("wandered-in"));
+        yield* write(
+          dir,
+          "wandered-in/.skillmaker-adopt.json",
+          JSON.stringify({ schemaVersion: 1, adoptedAt: "2026-01-01T00:00:00.000Z", layout: "in-place", skillPath: "SKILL.md", generated: false, frontmatter: {} }),
+        );
+
+        const report = yield* adoptWorkspace(dir, { registry: emptyRegistry });
+        expect(report.adopted.length).toBe(0);
+        expect(report.challenged).toHaveLength(1);
+        expect(report.challenged[0]?.evidence).toEqual({ kind: "foreign-marker" });
+      }),
+    );
+  });
+
+  test("a challenged candidate's slug is not reserved -- a later bare candidate with the same base name still gets the plain slug", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const path = yield* Path;
+        yield* write(dir, "a/browse/SKILL.md", skillMd("browse"));
+        const hashA = yield* hashOutputTree(path.join(dir, "a", "browse"), { excludeTopLevel: ADOPT_EXCLUDED_NAMES });
+        yield* write(dir, "b/browse/SKILL.md", skillMd("browse", "a different one"));
+
+        const registry: IntakeRegistry = {
+          bundles: [{ slug: "elsewhere", name: "Elsewhere" }],
+          hashOwners: new Map([[hashA, "elsewhere"]]),
+        };
+
+        const report = yield* adoptWorkspace(dir, { registry });
+        expect(report.challenged).toHaveLength(1);
+        expect(report.challenged[0]?.relativePath).toBe(path.join("a", "browse"));
+        expect(report.adopted).toHaveLength(1);
+        // "b/browse" gets the plain "browse" slug, not "browse-2" -- the
+        // challenged "a/browse" never claimed it.
+        expect(report.adopted[0]?.slug).toBe("browse");
       }),
     );
   });

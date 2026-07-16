@@ -18,7 +18,7 @@
 import { type FC, type FormEvent, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
 import { Link, labHref } from "../runtime/router.tsx";
-import type { TodoKind, TodoRecord, TodoStatus } from "../runtime/schemas.ts";
+import type { TodoKind, TodoOriginView, TodoRecord, TodoStatus } from "../runtime/schemas.ts";
 import { filterTodosByBundle, isDone } from "../runtime/todoQueue.ts";
 import { useBundles } from "../runtime/useBundles.ts";
 import { useTodos } from "../runtime/useTodos.ts";
@@ -38,6 +38,21 @@ const DEFAULT_PRIORITY_BY_KIND: Readonly<Record<TodoKind, number>> = {
   eval: 15,
   improvement: 20,
   task: 30,
+};
+
+/**
+ * `TodoOrigin.kind` was widened to a closed union (issue #92: `"field-
+ * report"` | `"intake"`) so future producers (`run`, `coverage-gap`) can add
+ * a kind without a breaking change -- a lookup table here means a future
+ * kind is one entry to add, not a ternary to find and duplicate at every
+ * render site. `titlePrefix` and `label` differ for `"field-report"` (the
+ * chip reads "from the field", the tooltip spells out "from field report
+ * <id>") but coincide for `"intake"` -- both fields are still needed per
+ * kind, not derivable from one another.
+ */
+const ORIGIN_LABEL: Readonly<Record<TodoOriginView["kind"], { readonly label: string; readonly titlePrefix: string }>> = {
+  "field-report": { label: "from the field", titlePrefix: "from field report" },
+  intake: { label: "from intake", titlePrefix: "from intake" },
 };
 
 const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRecord) => void }> = ({
@@ -79,10 +94,10 @@ const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRec
           )}
           {todo.origin !== undefined && (
             <span
-              title={`from field report ${todo.origin.ref}`}
+              title={`${ORIGIN_LABEL[todo.origin.kind].titlePrefix} ${todo.origin.ref}`}
               className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300"
             >
-              from the field
+              {ORIGIN_LABEL[todo.origin.kind].label}
             </span>
           )}
         </div>
