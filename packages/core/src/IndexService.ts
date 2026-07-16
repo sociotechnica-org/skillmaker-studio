@@ -29,6 +29,7 @@ import { BundleState } from "./Bundle.ts";
 import { IndexError, JournalReadError, WorkspaceIOError } from "./Errors.ts";
 import { checkCoverage, COVERAGE_VALUES, parseRiskMap } from "./RiskMap.ts";
 import type { CoverageValue } from "./RiskMap.ts";
+import { parseDossier } from "./Dossier.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
@@ -155,6 +156,8 @@ export interface FixtureRecord {
   readonly hasPromptMd: boolean;
   /** Present only for a `fixture harvest`ed case (issue #68) -- lets `GET /api/field-reports` match a report back to the fixture it became. */
   readonly source?: FixtureSourceRecord;
+  /** Names a `dossier.md` context this case exercises (issue #94); absent on every fixture predating this field. */
+  readonly context?: string;
 }
 
 /** A materialized `evals/risk-map.md` row (data-model.md §2.6, §2.11). No results column, ever. */
@@ -248,6 +251,7 @@ interface FixtureRow {
   readonly risks_json: string;
   readonly has_prompt_md: number;
   readonly source_json: string | null;
+  readonly context: string | null;
 }
 
 interface RiskCoverageRow {
@@ -493,6 +497,7 @@ const rowToFixtureRecord = (row: FixtureRow): Effect.Effect<FixtureRecord, Index
       risks,
       hasPromptMd: row.has_prompt_md !== 0,
       ...(source !== undefined ? { source } : {}),
+      ...(row.context !== null ? { context: row.context } : {}),
     };
   });
 
@@ -629,6 +634,7 @@ const createSchema = (db: Database): void => {
       risks_json TEXT NOT NULL,
       has_prompt_md INTEGER NOT NULL DEFAULT 0,
       source_json TEXT,
+      context TEXT,
       PRIMARY KEY (bundle, case_name)
     )
   `);
@@ -1043,7 +1049,7 @@ export const layer = (
           }
 
           const insertFixture = db.query(
-            "INSERT INTO fixtures (bundle, case_name, class, risks_json, has_prompt_md, source_json) VALUES ($bundle, $caseName, $class, $risks, $hasPromptMd, $source)",
+            "INSERT INTO fixtures (bundle, case_name, class, risks_json, has_prompt_md, source_json, context) VALUES ($bundle, $caseName, $class, $risks, $hasPromptMd, $source, $context)",
           );
           for (const fixture of fixtureRecords) {
             insertFixture.run({
@@ -1053,6 +1059,7 @@ export const layer = (
               $risks: JSON.stringify(fixture.risks),
               $hasPromptMd: fixture.hasPromptMd ? 1 : 0,
               $source: fixture.source !== undefined ? JSON.stringify(fixture.source) : null,
+              $context: fixture.context ?? null,
             });
           }
 
@@ -1242,6 +1249,20 @@ export const layer = (
           }
           for (const warning of checkCoverage(riskMapScan.rows, fixtureScan.cases)) {
             warnings.push({ bundle: slug, source: "risk-map", message: warning });
+          }
+
+          // Dossier (issue #94): joins the reindex warning flow exactly
+          // like risk-map/fixtures -- warn, never fail (Part 3 ruling I). A
+          // missing `dossier.md` is fine (an "idea"-stage or pre-dossier
+          // bundle has none yet); its content is read separately, at
+          // request time, by the bundle-detail endpoint (`Server.ts`) --
+          // nothing here persists dossier content, only its warnings.
+          const dossierScan = yield* parseDossier(join(bundleDir, "dossier.md")).pipe(
+            Effect.provideService(FileSystem, fs),
+            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not scan dossier for "${slug}"`)(cause)),
+          );
+          for (const warning of dossierScan.warnings) {
+            warnings.push({ bundle: slug, source: "dossier", message: warning });
           }
 
           // Runs: scan `runs/<id>/run.json` files (data-model.md §2.8,

@@ -377,6 +377,56 @@ describe("scanFixtures", () => {
       }),
     );
   });
+
+  // Issue #94 (`Mechanism - Receiving Dock.md`'s "jobs singular, contexts
+  // plural" ruling): `context` is a plain string tag, tolerant like `source`.
+  test("a well-formed context field -> captured, no warning", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "contextual-1", {
+          schemaVersion: 1,
+          case: "contextual-1",
+          class: "golden",
+          risks: [],
+          context: "PR review comment",
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.context).toBe("PR review comment");
+      }),
+    );
+  });
+
+  test("no context field -> absent, no warning (every case predating this field)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "no-context", { schemaVersion: 1, case: "no-context", class: "golden", risks: [] });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.context).toBeUndefined();
+      }),
+    );
+  });
+
+  test("a malformed context field -> warning, case still scanned", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "bad-context", {
+          schemaVersion: 1,
+          case: "bad-context",
+          class: "golden",
+          risks: [],
+          context: 42,
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings.some((w) => w.includes('malformed "context" field'))).toBe(true);
+        expect(result.cases[0]?.context).toBeUndefined();
+      }),
+    );
+  });
 });
 
 describe("FixtureCase schema round-trip", () => {
@@ -468,6 +518,25 @@ describe("writeFixtureScaffold", () => {
           kind: "field-report",
           eventId: "33333333-3333-3333-3333-333333333333",
         });
+      }),
+    );
+  });
+
+  // Issue #94's fixture `context` field: write -> re-scan round-trip.
+  test("stamps context, when given, and scanFixtures reads it back", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeFixtureScaffold({
+          caseDir: `${dir}/evals/fixtures/contextual-2`,
+          caseName: "contextual-2",
+          class: "golden",
+          risks: [],
+          context: "chain position: reviewer",
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.context).toBe("chain position: reviewer");
       }),
     );
   });

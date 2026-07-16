@@ -13,6 +13,7 @@ links:
     - "./Reference - Untrusted-Input Rule"
     - "./Reference - Measurements Bind To Version"
     - "../outputs/Entity - Field Report"
+    - "../authoring/Entity - Dossier"
 ---
 
 ## WHAT
@@ -52,6 +53,18 @@ harvest` pulled from a `skill.field_report` event -- absent on every
 hand-scaffolded (`fixture add`) case, so every `case.json` written before
 harvest existed keeps validating unchanged.
 
+`context` is an optional sixth top-level field (issue #94, the Receiving
+Dock's "jobs singular, contexts plural" ruling): a plain string naming
+which of the bundle's `../authoring/Entity - Dossier.md` `## Contexts`
+entries this case exercises, e.g. `"PR review comment"`. Tolerant like
+`source` -- present-but-not-a-string is a reindex warning and the field is
+dropped, absent is silently fine (every `case.json` written before this
+field existed). Deliberately not cross-checked against the dossier's own
+context names (free prose, no closed vocabulary to validate against) and
+deliberately not surfaced as a per-context coverage rollup yet -- this
+issue adds only the field and the scanner's tolerance of it; a coverage
+lens that reads it lands later.
+
 Deviation from data-model.md §2.5 as written: the task prompt does **not**
 live in `case.json`'s `prompt` field — it lives in a sibling `prompt.md`
 (prose). A legacy `prompt` string in `case.json` is tolerated and produces a
@@ -68,6 +81,8 @@ in `files/`.
 
 Verified: `packages/core/src/Fixtures.ts` — `FixtureCase` schema
 (`schemaVersion`, `case`, `class`, `risks`, `setup?`, `grading?`, legacy
-`prompt?`, `source?`) and `scanFixtures`'s field-by-field tolerant parsing,
-including the "case.json has a legacy prompt field", "prompt.md is
-missing", and "case.json has a malformed source field" warnings.
+`prompt?`, `source?`, `context?`) and `scanFixtures`'s field-by-field
+tolerant parsing, including the "case.json has a legacy prompt field",
+"prompt.md is missing", "case.json has a malformed source field", and
+"case.json has a malformed context field" warnings; `FixtureAdd.ts`'s
+`--context` flag and `IndexService.ts`'s `fixtures.context` column.

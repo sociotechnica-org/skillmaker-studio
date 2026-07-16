@@ -26,6 +26,7 @@ import {
   JournalLayer,
   JournalEvent,
   listUndisposedIntake,
+  parseDossier,
   publishBundle,
   runFixture,
   runStation,
@@ -35,6 +36,7 @@ import {
   type Actor,
   type BundleStage,
   type BundleRecord,
+  type DossierSections,
   type FixtureCaseRecord,
   type FixtureRecord,
   type MeasurementRecord,
@@ -829,6 +831,23 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
     }),
   );
 
+/**
+ * Reads `dossier.md`'s CONTENT directly (issue #94), the same "don't pay for
+ * a full `rebuild()` for a single-bundle read" split `handleFieldReports`'
+ * own direct `scanFixtures` call already uses -- `loadBundleIndexDetail`'s
+ * `rebuild()` above already ran the dossier scanner too, but only for its
+ * WARNINGS (joined into `warnings` alongside fixtures/risk-map, same as
+ * `IndexService.rebuild`); the sections+gaps the detail page actually
+ * renders are a second, cheap, targeted read, never persisted.
+ */
+const loadDossierSections = (root: string, config: WorkspaceConfig, slug: string): Promise<DossierSections> =>
+  Effect.runPromise(
+    parseDossier(join(root, config.skillsDir, slug, "dossier.md")).pipe(
+      Effect.provide(BunServices.layer),
+      Effect.map((result) => result.sections),
+    ),
+  );
+
 const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
   const detail = await loadBundleIndexDetail(root, slug);
   if (detail.kind === "not_found") {
@@ -843,6 +862,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   const recentEvents = bundleEvents.slice(-MAX_BUNDLE_DETAIL_EVENTS).reverse();
 
   const station = readCurrentStageStation(root, config, slug, bundle.stage);
+  const dossier = await loadDossierSections(root, config, slug);
 
   return jsonResponse({
     bundle,
@@ -859,6 +879,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     // `measurements.length` (already fetched above, unfiltered/any-version).
     unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
+    dossier,
     files: listReviewableBundleFiles(root, config, slug),
   });
 };

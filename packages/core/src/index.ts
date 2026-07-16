@@ -100,6 +100,16 @@ export {
   type ParseRiskMapResult,
 } from "./RiskMap.ts";
 export {
+  parseDossier,
+  writeDossierScaffold,
+  DOSSIER_SECTIONS,
+  type DossierSectionName,
+  type DossierContext,
+  type DossierUnknownSection,
+  type DossierSections,
+  type ParseDossierResult,
+} from "./Dossier.ts";
+export {
   hashFile,
   hashOutputTree,
   hashDesign,

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
+import { parseDossier } from "../src/Dossier.ts";
 import { isValidSlug, layer as WorkspaceLayer, Workspace } from "../src/WorkspaceService.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
@@ -84,7 +85,7 @@ describe("Workspace.init / resolve / createBundle", () => {
         expect(first.status).toBe("created");
 
         const bundleDir = path.join(dir, "skills", "my-first-skill");
-        for (const relative of ["bundle.json", "stations.json", "design.md"]) {
+        for (const relative of ["bundle.json", "stations.json", "design.md", "dossier.md"]) {
           const exists = yield* fs.exists(path.join(bundleDir, relative));
           expect(exists).toBe(true);
         }
@@ -92,6 +93,12 @@ describe("Workspace.init / resolve / createBundle", () => {
           const exists = yield* fs.exists(path.join(bundleDir, relative, ".gitkeep"));
           expect(exists).toBe(true);
         }
+
+        // dossier.md (issue #94): scaffolded with comment-hinted empty
+        // sections -- every field an honest gap until a maker answers.
+        const dossier = yield* parseDossier(path.join(bundleDir, "dossier.md"));
+        expect(dossier.warnings).toEqual([]);
+        expect(dossier.sections).toEqual({ contexts: [] });
 
         const second = yield* workspace.createBundle(dir, { slug: "my-first-skill" });
         expect(second.status).toBe("already_exists");

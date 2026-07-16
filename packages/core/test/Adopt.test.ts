@@ -4,6 +4,7 @@ import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { createHash } from "node:crypto";
 import { AdoptMarker, adoptWorkspace, parseFrontmatter } from "../src/Adopt.ts";
+import { parseDossier } from "../src/Dossier.ts";
 import type { IntakeRegistry } from "../src/Receive.ts";
 import { ADOPT_EXCLUDED_NAMES, computeBundleHashes, hashOutputTree } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
@@ -105,6 +106,12 @@ describe("adoptWorkspace: discovery", () => {
         const markerExists = yield* fs.exists(path.join(dir, "browse", ".skillmaker-adopt.json"));
         expect(bundleJsonExists).toBe(true);
         expect(markerExists).toBe(true);
+
+        // dossier.md (issue #94): the ONE write path (`adoptDirectoryInPlace`)
+        // scaffolds it for every adopted skill too, same as `createBundle`.
+        const dossierScan = yield* parseDossier(path.join(dir, "browse", "dossier.md"));
+        expect(dossierScan.warnings).toEqual([]);
+        expect(dossierScan.sections).toEqual({ contexts: [] });
       }),
     );
   });
@@ -301,10 +308,13 @@ describe("in-place output hashing", () => {
         yield* adoptWorkspace(dir);
 
         // Hash after adopt, excluding studio-owned names, must match the
-        // pre-adopt hash: bundle.json/marker/design.md/research/evals/runs
-        // are additive, not content the brownfield repo authored.
+        // pre-adopt hash: bundle.json/marker/design.md/dossier.md/research/
+        // evals/runs are additive, not content the brownfield repo authored.
+        // `ADOPT_EXCLUDED_NAMES` (not a hand-duplicated set) so this test
+        // never drifts from the real exclusion list again (issue #94 broke
+        // a locally-duplicated copy when dossier.md joined the set).
         const after = yield* hashOutputTree(path.join(dir, "browse"), {
-          excludeTopLevel: new Set(["bundle.json", ".skillmaker-adopt.json", "design.md", "research", "evals", "runs"]),
+          excludeTopLevel: ADOPT_EXCLUDED_NAMES,
         });
 
         expect(after).toBe(before);

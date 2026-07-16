@@ -12,6 +12,7 @@ links:
     - "../evals/Economy - Validation"
     - "../board/Entity - Todo"
     - "../board/Surface - Lab"
+    - "../authoring/Entity - Dossier"
 ---
 
 ## WHAT
@@ -310,6 +311,28 @@ detail Evals tab (`BundlePanel.tsx`) with the one-line explanation;
 row's `measuredFixtureCount` is necessarily 0, so it composes into the
 existing measurement-gap rank), confirmed in `labOrder.test.ts`.
 
-Still unbuilt: the dossier fields and context tags. This card records
-the Director's adopted design; the sequenced implementation issues are
-the source of truth for build status.
+The dossier and context tags (issue #94): `skills/<slug>/dossier.md`
+(`../authoring/Entity - Dossier.md` is the authoring card) -- a tolerant
+scanner (`packages/core/src/Dossier.ts`'s `parseDossier`) reads Job,
+Contexts, Out-of-scope, Basis, Evidence, and Fit criterion as free prose,
+preserving any heading it doesn't recognize rather than dropping it, and
+joins the reindex warning flow (`IndexService.ts`) exactly like risk-map/
+fixtures -- warn, never fail. Its content is read separately, directly, at
+bundle-detail request time (`Server.ts`'s `handleBundleDetail`) and
+rendered on `BundlePanel.tsx`'s Overview tab as sections present or gaps
+named ("fit criterion: unrecorded"); the Lab Bench's `/api/catalog`
+response carries no dossier data at all, so dossier honesty never inflates
+the bench's badges. `writeDossierScaffold` writes the same comment-hinted
+empty template from all three scaffold call sites -- `skillmaker new`
+(`WorkspaceService.ts`), and `Adopt.ts`'s `adoptDirectoryInPlace` (the one
+write path shared by plain `adopt`, `Route.ts`'s `new`/`fork`, and the
+triage manifest's per-row execution) -- never seeded from the manifest's
+`stakes` answer, which already lives folded into the *received* event's
+free-text notes with no clean seam back out. `FixtureCase` gained an
+optional `context` tag (tolerant like `source`, `../evals/Entity -
+Fixture.md`) naming which dossier context a case exercises; this issue
+adds only the field and the scanner's tolerance of it, not a per-context
+coverage rollup. `skillmaker dossier <slug>` prints one bundle's dossier.
+
+This card records the Director's adopted design; the sequenced
+implementation issues are the source of truth for build status.
