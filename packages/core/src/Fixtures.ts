@@ -116,6 +116,22 @@ export const FixtureSource = Schema.Union([FixtureSourceFieldReport, FixtureSour
 export type FixtureSource = typeof FixtureSource.Type;
 
 /**
+ * `case.json`'s optional `context` tag (issue #94, `Mechanism - Receiving
+ * Dock.md`'s "jobs singular, contexts plural" ruling): a plain string
+ * naming which of the bundle's `dossier.md` `## Contexts` entries this case
+ * exercises, so a future coverage lens can read per-context (this issue
+ * adds only the field + scanner tolerance, not that lens). Deliberately NOT
+ * a closed enum cross-checked against the dossier's own context names --
+ * the dossier is free prose a maker edits by hand, so any cross-reference
+ * would be exactly the kind of "unbanded" mismatch `RiskMap.ts`'s coverage
+ * cross-check already tolerates as a warning, not something worth
+ * inventing here a second time. Tolerant like `source`: present-but-not-a-
+ * string is a warning, absent is silently fine (every `case.json` written
+ * before this field existed keeps validating unchanged).
+ */
+export type FixtureContext = string;
+
+/**
  * The plain-object form of `FixtureSource` -- the ONE shape every record
  * carrying fixture provenance references (`FixtureCaseRecord`,
  * `FixtureScaffoldInput`, `IndexService`'s `FixtureRecord`, harvest's
@@ -145,6 +161,8 @@ export class FixtureCase extends Schema.Class<FixtureCase>("FixtureCase")({
   prompt: Schema.optionalKey(Schema.String),
   /** Set by `fixture harvest`; absent on every hand-scaffolded (`fixture add`) case. */
   source: Schema.optionalKey(FixtureSource),
+  /** Names a `dossier.md` `## Contexts` entry this case exercises (issue #94); absent on every case written before this field existed. */
+  context: Schema.optionalKey(Schema.String),
 }) {}
 
 /** One scanned fixture case, tolerant of defects (data-model.md §2.11's `fixtures` table). */
@@ -157,6 +175,8 @@ export interface FixtureCaseRecord {
   readonly hasPromptMd: boolean;
   /** Present only for a harvested fixture (issue #68); absent for a hand-scaffolded one. */
   readonly source?: FixtureSourceRecord;
+  /** Names a `dossier.md` context this case exercises (issue #94); absent on every fixture written before this field existed -- tolerant, like `source`. */
+  readonly context?: FixtureContext;
 }
 
 export interface ScanFixturesResult {
@@ -291,6 +311,20 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       }
     }
 
+    // `context` (issue #94's "jobs singular, contexts plural" ruling):
+    // tolerant like `source` -- present-but-not-a-string is a warning and
+    // the field is dropped, absent is silently fine (every case.json
+    // written before this field existed).
+    const contextRaw = parsed.context;
+    let context: FixtureCaseRecord["context"];
+    if (contextRaw !== undefined) {
+      if (typeof contextRaw === "string") {
+        context = contextRaw;
+      } else {
+        warnings.push(`evals/fixtures/${entry}/case.json has a malformed "context" field (expected a string)`);
+      }
+    }
+
     const promptMdPath = join(caseDir, "prompt.md");
     const promptMdExists = yield* fs
       .exists(promptMdPath)
@@ -318,6 +352,7 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       risks,
       hasPromptMd: promptMdExists,
       ...(source !== undefined ? { source } : {}),
+      ...(context !== undefined ? { context } : {}),
     });
   }
 
@@ -345,6 +380,8 @@ export interface FixtureScaffoldInput {
   readonly promptText?: string;
   /** Provenance to stamp onto `case.json` (`fixture harvest`, issue #68); absent for a hand-scaffolded `fixture add` case. */
   readonly source?: FixtureSourceRecord;
+  /** Names a `dossier.md` context this case exercises (issue #94); optional on every scaffolder. */
+  readonly context?: FixtureContext;
 }
 
 /**
@@ -381,6 +418,7 @@ export const writeFixtureScaffold = Effect.fn("Fixtures.writeFixtureScaffold")(f
           class: input.class,
           risks: input.risks,
           ...(input.source !== undefined ? { source: input.source } : {}),
+          ...(input.context !== undefined ? { context: input.context } : {}),
         },
         null,
         2,

@@ -29,11 +29,15 @@ export const ADOPT_MARKER_FILENAME = ".skillmaker-adopt.json";
  * output tree: the studio-owned files `Adopt.ts` writes into the discovered
  * directory (mirroring the names `WorkspaceService.createBundle` scaffolds
  * for an in-workspace bundle), never the brownfield repo's own content.
+ * `dossier.md` (issue #94) joined this set for the same reason `design.md`
+ * is here: it's a studio-authored annotation about the skill, not part of
+ * the skill's own output, so editing it must never register as drift.
  */
 export const ADOPT_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
   "bundle.json",
   ADOPT_MARKER_FILENAME,
   "design.md",
+  "dossier.md",
   "research",
   "evals",
   "runs",

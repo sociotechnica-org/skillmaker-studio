@@ -25,6 +25,7 @@ import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
+import { writeDossierScaffold } from "./Dossier.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { classifyIntakeEvidence, type IntakeEvidence, type IntakeRegistry } from "./Receive.ts";
 import { ADOPT_EXCLUDED_NAMES, ADOPT_MARKER_FILENAME, hashOutputTree, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
@@ -516,6 +517,14 @@ export const adoptDirectoryInPlace = Effect.fn("Adopt.adoptDirectoryInPlace")(fu
   yield* fs
     .writeFileString(join(input.dir, ADOPT_MARKER_FILENAME), `${JSON.stringify(marker, null, 2)}\n`)
     .pipe(Effect.mapError(toIOError(`could not write ${ADOPT_MARKER_FILENAME} in ${input.dir}`)));
+
+  // dossier.md scaffold (issue #94): the ONE write path shared by plain
+  // `adopt`'s sweep, `Route.ts`'s `new`/`fork` (via `landAndAdopt`), and the
+  // triage manifest's per-row `keep`+`mine` execution -- writing it here
+  // means all three scaffold it identically, with no separate copy in any
+  // of the three callers. Never clobbers an existing `dossier.md` (a
+  // foreign arrival, or a re-adopt, may already carry one).
+  yield* writeDossierScaffold(input.dir, slug, identity.name);
 
   return {
     slug,

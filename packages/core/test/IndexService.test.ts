@@ -478,6 +478,79 @@ bundle: frame-the-problem
     );
   });
 
+  // Issue #94: the dossier scanner joins the reindex warning flow like
+  // risk-map/fixtures (warn, never fail), and a fixture's `context` tag is
+  // tolerated the same way `source` already is.
+  test("a scaffolded dossier.md and a context-tagged fixture both reindex warning-free", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "context-demo" });
+
+        const bundleDir = path.join(dir, "skills", "context-demo");
+        const caseDir = path.join(bundleDir, "evals", "fixtures", "reviewer-context");
+        yield* fs.makeDirectory(caseDir, { recursive: true });
+        yield* fs.writeFileString(
+          path.join(caseDir, "case.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            case: "reviewer-context",
+            class: "golden",
+            risks: [],
+            context: "PR review comment",
+          }),
+        );
+        yield* fs.writeFileString(path.join(caseDir, "prompt.md"), "Do the thing.\n");
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.warnings).toEqual([]);
+
+          const fixtures = yield* index.listFixtures("context-demo");
+          expect(fixtures[0]?.context).toBe("PR review comment");
+
+          const warnings = yield* index.listWarnings("context-demo");
+          expect(warnings.filter((w) => w.source === "dossier")).toEqual([]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("a malformed dossier.md produces a persisted, queryable warning without failing rebuild", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "loose-dossier" });
+
+        const bundleDir = path.join(dir, "skills", "loose-dossier");
+        yield* fs.writeFileString(
+          path.join(bundleDir, "dossier.md"),
+          "## Contexts\nRuns everywhere, no names given.\n",
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const dossierWarnings = (yield* index.listWarnings("loose-dossier")).filter(
+            (w) => w.source === "dossier",
+          );
+          expect(dossierWarnings.length).toBe(1);
+          expect(dossierWarnings[0]?.message).toContain("no named context");
+
+          const bundle = yield* index.getBundle("loose-dossier");
+          expect(bundle?.slug).toBe("loose-dossier");
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
   test("a broken case.json produces a persisted, queryable warning without failing rebuild", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {

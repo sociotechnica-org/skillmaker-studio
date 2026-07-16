@@ -249,6 +249,32 @@ export class StationAvailability extends Schema.Class<StationAvailability>("Stat
   skill: Schema.String,
 }) {}
 
+/**
+ * One named `## Contexts` entry from `dossier.md` (issue #94): "jobs
+ * singular, contexts plural" -- any number of named contracts on the one
+ * job, each a free-prose block (handoff-in, what downstream reads,
+ * environment notes, stakes), not further structured.
+ */
+export class DossierContext extends Schema.Class<DossierContext>("DossierContext")({
+  name: Schema.String,
+  body: Schema.String,
+}) {}
+
+/**
+ * `skills/<slug>/dossier.md`'s parsed sections (issue #94, `Mechanism -
+ * Receiving Dock.md` §HOW's "the dossier"): every field optional -- an
+ * absent one is an honest gap ("fit criterion: unrecorded" on the detail
+ * page), never a defect.
+ */
+export class DossierRecord extends Schema.Class<DossierRecord>("DossierRecord")({
+  job: Schema.optionalKey(Schema.String),
+  contexts: Schema.Array(DossierContext),
+  outOfScope: Schema.optionalKey(Schema.String),
+  basis: Schema.optionalKey(Schema.String),
+  evidence: Schema.optionalKey(Schema.String),
+  fitCriterion: Schema.optionalKey(Schema.String),
+}) {}
+
 export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   "BundleDetailResponse",
 )({
@@ -262,6 +288,7 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   runs: Schema.Array(RunRecord),
   measurements: Schema.Array(MeasurementRecord),
   station: Schema.NullOr(StationAvailability),
+  dossier: DossierRecord,
   /** The bundle's reviewable source files (design.md, research/*, output/*) for the Files tab, pipeline-ordered. */
   files: Schema.Array(Schema.String),
   /** The Unverified badge (issue #93): same derivation as `CatalogEntry.unverified`, computed from this same response's `measurements`. */

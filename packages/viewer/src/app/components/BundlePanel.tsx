@@ -44,6 +44,7 @@ import {
   UNVERIFIED_BADGE_CLASS,
   type BundleStage,
   type CoverageValue,
+  type DossierRecord,
   type Drift,
   type EventView,
   type FixtureRecord,
@@ -339,6 +340,58 @@ interface OverviewTabProps {
   readonly onChanged: () => void;
 }
 
+/**
+ * `dossier.md`'s sections, rendered as recorded content or an honest gap
+ * (issue #94, `Mechanism - Receiving Dock.md`'s "unanswered fields display
+ * as honest gaps ... never block anything") -- lives on the Overview tab,
+ * the bundle-detail surface a maker is already looking at when working the
+ * skill. Deliberately NOT on the Lab Bench (`Lab.tsx`'s `LabRow`, built from
+ * the separate `/api/catalog` response, never sees this field at all): the
+ * bench is for drift/proof/work signals, not authoring honesty -- no nag
+ * inflation.
+ */
+const DOSSIER_GAP = <span className="text-neutral-400">unrecorded</span>;
+
+const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
+  const fields: ReadonlyArray<readonly [string, string | undefined]> = [
+    ["Job", dossier.job],
+    ["Out-of-scope", dossier.outOfScope],
+    ["Basis", dossier.basis],
+    ["Evidence", dossier.evidence],
+    ["Fit criterion", dossier.fitCriterion],
+  ];
+  return (
+    <section className="flex flex-col gap-2">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Dossier</h4>
+      <dl className="flex flex-col gap-1 text-[11px]">
+        {fields.map(([label, value]) => (
+          <div key={label} className="flex gap-2">
+            <dt className="w-24 shrink-0 text-neutral-500 dark:text-neutral-400">{label}</dt>
+            <dd className="text-neutral-700 dark:text-neutral-300">{value ?? DOSSIER_GAP}</dd>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <dt className="w-24 shrink-0 text-neutral-500 dark:text-neutral-400">Contexts</dt>
+          <dd className="text-neutral-700 dark:text-neutral-300">
+            {dossier.contexts.length === 0 ? (
+              DOSSIER_GAP
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {dossier.contexts.map((context) => (
+                  <li key={context.name}>
+                    <span className="font-medium text-neutral-800 dark:text-neutral-100">{context.name}</span>
+                    {context.body.length > 0 ? `: ${context.body}` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+};
+
 const OverviewTab: FC<OverviewTabProps> = ({
   detail,
   slug,
@@ -407,6 +460,8 @@ const OverviewTab: FC<OverviewTabProps> = ({
           </p>
         </details>
       </div>
+
+      <DossierSection dossier={detail.dossier} />
 
       {actionError !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">

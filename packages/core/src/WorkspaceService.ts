@@ -6,6 +6,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { BundleIdentity } from "./Bundle.ts";
+import { writeDossierScaffold } from "./Dossier.ts";
 import { BundleExistsError, InvalidSlugError, WorkspaceIOError, WorkspaceNotFoundError } from "./Errors.ts";
 import { DEFAULT_STATIONS_TEMPLATE, StationsFile } from "./Stations.ts";
 import {
@@ -254,6 +255,10 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
       yield* fs
         .writeFileString(path.join(bundleDir, "evals", "risk-map.md"), riskMapSkeleton(input.slug))
         .pipe(Effect.mapError(toIOError("could not write evals/risk-map.md")));
+
+      yield* writeDossierScaffold(bundleDir, input.slug, identity.name).pipe(
+        Effect.provideService(FileSystem, fs),
+      );
 
       return { status: "created" as const, slug: input.slug };
     });
