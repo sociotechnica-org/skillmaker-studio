@@ -1,12 +1,16 @@
 ---
 // Spine B — the pull infomercial, one continuous motion (Turbo Pump grammar).
-// Head-to-head experiment against the Structure C spine on /.
-// Round 2 (director notes): entropy named as the enemy, the studio as the
-// entropy-crushing machine; timestamps dropped (the accent eyebrows stay as
-// the scan rail); fan-out expanded into a real pain board with answers; the
-// storyboard promoted from video-placeholder to the medium — the story of
-// bringing the problem child in, fixing it, then doing every skill that way.
-// Copy rationale: docs/gtm/2026-07-12-pull-driven-sales/site-strategy-2026-07-15.md
+// Round 5 (2026-07-16, director rulings): one cold open only — the old enemy
+// story and pain cave merged into THE LINEUP: the full suspects table for why
+// a skill goes from appearing-to-work to appearing-to-fail, managed to reality
+// (15 suspects, 6 families), each with a "how you'd know today" column whose
+// answers are the cave. Machine reveal: "One machine. The whole lineup."
+// Fan-out reframed (director ruling): not "other days it breaks" but the OTHER
+// JOBS on the same workbench — better/cheaper/faster commissions, voiced as the
+// asks a prompt engineer actually receives, each with the silent "…and don't
+// break it" suffix that makes them measurement problems.
+// Copy rationale: docs/gtm/2026-07-12-pull-driven-sales/voc-language-research-2026-07-16.md
+//                 docs/gtm/2026-07-12-pull-driven-sales/competitor-landscape-2026-07-16.md
 import Footer from "../components/Footer.astro";
 import Header from "../components/Header.astro";
 import "../styles/global.css";
@@ -20,7 +24,55 @@ const installLines = [
 
 const title = "Skillmaker Studio — Your agent did something weird again.";
 const description =
-  "Skills rot in a world that never stops changing them. Skillmaker Studio turns drift into a number, blame into a lookup, and breakage into a fix — receipts on every skill.";
+  "Skills drift in a world that never stops changing them. Skillmaker Studio turns drift into a number, blame into a lookup, and breakage into a fix — receipts on every skill.";
+
+const lineup = [
+  {
+    family: "the world changed",
+    suspects: [
+      { s: "The model changed.", today: "You find out when it breaks." },
+      { s: "The model got quietly tuned. Or nerfed.", today: "Vibes and a Reddit thread." },
+      { s: "It ran on a model it was never rated for.", today: "Nobody checks." },
+      { s: "The agent runtime updated.", today: "Page 40 of a changelog." },
+    ],
+  },
+  {
+    family: "its neighborhood changed",
+    suspects: [
+      { s: "The skill that feeds it changed its handoff.", today: "You wouldn't know." },
+      { s: "The skill it hands off to wants something new.", today: "Blame lands on the wrong skill." },
+      { s: "The general prompt shifted around it.", today: "Who'd tell you?" },
+      { s: "New skills are crowding the context.", today: "Invisible." },
+    ],
+  },
+  {
+    family: "someone changed it",
+    suspects: [
+      { s: "A teammate “improved” it. Same name.", today: "You find out in the incident." },
+      { s: "It forked. You're reading the wrong copy.", today: "They look identical." },
+    ],
+  },
+  {
+    family: "it was never right",
+    suspects: [
+      { s: "Wrong process from day one.", today: "Runs clean. Fails quietly." },
+      { s: "Too broad, too narrow, or too long.", today: "It half-fires. Silently." },
+      { s: "The vibe check flattered it.", today: "There was never a baseline." },
+    ],
+  },
+  {
+    family: "the job changed",
+    suspects: [
+      { s: "You started asking for things at the edge of its scope.", today: "Feels like the skill's fault." },
+    ],
+  },
+  {
+    family: "nothing happened at all",
+    suspects: [
+      { s: "A 1-in-1,000 fluke, caught in the spotlight.", today: "Indistinguishable from everything above." },
+    ],
+  },
+];
 
 const story = [
   {
@@ -39,7 +91,7 @@ const story = [
     shot: "03",
     frame: "$ skillmaker run",
     caption:
-      "The first honest number. Lower than you hoped — and the first time you can see the flake instead of just feeling it.",
+      "The first honest number. Lower than the vibe check promised — and the first time you can see the flake instead of just feeling it.",
   },
   {
     shot: "04",
@@ -57,42 +109,49 @@ const story = [
     shot: "06",
     frame: "now the rest of them",
     caption:
-      "Adopt the whole repo. Every skill gets the same treatment; every new skill is born this way. Next time entropy swings, the board tells you — not a customer.",
+      "Adopt the whole repo. Every skill gets the same treatment; every new skill is born this way. Next time a model changes under you, the board tells you — not a customer.",
   },
 ];
 
-const painBoard = [
+const wild = [
   {
-    pain: "Model just got updated.",
-    fix: "Re-run the receipts. Know what survived by lunch.",
+    quote: "AI is not a tool, it's a tiny Kafkaesque bureaucracy inside of your codebase.",
+    source: "Hacker News",
+    url: "https://news.ycombinator.com/item?id=43683012",
   },
   {
-    pain: "Skill drifted.",
-    fix: "The number moved and you found out first. The trail shows what changed.",
+    quote:
+      "Application prompts overfit the model they are using… Switch model, the prompt no longer produces the output you expect.",
+    source: "Hacker News",
+    url: "https://news.ycombinator.com/item?id=48868086",
   },
   {
-    pain: "Someone else made it. Is it any good?",
-    fix: "Adopt it, measure it, get an answer with a confidence interval.",
+    quote:
+      "I keep it adhoc - models change so frequently that prompts are always broken all the time.",
+    source: "Ask HN",
+    url: "https://news.ycombinator.com/item?id=42325485",
+  },
+];
+
+const asks = [
+  {
+    family: "quality",
+    pings: [
+      "“Can we get the pass rate up — without regressing what already passes?”",
+      "“Use it as the base for the gnarlier version.”",
+      "“New model dropped. Half these instructions are probably obsolete.”",
+      "“‘Trust me’ won't pass review. Where are the evals?”",
+    ],
   },
   {
-    pain: "Was working great. Just did something crazy.",
-    fix: "Version, model, trail — reconstruct why in minutes, not a postmortem.",
-  },
-  {
-    pain: "A teammate “improved” it. Same name.",
-    fix: "Your version passed on the model it was rated for. The failure is theirs, provably.",
-  },
-  {
-    pain: "It's running on models it was never tested on.",
-    fix: "Receipts are per-model. Untested reads untested — loudly.",
-  },
-  {
-    pain: "It's due Friday and it has to be good.",
-    fix: "Design, measure, fix, re-measure — one surface, plain English.",
-  },
-  {
-    pain: "Thirty skills. Which ones still work?",
-    fix: "Adopt the repo. The board answers, skill by skill.",
+    family: "cost",
+    pings: [
+      "“Same output, half the tokens.”",
+      "“Does it really need the big model?”",
+      "“Does this really need 17 steps?”",
+      "“Which of these 89 skills are dead weight?”",
+      "“Can we stop human-reviewing every output?”",
+    ],
   },
 ];
 
@@ -103,7 +162,11 @@ const objections = [
   },
   {
     q: "“I'm not an evals person.”",
-    a: "You don't need to be. Our agents co-design the evals with you, in plain English. You judge; they build.",
+    a: "You don't need to be. If your current process is a vibe check, that's a real start — our agents help you write it down in plain English and make it repeatable. You judge; they build.",
+  },
+  {
+    q: "“Isn't git + CI enough?”",
+    a: "Git shows that the file changed. It can't show whether behavior changed, on which model, or why. Receipts live next to the skill in your repo — git-native — but they carry the number git can't.",
   },
   {
     q: "“Won't the numbers flatter you?”",
@@ -112,6 +175,14 @@ const objections = [
   {
     q: "“Where does my data go?”",
     a: "Nowhere. Free, local, MIT-licensed, no account. It phones nothing home.",
+  },
+  {
+    q: "“And when you get acquired?”",
+    a: "Your receipts are plain files in your git history. If we vanished tomorrow, your evidence wouldn't. No account, no cloud, nothing to sunset.",
+  },
+  {
+    q: "“Isn't this slower than just shipping it?”",
+    a: "Up front? Yes. Writing down what good means takes real time — the vibe check is faster, right up until the weird Tuesday. You pay the hours either way: once here, on purpose, with a receipt. Or every incident, in the dark.",
   },
 ];
 ---
@@ -138,31 +209,56 @@ const objections = [
   <body class="min-h-screen bg-canvas text-ink antialiased">
     <Header />
     <main>
-      <!-- THE PULL -->
+      <!-- THE PULL — the only cold open -->
       <section class="mx-auto max-w-5xl px-6 pb-14 pt-16 sm:pt-24">
         <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the pull</p>
         <h1 class="max-w-3xl text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl">
           Your agent did something weird again.
         </h1>
         <p class="mt-6 max-w-2xl text-lg leading-relaxed text-ink-dim">
-          No crash. No error. Nothing in the logs — just <em>off</em>, in front of
-          someone who matters. And you can&#39;t say why, which version did it, or
-          what changed.
+          No crash. No error. Nothing your dashboards will catch — just
+          <em>confidently wrong</em>, in front of someone who matters. And you
+          can&#39;t say why, which version did it, or what changed.
         </p>
       </section>
 
-      <!-- THE ENEMY -->
+      <!-- THE LINEUP — enemy + cave, merged: the suspects table -->
       <section class="border-y border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-14">
           <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the enemy</p>
           <h2 class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
-            It&#39;s not you. It&#39;s entropy.
+            Meet the suspects.
           </h2>
-          <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-dim">
-            Every skill you ship goes out into a world that never stops changing
-            it: new models on someone else&#39;s schedule, teammates with edit
-            access, runtimes it never met. Skills don&#39;t fail like servers.
-            They rot quietly — and the weirdness lands on you.
+          <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
+            So you go to find out what happened. The lineup is long.
+          </p>
+
+          <div class="mt-8 max-w-3xl">
+            <div class="flex items-baseline justify-between gap-4 border-b-2 border-border pb-2">
+              <span class="font-mono text-xs uppercase tracking-widest text-ink-dim">suspect</span>
+              <span class="font-mono text-xs uppercase tracking-widest text-ink-dim">how you&#39;d know today</span>
+            </div>
+            {
+              lineup.map((group) => (
+                <div class="mt-6">
+                  <p class="font-mono text-xs uppercase tracking-widest text-accent">{group.family}</p>
+                  <ul>
+                    {group.suspects.map((item) => (
+                      <li class="flex items-baseline justify-between gap-6 border-b border-border py-2.5">
+                        <span class="font-medium text-ink">{item.s}</span>
+                        <span class="shrink-0 text-right font-mono text-xs text-ink-dim">{item.today}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            }
+          </div>
+
+          <p class="mt-8 max-w-3xl font-medium leading-relaxed text-ink">
+            All real. Usually several at once. Each wants a different fix — patch
+            a fluke and you injure a healthy skill. And nothing you have can tell
+            you which one you&#39;re looking at. That&#39;s the cave.
           </p>
         </div>
       </section>
@@ -171,12 +267,19 @@ const objections = [
       <section class="mx-auto max-w-5xl px-6 py-14">
         <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the machine</p>
         <h2 class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
-          Skillmaker Studio is the machine that crushes entropy.
+          Skillmaker Studio is the machine that keeps up.
         </h2>
         <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-dim">
-          It turns drift into a number, blame into a lookup, and breakage into a
-          work order. Receipts on every skill — what it passed, on which version,
-          on which model. When the world moves, you know first.
+          The skill is the part of your agent you can actually operate on —
+          and the studio is where your skills live with receipts: what each
+          one passed, on which version, on which model, re-checked when the
+          world moves, like a canary that never sleeps. Drift becomes a
+          number. Blame becomes a lookup. Breakage becomes a work order.
+          Model changes under you? Re-run the receipts and know what survived
+          by lunch.
+        </p>
+        <p class="mt-4 max-w-2xl font-medium leading-relaxed text-ink">
+          One machine. The whole lineup.
         </p>
       </section>
 
@@ -188,8 +291,10 @@ const objections = [
             Bring the problem child in first.
           </h2>
           <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
-            You have one — the skill everyone works around. Here&#39;s its week in
-            the studio, and what happens after.
+            You have one — the skill everyone works around. Ours was a 17-step
+            monster tracked across four tabs, an eval bench, and a spreadsheet
+            before we built the studio. Here&#39;s its week inside, and what
+            happens after.
           </p>
 
           <ol class="mt-8 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
@@ -216,50 +321,91 @@ const objections = [
           Every number is pinned to the exact skill version and model that earned
           it. Every design choice is linked to the evidence behind it. So when a
           skill is stable but wrong — running clean, doing the job badly — you can
-          see it, trace it, and fix the process, not just the prompt.
+          see it, trace it, and fix the process, not just the prompt. And the
+          culprit question — model, skill, teammate, you — becomes a lookup,
+          not a fight.
         </p>
         <p class="mt-4 max-w-3xl font-medium leading-relaxed text-ink">
-          Entropy doesn&#39;t stop. With the trail, it stops mattering.
+          Drift doesn&#39;t stop. It stops mattering.
         </p>
       </section>
 
-      <!-- THE PAIN BOARD -->
+      <!-- THE WILD — verified public quotes -->
       <section class="border-y border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the pain board</p>
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the wild</p>
           <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-            You know these. Or you&#39;re waiting on them.
+            You&#39;ve already said it.
           </h2>
-
-          <div class="mt-8 grid gap-6 sm:grid-cols-2">
+          <div class="mt-8 grid gap-6 sm:grid-cols-3">
             {
-              painBoard.map((item) => (
-                <div class="rounded-lg border border-border bg-canvas p-5">
-                  <p class="text-lg font-semibold leading-snug text-ink">{item.pain}</p>
-                  <p class="mt-2 text-sm leading-relaxed text-ink-dim">{item.fix}</p>
-                </div>
+              wild.map((w) => (
+                <figure class="rounded-lg border border-border bg-canvas p-6">
+                  <blockquote class="text-sm leading-relaxed text-ink">“{w.quote}”</blockquote>
+                  <figcaption class="mt-3">
+                    <a
+                      href={w.url}
+                      class="font-mono text-xs text-accent transition hover:text-accent-dim"
+                      rel="noreferrer"
+                    >
+                      — {w.source} &rarr;
+                    </a>
+                  </figcaption>
+                </figure>
               ))
             }
           </div>
-
-          <p class="mt-8 max-w-3xl font-medium leading-relaxed text-ink">
-            Same enemy every time. Same machine every time.
+          <p class="mt-6 font-mono text-xs text-ink-dim">
+            Verbatim, from public threads. Links included — receipts, even here.
           </p>
         </div>
       </section>
 
-      <!-- OBJECTIONS -->
+      <!-- THE FAN-OUT — the other jobs on the same workbench -->
       <section class="mx-auto max-w-5xl px-6 py-14">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">you&#39;re already objecting. good.</p>
-        <div class="grid gap-6 sm:grid-cols-2">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the other asks</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          Quality. Cost.
+        </h2>
+        <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
+          When nothing&#39;s broken, this is what lands in your DMs instead.
+        </p>
+        <div class="mt-8 max-w-3xl">
           {
-            objections.map((o) => (
-              <div class="rounded-lg border border-border bg-surface p-6">
-                <h3 class="font-semibold text-ink">{o.q}</h3>
-                <p class="mt-2 text-sm leading-relaxed text-ink-dim">{o.a}</p>
+            asks.map((group) => (
+              <div class="mt-6 first:mt-0">
+                <p class="font-mono text-xs uppercase tracking-widest text-accent">{group.family}</p>
+                <div class="mt-3 flex flex-wrap gap-3">
+                  {group.pings.map((ping) => (
+                    <span class="rounded-full border border-border bg-surface px-4 py-2 text-sm text-ink">
+                      {ping}
+                    </span>
+                  ))}
+                </div>
               </div>
             ))
           }
+        </div>
+        <p class="mt-8 max-w-3xl font-medium leading-relaxed text-ink">
+          Every ask carries the same silent suffix: “…and don&#39;t break it.”
+          You can&#39;t promise that on vibes. Same machine.
+        </p>
+      </section>
+
+      <!-- OBJECTIONS -->
+      <section class="border-y border-border bg-surface">
+        <div class="mx-auto max-w-5xl px-6 py-14">
+          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">you&#39;re already objecting. good.</p>
+          <div class="grid gap-6 sm:grid-cols-2">
+            {
+              objections.map((o) => (
+                <div class="rounded-lg border border-border bg-canvas p-6">
+                  <h3 class="font-semibold text-ink">{o.q}</h3>
+                  <p class="mt-2 text-sm leading-relaxed text-ink-dim">{o.a}</p>
+                </div>
+              ))
+            }
+          </div>
         </div>
       </section>
 
@@ -298,7 +444,9 @@ const objections = [
             <p class="leading-relaxed text-ink-dim">
               We can&#39;t make your agent predictable — nobody can; that&#39;s what
               you hired it for. We can make sure nothing drifts silently, nothing
-              fails anonymously, and nothing stays wrong.
+              fails anonymously, and nothing stays wrong. And the next time it goes
+              weird, you won&#39;t sit there wondering if you&#39;re crazy. You&#39;ll
+              look it up.
             </p>
             <p class="mt-4 text-lg font-medium text-ink">The only thing you risk is finding out.</p>
             <p class="mt-8">
