@@ -225,7 +225,7 @@ become a shelf); (2) the dispositions — `skill.routed` and the five
 exits; (3) the triage manifest and the adopt-side evidence tripwire;
 (4) the Unverified badge; (5) the dossier fields and their honest gaps.
 
-Verified: sequencing steps (1), (2), and (3) are built. The dock itself
+Verified: sequencing steps (1), (2), (3), and (4) are built. The dock itself
 (issue #90): `skill.received` lands in `Journal.ts` (intake ids, no
 `bundle` field); `Receive.ts` copies the crate to `receiving/<intake-id>/`
 (source untouched) and derives the return/new/conflict verdict at read
@@ -283,7 +283,33 @@ CLI surface: `skillmaker adopt --triage [path]` (writes
 `adopt-manifest.md` at the workspace root, acts on nothing) and
 `skillmaker adopt --from-manifest [file]` (executes it, one act per
 row, no silent truncation in the summary); plain `adopt` itself now
-runs the tripwire unconditionally. Still unbuilt: the Unverified badge,
-the dossier fields, and context tags. This card records the Director's
-adopted design; the sequenced implementation issues are the source of
-truth for build status.
+runs the tripwire unconditionally.
+
+The Unverified badge (issue #93): derived only, never stored, no
+`skill.cleared`. `Verification.ts`'s `foldEverReceivedBundles` folds
+`skill.routed` events into the set of bundle slugs ever named by an
+identity-granting disposition (`return`/`new`/`upgrade`/`fork` --
+`salvage` grants none, so it never marks a bundle Unverified, not even
+one it names as "defended"); `IndexService.rebuild()` folds this once per
+rebuild onto a new `BundleRecord.everReceived`, kept deliberately
+separate from the pre-existing `upstream` field (`adopt --source ...`
+stamps that too, and conflating the two would badge a plain adopted
+bundle). Combined with `computeMeasurements`'s existing, never
+version-scoped measurement list via `isUnverified(everReceived,
+measurementCount)` -- "ever, at any version" falls out of reusing that
+same list, not a separate query. `handleCatalog`, `GET /api/intake`'s
+`recentlyRouted` tail, and `GET /api/bundles/:slug` each expose an
+`unverified` boolean computed from data already read for that request.
+Traveled receipts (a crate's claims, a `skill.shipped` snapshot) never
+clear it: neither is a `run.graded` event, so neither reaches
+`computeMeasurements`'s input -- asserted in `IndexService.test.ts`. The
+viewer badges it in violet on the Lab Bench (`Lab.tsx`, `Surface -
+Lab.md`), Receive's recently-routed tail (`Receive.tsx`), and the bundle
+detail Evals tab (`BundlePanel.tsx`) with the one-line explanation;
+`labOrder.ts`'s attention ordering needed no special case (an Unverified
+row's `measuredFixtureCount` is necessarily 0, so it composes into the
+existing measurement-gap rank), confirmed in `labOrder.test.ts`.
+
+Still unbuilt: the dossier fields and context tags. This card records
+the Director's adopted design; the sequenced implementation issues are
+the source of truth for build status.

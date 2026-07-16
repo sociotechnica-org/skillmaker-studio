@@ -70,6 +70,18 @@ coverage gap is just an absence, nothing has been decided about it yet.
 Ties keep the incoming order (`Array#sort` is stable, unit-tested in
 `labOrder.test.ts`).
 
+**The Unverified badge** (issue #93, `Mechanism - Receiving Dock.md` §HOW):
+each row also carries an `Unverified` badge -- violet, deliberately NOT the
+drift pill's amber, since this is "no proof," not "something moved" -- when
+`entry.unverified` holds: the bundle arrived via the Receiving Dock
+(`skill.routed`, an identity-granting disposition) and has never had a
+graded measurement, at any recorded version. Cleared by our first graded
+measurement, for good -- a later version bump never resurrects it. No
+special case in `orderForAttention`: an Unverified row's
+`measuredFixtureCount` is necessarily 0 (a subset of "zero ever" can't be
+positive), so it always composes into the existing measurement-gap rank,
+asserted directly in `labOrder.test.ts` rather than trusted by inspection.
+
 `entry.openTodoCount` rides on `CatalogEntry` (`GET /api/catalog`): a
 count of that bundle's non-terminal (not `done`/`wont-do`) todos, derived
 at read time in `handleCatalog` (`packages/cli/src/server/Server.ts`) --
@@ -128,3 +140,8 @@ sets
 `packages/viewer/src/app/runtime/router.tsx`'s `parseRoute` parses `/lab`'s
 `?view=`/`?bundle=` query into the `lab` route variant and `labHref`
 builds it back, both covered by `router.test.ts`'s round-trip case.
+`packages/core/src/Verification.ts`'s `isUnverified`/`foldEverReceivedBundles`
+and `IndexService.ts`'s `BundleRecord.everReceived` back `handleCatalog`'s
+`unverified` field; `Lab.tsx`'s `LabRow` renders the badge next to the drift
+pill; `labOrder.test.ts`'s dedicated composition test confirms no special
+ordering case is needed.
