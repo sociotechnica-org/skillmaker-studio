@@ -184,8 +184,7 @@ at it, derived and honest):
 
 - **Return** — hash matches a recorded version: ours coming home. The
   fact attaches to the existing bundle; its work order becomes a todo.
-- **New** — no overlap: adopt into the corpus with provenance stamped;
-  maturity routes Board vs. bench.
+- **New** — no overlap: adopt into the corpus with provenance stamped.
 - **Upgrade** — same name, different content, hypothesis *evolved*:
   recorded as the next version of the existing bundle, arrival as its
   provenance.
@@ -194,11 +193,12 @@ at it, derived and honest):
   naming collision.
 - **Salvage** — hypothesis *broken*: no identity granted. Diffs are
   mined into fixtures, the work order into todos on the *existing*
-  bundle; the crate stays archived at the dock as evidence.
+  bundle; the crate stays at the dock, un-accessioned, retained as
+  evidence.
 
-The hypothesis (broken? evolved? forked?) is the `reason` — context is
-king means the ledger carries the *why*, exactly as backward stage moves
-already demand.
+The hypothesis (broken? evolved? forked?) is the `reason` — per WHY's
+*context is king*, the ledger carries the *why*, exactly as backward
+stage moves already demand.
 
 **The Unverified badge** (trust rulings, 2026-07-15): derived only — no
 `skill.cleared` event (revisit is cheap; event types are additive).
