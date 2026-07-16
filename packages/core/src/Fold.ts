@@ -129,6 +129,13 @@ export const bundleForEvent = (event: JournalEvent): string | undefined => {
     // the Activity feed renders it workspace-level, like nothing else does.
     case "skill.received":
       return undefined;
+    // `skill.routed` (issue #91) carries `bundle` only for some
+    // dispositions (absent on a `salvage` that names no existing bundle) --
+    // `event.payload.bundle` is already `string | undefined`, so this falls
+    // through to that value as-is, same shape this function already returns
+    // for every other event type.
+    case "skill.routed":
+      return event.payload.bundle;
     default:
       return undefined;
   }

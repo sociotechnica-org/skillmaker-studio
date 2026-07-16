@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
 import type { JournalEvent } from "../src/Journal.ts";
-import { SkillReceivedEvent } from "../src/Journal.ts";
+import { SkillReceivedEvent, SkillRoutedEvent } from "../src/Journal.ts";
 import { layer as JournalLayer } from "../src/JournalService.ts";
 import {
   deriveIntakeVerdict,
@@ -76,8 +76,18 @@ describe("deriveIntakeVerdict", () => {
   });
 });
 
+const routedEvent = (intake: string, at: string, disposition: "return" | "new" | "upgrade" | "fork" | "salvage" = "new"): JournalEvent =>
+  SkillRoutedEvent.make({
+    schemaVersion: 1,
+    id: crypto.randomUUID(),
+    at,
+    actor,
+    type: "skill.routed",
+    payload: { intake, disposition, reason: "no overlap" },
+  });
+
 describe("listUndisposedIntake", () => {
-  test("every received crate is undisposed today (no skill.routed event type exists yet)", () => {
+  test("every received crate with no skill.routed pointing at it is undisposed", () => {
     const events = [
       receivedEvent("in-1", "2026-07-01T00:00:00.000Z"),
       receivedEvent("in-2", "2026-07-02T00:00:00.000Z"),
@@ -86,24 +96,22 @@ describe("listUndisposedIntake", () => {
     expect(undisposed.map((event) => event.payload.intake)).toEqual(["in-1", "in-2"]);
   });
 
-  test("forward-compatible: a future skill.routed event referencing an intake id excludes it, with zero changes to this function", () => {
+  test("a skill.routed event referencing an intake id excludes it (issue #91)", () => {
     const events: ReadonlyArray<JournalEvent> = [
       receivedEvent("in-1", "2026-07-01T00:00:00.000Z"),
       receivedEvent("in-2", "2026-07-02T00:00:00.000Z"),
-      // Not yet a real JournalEvent member (skill.routed ships next issue) --
-      // constructed as a raw envelope to prove listUndisposedIntake's
-      // string-compared filter already handles it correctly.
-      {
-        schemaVersion: 1,
-        id: crypto.randomUUID(),
-        at: "2026-07-03T00:00:00.000Z",
-        actor,
-        type: "skill.routed",
-        payload: { intake: "in-1", disposition: "new", reason: "no overlap" },
-      } as unknown as JournalEvent,
+      routedEvent("in-1", "2026-07-03T00:00:00.000Z"),
     ];
     const undisposed = listUndisposedIntake(events);
     expect(undisposed.map((event) => event.payload.intake)).toEqual(["in-2"]);
+  });
+
+  test("a salvage disposition disposes the intake exactly like any other -- 'undisposed' is about the place, not the ruling", () => {
+    const events: ReadonlyArray<JournalEvent> = [
+      receivedEvent("in-1", "2026-07-01T00:00:00.000Z"),
+      routedEvent("in-1", "2026-07-02T00:00:00.000Z", "salvage"),
+    ];
+    expect(listUndisposedIntake(events)).toEqual([]);
   });
 
   test("ignores non-skill.received events entirely", () => {

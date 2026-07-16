@@ -226,3 +226,68 @@ export class ReceiveNotASkillError extends Schema.TaggedErrorClass<ReceiveNotASk
     path: Schema.String,
   },
 ) {}
+
+/** `skillmaker route <intake-id>` named an intake id with no `skill.received` event (issue #91). */
+export class RouteIntakeNotFoundError extends Schema.TaggedErrorClass<RouteIntakeNotFoundError>()(
+  "RouteIntakeNotFoundError",
+  {
+    intake: Schema.String,
+  },
+) {}
+
+/**
+ * `skillmaker route` was attempted on an intake that already has a
+ * `skill.routed` event with a DIFFERENT disposition (issue #91's idempotency
+ * rule: same intake + same disposition is a no-op re-run, not this error --
+ * see `Route.ts`'s `routeCrate`). A crate is disposed exactly once; this is
+ * the honest conflict for a second, disagreeing attempt.
+ */
+export class RouteAlreadyRoutedError extends Schema.TaggedErrorClass<RouteAlreadyRoutedError>()(
+  "RouteAlreadyRoutedError",
+  {
+    intake: Schema.String,
+    existingDisposition: Schema.String,
+    attemptedDisposition: Schema.String,
+  },
+) {}
+
+/** `route --as return|upgrade|salvage --bundle <slug>` (or `fork --parent <slug>`) named a bundle this workspace has never heard of (issue #91). */
+export class RouteBundleNotFoundError extends Schema.TaggedErrorClass<RouteBundleNotFoundError>()(
+  "RouteBundleNotFoundError",
+  {
+    bundle: Schema.String,
+  },
+) {}
+
+/** `route --as return --bundle <slug>` but the crate's live content hash matches none of that bundle's recorded versions -- "return" means "ours, coming home," provably (issue #91). */
+export class RouteNoHashMatchError extends Schema.TaggedErrorClass<RouteNoHashMatchError>()(
+  "RouteNoHashMatchError",
+  {
+    intake: Schema.String,
+    bundle: Schema.String,
+  },
+) {}
+
+/** `route --as new|fork` would mint a slug that collides with an existing bundle (a known slug/name, or a directory already sitting where the new bundle would land) -- issue #91. */
+export class RouteSlugCollisionError extends Schema.TaggedErrorClass<RouteSlugCollisionError>()(
+  "RouteSlugCollisionError",
+  {
+    slug: Schema.String,
+  },
+) {}
+
+/** `fixture harvest --from-intake <intake-id>` named an intake id with no `skill.received` event at all (issue #91, mirrors `HarvestEventNotFoundError`). */
+export class HarvestIntakeNotFoundError extends Schema.TaggedErrorClass<HarvestIntakeNotFoundError>()(
+  "HarvestIntakeNotFoundError",
+  {
+    intake: Schema.String,
+  },
+) {}
+
+/** `todo add --from-intake <intake-id>` named an intake id with no `skill.received` event at all (issue #91, mirrors `TodoFromReportEventNotFoundError`). */
+export class TodoFromIntakeNotFoundError extends Schema.TaggedErrorClass<TodoFromIntakeNotFoundError>()(
+  "TodoFromIntakeNotFoundError",
+  {
+    intake: Schema.String,
+  },
+) {}

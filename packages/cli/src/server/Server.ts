@@ -93,6 +93,9 @@ const MAX_BUNDLE_DETAIL_EVENTS = 20;
 const DEFAULT_EVENTS_PAGE_SIZE = 50;
 const MAX_EVENTS_PAGE_SIZE = 200;
 
+/** `GET /api/intake`'s "recently routed" tail (issue #91): a handful of the most recent dispositions, not the full history -- the dock's own attention queue (`crates`) is the point, this is just enough context that a disposed crate doesn't vanish without a trace. */
+const RECENTLY_ROUTED_LIMIT = 10;
+
 export interface StartServerOptions {
   readonly root: string;
   readonly config: WorkspaceConfig;
@@ -267,7 +270,9 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
 
   const harvestedCase = (bundle: string, eventId: string): string | null => {
     const fixtures = fixturesByBundle.get(bundle) ?? [];
-    const harvested = fixtures.find((fixture) => fixture.source?.eventId === eventId);
+    const harvested = fixtures.find(
+      (fixture) => fixture.source?.kind === "field-report" && fixture.source.eventId === eventId,
+    );
     return harvested?.caseName ?? null;
   };
 
@@ -315,9 +320,26 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  * still resolves cleanly (`hashOutputTree`'s well-defined empty-tree hash
  * for a missing dir, `Versions.ts`), never a 500.
  *
- * `listUndisposedIntake` is forward-compatible by construction (issue #90's
- * design note): it returns every received crate today because no
- * `skill.routed` event type exists yet, and needs no change once it does.
+ * `listUndisposedIntake` reads the real `skill.routed` event type (issue
+ * #91): a routed crate (any disposition, including `salvage` -- disposed is
+ * disposed) leaves this list for good.
+ *
+ * `recentlyRouted` (issue #91) is the OTHER half of "disposed crates leave
+ * the queue... or collapse into a recently routed tail": the last few
+ * `skill.routed` events, newest first, each joined back to its
+ * `skill.received`'s `claimedName` (from the SAME `events` array already
+ * read above -- no second journal read) so the tail reads as "crate ->
+ * disposition -> why," not a bare intake id.
+ *
+ * NOTE (issue #91, flagged not fixed): this handler still parses the
+ * journal twice per request -- `readJournalEvents` above, and
+ * `gatherIntakeRegistry`'s own `index.rebuild()` call reads it again
+ * internally (`IndexService.rebuild()` always calls `journal.readAll()`
+ * itself; it has no "here are events I already read" parameter). Cheaply
+ * consolidating to one read would mean threading pre-read events through
+ * `IndexService.rebuild()`'s signature, which is shared by every other
+ * index-reading endpoint in this file -- a bigger, riskier change than this
+ * issue's scope. Left as-is, noted rather than silently carried forward.
  */
 const handleIntake = async (root: string): Promise<Response> => {
   const events = await readJournalEvents(root);
@@ -347,7 +369,27 @@ const handleIntake = async (root: string): Promise<Response> => {
     }),
   );
 
-  return jsonResponse({ crates });
+  const claimedNameByIntake = new Map<string, string | null>();
+  for (const event of events) {
+    if (event.type === "skill.received") {
+      claimedNameByIntake.set(event.payload.intake, event.payload.claimedName ?? null);
+    }
+  }
+  const recentlyRouted = events
+    .filter((event) => event.type === "skill.routed")
+    .slice(-RECENTLY_ROUTED_LIMIT)
+    .reverse()
+    .map((event) => ({
+      intake: event.payload.intake,
+      disposition: event.payload.disposition,
+      bundle: event.payload.bundle ?? null,
+      reason: event.payload.reason,
+      claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
+      at: event.at,
+      actor: event.actor,
+    }));
+
+  return jsonResponse({ crates, recentlyRouted });
 };
 
 /**

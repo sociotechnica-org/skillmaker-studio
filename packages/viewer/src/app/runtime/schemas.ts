@@ -351,12 +351,12 @@ export class ChecklistItemView extends Schema.Class<ChecklistItemView>("Checklis
 }) {}
 
 /**
- * Mirrors `@skillmaker/core`'s `TodoOrigin`/`TodoOriginRecord` (issue #81):
- * which upstream signal opened this todo automatically, if any.
- * `"field-report"` is the only `kind` today.
+ * Mirrors `@skillmaker/core`'s `TodoOrigin`/`TodoOriginRecord` (issue #81,
+ * `"intake"` added issue #91): which upstream signal opened this todo
+ * automatically, if any.
  */
 export class TodoOriginView extends Schema.Class<TodoOriginView>("TodoOriginView")({
-  kind: Schema.Literal("field-report"),
+  kind: Schema.Literals(["field-report", "intake"]),
   ref: Schema.String,
 }) {}
 
@@ -558,9 +558,30 @@ export class IntakeCrateView extends Schema.Class<IntakeCrateView>("IntakeCrateV
   verdict: IntakeVerdict,
 }) {}
 
-/** `GET /api/intake` response -- oldest first, unpaginated (issue #90: "the dock must not become a shelf"). */
+/** Mirrors `@skillmaker/core`'s `RouteDisposition` (issue #91, `Mechanism - Receiving Dock.md` §HOW): the five exit doors. */
+export const RouteDisposition = Schema.Literals(["return", "new", "upgrade", "fork", "salvage"]);
+export type RouteDisposition = typeof RouteDisposition.Type;
+
+/**
+ * `GET /api/intake`'s "recently routed" tail (issue #91): a disposed crate
+ * leaves `crates` above for good, but a handful of the most recent
+ * `skill.routed` facts still show here -- disposition + reason + the bundle
+ * it landed on (`null` for a `salvage` naming no target), newest first.
+ */
+export class RecentlyRoutedView extends Schema.Class<RecentlyRoutedView>("RecentlyRoutedView")({
+  intake: Schema.String,
+  disposition: RouteDisposition,
+  bundle: Schema.NullOr(Schema.String),
+  reason: Schema.String,
+  claimedName: Schema.NullOr(Schema.String),
+  at: Schema.String,
+  actor: ActorView,
+}) {}
+
+/** `GET /api/intake` response -- `crates` oldest first, unpaginated (issue #90: "the dock must not become a shelf"); `recentlyRouted` newest first, capped (issue #91). */
 export class IntakeResponse extends Schema.Class<IntakeResponse>("IntakeResponse")({
   crates: Schema.Array(IntakeCrateView),
+  recentlyRouted: Schema.Array(RecentlyRoutedView),
 }) {}
 
 /** One `publishTargets` entry (skillmaker.config.json) -- what the viewer's Publish step offers. */

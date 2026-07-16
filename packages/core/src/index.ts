@@ -82,6 +82,8 @@ export {
   FixtureSetup,
   FixtureGrading,
   FixtureSource,
+  FixtureSourceFieldReport,
+  FixtureSourceIntake,
   type RiskFamily,
   type FixtureSourceRecord,
   type FixtureCaseRecord,
@@ -121,6 +123,7 @@ export {
 } from "./Versions.ts";
 export {
   adoptWorkspace,
+  adoptDirectoryInPlace,
   parseFrontmatter,
   AdoptMarker,
   AdoptUpstream,
@@ -132,6 +135,9 @@ export {
   type FrontmatterValue,
   type ParsedFrontmatter,
   type SkillLifecycle,
+  type AdoptDirectoryInput,
+  type AdoptDirectoryResult,
+  type AdoptDirectoryUpstream,
 } from "./Adopt.ts";
 export { didSkillActivate } from "./SkillActivation.ts";
 export { extractResponseText, responseMarkdown } from "./RunResponse.ts";
@@ -215,14 +221,20 @@ export {
 } from "./FieldReport.ts";
 export {
   harvestFixture,
+  harvestFixtureFromIntake,
   type HarvestFixtureInput,
   type HarvestFixtureResult,
+  type HarvestFixtureFromIntakeInput,
+  type HarvestFixtureFromIntakeResult,
 } from "./Harvest.ts";
 export {
   openTodoFromReport,
+  openTodoFromIntake,
   TODO_KIND_BY_OUTCOME,
   type OpenTodoFromReportInput,
   type OpenTodoFromReportResult,
+  type OpenTodoFromIntakeInput,
+  type OpenTodoFromIntakeResult,
 } from "./TodoFromReport.ts";
 export {
   receiveCrate,
@@ -237,3 +249,10 @@ export {
   type ReceiveCrateInput,
   type ReceiveCrateResult,
 } from "./Receive.ts";
+export {
+  routeCrate,
+  DISPOSITIONS,
+  isRouteDisposition,
+  type RouteCrateInput,
+  type RouteCrateResult,
+} from "./Route.ts";
