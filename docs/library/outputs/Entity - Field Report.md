@@ -130,7 +130,7 @@ Deliberately not built in this pass (`Vision - Board Lab Ship Receive.md`
 harvest, no grading inference from report text -- the human decides what the
 wild taught. No new event types. No field-drift concept (a shipped version
 diverging in the wild, distinct from today's local drift, `Mechanism - Drift
-Hint.md`) -- Receive owns that, unbuilt. No intake/quarantine for *arriving*
+Hint.md`) -- Receive owns that, unbuilt. No receiving dock for *arriving*
 skills -- a separate, design-needed issue.
 
 ## HOW -- todo (issue #81)
