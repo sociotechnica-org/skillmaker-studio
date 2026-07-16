@@ -41,6 +41,7 @@ import { bundleFileHref, bundleHref, bundleRunHref, Link, type BundleTab, useRou
 import {
   STAGES,
   STAGE_LABEL,
+  UNVERIFIED_BADGE_CLASS,
   type BundleStage,
   type CoverageValue,
   type Drift,
@@ -1307,7 +1308,7 @@ const EvalsTab: FC<{
 
       {unverified && (
         <section className="flex items-center gap-2 rounded-md border border-violet-200 bg-violet-50 p-3 dark:border-violet-900 dark:bg-violet-950/40">
-          <span className="w-fit rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+          <span className={`w-fit rounded-full px-2 py-0.5 text-[11px] font-medium ${UNVERIFIED_BADGE_CLASS}`}>
             Unverified
           </span>
           <p className="text-xs text-violet-800 dark:text-violet-300">

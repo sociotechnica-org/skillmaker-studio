@@ -54,14 +54,15 @@
 import { type FC, type FormEvent, type ReactNode, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
 import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
-import type {
-  FieldReportOutcome,
-  FieldReportView,
-  IntakeCrateView,
-  IntakeVerdict,
-  RecentlyRoutedView,
-  RouteDisposition,
-  TodoStatus,
+import {
+  UNVERIFIED_BADGE_CLASS,
+  type FieldReportOutcome,
+  type FieldReportView,
+  type IntakeCrateView,
+  type IntakeVerdict,
+  type RecentlyRoutedView,
+  type RouteDisposition,
+  type TodoStatus,
 } from "../runtime/schemas.ts";
 import { useBundles } from "../runtime/useBundles.ts";
 import { useFieldReports } from "../runtime/useFieldReports.ts";
@@ -346,14 +347,6 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
     <RouteDoors crate={crate} />
   </li>
 );
-
-/**
- * The Unverified badge (issue #93): deliberately violet, not amber -- Lab's
- * drift pill already owns amber for "something moved"; this badge means "no
- * proof," an absence, not an alarm. Same hue `Lab.tsx` uses, so the badge
- * reads as one consistent signal across the Bench and Receive.
- */
-const UNVERIFIED_BADGE_CLASS = "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300";
 
 /** One recently routed crate (issue #91): the disposition + reason a disposed crate left with, after it leaves `crates` above -- the "recently routed" tail so a routed crate doesn't vanish without a trace. Carries the Unverified badge (issue #93) while it holds. */
 const RecentlyRoutedRow: FC<{ routed: RecentlyRoutedView }> = ({ routed }) => (

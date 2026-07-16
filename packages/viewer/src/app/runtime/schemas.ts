@@ -180,6 +180,16 @@ export const STAGE_LABEL: Record<BundleStage, string> = {
 /** Archived isn't a stage (it's the `archived` flag) — this is its board column label. */
 export const ARCHIVED_LABEL = "Archive";
 
+/**
+ * The Unverified badge's shared style (issue #93): one constant instead of
+ * three hand-copied Tailwind strings, consumed by the Lab Bench (`Lab.tsx`),
+ * Receive's recently-routed tail (`Receive.tsx`), and the bundle detail Evals
+ * tab (`BundlePanel.tsx`). Deliberately violet, not amber -- Lab's drift pill
+ * already owns amber for "something moved"; this badge means "no proof," an
+ * absence, not an alarm.
+ */
+export const UNVERIFIED_BADGE_CLASS = "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300";
+
 /** Mirrors `@skillmaker/core`'s `Machine.GuardStatus` (data-model.md §2.13). */
 export class GuardStatus extends Schema.Class<GuardStatus>("GuardStatus")({
   stage: BundleStage,

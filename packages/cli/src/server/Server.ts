@@ -353,13 +353,20 @@ const handleIntake = async (root: string): Promise<Response> => {
   // disposition (never `salvage`) naming a bundle is even a candidate --
   // for those, the badge holds until that bundle's FIRST graded
   // measurement ever, so this needs a measurement count per distinct
-  // bundle referenced. Gathered in the SAME `runIndexEffect` call as the
-  // dock registry below -- one shared rebuild(), not a second one.
+  // bundle referenced. `receivedIdentity` is computed once per row here and
+  // reused below (both to gather candidate slugs and to derive the row's
+  // own `unverified`), rather than re-deriving it from the raw event twice.
+  // Gathered in the SAME `runIndexEffect` call as the dock registry below --
+  // one shared rebuild(), not a second one.
+  const routedRows = routedTail.map((event) => ({
+    event,
+    bundle: event.payload.bundle ?? null,
+    receivedIdentity:
+      event.payload.bundle !== undefined && isIdentityGrantingDisposition(event.payload.disposition),
+  }));
   const badgeCandidateSlugs = new Set<string>();
-  for (const event of routedTail) {
-    if (!isIdentityGrantingDisposition(event.payload.disposition)) continue;
-    if (event.payload.bundle === undefined) continue;
-    badgeCandidateSlugs.add(event.payload.bundle);
+  for (const row of routedRows) {
+    if (row.receivedIdentity && row.bundle !== null) badgeCandidateSlugs.add(row.bundle);
   }
 
   const { registry, measurementCountByBundle } = await runIndexEffect(
@@ -404,9 +411,7 @@ const handleIntake = async (root: string): Promise<Response> => {
       claimedNameByIntake.set(event.payload.intake, event.payload.claimedName ?? null);
     }
   }
-  const recentlyRouted = routedTail.map((event) => {
-    const bundle = event.payload.bundle ?? null;
-    const receivedIdentity = bundle !== null && isIdentityGrantingDisposition(event.payload.disposition);
+  const recentlyRouted = routedRows.map(({ event, bundle, receivedIdentity }) => {
     const measurementCount = bundle !== null ? measurementCountByBundle.get(bundle) ?? 0 : 0;
     return {
       intake: event.payload.intake,

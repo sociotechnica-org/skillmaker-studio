@@ -50,7 +50,7 @@ export const IDENTITY_GRANTING_DISPOSITIONS: ReadonlyArray<RouteDisposition> = [
 ];
 
 export const isIdentityGrantingDisposition = (disposition: RouteDisposition): boolean =>
-  (IDENTITY_GRANTING_DISPOSITIONS as ReadonlyArray<RouteDisposition>).includes(disposition);
+  IDENTITY_GRANTING_DISPOSITIONS.includes(disposition);
 
 /**
  * Folds `skill.routed` events into the set of bundle slugs ever received

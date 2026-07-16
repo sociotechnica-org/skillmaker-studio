@@ -107,7 +107,13 @@ describe("isUnverified: the four-row truth table", () => {
     expect(isUnverified(true, 0)).toBe(true);
   });
 
-  test("received + at least one measurement ever -> not Unverified (first measurement EVER clears)", () => {
+  // Also covers "once cleared, a version bump never resurrects the badge":
+  // a bundle received long ago and measured once at an old version has
+  // `measurementCount` reflecting its FULL history (>0, never re-scoped to
+  // "the latest version only" by any caller), so `isUnverified(true, 1)`
+  // stays false even after the bundle moves to a new version with no
+  // measurements of its own yet.
+  test("received + at least one measurement ever -> not Unverified (first measurement EVER clears, for good)", () => {
     expect(isUnverified(true, 1)).toBe(false);
     expect(isUnverified(true, 42)).toBe(false);
   });
@@ -115,13 +121,5 @@ describe("isUnverified: the four-row truth table", () => {
   test("never received -> never Unverified, regardless of measurement count", () => {
     expect(isUnverified(false, 0)).toBe(false);
     expect(isUnverified(false, 5)).toBe(false);
-  });
-
-  test("once cleared, a version bump (measurementCount already > 0 as folded from any version) never resurrects the badge -- callers never re-scope measurementCount to 'the latest version only'", () => {
-    // A bundle received long ago, measured once at an old version: the
-    // caller's measurementCount reflects the FULL history (>0), so the
-    // badge stays false even though the bundle has since moved to a new
-    // version with no measurements of its own yet.
-    expect(isUnverified(true, 1)).toBe(false);
   });
 });

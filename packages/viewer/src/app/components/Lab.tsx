@@ -39,7 +39,7 @@ import {
   type CoverageState,
 } from "../runtime/labOrder.ts";
 import { bundleHref, labHref, Link, type LabView } from "../runtime/router.tsx";
-import { STAGE_LABEL, type BundleStage, type CatalogEntry } from "../runtime/schemas.ts";
+import { STAGE_LABEL, UNVERIFIED_BADGE_CLASS, type BundleStage, type CatalogEntry } from "../runtime/schemas.ts";
 import { useCatalog } from "../runtime/useCatalog.ts";
 import { Queue } from "./Queue.tsx";
 
@@ -65,14 +65,6 @@ const DRIFT_LABEL: Record<AttentionDrift, string> = {
 };
 
 const DRIFT_BADGE_CLASS = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
-
-/**
- * The Unverified badge (issue #93): deliberately NOT amber -- amber already
- * means "something moved" (drift). This badge means "no proof," an absence,
- * not an alarm, so it gets its own hue (violet) unused by any other Lab
- * pill.
- */
-const UNVERIFIED_BADGE_CLASS = "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300";
 
 /**
  * Coverage's three honest states (#65): never collapse "a fixture exists"
