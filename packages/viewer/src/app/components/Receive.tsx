@@ -23,13 +23,22 @@
  * copyable text next to the harvest command -- CLI-first, no write button,
  * matching #68 exactly. The two doors are independent: a report can be
  * harvested into a fixture AND turned into a todo, either, or neither.
+ *
+ * The Intake section (issue #90, `Mechanism - Receiving Dock.md`) is the
+ * OTHER cargo arriving here -- skills themselves, not signal about a shipped
+ * skill: `skillmaker receive <path>` is the only door (CLI-first, no write
+ * button here either -- "the CLI flags are the form for now"), and this
+ * section reads `GET /api/intake`'s undisposed crates, oldest first ("the
+ * dock must not become a shelf: oldest-first IS the attention ordering"),
+ * each with its verdict recomputed server-side on every request.
  */
 import { type FC, type FormEvent, type ReactNode, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
 import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
-import type { FieldReportOutcome, FieldReportView, TodoStatus } from "../runtime/schemas.ts";
+import type { FieldReportOutcome, FieldReportView, IntakeCrateView, IntakeVerdict, TodoStatus } from "../runtime/schemas.ts";
 import { useBundles } from "../runtime/useBundles.ts";
 import { useFieldReports } from "../runtime/useFieldReports.ts";
+import { useIntake } from "../runtime/useIntake.ts";
 
 /** Report outcomes worth harvesting -- a "worked" report has no failure to turn into a fixture or work. */
 const HARVESTABLE_OUTCOMES: ReadonlyArray<FieldReportOutcome> = ["failed", "surprise"];
@@ -219,7 +228,85 @@ const ReportForm: FC<{ onReported: () => void }> = ({ onReported }) => {
   );
 };
 
-/** The `/receive` index page: a paste form plus the workspace-wide field-report list, newest first. */
+/** Verdict chip colors (issue #90): `conflict` is loud -- the identically-labeled stranger is the one case that needs a human's attention first. */
+const VERDICT_BADGE_CLASS: Readonly<Record<IntakeVerdict, string>> = {
+  conflict: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  return: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  new: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
+};
+
+/** One undisposed crate at the dock: claims verbatim, the verdict recomputed server-side, an "unclear rights" flag when present -- recorded, never a gate. */
+const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
+  <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+        {crate.claimedName ?? "unnamed crate"}
+      </span>
+      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${VERDICT_BADGE_CLASS[crate.verdict]}`}>
+        {crate.verdict}
+      </span>
+      {crate.rights === "unclear" && (
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          unclear rights
+        </span>
+      )}
+    </div>
+    <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+      <span>from &quot;{crate.source}&quot;</span>
+      {crate.ref !== null && <span>@ {crate.ref}</span>}
+      {crate.claimedVersionHash !== null && <span className="font-mono">claims {crate.claimedVersionHash}</span>}
+      <span>{new Date(crate.at).toLocaleString()}</span>
+    </div>
+    {crate.notes !== null && <p className="text-sm text-neutral-700 dark:text-neutral-300">{crate.notes}</p>}
+    <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+      {crate.intake}
+    </code>
+  </li>
+);
+
+/**
+ * The Intake section (issue #90): `GET /api/intake`'s undisposed crates,
+ * oldest first -- no write button here, `skillmaker receive <path>` is the
+ * only door for now. The empty state names the actual job the section does
+ * ("undisposed, oldest first, until a human routes them"), not a generic
+ * "nothing here yet."
+ */
+const IntakeSection: FC = () => {
+  const { crates, loading, error } = useIntake();
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        Intake — the dock
+      </h2>
+
+      {error !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          Could not load intake: {error.message}
+        </p>
+      )}
+
+      {loading && crates.length === 0 && error === undefined && (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
+      )}
+
+      {crates.length === 0 && !loading ? (
+        <p className="text-sm text-neutral-400">
+          Nothing at the dock. Arriving skills land here via <code>skillmaker receive &lt;path&gt;</code> —
+          undisposed, oldest first, until a human routes them.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {crates.map((crate) => (
+            <CrateRow key={crate.intake} crate={crate} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+/** The `/receive` index page: the Intake dock queue, a paste form, and the workspace-wide field-report list, newest first. */
 export const Receive: FC = () => {
   const { reports, loading, error, refetch } = useFieldReports();
 
@@ -231,6 +318,8 @@ export const Receive: FC = () => {
           the receiving bay — what the wild sends back.
         </p>
       </div>
+
+      <IntakeSection />
 
       <ReportForm onReported={refetch} />
 

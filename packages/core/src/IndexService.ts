@@ -271,8 +271,22 @@ interface BundleIdentityLocation {
   readonly upstream?: BundleUpstream;
 }
 
-/** Directory names never descended into while scanning for `bundle.json` (mirrors `Adopt.ts`'s discovery skip-list). */
-const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set(["node_modules", ".git", "dist", ".skillmaker"]);
+/**
+ * Directory names never descended into while scanning for `bundle.json`
+ * (mirrors `Adopt.ts`'s discovery skip-list). `receiving` (issue #90,
+ * `Mechanism - Receiving Dock.md`) is skipped deliberately: a crate at the
+ * dock is undisposed by definition -- if it happens to still carry a
+ * `bundle.json` from wherever it came from (e.g. a returning bundle), this
+ * scan must never mint it into THIS workspace's catalog as a side effect.
+ * Identity is a human ruling (a disposition, #next), never a scan result.
+ */
+const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  ".skillmaker",
+  "receiving",
+]);
 
 const BUNDLE_STAGES: ReadonlyArray<BundleStage> = [
   "idea",

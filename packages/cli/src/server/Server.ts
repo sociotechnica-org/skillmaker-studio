@@ -9,17 +9,21 @@ import {
   checkTransition,
   computeBundleHashes,
   computeMeasurements,
+  deriveIntakeVerdict,
   detectBundleLayout,
   didSkillActivate,
   foldBundleStates,
   foldTodos,
+  gatherIntakeRegistry,
   guardStatus,
+  hashReceivedCrate,
   isTerminalStatus,
   IndexService,
   IndexServiceLayer,
   Journal,
   JournalLayer,
   JournalEvent,
+  listUndisposedIntake,
   publishBundle,
   runFixture,
   runStation,
@@ -293,6 +297,57 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
     }))
     .reverse();
   return jsonResponse({ reports });
+};
+
+/**
+ * `GET /api/intake` -- the Receive tab's intake queue (issue #90,
+ * `Mechanism - Receiving Dock.md` §HOW): undisposed crates, oldest first --
+ * "the dock must not become a shelf: oldest-first IS the attention
+ * ordering." `readJournalEvents` already returns append order (oldest
+ * first), so `listUndisposedIntake`'s output needs no re-sort.
+ *
+ * Each crate's dock verdict is recomputed HERE, fresh, every request (house
+ * law: derive, never store) -- re-hashes `receiving/<intake-id>/` as it
+ * stands right now (`hashReceivedCrate`) and re-derives against the
+ * registry as it stands right now (`gatherIntakeRegistry` +
+ * `deriveIntakeVerdict`), the exact same three functions `skillmaker
+ * receive` calls at write time. A crate whose directory has since vanished
+ * still resolves cleanly (`hashOutputTree`'s well-defined empty-tree hash
+ * for a missing dir, `Versions.ts`), never a 500.
+ *
+ * `listUndisposedIntake` is forward-compatible by construction (issue #90's
+ * design note): it returns every received crate today because no
+ * `skill.routed` event type exists yet, and needs no change once it does.
+ */
+const handleIntake = async (root: string): Promise<Response> => {
+  const events = await readJournalEvents(root);
+  const undisposed = listUndisposedIntake(events);
+
+  const registry = await runIndexEffect(root, gatherIntakeRegistry(events));
+
+  const crates = await Promise.all(
+    undisposed.map(async (event) => {
+      const crateDir = join(root, "receiving", event.payload.intake);
+      const computedHash = await Effect.runPromise(
+        hashReceivedCrate(crateDir).pipe(Effect.provide(BunServices.layer)),
+      );
+      const verdict = deriveIntakeVerdict(computedHash, event.payload.claimedName, registry);
+      return {
+        intake: event.payload.intake,
+        source: event.payload.source,
+        ref: event.payload.ref ?? null,
+        claimedName: event.payload.claimedName ?? null,
+        claimedVersionHash: event.payload.claimedVersionHash ?? null,
+        rights: event.payload.rights ?? null,
+        notes: event.payload.notes ?? null,
+        at: event.at,
+        actor: event.actor,
+        verdict,
+      };
+    }),
+  );
+
+  return jsonResponse({ crates });
 };
 
 /**
@@ -1489,6 +1544,14 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return await handleFieldReports(root, config);
         } catch (cause) {
           return jsonResponse({ error: `could not list field reports: ${String(cause)}` }, 500);
+        }
+      }
+
+      if (pathname === "/api/intake") {
+        try {
+          return await handleIntake(root);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list intake: ${String(cause)}` }, 500);
         }
       }
 
