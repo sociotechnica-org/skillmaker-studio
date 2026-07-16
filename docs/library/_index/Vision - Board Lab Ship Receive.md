@@ -13,7 +13,7 @@ links:
     - "../outputs/Entity - Skillbook"
     - "../outputs/Entity - Shipment"
     - "../outputs/Entity - Field Report"
-    - "../outputs/Mechanism - Intake"
+    - "../outputs/Mechanism - Receiving Dock"
     - "../outputs/Mechanism - Drift Hint"
     - "../evals/Entity - Fixture"
 ---
@@ -27,7 +27,7 @@ shipped in two passes: nav labels, routes, and page taglines for
 Board · Lab · Port · Activity landed in #64. Director ruling
 (2026-07-15): Port was one tab doing two jobs with different paperwork —
 outbound shipping (manifests, destinations, receipts) and inbound
-receiving (field signal, later intake/quarantine) — so it split into its
+receiving (field signal, later the cargo dock) — so it split into its
 own tabs, **Ship** and **Receive**, landing the current
 Board · Lab · Ship · Receive · Activity order in #72. The re-scoping half
 — Lab as a pressure bench, the checkout/field-report loop Ship and
@@ -95,7 +95,7 @@ The model is four rooms plus a ledger:
   surface.)
 - **Receive — the receiving bay.** *"What is the world telling me about
   what I shipped?"* Field signal comes back from shipped skills, and
-  later, arriving skills get intake/quarantine. (The inbound half of the
+  later, arriving skills get the receiving dock. (The inbound half of the
   old `Port`, split out #72; unbuilt beyond an empty state until #67.)
 - **Activity — the ledger.** The journal of everything that happened,
   unchanged.
