@@ -225,10 +225,19 @@ become a shelf); (2) the dispositions — `skill.routed` and the five
 exits; (3) the triage manifest and the adopt-side evidence tripwire;
 (4) the Unverified badge; (5) the dossier fields and their honest gaps.
 
-Verified: as of this writing none of this exists in code —
-`skill.received`, `skill.routed`, intake ids, `receiving/`, the manifest,
-the badge, and context tags are all unbuilt. `adoptWorkspace`
-(`Adopt.ts`) remains filesystem-only with `--source`/`--ref` recorded in
-the marker file, not the journal. This card records the Director's
-adopted design; the sequenced implementation issues are the source of
-truth for build status.
+Verified: sequencing step (1), the dock itself, is built (issue #90).
+`skill.received` lands in `Journal.ts` (intake ids, no `bundle` field);
+`Receive.ts` copies the crate to `receiving/<intake-id>/` (source
+untouched) and derives the return/new/conflict verdict at read time
+from a fresh content hash against the registry (`hashReceivedCrate`,
+`gatherIntakeRegistry`, `deriveIntakeVerdict` -- never stored);
+`skillmaker receive <path>` is the one door; `GET /api/intake` and
+Receive's Intake section surface undisposed crates oldest first, no
+write button. Still unbuilt: `skill.routed` and the five dispositions
+(so every received crate is undisposed today by construction, not by a
+special case -- `listUndisposedIntake` needs no change once routing
+ships), the triage manifest, the Unverified badge, and context tags.
+`adoptWorkspace` (`Adopt.ts`) remains filesystem-only with
+`--source`/`--ref` recorded in the marker file, not the journal. This
+card records the Director's adopted design; the sequenced
+implementation issues are the source of truth for build status.
