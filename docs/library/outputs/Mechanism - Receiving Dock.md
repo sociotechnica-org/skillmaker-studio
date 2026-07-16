@@ -226,7 +226,7 @@ become a shelf); (2) the dispositions — `skill.routed` and the five
 exits; (3) the triage manifest and the adopt-side evidence tripwire;
 (4) the Unverified badge; (5) the dossier fields and their honest gaps.
 
-Verified: sequencing steps (1), (2), (3), and (4) are built. The dock itself
+Verified: sequencing steps (1), (2), (3), (4), and (5) are built. The dock itself
 (issue #90): `skill.received` lands in `Journal.ts` (intake ids, no
 `bundle` field); `Receive.ts` copies the crate to `receiving/<intake-id>/`
 (source untouched) and derives the return/new/conflict verdict at read

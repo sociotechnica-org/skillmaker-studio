@@ -75,57 +75,47 @@ interface RawSection {
   readonly body: string;
 }
 
-/** Splits a dossier's body (frontmatter + top `# Dossier — ...` title already stripped) into H2 blocks, in file order. */
-const collectH2Sections = (body: string): ReadonlyArray<RawSection> => {
-  const lines = body.split(/\r?\n/);
-  const sections: RawSection[] = [];
-  let current: { heading: string; lines: string[] } | undefined;
-  for (const line of lines) {
-    const match = /^##\s+(.+?)\s*$/.exec(line);
-    if (match !== null && match[1] !== undefined) {
-      if (current !== undefined) {
-        sections.push({ heading: current.heading, body: current.lines.join("\n") });
-      }
-      current = { heading: match[1], lines: [] };
-      continue;
-    }
-    if (current !== undefined) {
-      current.lines.push(line);
-    }
-  }
-  if (current !== undefined) {
-    sections.push({ heading: current.heading, body: current.lines.join("\n") });
-  }
-  return sections;
-};
-
-/** Splits a `## Contexts` section's body into named `### <context>` subsections. Tolerant: text before the first H3, or a body with no H3 at all, produces a warning rather than a dropped/misattributed context. */
-const collectH3Contexts = (
+/**
+ * Splits a markdown body into heading-delimited blocks, in file order, plus
+ * any preamble text before the first matching heading -- the one collector
+ * behind both the dossier's H2 section split and the `## Contexts` H3
+ * sub-split (same loop, different heading level).
+ */
+const collectSections = (
   body: string,
-  warnings: string[],
-): ReadonlyArray<DossierContext> => {
-  const lines = body.split(/\r?\n/);
-  const contexts: DossierContext[] = [];
-  let current: { name: string; lines: string[] } | undefined;
-  let preamble = "";
-  for (const line of lines) {
-    const match = /^###\s+(.+?)\s*$/.exec(line);
-    if (match !== null && match[1] !== undefined) {
-      if (current !== undefined) {
-        contexts.push({ name: current.name, body: stripComments(current.lines.join("\n")) });
-      }
-      current = { name: match[1], lines: [] };
-      continue;
-    }
+  headingPattern: RegExp,
+): { readonly preamble: string; readonly sections: ReadonlyArray<RawSection> } => {
+  const sections: RawSection[] = [];
+  const preambleLines: string[] = [];
+  let current: { heading: string; lines: string[] } | undefined;
+  const flush = () => {
     if (current !== undefined) {
+      sections.push({ heading: current.heading, body: current.lines.join("\n") });
+    }
+  };
+  for (const line of body.split(/\r?\n/)) {
+    const match = headingPattern.exec(line);
+    if (match !== null && match[1] !== undefined) {
+      flush();
+      current = { heading: match[1], lines: [] };
+    } else if (current !== undefined) {
       current.lines.push(line);
     } else {
-      preamble += `${line}\n`;
+      preambleLines.push(line);
     }
   }
-  if (current !== undefined) {
-    contexts.push({ name: current.name, body: stripComments(current.lines.join("\n")) });
-  }
+  flush();
+  return { preamble: preambleLines.join("\n"), sections };
+};
+
+/** Splits a dossier's body (frontmatter + top `# Dossier — ...` title already stripped) into H2 blocks, in file order. */
+const collectH2Sections = (body: string): ReadonlyArray<RawSection> =>
+  collectSections(body, /^##\s+(.+?)\s*$/).sections;
+
+/** Splits a `## Contexts` section's body into named `### <context>` subsections. Tolerant: text before the first H3, or a body with no H3 at all, produces a warning rather than a dropped/misattributed context. */
+const collectH3Contexts = (body: string, warnings: string[]): ReadonlyArray<DossierContext> => {
+  const { preamble, sections } = collectSections(body, /^###\s+(.+?)\s*$/);
+  const contexts = sections.map((section) => ({ name: section.heading, body: stripComments(section.body) }));
 
   if (contexts.length === 0 && stripComments(preamble).length > 0) {
     warnings.push(
@@ -138,7 +128,27 @@ const collectH3Contexts = (
 
 const normalizeHeading = (heading: string): string => heading.trim().toLowerCase();
 
-const KNOWN_HEADINGS: ReadonlySet<string> = new Set(DOSSIER_SECTIONS.map(normalizeHeading));
+/** The `DossierSections` keys for the five free-prose sections -- everything but `contexts`, whose H3 sub-structure needs its own collector. */
+type ProseSectionKey = Exclude<keyof DossierSections, "contexts">;
+
+/**
+ * Normalized heading -> `DossierSections` key, for the five free-prose
+ * sections. One map instead of five near-identical `case` blocks -- the
+ * same "list the fields once, walk them" shape the viewer's
+ * `DossierSection` renderer already uses. Headings are the
+ * `DOSSIER_SECTIONS` names so the two lists can't drift apart silently.
+ */
+const PROSE_SECTION_KEYS: ReadonlyMap<string, ProseSectionKey> = new Map(
+  (
+    [
+      ["Job", "job"],
+      ["Out-of-scope", "outOfScope"],
+      ["Basis", "basis"],
+      ["Evidence", "evidence"],
+      ["Fit criterion", "fitCriterion"],
+    ] as const satisfies ReadonlyArray<readonly [DossierSectionName, ProseSectionKey]>
+  ).map(([heading, key]) => [normalizeHeading(heading), key]),
+);
 
 /**
  * Parses `skills/<slug>/dossier.md` (issue #94). A missing file is fine --
@@ -174,62 +184,30 @@ export const parseDossier = Effect.fn("Dossier.parseDossier")(function* (dossier
   // decorative (the scaffold writes one), not a section.
   body = body.replace(/^\s*#\s+.*\r?\n/, "");
 
-  const rawSections = collectH2Sections(body);
-  let job: string | undefined;
+  const prose: { -readonly [K in ProseSectionKey]?: string } = {};
   let contexts: ReadonlyArray<DossierContext> = [];
-  let outOfScope: string | undefined;
-  let basis: string | undefined;
-  let evidence: string | undefined;
-  let fitCriterion: string | undefined;
 
-  for (const raw of rawSections) {
+  for (const raw of collectH2Sections(body)) {
     const key = normalizeHeading(raw.heading);
-    if (!KNOWN_HEADINGS.has(key)) {
+    if (key === "contexts") {
+      contexts = collectH3Contexts(raw.body, warnings);
+      continue;
+    }
+    const proseKey = PROSE_SECTION_KEYS.get(key);
+    if (proseKey === undefined) {
       unknownSections.push({ heading: raw.heading, body: stripComments(raw.body) });
       continue;
     }
-    switch (key) {
-      case "job": {
-        const text = stripComments(raw.body);
-        job = text.length > 0 ? text : undefined;
-        break;
-      }
-      case "contexts": {
-        contexts = collectH3Contexts(raw.body, warnings);
-        break;
-      }
-      case "out-of-scope": {
-        const text = stripComments(raw.body);
-        outOfScope = text.length > 0 ? text : undefined;
-        break;
-      }
-      case "basis": {
-        const text = stripComments(raw.body);
-        basis = text.length > 0 ? text : undefined;
-        break;
-      }
-      case "evidence": {
-        const text = stripComments(raw.body);
-        evidence = text.length > 0 ? text : undefined;
-        break;
-      }
-      case "fit criterion": {
-        const text = stripComments(raw.body);
-        fitCriterion = text.length > 0 ? text : undefined;
-        break;
-      }
+    // A section holding only its own scaffold comment strips to empty and
+    // stays an honest gap (absent key), exactly like a missing section.
+    const text = stripComments(raw.body);
+    if (text.length > 0) {
+      prose[proseKey] = text;
     }
   }
 
   return {
-    sections: {
-      ...(job !== undefined ? { job } : {}),
-      contexts,
-      ...(outOfScope !== undefined ? { outOfScope } : {}),
-      ...(basis !== undefined ? { basis } : {}),
-      ...(evidence !== undefined ? { evidence } : {}),
-      ...(fitCriterion !== undefined ? { fitCriterion } : {}),
-    },
+    sections: { ...prose, contexts },
     warnings,
     unknownSections,
   } satisfies ParseDossierResult;
