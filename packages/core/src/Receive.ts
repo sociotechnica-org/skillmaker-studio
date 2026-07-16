@@ -221,15 +221,9 @@ export const receiveCrate = Effect.fn("Receive.receiveCrate")(function* (input: 
 
   const computedHash = yield* hashReceivedCrate(receivedDir);
 
-  // `IndexServiceLayer` opens `.skillmaker/studio.db` directly (unlike
-  // `Journal.append`, which lazily creates `.skillmaker/` itself) -- a
-  // fresh workspace whose first-ever journal write is THIS receive has no
-  // `.skillmaker/` yet, so the registry read below would otherwise fail
-  // with SQLITE_CANTOPEN.
-  yield* fs
-    .makeDirectory(join(input.workspaceRoot, ".skillmaker"), { recursive: true })
-    .pipe(Effect.mapError(toIOError(`could not create ${join(input.workspaceRoot, ".skillmaker")}`)));
-
+  // `IndexServiceLayer` (below) is self-sufficient about creating its own
+  // `.skillmaker/` directory before opening `studio.db` (`IndexService.ts`'s
+  // `layer()`) -- no need to pre-create it here.
   const journal = yield* Journal;
   const events = yield* journal.readAll();
   const registry = yield* gatherIntakeRegistry(events).pipe(
