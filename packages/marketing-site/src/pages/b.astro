@@ -370,10 +370,10 @@ const objections = [
         <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
           When nothing&#39;s broken, this is what lands in your DMs instead.
         </p>
-        <div class="mt-8 max-w-3xl">
+        <div class="mt-8 max-w-3xl space-y-6">
           {
             asks.map((group) => (
-              <div class="mt-6 first:mt-0">
+              <div>
                 <p class="font-mono text-xs uppercase tracking-widest text-accent">{group.family}</p>
                 <div class="mt-3 flex flex-wrap gap-3">
                   {group.pings.map((ping) => (
