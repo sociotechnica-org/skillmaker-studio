@@ -26,7 +26,8 @@ import { FileSystem } from "effect/FileSystem";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
 import { WorkspaceIOError } from "./Errors.ts";
-import { ADOPT_MARKER_FILENAME, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
+import { classifyIntakeEvidence, type IntakeEvidence, type IntakeRegistry } from "./Receive.ts";
+import { ADOPT_EXCLUDED_NAMES, ADOPT_MARKER_FILENAME, hashOutputTree, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
@@ -190,8 +191,14 @@ export type SkillLifecycle = "archived" | "idea";
 
 const pathSegments = (relativePath: string): ReadonlyArray<string> => relativePath.split(sep);
 
-/** `deprecated/` -> archived, `in-progress/` -> idea (with a note) (§3B.4). Checked over every path segment, not just the immediate parent. */
-const lifecycleFromPath = (relativePath: string): { readonly lifecycle: SkillLifecycle; readonly note?: string } => {
+/**
+ * `deprecated/` -> archived, `in-progress/` -> idea (with a note) (§3B.4).
+ * Checked over every path segment, not just the immediate parent. Exported
+ * (issue #92): `Triage.ts`'s `--from-manifest` execution applies the same
+ * pathname rule per row -- a kept row under `deprecated/` still enters
+ * archived, exactly as the sweep would have ruled.
+ */
+export const lifecycleFromPath = (relativePath: string): { readonly lifecycle: SkillLifecycle; readonly note?: string } => {
   const segments = pathSegments(relativePath).map((segment) => segment.toLowerCase());
   if (segments.includes("deprecated")) {
     return { lifecycle: "archived", note: "adopted from a \"deprecated/\" directory" };
@@ -202,18 +209,18 @@ const lifecycleFromPath = (relativePath: string): { readonly lifecycle: SkillLif
   return { lifecycle: "idea" };
 };
 
-interface ManifestDetection {
+export interface ManifestDetection {
   readonly relativePath: string;
   readonly kind: string;
 }
 
-interface EvalInfraDetection {
+export interface EvalInfraDetection {
   readonly relativePath: string;
   readonly kind: "evals" | "tests";
 }
 
 /** One filesystem walk gathers everything discovery needs: SKILL.md files, existing bundle.json slugs (for collision avoidance), manifest files, `.agents/skills` dirs, and eval/test infra dirs. */
-interface WalkResult {
+export interface WalkResult {
   readonly skillMdFiles: ReadonlyArray<string>;
   readonly existingSlugs: ReadonlySet<string>;
   readonly manifests: ReadonlyArray<ManifestDetection>;
@@ -232,7 +239,14 @@ const manifestKindFor = (relativePath: string): string => {
   return file;
 };
 
-const walk = Effect.fn("Adopt.walk")(function* (root: string) {
+/**
+ * Exported (issue #92): `Triage.ts`'s `--triage` sweep runs this exact same
+ * read-only discovery walk -- "the existing discovery sweep" the issue
+ * calls for -- rather than a second, drifting copy. `adoptWorkspace` (below)
+ * is the only thing that turns a `WalkResult` into filesystem writes;
+ * `walk` itself never touches anything.
+ */
+export const walk = Effect.fn("Adopt.walk")(function* (root: string) {
   const fs = yield* FileSystem;
 
   const skillMdFiles: string[] = [];
@@ -359,10 +373,24 @@ export interface SkippedSkill {
   readonly reason: "already-adopted";
 }
 
+/**
+ * A candidate the registry/paperwork tripwire caught (issue #92, `Mechanism
+ * - Receiving Dock.md` §HOW: "challenges provable arrivals found under
+ * adopt -- evidence surfaced, human decides, never enforced"): NOT written
+ * to disk, NOT adopted -- the human routes it via `skillmaker receive` or
+ * `adopt --triage` instead.
+ */
+export interface ChallengedSkill {
+  readonly relativePath: string;
+  readonly evidence: IntakeEvidence;
+}
+
 export interface AdoptReport {
   readonly found: number;
   readonly adopted: ReadonlyArray<AdoptedSkill>;
   readonly skipped: ReadonlyArray<SkippedSkill>;
+  /** Evidence-bearing candidates the tripwire challenged instead of silently adopting (empty unless `options.registry` was passed). */
+  readonly challenged: ReadonlyArray<ChallengedSkill>;
   readonly warnings: ReadonlyArray<string>;
   readonly manifests: ReadonlyArray<ManifestDetection>;
   readonly evalInfra: ReadonlyArray<EvalInfraDetection>;
@@ -379,16 +407,19 @@ export interface AdoptWorkspaceOptions {
   readonly source?: string;
   /** `adopt --source ... --ref <ref>` — ignored if `source` is absent. */
   readonly ref?: string;
+  /**
+   * The registry/paperwork tripwire (issue #92): when provided, every
+   * candidate is hash- and name-checked against it before being adopted
+   * (`classifyIntakeEvidence`, `Receive.ts`) -- an evidence-bearing
+   * candidate (hash-match / name-collision / foreign adopt marker) is
+   * reported in `challenged` instead of written to disk. Omitted entirely
+   * (the default), adoption behaves exactly as before the tripwire existed
+   * -- every existing caller (unit tests, `--triage`'s own read-only sweep,
+   * which never adopts anything regardless of this option) is unaffected.
+   */
+  readonly registry?: IntakeRegistry;
 }
 
-/**
- * Discovers and wraps every not-yet-adopted `SKILL.md` under `root` as an
- * in-place bundle (§3B.1-§3B.6, §3B.8). Filesystem-only: does not touch the
- * journal — callers (the CLI command) fold `AdoptedSkill`s into
- * `bundle.created` / `bundle.archived` / `skill.version_recorded` events,
- * mirroring how `New.ts` layers journal writes on top of
- * `Workspace.createBundle`.
- */
 export interface AdoptDirectoryUpstream {
   readonly source: string;
   readonly ref?: string;
@@ -424,14 +455,18 @@ export interface AdoptDirectoryResult {
  * parses `SKILL.md`'s frontmatter (permissive, `parseFrontmatter`), mints a
  * unique slug, writes `bundle.json` + the `.skillmaker-adopt.json` marker
  * (§3B.8) -- exactly the per-skill mechanics `adoptWorkspace`'s discovery
- * loop performs, factored out here so a caller with its own already-known
- * target directory (`Route.ts`'s `new`/`fork` dispositions, issue #91) mints
- * the same `bundle.json`/marker pair without reimplementing it. Does not
- * read `SKILL.md` itself (the caller already has its content one way or
- * another) or check for slug collisions beyond `usedSlugs` -- what "already
- * adopted" or "slug taken" means differs by caller (a filesystem check for
- * `adoptWorkspace`, a workspace-wide registry + directory check for
- * `Route.ts`), so that stays the caller's job.
+ * loop performs, factored out here so every caller with its own
+ * already-known target directory mints the same `bundle.json`/marker pair
+ * without reimplementing it: `Route.ts`'s `new`/`fork` dispositions (issue
+ * #91) and `Triage.ts`'s `--from-manifest` rows (issue #92) -- one write
+ * path, three doors. Does not read `SKILL.md` itself (the caller already
+ * has its content one way or another), check for slug collisions beyond
+ * `usedSlugs` (what "already adopted" or "slug taken" means differs by
+ * caller: a filesystem check for `adoptWorkspace`/the manifest, a
+ * workspace-wide registry + directory check for `Route.ts`), or run the
+ * registry tripwire (that's `adoptWorkspace`'s pre-check, the one caller
+ * where no human has ruled on the candidate yet) -- those stay the
+ * caller's job.
  */
 export const adoptDirectoryInPlace = Effect.fn("Adopt.adoptDirectoryInPlace")(function* (
   input: AdoptDirectoryInput,
@@ -490,6 +525,14 @@ export const adoptDirectoryInPlace = Effect.fn("Adopt.adoptDirectoryInPlace")(fu
   } satisfies AdoptDirectoryResult;
 });
 
+/**
+ * Discovers and wraps every not-yet-adopted `SKILL.md` under `root` as an
+ * in-place bundle (§3B.1-§3B.6, §3B.8). Filesystem-only: does not touch the
+ * journal — callers (the CLI command) fold `AdoptedSkill`s into
+ * `bundle.created` / `bundle.archived` / `skill.version_recorded` events,
+ * mirroring how `New.ts` layers journal writes on top of
+ * `Workspace.createBundle`.
+ */
 export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
   root: string,
   options: AdoptWorkspaceOptions = {},
@@ -500,6 +543,7 @@ export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
 
   const adopted: AdoptedSkill[] = [];
   const skipped: SkippedSkill[] = [];
+  const challenged: ChallengedSkill[] = [];
   const warnings: string[] = [...walkWarnings];
   const usedSlugs = new Set(existingSlugs);
 
@@ -519,6 +563,31 @@ export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
     const content = yield* fs
       .readFileString(skillMdPath)
       .pipe(Effect.mapError(toIOError(`could not read ${skillMdPath}`)));
+
+    // The registry/paperwork tripwire (issue #92): only runs when a
+    // registry was supplied -- omitted entirely for callers that already
+    // decided (a `--from-manifest` row, `Route.ts`'s human-ruled
+    // dispositions) or that never write at all (`--triage`'s read-only
+    // sweep). A challenged candidate's slug is deliberately never added to
+    // `usedSlugs`: it was never adopted, so it must not shadow a later,
+    // genuinely bare candidate that happens to slugify the same way. The
+    // frontmatter parse here repeats inside `adoptDirectoryInPlace` for the
+    // candidates that pass -- a small, pure re-read traded for keeping the
+    // tripwire out of the one shared write path Route.ts also calls.
+    if (options.registry !== undefined) {
+      const { data: frontmatter } = parseFrontmatter(content);
+      const prospectiveSlug = uniqueSlug(slugify(basename(dir)), usedSlugs);
+      const claimedName = stringField(frontmatter, "name") ?? titleCaseFromSlug(prospectiveSlug);
+      const markerExists = yield* fs
+        .exists(join(dir, ADOPT_MARKER_FILENAME))
+        .pipe(Effect.mapError(toIOError(`could not check ${join(dir, ADOPT_MARKER_FILENAME)}`)));
+      const computedHash = yield* hashOutputTree(dir, { excludeTopLevel: ADOPT_EXCLUDED_NAMES });
+      const evidence = classifyIntakeEvidence(computedHash, claimedName, markerExists, options.registry);
+      if (evidence.kind !== "bare") {
+        challenged.push({ relativePath, evidence });
+        continue;
+      }
+    }
 
     const { lifecycle, note } = lifecycleFromPath(relativePath);
 
@@ -557,6 +626,7 @@ export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
     found: skillMdFiles.length,
     adopted,
     skipped,
+    challenged,
     warnings,
     manifests,
     evalInfra,

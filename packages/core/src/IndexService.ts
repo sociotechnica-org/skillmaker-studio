@@ -831,12 +831,17 @@ export const layer = (
             continue;
           }
 
+          // Raw readdir order is OS-dependent (ext4 hash order vs APFS
+          // alphabetical, same flake class `scanFixtures` fixed, #88) --
+          // sorted so which directory "wins" a duplicate-slug race (the
+          // warning below) is stable across machines, not a coin flip.
           const entries = yield* fs
             .readDirectory(dir)
             .pipe(Effect.mapError(toIndexError(`could not list ${dir}`)));
+          const sortedEntries = entries.slice().sort();
 
           let hasBundleJson = false;
-          for (const entry of entries) {
+          for (const entry of sortedEntries) {
             const full = join(dir, entry);
             const info = yield* fs.stat(full).pipe(Effect.mapError(toIndexError(`could not stat ${full}`)));
             if (info.type === "Directory") {

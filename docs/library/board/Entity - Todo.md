@@ -108,17 +108,20 @@ then id — total and stable.
 
 The stock-and-flow ruling (#80) makes the todo queue the heart of the Lab;
 this pass gives Receive's signal a door into it. `Todo` gains an optional,
-IMMUTABLE `origin?: {kind: "field-report", ref: string}` (`packages/core/
-src/Todo.ts`'s `TodoOrigin`/`TodoOriginRecord`) -- `ref` is the journal
-event id of the `skill.field_report` that opened this todo. Named
-generically (`kind`/`ref`, not `eventId`) so a later producer (`run`,
-`coverage-gap`) can add a kind without a breaking change, the same
-closed-union reasoning `FixtureSource` (`Fixtures.ts`, issue #68) already
-established for fixture provenance. Structurally absent from `TodoPatch` --
-same immutability as `source`: a `todo.updated` patch can never
-retroactively stamp or change it. `FoldTodos.ts` needed no changes at all:
-`todo.opened` already sets the full record verbatim, and `todo.updated`
-already can't touch fields `TodoPatch` doesn't carry.
+IMMUTABLE `origin?: {kind: "field-report" | "intake", ref: string}`
+(`packages/core/src/Todo.ts`'s `TodoOrigin`/`TodoOriginRecord`) -- `ref` is
+the journal event id of the `skill.field_report` that opened this todo
+(`"field-report"`), or the intake id of the crate/candidate a triage
+manifest row's "hurts" opened it from (`"intake"`, added issue #92, `adopt
+--from-manifest`'s `executeManifestRow`). Named generically (`kind`/`ref`,
+not `eventId`) so a later producer (`run`, `coverage-gap`) can add a kind
+without a breaking change, the same closed-union reasoning `FixtureSource`
+(`Fixtures.ts`, issue #68) already established for fixture provenance.
+Structurally absent from `TodoPatch` -- same immutability as `source`: a
+`todo.updated` patch can never retroactively stamp or change it.
+`FoldTodos.ts` needed no changes at all: `todo.opened` already sets the
+full record verbatim, and `todo.updated` already can't touch fields
+`TodoPatch` doesn't carry.
 
 CLI: `skillmaker todo add <title> --from-report <event-id>` (extends
 `packages/cli/src/commands/Todo.ts`). The domain logic lives in a new core
@@ -138,17 +141,18 @@ report's prose verbatim plus `Destination:`/`Version:` lines when the
 report carries them. Every default is overridable; overriding never
 suppresses the `origin` stamp.
 
-Viewer: `Queue.tsx` (`TodosPanel.tsx` until #83) renders a small "from the
-field" chip next to the bundle chip when `todo.origin?.kind ===
-"field-report"` -- provenance, not a link (no todo detail page yet, a
-separate issue). Receive's row-level
+Viewer: `Queue.tsx` (`TodosPanel.tsx` until #83) renders a small origin chip
+next to the bundle chip whenever `todo.origin` is set -- "from the field"
+for `"field-report"`, "from intake" for `"intake"` (issue #92) -- provenance,
+not a link (no todo detail page yet, a separate issue). Receive's row-level
 work-chip/copyable-command affordance is described on `Entity - Field
 Report.md`'s "HOW -- todo" section, the mirror image of this one.
 
 Deliberately not in this pass (issue #81's own scope line): no write
 button on Receive, no auto-todo on failed reports -- the human decides what
-the wild means. No `run`/`coverage-gap` producers -- only `field-report`
-exists as an `origin.kind` today. No todo detail page.
+the wild means. No `run`/`coverage-gap` producers -- `"field-report"` and
+`"intake"` (issue #92) are the only `origin.kind`s that exist today. No
+todo detail page.
 
 **Merged source cards, folded into this one card:**
 

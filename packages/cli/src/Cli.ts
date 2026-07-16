@@ -4,7 +4,7 @@
  */
 import { Effect } from "effect";
 import { type CliResult, ok, usageError } from "./CliResult.ts";
-import { runAdopt } from "./commands/Adopt.ts";
+import { runAdopt, runAdoptFromManifest, runAdoptTriage } from "./commands/Adopt.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runBookBuild } from "./commands/BookBuild.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
@@ -37,7 +37,9 @@ Usage: skillmaker <command> [options]
 Commands:
   init              Initialize a skillmaker workspace in the current directory
   new <slug>        Create a new Skill Bundle under skills/<slug>/
-  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles (--source <url-or-path> [--ref <ref>] to record upstream provenance for this batch)
+  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles (--source <url-or-path> [--ref <ref>] to record upstream provenance for this batch); challenges provable arrivals instead of silently adopting them (issue #92)
+  adopt --triage [path]   Sweep without acting: write adopt-manifest.md at the workspace root, one row per discovered skill (issue #92)
+  adopt --from-manifest [file]   Execute a triage manifest (default adopt-manifest.md at the workspace root) as individual acts (issue #92)
   list              List Skill Bundles by stage/substate (rebuilds the index first)
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
@@ -79,6 +81,8 @@ Options:
                     (receive) Free-text: where the crate came from; defaults to the given <path> when omitted
   --ref <ref>       (adopt) Ref/tag/pointer alongside --source; ignored without --source
                     (receive) Ref/tag/pointer alongside --source; optional
+  --triage          (adopt) Sweep and write adopt-manifest.md at the workspace root; acts on nothing (issue #92)
+  --from-manifest [file]  (adopt) Execute a triage manifest as individual acts; defaults to adopt-manifest.md at the workspace root (issue #92)
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
   --purpose <text>  (ship) Free-text reason the skill is shipping, e.g. "eval harness for team X"
   --version <hash>  (ship, report) Recorded version hash-prefix; ship defaults to the latest recorded version, report leaves it unset when omitted
@@ -175,6 +179,7 @@ const VALUE_FLAGS = new Set([
   "--parent",
   "--stage",
   "--from-intake",
+  "--from-manifest",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -244,6 +249,19 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "adopt": {
       const targetPath = positionalAfterCommand(argv);
+      if (hasFlag(argv, "--triage")) {
+        return yield* runAdoptTriage(cwd, targetPath, { json });
+      }
+      if (hasFlag(argv, "--from-manifest")) {
+        const rawManifestFile = flagValue(argv, "--from-manifest");
+        // `--from-manifest` takes an OPTIONAL file argument -- if the next
+        // token is itself another flag (or absent), there is no explicit
+        // file and `runAdoptFromManifest` falls back to its own default
+        // (`adopt-manifest.md` at the workspace root).
+        const manifestFile =
+          rawManifestFile !== undefined && !rawManifestFile.startsWith("-") ? rawManifestFile : undefined;
+        return yield* runAdoptFromManifest(cwd, manifestFile, { json });
+      }
       const source = flagValue(argv, "--source");
       const ref = flagValue(argv, "--ref");
       return yield* runAdopt(cwd, targetPath, { json, source, ref });

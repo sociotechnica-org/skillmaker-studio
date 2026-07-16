@@ -225,11 +225,11 @@ become a shelf); (2) the dispositions — `skill.routed` and the five
 exits; (3) the triage manifest and the adopt-side evidence tripwire;
 (4) the Unverified badge; (5) the dossier fields and their honest gaps.
 
-Verified: sequencing steps (1) and (2) are built. The dock itself (issue
-#90): `skill.received` lands in `Journal.ts` (intake ids, no `bundle`
-field); `Receive.ts` copies the crate to `receiving/<intake-id>/` (source
-untouched) and derives the return/new/conflict verdict at read time
-from a fresh content hash against the registry (`hashReceivedCrate`,
+Verified: sequencing steps (1), (2), and (3) are built. The dock itself
+(issue #90): `skill.received` lands in `Journal.ts` (intake ids, no
+`bundle` field); `Receive.ts` copies the crate to `receiving/<intake-id>/`
+(source untouched) and derives the return/new/conflict verdict at read
+time from a fresh content hash against the registry (`hashReceivedCrate`,
 `gatherIntakeRegistry`, `deriveIntakeVerdict` -- never stored);
 `skillmaker receive <path>` is the one door. The five dispositions
 (issue #91): `skill.routed { intake, disposition, bundle?, reason }`
@@ -253,8 +253,37 @@ button. Salvage's mining doors are additive extensions of the existing
 signal-side commands: `fixture harvest --from-intake <id>` and `todo
 add --from-intake <id>` stamp `{kind: "intake", ...}` provenance
 alongside the pre-existing `field-report` kind on `FixtureCase.source`/
-`Todo.origin`. Still unbuilt: the triage manifest and the adopt-side
-evidence tripwire (issue #92, in flight in parallel), the Unverified
-badge, the dossier fields, and context tags. This card records the
-Director's adopted design; the sequenced implementation issues are the
-source of truth for build status.
+`Todo.origin`.
+
+The triage manifest and the adopt-side evidence tripwire (issue #92):
+`Receive.ts` gained `classifyIntakeEvidence` (hash-match /
+name-collision / foreign-marker / bare, sharing `deriveIntakeVerdict`'s
+exact precedence via one `findRegistryMatch` helper, with the owning
+bundle attached) and `IntakeRegistry.hashOwners`. `Adopt.ts`'s
+`adoptWorkspace` gained an optional `registry` that turns the tripwire
+on: an evidence-bearing candidate is reported in a new `challenged`
+array instead of being adopted -- "these look like arrivals -- route via
+`skillmaker receive`, or re-run with `adopt --triage`," never a silent
+stamp. There is exactly ONE per-directory write path,
+`adoptDirectoryInPlace`, shared by all three doors that mint a
+`bundle.json`/marker pair: `adoptWorkspace`'s sweep, `Route.ts`'s
+`new`/`fork`, and the manifest's per-row execution. `Triage.ts` is the
+manifest's engine: `triageWorkspace` (the same read-only `walk` sweep,
+`workspaceRoot` kept separate from a swept subdirectory so evidence and
+row paths always anchor to the whole corpus), `renderManifest`/
+`parseManifest` (a tolerant markdown-table round-trip sharing
+`MarkdownTable.ts` with `RiskMap.ts`), and `executeManifest`/
+`executeManifestRow`, which dispatches each row to
+`adoptDirectoryInPlace` or `receiveCrate`, advances a `keep`+`mine`
+row's stage per its `maturity` (`bundle.stage_changed`, `override:
+true`, reason `"triage: working import"`), and mints an intake-origin
+todo for a non-empty `hurts` (`Todo.ts`'s `TodoOrigin.kind` is
+`"field-report" | "intake"`, shared with salvage's mining doors above).
+CLI surface: `skillmaker adopt --triage [path]` (writes
+`adopt-manifest.md` at the workspace root, acts on nothing) and
+`skillmaker adopt --from-manifest [file]` (executes it, one act per
+row, no silent truncation in the summary); plain `adopt` itself now
+runs the tripwire unconditionally. Still unbuilt: the Unverified badge,
+the dossier fields, and context tags. This card records the Director's
+adopted design; the sequenced implementation issues are the source of
+truth for build status.

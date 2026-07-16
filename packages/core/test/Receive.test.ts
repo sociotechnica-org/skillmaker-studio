@@ -8,6 +8,7 @@ import type { JournalEvent } from "../src/Journal.ts";
 import { SkillReceivedEvent, SkillRoutedEvent } from "../src/Journal.ts";
 import { layer as JournalLayer } from "../src/JournalService.ts";
 import {
+  classifyIntakeEvidence,
   deriveIntakeVerdict,
   hashReceivedCrate,
   listUndisposedIntake,
@@ -50,7 +51,7 @@ describe("newIntakeId", () => {
 describe("deriveIntakeVerdict", () => {
   const registry: IntakeRegistry = {
     bundles: [{ slug: "demo-skill", name: "Demo Skill" }],
-    recordedHashes: new Set(["sha256:matching"]),
+    hashOwners: new Map([["sha256:matching", "demo-skill"]]),
   };
 
   test("return: the computed hash matches a recorded version, regardless of claims", () => {
@@ -71,7 +72,7 @@ describe("deriveIntakeVerdict", () => {
 
   test("no-claims case: new with no claimedName at all -- never a distinct verdict, never an error", () => {
     expect(deriveIntakeVerdict("sha256:different", undefined, registry)).toBe("new");
-    const emptyRegistry: IntakeRegistry = { bundles: [], recordedHashes: new Set() };
+    const emptyRegistry: IntakeRegistry = { bundles: [], hashOwners: new Map() };
     expect(deriveIntakeVerdict("sha256:anything", undefined, emptyRegistry)).toBe("new");
   });
 });
@@ -85,6 +86,51 @@ const routedEvent = (intake: string, at: string, disposition: "return" | "new" |
     type: "skill.routed",
     payload: { intake, disposition, reason: "no overlap" },
   });
+
+describe("classifyIntakeEvidence: the adopt tripwire / triage manifest's registry evidence (issue #92)", () => {
+  const registry: IntakeRegistry = {
+    bundles: [{ slug: "demo-skill", name: "Demo Skill" }],
+    hashOwners: new Map([["sha256:matching", "demo-skill"]]),
+  };
+
+  test("hash-match wins over everything else, and names the owning bundle", () => {
+    expect(classifyIntakeEvidence("sha256:matching", "some other name", true, registry)).toEqual({
+      kind: "hash-match",
+      bundle: "demo-skill",
+    });
+  });
+
+  test("name-collision when the claimed name overlaps an existing bundle's slug/name with different content", () => {
+    expect(classifyIntakeEvidence("sha256:different", "Demo Skill", false, registry)).toEqual({
+      kind: "name-collision",
+      bundle: "demo-skill",
+    });
+    expect(classifyIntakeEvidence("sha256:different", "demo-skill", false, registry)).toEqual({
+      kind: "name-collision",
+      bundle: "demo-skill",
+    });
+  });
+
+  test("foreign-marker when nothing hash- or name-matches but a foreign adopt marker is present", () => {
+    expect(classifyIntakeEvidence("sha256:different", "totally-unrelated", true, registry)).toEqual({
+      kind: "foreign-marker",
+    });
+  });
+
+  test("bare when nothing overlaps and no marker is present", () => {
+    expect(classifyIntakeEvidence("sha256:different", "totally-unrelated", false, registry)).toEqual({
+      kind: "bare",
+    });
+    expect(classifyIntakeEvidence("sha256:different", undefined, false, registry)).toEqual({ kind: "bare" });
+  });
+
+  test("hash-match beats a simultaneous foreign marker", () => {
+    expect(classifyIntakeEvidence("sha256:matching", undefined, true, registry)).toEqual({
+      kind: "hash-match",
+      bundle: "demo-skill",
+    });
+  });
+});
 
 describe("listUndisposedIntake", () => {
   test("every received crate with no skill.routed pointing at it is undisposed", () => {
