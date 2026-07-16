@@ -46,6 +46,7 @@ import {
   computeDrift,
   foldSkillVersions,
   latestSkillVersion,
+  WORKSPACE_SCAN_SKIP_DIR_NAMES,
 } from "./Versions.ts";
 import type { BundleLayout, Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
@@ -271,8 +272,18 @@ interface BundleIdentityLocation {
   readonly upstream?: BundleUpstream;
 }
 
-/** Directory names never descended into while scanning for `bundle.json` (mirrors `Adopt.ts`'s discovery skip-list). */
-const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set(["node_modules", ".git", "dist", ".skillmaker"]);
+/**
+ * Directory names never descended into while scanning for `bundle.json` --
+ * shared with `Adopt.ts`'s discovery skip-list (`Versions.ts`'s
+ * `WORKSPACE_SCAN_SKIP_DIR_NAMES`), not an independent copy. `receiving`
+ * (issue #90, `Mechanism - Receiving Dock.md`) is skipped deliberately: a
+ * crate at the dock is undisposed by definition -- if it happens to still
+ * carry a `bundle.json` from wherever it came from (e.g. a returning
+ * bundle), this scan must never mint it into THIS workspace's catalog as a
+ * side effect. Identity is a human ruling (a disposition, #next), never a
+ * scan result.
+ */
+const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = WORKSPACE_SCAN_SKIP_DIR_NAMES;
 
 const BUNDLE_STAGES: ReadonlyArray<BundleStage> = [
   "idea",
@@ -756,6 +767,17 @@ export const layer = (
       // `studio.db` connection open, or a stale `dbExisted` read, at the
       // same time.
       yield* Effect.acquireRelease(acquireWorkspaceLock(workspaceRoot), (release) => Effect.sync(release));
+
+      // Self-sufficient: `new Database(dbPath, { create: true })` below
+      // creates the db FILE but not its parent directory -- bun:sqlite
+      // throws SQLITE_CANTOPEN if `dbDir` doesn't exist yet. `rebuild()`
+      // already re-creates `dbDir` before its own atomic rewrite (it can't
+      // assume this initial open succeeded first); doing it here too means
+      // a workspace whose very first `.skillmaker/` write is opening this
+      // layer (e.g. `receive`'s registry read, before any journal append
+      // has run) doesn't need its caller to know about this ordering gap
+      // and pre-create the directory itself.
+      yield* fs.makeDirectory(dbDir, { recursive: true }).pipe(Effect.mapError(toIndexError(`could not create ${dbDir}`)));
 
       const dbExisted = yield* fs
         .exists(dbPath)

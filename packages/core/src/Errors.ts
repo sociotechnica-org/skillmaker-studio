@@ -196,3 +196,33 @@ export class TodoFromReportBundleMismatchError extends Schema.TaggedErrorClass<T
     reportBundle: Schema.String,
   },
 ) {}
+
+/** `skillmaker receive <path>` named a path that doesn't exist (issue #90). */
+export class ReceivePathNotFoundError extends Schema.TaggedErrorClass<ReceivePathNotFoundError>()(
+  "ReceivePathNotFoundError",
+  {
+    path: Schema.String,
+  },
+) {}
+
+/** `skillmaker receive <path>` named a path that exists but isn't a directory -- a crate is a directory, not a loose file. */
+export class ReceivePathNotDirectoryError extends Schema.TaggedErrorClass<ReceivePathNotDirectoryError>()(
+  "ReceivePathNotDirectoryError",
+  {
+    path: Schema.String,
+  },
+) {}
+
+/**
+ * `skillmaker receive <path>` named a directory with no top-level SKILL.md.
+ * The dock takes skills (ruling, `Mechanism - Receiving Dock.md` §HOW):
+ * unlike `adopt`'s tolerant recursive sweep, a non-skill directory at
+ * `receive` is a hard error, never a warn-and-continue -- "facts are
+ * per-crate; no sweep."
+ */
+export class ReceiveNotASkillError extends Schema.TaggedErrorClass<ReceiveNotASkillError>()(
+  "ReceiveNotASkillError",
+  {
+    path: Schema.String,
+  },
+) {}

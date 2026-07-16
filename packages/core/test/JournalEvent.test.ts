@@ -132,6 +132,18 @@ const samples: ReadonlyArray<Record<string, unknown>> = [
     ...envelope("review.resolved"),
     payload: { bundle: "demo", state: "researching", decision: "approve" },
   },
+  {
+    ...envelope("skill.received"),
+    payload: {
+      intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      source: "acme-corp export",
+      ref: "main",
+      claimedName: "Frame the Problem",
+      claimedVersionHash: "sha256:aaa",
+      rights: "licensed",
+      notes: "arrived via a shared drive link",
+    },
+  },
 ];
 
 describe("JournalEvent schema round-trip", () => {
@@ -154,6 +166,24 @@ describe("JournalEvent schema round-trip", () => {
     };
     const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(sample));
     expect(decoded.type).toBe("skill.field_report");
+  });
+
+  test("skill.received decodes with every optional claim omitted (issue #90: no-claims is the honest default, not an error)", async () => {
+    const sample = {
+      ...envelope("skill.received"),
+      payload: { intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FAW", source: "unknown" },
+    };
+    const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(sample));
+    expect(decoded.type).toBe("skill.received");
+  });
+
+  test("skill.received rejects rights outside ours/licensed/unclear", async () => {
+    const bad = {
+      ...envelope("skill.received"),
+      payload: { intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FAX", source: "unknown", rights: "maybe" },
+    };
+    const outcome = await Effect.runPromiseExit(Schema.decodeUnknownEffect(JournalEvent)(bad));
+    expect(outcome._tag).toBe("Failure");
   });
 
   test("skill.field_report rejects an outcome outside worked/failed/surprise", async () => {

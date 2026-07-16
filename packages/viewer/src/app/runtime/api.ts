@@ -15,6 +15,7 @@ import {
   EventsResponse,
   FieldReportsResponse,
   HealthResponse,
+  IntakeResponse,
   PostEventResponse,
   PublishBundleResponse,
   RecordVersionResponse,
@@ -76,6 +77,9 @@ export const getSkillbook = (): Promise<SkillbookResponse> => fetchJson("/api/sk
 /** `GET /api/field-reports` -- the Receive page's workspace-wide field-report list (issue #67), newest first. */
 export const getFieldReports = (): Promise<FieldReportsResponse> =>
   fetchJson("/api/field-reports", FieldReportsResponse);
+
+/** `GET /api/intake` -- the Receive page's dock queue (issue #90), oldest first. */
+export const getIntake = (): Promise<IntakeResponse> => fetchJson("/api/intake", IntakeResponse);
 
 export interface PostEventInput {
   readonly type: string;

@@ -15,6 +15,7 @@ import { runList } from "./commands/List.ts";
 import { runMeasurements } from "./commands/Measurements.ts";
 import { runNew } from "./commands/New.ts";
 import { runPublish } from "./commands/Publish.ts";
+import { runReceive } from "./commands/Receive.ts";
 import { runReindex } from "./commands/Reindex.ts";
 import { runReport } from "./commands/Report.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
@@ -54,6 +55,7 @@ Commands:
   publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
   ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
   report <slug>           Record a field report on a shipped skill -- what the wild says back (§2.9, issue #67)
+  receive <path>          Receive an arriving skill crate at the dock: copy it to receiving/<intake-id>/ and record skill.received (§2.9, issue #90)
   book build              Render the Skillbook to a static site (§2.14)
   todo add <title>        Open a new todo (--from-report <event-id> to seed it from a skill.field_report, issue #81)
   todo list               List todos (rebuilds the index first)
@@ -71,13 +73,18 @@ Options:
   --decision <d>    (review resolve) approve | revise (required)
   --label <text>    (version record) Human tag for the recorded version, e.g. "v0.3"
   --source <s>      (adopt) URL or local path this batch was imported from; recorded on each adopted skill's marker
+                    (receive) Free-text: where the crate came from; defaults to the given <path> when omitted
   --ref <ref>       (adopt) Ref/tag/pointer alongside --source; ignored without --source
+                    (receive) Ref/tag/pointer alongside --source; optional
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
   --purpose <text>  (ship) Free-text reason the skill is shipping, e.g. "eval harness for team X"
   --version <hash>  (ship, report) Recorded version hash-prefix; ship defaults to the latest recorded version, report leaves it unset when omitted
   --outcome <o>     (report) worked | failed | surprise (required)
   --note <text>     (report) Free-text field report (required)
   --from <dest>     (report) Where the report came from, e.g. "acme-agent-fleet"; optional
+  --claimed-name <name>      (receive) The maker's claimed name for the arriving skill; optional
+  --claimed-version <v>      (receive) A label or hash the maker claims this version is; optional
+  --rights <r>      (receive) ours | licensed | unclear; optional, recorded never enforced
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
                     (ship) Destination the skill is shipping to, e.g. "acme-agent-fleet"
@@ -102,6 +109,7 @@ Options:
   --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
   --verdict <v>     (grade) pass | fail | partial (required)
   --notes <text>    (grade, review resolve) free-text notes
+                    (receive) Free-text notes about the arriving crate; optional
   -h, --help        Show this help
 
 Exit codes (run): 0 completed, 1 failed, 2 usage error, 3 infra-error
@@ -150,6 +158,9 @@ const VALUE_FLAGS = new Set([
   "--outcome",
   "--note",
   "--from",
+  "--claimed-name",
+  "--claimed-version",
+  "--rights",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -346,6 +357,24 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const version = flagValue(argv, "--version");
       const from = flagValue(argv, "--from");
       return yield* runReport(cwd, slug, { json, outcome, note, version, from });
+    }
+    case "receive": {
+      const targetPath = positionalAfterCommand(argv);
+      const source = flagValue(argv, "--source");
+      const ref = flagValue(argv, "--ref");
+      const claimedName = flagValue(argv, "--claimed-name");
+      const claimedVersion = flagValue(argv, "--claimed-version");
+      const rights = flagValue(argv, "--rights");
+      const notes = flagValue(argv, "--notes");
+      return yield* runReceive(cwd, targetPath, {
+        json,
+        source,
+        ref,
+        claimedName,
+        claimedVersion,
+        rights,
+        notes,
+      });
     }
     case "book": {
       const subcommand = argv[1];

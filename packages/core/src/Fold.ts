@@ -123,6 +123,12 @@ export const bundleForEvent = (event: JournalEvent): string | undefined => {
     case "run.graded":
     case "todo.status_changed":
       return undefined;
+    // `skill.received` (issue #90) carries `intake`, never `bundle` -- a
+    // crate has no identity yet. Explicitly listed (not left to the
+    // `default` below) so this stays a deliberate fact, not an oversight:
+    // the Activity feed renders it workspace-level, like nothing else does.
+    case "skill.received":
+      return undefined;
     default:
       return undefined;
   }

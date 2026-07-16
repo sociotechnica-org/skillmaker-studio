@@ -39,6 +39,28 @@ export const ADOPT_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
   "runs",
 ]);
 
+/**
+ * Directory names no full-workspace tree walk ever descends into: workspace
+ * plumbing (`.skillmaker`, `.git`, `node_modules`, `dist`) plus `receiving`
+ * (issue #90, `Mechanism - Receiving Dock.md`) -- a crate at the dock is
+ * undisposed by definition, and its content (which may itself carry a stray
+ * `SKILL.md`/`bundle.json` from wherever it came from) must never be picked
+ * up as a side effect of a scan that has nothing to do with the dock.
+ * `Adopt.ts`'s brownfield discovery walk and `IndexService.ts`'s
+ * `bundle.json` scan both walk the entire workspace root looking for
+ * different files, but "which directories are never workspace content" is
+ * one fact, not two -- both import this single set instead of maintaining
+ * independent copies that can drift out of sync (as `receiving` briefly did
+ * when it was added to only one of the two).
+ */
+export const WORKSPACE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  ".skillmaker",
+  "receiving",
+]);
+
 /** sha256 of one file's bytes, as `sha256:<hex>`. */
 export const hashFile = Effect.fn("Versions.hashFile")(function* (filePath: string) {
   const fs = yield* FileSystem;

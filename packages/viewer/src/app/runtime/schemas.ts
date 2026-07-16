@@ -530,6 +530,39 @@ export class FieldReportsResponse extends Schema.Class<FieldReportsResponse>("Fi
   reports: Schema.Array(FieldReportView),
 }) {}
 
+/** Mirrors `@skillmaker/core`'s `IntakeRights` (issue #90) -- recorded, never enforced. */
+export const IntakeRights = Schema.Literals(["ours", "licensed", "unclear"]);
+export type IntakeRights = typeof IntakeRights.Type;
+
+/** Mirrors `@skillmaker/core`'s `IntakeVerdict` (issue #90, `Mechanism - Receiving Dock.md` §HOW). */
+export const IntakeVerdict = Schema.Literals(["return", "new", "conflict"]);
+export type IntakeVerdict = typeof IntakeVerdict.Type;
+
+/**
+ * `GET /api/intake` -- the Receive tab's intake queue row (issue #90): one
+ * undisposed `skill.received` crate, its claims verbatim, and its dock
+ * verdict RECOMPUTED server-side on every request (derive, never store --
+ * this is never the same value written to the journal, because nothing is
+ * ever written there at all).
+ */
+export class IntakeCrateView extends Schema.Class<IntakeCrateView>("IntakeCrateView")({
+  intake: Schema.String,
+  source: Schema.String,
+  ref: Schema.NullOr(Schema.String),
+  claimedName: Schema.NullOr(Schema.String),
+  claimedVersionHash: Schema.NullOr(Schema.String),
+  rights: Schema.NullOr(IntakeRights),
+  notes: Schema.NullOr(Schema.String),
+  at: Schema.String,
+  actor: ActorView,
+  verdict: IntakeVerdict,
+}) {}
+
+/** `GET /api/intake` response -- oldest first, unpaginated (issue #90: "the dock must not become a shelf"). */
+export class IntakeResponse extends Schema.Class<IntakeResponse>("IntakeResponse")({
+  crates: Schema.Array(IntakeCrateView),
+}) {}
+
 /** One `publishTargets` entry (skillmaker.config.json) -- what the viewer's Publish step offers. */
 export class PublishTarget extends Schema.Class<PublishTarget>("PublishTarget")({
   id: Schema.String,

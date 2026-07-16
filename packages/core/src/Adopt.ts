@@ -26,12 +26,12 @@ import { FileSystem } from "effect/FileSystem";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
 import { WorkspaceIOError } from "./Errors.ts";
-import { ADOPT_MARKER_FILENAME } from "./Versions.ts";
+import { ADOPT_MARKER_FILENAME, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
-/** Directory names never descended into during discovery (§3B.1). */
-const SKIP_DIR_NAMES: ReadonlySet<string> = new Set(["node_modules", ".git", "dist", ".skillmaker"]);
+/** Directory names never descended into during discovery (§3B.1) -- shared with `IndexService.ts`'s bundle scan (`Versions.ts`'s `WORKSPACE_SCAN_SKIP_DIR_NAMES`), not an independent copy. */
+const SKIP_DIR_NAMES: ReadonlySet<string> = WORKSPACE_SCAN_SKIP_DIR_NAMES;
 
 /** Marker for a SKILL.md that is compiler output, not hand-authored (§3B.5b, gstack). */
 const GENERATED_MARKER_PATTERN = /AUTO-GENERATED/i;

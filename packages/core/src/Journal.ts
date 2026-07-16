@@ -209,6 +209,44 @@ export class SkillFieldReportEvent extends Schema.Class<SkillFieldReportEvent>(
   }),
 }) {}
 
+/** `ours` | `licensed` | `unclear` -- recorded, never enforced (Mechanism - Receiving Dock.md §WHAT). */
+export const IntakeRights = Schema.Literals(["ours", "licensed", "unclear"]);
+export type IntakeRights = typeof IntakeRights.Type;
+
+/**
+ * The dock's arrival fact (issue #90, `Mechanism - Receiving Dock.md` §HOW):
+ * "everything may enter; nothing may pretend." `intake` is `in-<ulid>` (the
+ * `Todo.ts` `td-<ulid>` id pattern) -- deliberately NOT `bundle`: a crate has
+ * no identity yet, that is the whole point of the dock existing before
+ * adoption. No `bundleForEvent` effect follows from that (`Fold.ts`): the
+ * Activity feed renders this event workspace-level, like nothing else does
+ * today. `claimedName`/`claimedVersionHash`/`rights`/`notes` are all
+ * optional testimony -- the maker's word, recorded and flagged, never
+ * enforced (house law, no gate anywhere). The dock verdict this event's
+ * comparison produces (`return`/`new`/`conflict`, `Receive.ts`) is
+ * deliberately NOT carried in this payload: it is derived at read time from
+ * the crate's live content hash and the registry as it stands *right now*,
+ * never stored, same house law `Versions.ts`'s drift hint follows.
+ */
+export class SkillReceivedEvent extends Schema.Class<SkillReceivedEvent>(
+  "SkillReceivedEvent",
+)({
+  ...envelopeFields,
+  type: Schema.Literal("skill.received"),
+  payload: Schema.Struct({
+    intake: Schema.String,
+    /** Free-text: where the crate came from (a maker, a repo, "unknown"). */
+    source: Schema.String,
+    ref: Schema.optionalKey(Schema.String),
+    /** The maker's claimed name for the skill -- testimony, checked against the registry's slugs/names at verdict time, never trusted outright. */
+    claimedName: Schema.optionalKey(Schema.String),
+    /** A label or hash the maker claims this version is -- testimony, recorded verbatim, never resolved/validated against a recorded version by this event itself. */
+    claimedVersionHash: Schema.optionalKey(Schema.String),
+    rights: Schema.optionalKey(IntakeRights),
+    notes: Schema.optionalKey(Schema.String),
+  }),
+}) {}
+
 // ---------------------------------------------------------------------------
 // todo.*
 // ---------------------------------------------------------------------------
@@ -371,6 +409,7 @@ export const JournalEvent = Schema.Union([
   SkillPublishedEvent,
   SkillShippedEvent,
   SkillFieldReportEvent,
+  SkillReceivedEvent,
   TodoOpenedEvent,
   TodoUpdatedEvent,
   TodoStatusChangedEvent,
