@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "focused-diff",
+  "class": "golden",
+  "risks": [
+    "RE-1"
+  ]
+}

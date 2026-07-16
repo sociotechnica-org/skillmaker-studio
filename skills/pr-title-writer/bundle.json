@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "pr-title-writer",
+  "name": "PR Title Writer",
+  "oneLiner": "",
+  "tags": [],
+  "created": "2026-07-14",
+  "targets": [
+    "claude-code"
+  ]
+}

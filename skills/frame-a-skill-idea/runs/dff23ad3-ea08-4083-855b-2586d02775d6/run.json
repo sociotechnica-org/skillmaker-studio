@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "dff23ad3-ea08-4083-855b-2586d02775d6",
+  "bundle": "frame-a-skill-idea",
+  "kind": "station",
+  "station": "researching",
+  "skillVersionHash": "",
+  "provider": "claude-code",
+  "model": "Opus 4.6 · Most capable for complex work",
+  "startedAt": "2026-07-14T21:53:58.935Z",
+  "endedAt": "2026-07-14T21:58:26.134Z",
+  "status": "completed",
+  "actor": {
+    "kind": "user",
+    "name": "danvers"
+  },
+  "isolation": "sandbox-home",
+  "skillInvoked": false
+}

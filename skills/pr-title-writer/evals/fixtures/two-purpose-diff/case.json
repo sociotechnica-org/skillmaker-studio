@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "two-purpose-diff",
+  "class": "hard-case",
+  "risks": [
+    "OUT-2"
+  ]
+}

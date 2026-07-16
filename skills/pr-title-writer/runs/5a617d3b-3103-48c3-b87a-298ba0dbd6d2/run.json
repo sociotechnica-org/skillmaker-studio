@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "5a617d3b-3103-48c3-b87a-298ba0dbd6d2",
+  "bundle": "pr-title-writer",
+  "kind": "station",
+  "station": "researching",
+  "skillVersionHash": "",
+  "provider": "claude-code",
+  "model": "Opus 4.6 · Most capable for complex work",
+  "startedAt": "2026-07-14T16:20:51.936Z",
+  "endedAt": "2026-07-14T16:24:54.889Z",
+  "status": "completed",
+  "actor": {
+    "kind": "user",
+    "name": "danvers"
+  },
+  "isolation": "sandbox-home",
+  "skillInvoked": true
+}

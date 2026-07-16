@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "frame-a-skill-idea",
+  "name": "Frame a Skill Idea",
+  "oneLiner": "Turns a raw skill idea into a researchable statement of intent — one clear job worth building.",
+  "tags": [],
+  "created": "2026-07-14",
+  "targets": [
+    "claude-code"
+  ]
+}

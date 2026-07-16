@@ -1,0 +1,9 @@
+Error handling request {
+  jsonrpc: '2.0',
+  id: 3,
+  method: 'session/prompt',
+  params: {
+    sessionId: 'e3ab2267-0dc4-4d14-9db6-ff3b0e904927',
+    prompt: [ [Object] ]
+  }
+} { code: -32000, message: 'Authentication required', data: undefined }

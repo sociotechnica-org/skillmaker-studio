@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "operate-researching",
+  "name": "Operate: Researching Stage",
+  "oneLiner": "",
+  "tags": [],
+  "created": "2026-07-14",
+  "targets": [
+    "claude-code"
+  ]
+}

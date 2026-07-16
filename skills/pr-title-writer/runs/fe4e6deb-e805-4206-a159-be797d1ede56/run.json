@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "fe4e6deb-e805-4206-a159-be797d1ede56",
+  "bundle": "pr-title-writer",
+  "kind": "station",
+  "station": "researching",
+  "skillVersionHash": "",
+  "provider": "claude-code",
+  "model": "",
+  "startedAt": "2026-07-14T16:17:50.187Z",
+  "endedAt": "2026-07-14T16:17:56.024Z",
+  "status": "infra-error",
+  "actor": {
+    "kind": "user",
+    "name": "danvers"
+  },
+  "isolation": "sandbox-home",
+  "skillInvoked": false
+}
