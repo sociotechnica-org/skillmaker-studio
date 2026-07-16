@@ -35,6 +35,7 @@ import {
   type TranscriptEntry,
 } from "./AcpClient.ts";
 import type { Actor } from "./Actor.ts";
+import { seedProviderAuth } from "./AuthSeeding.ts";
 import type { BundleStage } from "./Bundle.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { foldBundleStates } from "./Fold.ts";
@@ -506,6 +507,14 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
     const isolatedConfigDir = nodeJoin(sandboxDir, ".skillmaker-sandbox-config");
     mkdirSync(isolatedConfigDir, { recursive: true });
     const sessionEnv: Record<string, string> = { [providerProfile.configDirEnvVar]: isolatedConfigDir };
+
+    // Seed ONLY the provider's auth material into the isolated config dir, the
+    // same way RunEngine.ts does. Without this the freshly-emptied config dir
+    // also hides the operator's login, so every sandboxed station run fails
+    // with an opaque "Authentication required" (F4). Best-effort: a provider
+    // authenticated some other way (env-var API key, CI fake adapter) is never
+    // blocked by a failed seed.
+    seedProviderAuth(provider, isolatedConfigDir);
 
     input.onProgress?.({ type: "sandbox-ready" });
 

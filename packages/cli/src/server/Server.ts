@@ -9,26 +9,40 @@ import {
   checkTransition,
   computeBundleHashes,
   computeMeasurements,
+  deriveIntakeVerdict,
   detectBundleLayout,
   didSkillActivate,
   foldBundleStates,
   foldTodos,
+  gatherIntakeRegistry,
   guardStatus,
+  hashReceivedCrate,
+  isIdentityGrantingDisposition,
+  isTerminalStatus,
+  isUnverified,
   IndexService,
   IndexServiceLayer,
   Journal,
   JournalLayer,
   JournalEvent,
+  listUndisposedIntake,
+  parseDossier,
   publishBundle,
   runFixture,
   runStation,
+  scanFixtures,
+  Workspace,
+  WorkspaceLayer,
   type Actor,
   type BundleStage,
   type BundleRecord,
+  type DossierSections,
+  type FixtureCaseRecord,
   type FixtureRecord,
   type MeasurementRecord,
   type RiskCoverageRecord,
   type RunIndexRecord,
+  type Todo,
   type TodoRecord,
   type VersionRecord,
   type WarningRecord,
@@ -49,10 +63,14 @@ const HEARTBEAT_MS = 15_000;
  * The v1 event catalog (data-model.md §2.9) is much larger than this --
  * `POST /api/events` only ever accepts the subset a human/agent can
  * meaningfully cause from outside the CLI's own scaffolding commands.
- * Everything else (`bundle.created`, `skill.*`, `run.*`, `station.started`)
- * stays CLI/engine-only. `todo.*` joined the allowlist in Phase 5 -- the
- * viewer's todos panel writes directly through this path, same as bundle
- * stage/review actions.
+ * Everything else (`bundle.created`, `skill.version_recorded`/`published`/
+ * `shipped`, `run.*`, `station.started`) stays CLI/engine-only. `todo.*`
+ * joined the allowlist in Phase 5 -- the viewer's todos panel writes
+ * directly through this path, same as bundle stage/review actions.
+ * `skill.field_report` is the one `skill.*` exception (issue #67): unlike
+ * the rest of the `skill.*` family, a field report has no CLI-side
+ * computation to protect (no receipts snapshot, no version resolution
+ * required) -- it is deliberately "the manually pasted channel, verbatim."
  */
 const ALLOWED_API_EVENT_TYPES = new Set([
   "bundle.stage_changed",
@@ -68,12 +86,19 @@ const ALLOWED_API_EVENT_TYPES = new Set([
   // is a brand-new event (no idempotencyKey), latest wins at fold time
   // (data-model.md §2.9).
   "run.graded",
+  // Receive's paste form (issue #67) -- "the manually pasted channel,
+  // verbatim." No idempotencyKey, no guard: a field report never fails to
+  // append once its payload shape is valid.
+  "skill.field_report",
 ]);
 
 const MAX_BUNDLE_DETAIL_EVENTS = 20;
 
 const DEFAULT_EVENTS_PAGE_SIZE = 50;
 const MAX_EVENTS_PAGE_SIZE = 200;
+
+/** `GET /api/intake`'s "recently routed" tail (issue #91): a handful of the most recent dispositions, not the full history -- the dock's own attention queue (`crates`) is the point, this is just enough context that a disposed crate doesn't vanish without a trace. */
+const RECENTLY_ROUTED_LIMIT = 10;
 
 export interface StartServerOptions {
   readonly root: string;
@@ -204,6 +229,212 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
 };
 
 /**
+ * `GET /api/field-reports` -- Receive's workspace-wide field-report list
+ * (issue #67, `Vision - Board Lab Ship Receive.md` §HOW): "what is the world
+ * telling me about what I shipped." Reads the same full journal every other
+ * endpoint reads (`readJournalEvents`), filters to `skill.field_report`, and
+ * returns it newest-first, unpaginated -- a manually pasted channel is not
+ * expected to grow the way the whole journal does, so this deliberately
+ * skips `GET /api/events`'s cursor pagination for a small dedicated shape
+ * the Receive tab can render directly, no `EventView.payload: Unknown`
+ * decoding required.
+ *
+ * `fixtureCase` (issue #68) closes the loop back the other way: each
+ * reported bundle's fixtures are scanned directly (`Fixtures.ts`'s
+ * `scanFixtures`, the same tolerant scanner the index itself is built from)
+ * for a case whose `source.eventId` matches this report's event id --
+ * `fixture harvest`'s provenance stamp. `null` means unharvested. This
+ * deliberately does NOT go through `IndexService`: the viewer refetches this
+ * endpoint on every SSE journal event, and a full `rebuild()` (a second
+ * journal parse + rescan of every bundle in the workspace + a SQLite
+ * rewrite) is disproportionate for a read-only lookup over the handful of
+ * reported bundles' `case.json` files.
+ *
+ * `todo` (issue #81) is the same read-time join, the other side of the
+ * loop: `foldTodos` over the SAME `events` array already read above (no
+ * second journal read) finds the todo, if any, whose `origin.ref` equals
+ * this report's event id -- `todo add --from-report`'s provenance stamp.
+ * `null` means no todo has been opened from this report yet.
+ */
+const handleFieldReports = async (root: string, config: WorkspaceConfig): Promise<Response> => {
+  const events = await readJournalEvents(root);
+  const reportEvents = events.filter((event) => event.type === "skill.field_report");
+
+  const reportedBundles = [...new Set(reportEvents.map((event) => event.payload.bundle))];
+  const fixturesByBundle = await Effect.runPromise(
+    Effect.gen(function* () {
+      const byBundle = new Map<string, ReadonlyArray<FixtureCaseRecord>>();
+      for (const bundle of reportedBundles) {
+        const scanned = yield* scanFixtures(join(root, config.skillsDir, bundle));
+        byBundle.set(bundle, scanned.cases);
+      }
+      return byBundle;
+    }).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  const harvestedCase = (bundle: string, eventId: string): string | null => {
+    const fixtures = fixturesByBundle.get(bundle) ?? [];
+    const harvested = fixtures.find(
+      (fixture) => fixture.source?.kind === "field-report" && fixture.source.eventId === eventId,
+    );
+    return harvested?.caseName ?? null;
+  };
+
+  const todosByReportEventId = new Map<string, Todo>();
+  for (const todo of foldTodos(events).values()) {
+    if (todo.origin?.kind === "field-report") {
+      todosByReportEventId.set(todo.origin.ref, todo);
+    }
+  }
+  const linkedTodo = (eventId: string): { id: string; title: string; status: string } | null => {
+    const todo = todosByReportEventId.get(eventId);
+    return todo === undefined ? null : { id: todo.id, title: todo.title, status: todo.status };
+  };
+
+  const reports = reportEvents
+    .map((event) => ({
+      id: event.id,
+      bundle: event.payload.bundle,
+      outcome: event.payload.outcome,
+      report: event.payload.report,
+      versionHash: event.payload.versionHash ?? null,
+      destination: event.payload.destination ?? null,
+      at: event.at,
+      actor: event.actor,
+      fixtureCase: harvestedCase(event.payload.bundle, event.id),
+      todo: linkedTodo(event.id),
+    }))
+    .reverse();
+  return jsonResponse({ reports });
+};
+
+/**
+ * `GET /api/intake` -- the Receive tab's intake queue (issue #90,
+ * `Mechanism - Receiving Dock.md` §HOW): undisposed crates, oldest first --
+ * "the dock must not become a shelf: oldest-first IS the attention
+ * ordering." `readJournalEvents` already returns append order (oldest
+ * first), so `listUndisposedIntake`'s output needs no re-sort.
+ *
+ * Each crate's dock verdict is recomputed HERE, fresh, every request (house
+ * law: derive, never store) -- re-hashes `receiving/<intake-id>/` as it
+ * stands right now (`hashReceivedCrate`) and re-derives against the
+ * registry as it stands right now (`gatherIntakeRegistry` +
+ * `deriveIntakeVerdict`), the exact same three functions `skillmaker
+ * receive` calls at write time. A crate whose directory has since vanished
+ * still resolves cleanly (`hashOutputTree`'s well-defined empty-tree hash
+ * for a missing dir, `Versions.ts`), never a 500.
+ *
+ * `listUndisposedIntake` reads the real `skill.routed` event type (issue
+ * #91): a routed crate (any disposition, including `salvage` -- disposed is
+ * disposed) leaves this list for good.
+ *
+ * `recentlyRouted` (issue #91) is the OTHER half of "disposed crates leave
+ * the queue... or collapse into a recently routed tail": the last few
+ * `skill.routed` events, newest first, each joined back to its
+ * `skill.received`'s `claimedName` (from the SAME `events` array already
+ * read above -- no second journal read) so the tail reads as "crate ->
+ * disposition -> why," not a bare intake id.
+ *
+ * NOTE (issue #91, flagged not fixed): this handler still parses the
+ * journal twice per request -- `readJournalEvents` above, and
+ * `gatherIntakeRegistry`'s own `index.rebuild()` call reads it again
+ * internally (`IndexService.rebuild()` always calls `journal.readAll()`
+ * itself; it has no "here are events I already read" parameter). Cheaply
+ * consolidating to one read would mean threading pre-read events through
+ * `IndexService.rebuild()`'s signature, which is shared by every other
+ * index-reading endpoint in this file -- a bigger, riskier change than this
+ * issue's scope. Left as-is, noted rather than silently carried forward.
+ */
+const handleIntake = async (root: string): Promise<Response> => {
+  const events = await readJournalEvents(root);
+  const undisposed = listUndisposedIntake(events);
+
+  const routedTail = events.filter((event) => event.type === "skill.routed").slice(-RECENTLY_ROUTED_LIMIT).reverse();
+
+  // The tail's own Unverified badge (issue #93): only an identity-granting
+  // disposition (never `salvage`) naming a bundle is even a candidate --
+  // for those, the badge holds until that bundle's FIRST graded
+  // measurement ever, so this needs a measurement count per distinct
+  // bundle referenced. `receivedIdentity` is computed once per row here and
+  // reused below (both to gather candidate slugs and to derive the row's
+  // own `unverified`), rather than re-deriving it from the raw event twice.
+  // Gathered in the SAME `runIndexEffect` call as the dock registry below --
+  // one shared rebuild(), not a second one.
+  const routedRows = routedTail.map((event) => ({
+    event,
+    bundle: event.payload.bundle ?? null,
+    receivedIdentity:
+      event.payload.bundle !== undefined && isIdentityGrantingDisposition(event.payload.disposition),
+  }));
+  const badgeCandidateSlugs = new Set<string>();
+  for (const row of routedRows) {
+    if (row.receivedIdentity && row.bundle !== null) badgeCandidateSlugs.add(row.bundle);
+  }
+
+  const { registry, measurementCountByBundle } = await runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const registryResult = yield* gatherIntakeRegistry(events);
+      const index = yield* IndexService;
+      const counts = new Map<string, number>();
+      for (const slug of badgeCandidateSlugs) {
+        const measurements = yield* index.listMeasurements(slug);
+        counts.set(slug, measurements.length);
+      }
+      return { registry: registryResult, measurementCountByBundle: counts };
+    }),
+  );
+
+  const crates = await Promise.all(
+    undisposed.map(async (event) => {
+      const crateDir = join(root, "receiving", event.payload.intake);
+      const computedHash = await Effect.runPromise(
+        hashReceivedCrate(crateDir).pipe(Effect.provide(BunServices.layer)),
+      );
+      const verdict = deriveIntakeVerdict(computedHash, event.payload.claimedName, registry);
+      return {
+        intake: event.payload.intake,
+        source: event.payload.source,
+        ref: event.payload.ref ?? null,
+        claimedName: event.payload.claimedName ?? null,
+        claimedVersionHash: event.payload.claimedVersionHash ?? null,
+        rights: event.payload.rights ?? null,
+        notes: event.payload.notes ?? null,
+        at: event.at,
+        actor: event.actor,
+        verdict,
+      };
+    }),
+  );
+
+  const claimedNameByIntake = new Map<string, string | null>();
+  for (const event of events) {
+    if (event.type === "skill.received") {
+      claimedNameByIntake.set(event.payload.intake, event.payload.claimedName ?? null);
+    }
+  }
+  const recentlyRouted = routedRows.map(({ event, bundle, receivedIdentity }) => {
+    const measurementCount = bundle !== null ? measurementCountByBundle.get(bundle) ?? 0 : 0;
+    return {
+      intake: event.payload.intake,
+      disposition: event.payload.disposition,
+      bundle,
+      reason: event.payload.reason,
+      claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
+      at: event.at,
+      actor: event.actor,
+      // The Unverified badge on the tail (issue #93): holds while the
+      // bundle it landed on has zero graded measurements ever, at any
+      // version. `salvage` never qualifies (grants no identity, even when
+      // it names an existing bundle it defended).
+      unverified: isUnverified(receivedIdentity, measurementCount),
+    };
+  });
+
+  return jsonResponse({ crates, recentlyRouted });
+};
+
+/**
  * `GET /api/catalog` -- the Catalog page's skill-browser rows (Phase 17,
  * director ruling: the Catalog page survives as "what skills do we have,"
  * discovery at repo scale). One row per bundle: name/one-liner/tags/stage
@@ -218,6 +449,22 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
  * `runIndexEffect`) meant N bundles cost 1 + 3N full index rebuilds for one
  * `GET /api/catalog` -- 13 rebuilds for a 4-bundle workspace. Mirrors
  * `Skillbook.ts#buildSkillbook`, which already does this correctly.
+ *
+ * `openTodoCount` (issue #83, the Lab Bench mode's open-work signal per
+ * row): counts non-terminal (not `done`/`wont-do`) todos per `bundle`,
+ * never stored -- recomputed on every request, same as the rest of this
+ * handler's rows. `rebuild()` above already folds the journal's `todo.*`
+ * events into the index's `todos` table (the same `foldTodos` fold
+ * `handleFieldReports` runs over its own separately-read `events`), so this
+ * reads that table back via `listTodos()` instead of re-reading and
+ * re-folding the journal a second time in this handler.
+ *
+ * `unverified` (issue #93, the Unverified badge): `bundle.everReceived`
+ * (folded from `skill.routed` at THIS SAME `rebuild()`, `IndexService.ts`)
+ * combined with `measurements.length === 0` (already fetched two lines
+ * below for `measuredFixtureCount` -- the SAME unfiltered, any-version list,
+ * never re-queried) via core's `isUnverified`. No extra journal parse, no
+ * new endpoint.
  */
 const handleCatalog = async (root: string): Promise<Response> =>
   runIndexEffect(
@@ -226,6 +473,18 @@ const handleCatalog = async (root: string): Promise<Response> =>
       const index = yield* IndexService;
       yield* index.rebuild();
       const bundles = yield* index.listBundles();
+
+      // Default listTodos() (archived excluded) is exact here: a todo can
+      // only be archived once terminal (FoldTodos.ts's isArchived), and the
+      // loop below skips terminal todos anyway.
+      const allTodos = yield* index.listTodos();
+      const openTodoCountByBundle = new Map<string, number>();
+      for (const todo of allTodos) {
+        if (todo.bundle === undefined || isTerminalStatus(todo.status)) {
+          continue;
+        }
+        openTodoCountByBundle.set(todo.bundle, (openTodoCountByBundle.get(todo.bundle) ?? 0) + 1);
+      }
 
       const entries = [];
       for (const bundle of bundles) {
@@ -259,6 +518,13 @@ const handleCatalog = async (root: string): Promise<Response> =>
                 },
           fixtureCount: fixtures.length,
           measuredFixtureCount: measuredFixtureCases.size,
+          openTodoCount: openTodoCountByBundle.get(bundle.slug) ?? 0,
+          // The Unverified badge (issue #93): received + zero graded
+          // measurements EVER, at any version -- `measurements` above is
+          // already the bundle's FULL, unfiltered measurement list (no
+          // version scoping), and `bundle.everReceived` is already on the
+          // record from this SAME rebuild() -- no extra journal parse.
+          unverified: isUnverified(bundle.everReceived, measurements.length),
         });
       }
       return jsonResponse({ entries });
@@ -565,6 +831,23 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
     }),
   );
 
+/**
+ * Reads `dossier.md`'s CONTENT directly (issue #94), the same "don't pay for
+ * a full `rebuild()` for a single-bundle read" split `handleFieldReports`'
+ * own direct `scanFixtures` call already uses -- `loadBundleIndexDetail`'s
+ * `rebuild()` above already ran the dossier scanner too, but only for its
+ * WARNINGS (joined into `warnings` alongside fixtures/risk-map, same as
+ * `IndexService.rebuild`); the sections+gaps the detail page actually
+ * renders are a second, cheap, targeted read, never persisted.
+ */
+const loadDossierSections = (root: string, config: WorkspaceConfig, slug: string): Promise<DossierSections> =>
+  Effect.runPromise(
+    parseDossier(join(root, config.skillsDir, slug, "dossier.md")).pipe(
+      Effect.provide(BunServices.layer),
+      Effect.map((result) => result.sections),
+    ),
+  );
+
 const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
   const detail = await loadBundleIndexDetail(root, slug);
   if (detail.kind === "not_found") {
@@ -579,6 +862,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   const recentEvents = bundleEvents.slice(-MAX_BUNDLE_DETAIL_EVENTS).reverse();
 
   const station = readCurrentStageStation(root, config, slug, bundle.stage);
+  const dossier = await loadDossierSections(root, config, slug);
 
   return jsonResponse({
     bundle,
@@ -590,7 +874,13 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     warnings,
     runs,
     measurements,
+    // The Unverified badge (issue #93): same derivation, same inputs as
+    // `handleCatalog` -- `bundle.everReceived` (from THIS SAME rebuild) and
+    // `measurements.length` (already fetched above, unfiltered/any-version).
+    unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
+    dossier,
+    files: listReviewableBundleFiles(root, config, slug),
   });
 };
 
@@ -662,6 +952,81 @@ const handleRecordVersion = async (
   }
 };
 
+interface CreateBundleRequestBody {
+  readonly slug?: unknown;
+  readonly name?: unknown;
+}
+
+/**
+ * `POST /api/bundles` -- the board's "+ New bundle" affordance (the idea
+ * column's create form). Scaffolds a Skill Bundle via the SAME
+ * `Workspace.createBundle` the CLI's `skillmaker new` calls, then journals
+ * `bundle.created` with the same idempotency key -- rather than widening the
+ * generic `POST /api/events` allowlist, which stays closed to `bundle.created`
+ * (a bundle is born from scaffolding + an event, not an event alone). Slug
+ * validation and "already exists" match the CLI path exactly.
+ */
+const handleCreateBundle = async (root: string, request: Request): Promise<Response> => {
+  let body: CreateBundleRequestBody = {};
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    try {
+      body = JSON.parse(rawText) as CreateBundleRequestBody;
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+  }
+  if (typeof body.slug !== "string" || body.slug.length === 0) {
+    return jsonResponse({ error: "slug is required" }, 400);
+  }
+  if (body.name !== undefined && typeof body.name !== "string") {
+    return jsonResponse({ error: "name must be a string" }, 400);
+  }
+  const slug = body.slug;
+  const name = body.name;
+
+  try {
+    const created = await Effect.runPromise(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        return yield* workspace.createBundle(root, name !== undefined ? { slug, name } : { slug });
+      }).pipe(
+        Effect.catchTag("InvalidSlugError", () => Effect.succeed({ status: "invalid_slug" as const })),
+        Effect.provide(Layer.provide(WorkspaceLayer, BunServices.layer)),
+      ),
+    );
+
+    if (created.status === "invalid_slug") {
+      return jsonResponse(
+        { status: "invalid_slug", slug, error: `"${slug}" is not a valid slug (expected lowercase words joined by hyphens)` },
+        400,
+      );
+    }
+
+    if (created.status === "already_exists") {
+      return jsonResponse({ status: "already_exists", slug });
+    }
+
+    // Fresh scaffold -- journal its creation, exactly as New.ts does.
+    const actor = await Effect.runPromise(resolveUserActor());
+    await runJournalEffect(
+      root,
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+        yield* journal.append({
+          type: "bundle.created",
+          actor,
+          idempotencyKey: `bundle.created:${slug}`,
+          payload: { bundle: slug },
+        });
+      }),
+    );
+    return jsonResponse({ status: "created", slug }, 201);
+  } catch (cause) {
+    return jsonResponse({ error: `could not create bundle: ${String(cause)}` }, 500);
+  }
+};
+
 /** `runs/<runId>/artifacts/<nonempty>` -- Phase 9's run-detail artifact viewer. */
 const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 
@@ -669,10 +1034,19 @@ const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 const RUN_RESPONSE_PATH = /^runs\/[^/]+\/response\.md$/;
 
 /**
- * Only `design.md`, a non-empty path under `output/`, a run's `artifacts/`
- * contents, or a run's `response.md` may be read back over HTTP
+ * The bundle's reviewable subdirectories, in pipeline order -- the single
+ * source of truth shared by the file-read allowlist below and
+ * `listReviewableBundleFiles`'s enumeration, so the two stay in sync by
+ * construction rather than by hand.
+ */
+const REVIEWABLE_SUBDIRS = ["research", "output"] as const;
+
+/**
+ * Only `design.md`, a non-empty path under `research/` or `output/`, a run's
+ * `artifacts/` contents, or a run's `response.md` may be read back over HTTP
  * (data-model.md §2.12 -- artifacts listed/viewable on the run-detail
- * panel).
+ * panel). `research/` is included so the researching-station review gate can
+ * actually show the reviewer the `research/notes.md` it asks them to approve.
  */
 const isAllowedBundleFilePath = (relativePath: string): boolean => {
   // No relative segments, period: `runs/<id>/artifacts/../../<id>/run.json`
@@ -684,15 +1058,16 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
   if (relativePath === "design.md") {
     return true;
   }
-  if (relativePath.startsWith("output/") && relativePath.length > "output/".length) {
+  if (REVIEWABLE_SUBDIRS.some((sub) => relativePath.startsWith(`${sub}/`) && relativePath.length > sub.length + 1)) {
     return true;
   }
   return RUN_ARTIFACT_PATH.test(relativePath) || RUN_RESPONSE_PATH.test(relativePath);
 };
 
 /**
- * `GET /api/bundles/:slug/file?path=design.md|output/...` -- the viewer's
- * read-only Files tab. A strict allowlist (design.md, or under output/) plus
+ * `GET /api/bundles/:slug/file?path=design.md|research/...|output/...` -- the
+ * viewer's read-only Files tab. A strict allowlist (design.md, or under
+ * research/ or output/) plus
  * a resolved-path containment check guards against traversal (`../..`,
  * absolute paths, symlink escapes); anything outside the allowlist or off
  * the bundle directory 404s rather than erroring, so it never leaks whether
@@ -735,6 +1110,27 @@ const listFilesRecursive = (dir: string, relPrefix = ""): ReadonlyArray<string> 
     } else if (info.isFile()) {
       out.push(rel);
     }
+  }
+  return out;
+};
+
+/**
+ * The bundle's reviewable source files for the viewer's Files tab -- exactly
+ * the file-endpoint-servable subtree a reviewer should read: `design.md`, then
+ * everything under `research/` and `output/`. Scaffolding dotfiles (`.gitkeep`)
+ * are dropped; run transcripts/artifacts are deliberately excluded (those
+ * belong to the run-detail panel). Ordered design → research → output so the
+ * dropdown reads like the production pipeline.
+ */
+const listReviewableBundleFiles = (root: string, config: WorkspaceConfig, slug: string): ReadonlyArray<string> => {
+  const bundleDir = resolvePath(join(root, config.skillsDir, slug));
+  const noDotSegment = (rel: string): boolean => !rel.split("/").some((segment) => segment.startsWith("."));
+  const out: string[] = [];
+  if (existsSync(join(bundleDir, "design.md"))) {
+    out.push("design.md");
+  }
+  for (const sub of REVIEWABLE_SUBDIRS) {
+    out.push(...listFilesRecursive(join(bundleDir, sub), sub).filter(noDotSegment));
   }
   return out;
 };
@@ -1239,6 +1635,9 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       }
 
       if (pathname === "/api/bundles") {
+        if (request.method === "POST") {
+          return handleCreateBundle(root, request);
+        }
         try {
           const bundles = await listBundleRecords(root);
           const fixtureCounts = await listFixtureCounts(root);
@@ -1257,6 +1656,22 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return await handleListEvents(root, url);
         } catch (cause) {
           return jsonResponse({ error: `could not list events: ${String(cause)}` }, 500);
+        }
+      }
+
+      if (pathname === "/api/field-reports") {
+        try {
+          return await handleFieldReports(root, config);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list field reports: ${String(cause)}` }, 500);
+        }
+      }
+
+      if (pathname === "/api/intake") {
+        try {
+          return await handleIntake(root);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list intake: ${String(cause)}` }, 500);
         }
       }
 

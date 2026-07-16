@@ -71,17 +71,24 @@ export {
 } from "./Measurements.ts";
 export {
   scanFixtures,
+  writeFixtureScaffold,
   FIXTURE_CLASSES,
   FixtureClass,
+  isFixtureClass,
   RISK_FAMILIES,
   riskFamily,
   isKnownRiskFamily,
   FixtureCase,
   FixtureSetup,
   FixtureGrading,
+  FixtureSource,
+  FixtureSourceFieldReport,
+  FixtureSourceIntake,
   type RiskFamily,
+  type FixtureSourceRecord,
   type FixtureCaseRecord,
   type ScanFixturesResult,
+  type FixtureScaffoldInput,
 } from "./Fixtures.ts";
 export {
   parseRiskMap,
@@ -93,6 +100,16 @@ export {
   type ParseRiskMapResult,
 } from "./RiskMap.ts";
 export {
+  parseDossier,
+  writeDossierScaffold,
+  DOSSIER_SECTIONS,
+  type DossierSectionName,
+  type DossierContext,
+  type DossierUnknownSection,
+  type DossierSections,
+  type ParseDossierResult,
+} from "./Dossier.ts";
+export {
   hashFile,
   hashOutputTree,
   hashDesign,
@@ -101,6 +118,7 @@ export {
   detectBundleLayout,
   foldSkillVersions,
   latestSkillVersion,
+  resolveSkillVersion,
   shortHash,
   versionLabel,
   recordSkillVersion,
@@ -115,17 +133,22 @@ export {
 } from "./Versions.ts";
 export {
   adoptWorkspace,
+  adoptDirectoryInPlace,
   parseFrontmatter,
   AdoptMarker,
   AdoptUpstream,
   type AdoptedSkill,
   type AdoptWorkspaceOptions,
   type SkippedSkill,
+  type ChallengedSkill,
   type AdoptReport,
   type Frontmatter,
   type FrontmatterValue,
   type ParsedFrontmatter,
   type SkillLifecycle,
+  type AdoptDirectoryInput,
+  type AdoptDirectoryResult,
+  type AdoptDirectoryUpstream,
 } from "./Adopt.ts";
 export { didSkillActivate } from "./SkillActivation.ts";
 export { extractResponseText, responseMarkdown } from "./RunResponse.ts";
@@ -201,3 +224,85 @@ export {
   type PublishBundleResult,
   type PublishBundleInput,
 } from "./Publish.ts";
+export { shipBundle, type ShipBundleInput, type ShipBundleResult } from "./Ship.ts";
+export {
+  recordFieldReport,
+  type RecordFieldReportInput,
+  type RecordFieldReportResult,
+} from "./FieldReport.ts";
+export {
+  harvestFixture,
+  harvestFixtureFromIntake,
+  type HarvestFixtureInput,
+  type HarvestFixtureResult,
+  type HarvestFixtureFromIntakeInput,
+  type HarvestFixtureFromIntakeResult,
+} from "./Harvest.ts";
+export {
+  openTodoFromReport,
+  openTodoFromIntake,
+  TODO_KIND_BY_OUTCOME,
+  type OpenTodoFromReportInput,
+  type OpenTodoFromReportResult,
+  type OpenTodoFromIntakeInput,
+  type OpenTodoFromIntakeResult,
+} from "./TodoFromReport.ts";
+export {
+  receiveCrate,
+  newIntakeId,
+  hashReceivedCrate,
+  gatherIntakeRegistry,
+  deriveIntakeVerdict,
+  classifyIntakeEvidence,
+  listUndisposedIntake,
+  type IntakeVerdict,
+  type IntakeEvidence,
+  type IntakeRegistry,
+  type IntakeRegistryBundle,
+  type ReceiveCrateInput,
+  type ReceiveCrateResult,
+} from "./Receive.ts";
+export {
+  routeCrate,
+  DISPOSITIONS,
+  isRouteDisposition,
+  type RouteCrateInput,
+  type RouteCrateResult,
+} from "./Route.ts";
+export {
+  triageWorkspace,
+  renderManifest,
+  parseManifest,
+  executeManifest,
+  executeManifestRow,
+  defaultWhoseFor,
+  isTriageDecision,
+  isTriageWhose,
+  isTriageStakes,
+  isTriageMaturity,
+  TRIAGE_DECISIONS,
+  TRIAGE_WHOSE_VALUES,
+  TRIAGE_STAKES_VALUES,
+  TRIAGE_MATURITY_VALUES,
+  MATURITY_ENTRY_STAGE,
+  TRIAGE_STAGE_MOVE_REASON,
+  type TriageDecision,
+  type TriageWhose,
+  type TriageStakes,
+  type TriageMaturity,
+  type TriageRow,
+  type TriageSkippedRow,
+  type TriageWorkspaceResult,
+  type MechanicalCondition,
+  type ParseManifestResult,
+  type ExecuteRowOutcome,
+  type ExecuteManifestRowResult,
+  type ExecuteManifestSummary,
+  type ExecuteManifestOptions,
+} from "./Triage.ts";
+export {
+  IDENTITY_GRANTING_DISPOSITIONS,
+  isIdentityGrantingDisposition,
+  foldEverReceivedBundles,
+  isUnverified,
+} from "./Verification.ts";

@@ -4,9 +4,13 @@
  * PROMPT.MD CHANGE (director-ruled deviation from data-model.md §2.5): the
  * eval task prompt lives in a sibling `prompt.md` file (prose), NOT in
  * `case.json`'s `prompt` field. `case.json` keeps: schemaVersion, case,
- * class, risks[], setup? {files?, env?}, grading? {answerKey?, checks?[]}. A
- * `case.json` with a legacy `prompt` string field produces a warning
- * suggesting `prompt.md`, never a hard failure (Part 3 ruling I).
+ * class, risks[], setup? {files?, env?}, grading? {answerKey?, checks?[]},
+ * source? {kind, eventId, destination?}. A `case.json` with a legacy `prompt`
+ * string field produces a warning suggesting `prompt.md`, never a hard
+ * failure (Part 3 ruling I). `source` (issue #68) is optional provenance
+ * `fixture harvest` stamps on a fixture pulled from a field report -- absent
+ * on every hand-scaffolded (`fixture add`) case, so every pre-existing
+ * `case.json` keeps validating unchanged.
  *
  * `scanFixtures` is deliberately NOT a strict `Schema.decodeUnknownEffect`
  * over `FixtureCase` the way `IndexService.scanBundleIdentities` decodes
@@ -39,6 +43,10 @@ export const FIXTURE_CLASSES = ["golden", "refusal", "empty", "rerun", "hard-cas
 export const FixtureClass = Schema.Literals(FIXTURE_CLASSES);
 export type FixtureClass = typeof FixtureClass.Type;
 
+/** Type guard for `class` values arriving as raw strings (CLI `--class`, scanned `case.json`). */
+export const isFixtureClass = (value: string): value is FixtureClass =>
+  (FIXTURE_CLASSES as ReadonlyArray<string>).includes(value);
+
 /** The five inherited risk families a risk id must band into (data-model.md §2.6). */
 export const RISK_FAMILIES = ["IN", "RE", "OUT", "ADV", "CHN"] as const;
 export type RiskFamily = (typeof RISK_FAMILIES)[number];
@@ -66,6 +74,75 @@ export class FixtureGrading extends Schema.Class<FixtureGrading>("FixtureGrading
 }) {}
 
 /**
+ * `case.json`'s optional provenance (issue #68, `fixture harvest`): which
+ * `skill.field_report` event this fixture was harvested from. Optional at
+ * every level so every `case.json` written before harvest existed still
+ * validates.
+ */
+export class FixtureSourceFieldReport extends Schema.Class<FixtureSourceFieldReport>(
+  "FixtureSourceFieldReport",
+)({
+  kind: Schema.Literal("field-report"),
+  /** The harvested `skill.field_report` event's id. */
+  eventId: Schema.String,
+  /** The report's `destination`, when the reporter gave one. */
+  destination: Schema.optionalKey(Schema.String),
+}) {}
+
+/**
+ * `case.json`'s other provenance kind (issue #91, `Mechanism - Receiving
+ * Dock.md`): a fixture mined from a salvaged crate at the dock --
+ * "salvage: no identity granted; diffs are mined into fixtures... the crate
+ * stays at the dock, un-accessioned, retained as evidence." References the
+ * `skill.received` event's `intake` id (an `in-<uuid>`), not a bundle -- the
+ * crate never got one.
+ */
+export class FixtureSourceIntake extends Schema.Class<FixtureSourceIntake>("FixtureSourceIntake")({
+  kind: Schema.Literal("intake"),
+  /** The `skill.received` event's `intake` id the fixture was harvested from. */
+  intake: Schema.String,
+}) {}
+
+/**
+ * `case.json`'s optional provenance (issue #68's `field-report`, issue
+ * #91's `intake`): a discriminated union, not a single shape with an
+ * optional/generic ref field, because the two kinds key on genuinely
+ * different things (a journal event id vs. an intake id) -- `field-report`'s
+ * existing `eventId` field name is load-bearing (already-committed
+ * `case.json` files use it) and stays untouched; `intake` is purely
+ * additive.
+ */
+export const FixtureSource = Schema.Union([FixtureSourceFieldReport, FixtureSourceIntake]);
+export type FixtureSource = typeof FixtureSource.Type;
+
+/**
+ * `case.json`'s optional `context` tag (issue #94, `Mechanism - Receiving
+ * Dock.md`'s "jobs singular, contexts plural" ruling): a plain string
+ * naming which of the bundle's `dossier.md` `## Contexts` entries this case
+ * exercises, so a future coverage lens can read per-context (this issue
+ * adds only the field + scanner tolerance, not that lens). Deliberately NOT
+ * a closed enum cross-checked against the dossier's own context names --
+ * the dossier is free prose a maker edits by hand, so any cross-reference
+ * would be exactly the kind of "unbanded" mismatch `RiskMap.ts`'s coverage
+ * cross-check already tolerates as a warning, not something worth
+ * inventing here a second time. Tolerant like `source`: present-but-not-a-
+ * string is a warning, absent is silently fine (every `case.json` written
+ * before this field existed keeps validating unchanged).
+ */
+export type FixtureContext = string;
+
+/**
+ * The plain-object form of `FixtureSource` -- the ONE shape every record
+ * carrying fixture provenance references (`FixtureCaseRecord`,
+ * `FixtureScaffoldInput`, `IndexService`'s `FixtureRecord`, harvest's
+ * result), so a future provenance kind lands in one place instead of
+ * structurally-compatible hand copies that can silently drift.
+ */
+export type FixtureSourceRecord =
+  | { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string }
+  | { readonly kind: "intake"; readonly intake: string };
+
+/**
  * The documented `case.json` shape (data-model.md §2.5, PROMPT.MD CHANGE).
  * `prompt` is a legacy field, kept here ONLY so a strict decode can still
  * recognize and report it -- the current model has no `prompt` field, the
@@ -82,6 +159,10 @@ export class FixtureCase extends Schema.Class<FixtureCase>("FixtureCase")({
   grading: Schema.optionalKey(FixtureGrading),
   /** Legacy scaffold-era field; tolerated, never required. */
   prompt: Schema.optionalKey(Schema.String),
+  /** Set by `fixture harvest`; absent on every hand-scaffolded (`fixture add`) case. */
+  source: Schema.optionalKey(FixtureSource),
+  /** Names a `dossier.md` `## Contexts` entry this case exercises (issue #94); absent on every case written before this field existed. */
+  context: Schema.optionalKey(Schema.String),
 }) {}
 
 /** One scanned fixture case, tolerant of defects (data-model.md §2.11's `fixtures` table). */
@@ -92,6 +173,10 @@ export interface FixtureCaseRecord {
   readonly risks: ReadonlyArray<string>;
   /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE); the "prompt.md indicator" the Evals tab shows per fixture. */
   readonly hasPromptMd: boolean;
+  /** Present only for a harvested fixture (issue #68); absent for a hand-scaffolded one. */
+  readonly source?: FixtureSourceRecord;
+  /** Names a `dossier.md` context this case exercises (issue #94); absent on every fixture written before this field existed -- tolerant, like `source`. */
+  readonly context?: FixtureContext;
 }
 
 export interface ScanFixturesResult {
@@ -126,7 +211,10 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
     .readDirectory(fixturesDir)
     .pipe(Effect.mapError(toIOError(`could not list ${fixturesDir}`)));
 
-  for (const entry of entries) {
+  // Raw readdir order is OS-dependent (ext4 hash order vs APFS alphabetical);
+  // consumers rely on scan order being stable -- e.g. the server attributes a
+  // field report to the FIRST fixture whose source.eventId matches.
+  for (const entry of entries.slice().sort()) {
     const caseDir = join(fixturesDir, entry);
     const info = yield* fs.stat(caseDir).pipe(Effect.mapError(toIOError(`could not stat ${caseDir}`)));
     if (info.type !== "Directory") {
@@ -199,6 +287,44 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       );
     }
 
+    // `source` (issue #68's `field-report`, issue #91's `intake`):
+    // tolerantly read, same as every other field here -- a valid shape for
+    // either kind is captured silently (no warning, it's expected on a
+    // harvested fixture), a present-but-malformed shape is reported and
+    // dropped, and an absent `source` (every hand-scaffolded fixture) is
+    // silently fine.
+    const sourceRaw = parsed.source;
+    let source: FixtureCaseRecord["source"];
+    if (sourceRaw !== undefined) {
+      if (isRecord(sourceRaw) && sourceRaw.kind === "field-report" && typeof sourceRaw.eventId === "string") {
+        source = {
+          kind: "field-report",
+          eventId: sourceRaw.eventId,
+          ...(typeof sourceRaw.destination === "string" ? { destination: sourceRaw.destination } : {}),
+        };
+      } else if (isRecord(sourceRaw) && sourceRaw.kind === "intake" && typeof sourceRaw.intake === "string") {
+        source = { kind: "intake", intake: sourceRaw.intake };
+      } else {
+        warnings.push(
+          `evals/fixtures/${entry}/case.json has a malformed "source" field (expected {kind: "field-report", eventId: string} or {kind: "intake", intake: string})`,
+        );
+      }
+    }
+
+    // `context` (issue #94's "jobs singular, contexts plural" ruling):
+    // tolerant like `source` -- present-but-not-a-string is a warning and
+    // the field is dropped, absent is silently fine (every case.json
+    // written before this field existed).
+    const contextRaw = parsed.context;
+    let context: FixtureCaseRecord["context"];
+    if (contextRaw !== undefined) {
+      if (typeof contextRaw === "string") {
+        context = contextRaw;
+      } else {
+        warnings.push(`evals/fixtures/${entry}/case.json has a malformed "context" field (expected a string)`);
+      }
+    }
+
     const promptMdPath = join(caseDir, "prompt.md");
     const promptMdExists = yield* fs
       .exists(promptMdPath)
@@ -220,8 +346,92 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       }
     }
 
-    cases.push({ caseName, class: klass ?? "unknown", risks, hasPromptMd: promptMdExists });
+    cases.push({
+      caseName,
+      class: klass ?? "unknown",
+      risks,
+      hasPromptMd: promptMdExists,
+      ...(source !== undefined ? { source } : {}),
+      ...(context !== undefined ? { context } : {}),
+    });
   }
 
   return { cases, warnings };
+});
+
+const promptSkeleton = (caseName: string): string =>
+  `<!-- The eval task prompt for "${caseName}" (prose, sent to the agent as-is). -->
+`;
+
+const answerKeySkeleton = (caseName: string): string =>
+  `# Answer key — ${caseName}
+
+<!-- Grading-only: never enters the agent's workspace [inherited]. -->
+`;
+
+export interface FixtureScaffoldInput {
+  /** `<bundleDir>/evals/fixtures/<case>`. */
+  readonly caseDir: string;
+  /** Equals the directory name (`case.json`'s `case` field). */
+  readonly caseName: string;
+  readonly class: FixtureClass;
+  readonly risks: ReadonlyArray<string>;
+  /** Seeds `prompt.md` verbatim instead of the empty-task-prompt skeleton comment (`fixture harvest`, issue #68: seeded from a field report's `report` text). */
+  readonly promptText?: string;
+  /** Provenance to stamp onto `case.json` (`fixture harvest`, issue #68); absent for a hand-scaffolded `fixture add` case. */
+  readonly source?: FixtureSourceRecord;
+  /** Names a `dossier.md` context this case exercises (issue #94); optional on every scaffolder. */
+  readonly context?: FixtureContext;
+}
+
+/**
+ * Writes one `evals/fixtures/<case>/` directory: `case.json`, `prompt.md`
+ * (the PROMPT.MD CHANGE), `files/.gitkeep`, `expected/answer-key.md`
+ * skeleton -- the scaffolding both `fixture add` (`FixtureAdd.ts`) and
+ * `fixture harvest` (`Harvest.ts`, issue #68) write, factored out here so
+ * harvesting isn't a copy-paste of add's file-writing. Does not check
+ * whether `caseDir` already exists -- callers guard that themselves (`fixture
+ * add`'s "already exists" check, `fixture harvest`'s `HarvestCaseExistsError`)
+ * since what to do about a collision differs (a usage error vs. a tagged
+ * domain error). Fixtures are files, not events -- writes here never touch
+ * the journal.
+ */
+export const writeFixtureScaffold = Effect.fn("Fixtures.writeFixtureScaffold")(function* (
+  input: FixtureScaffoldInput,
+) {
+  const fs = yield* FileSystem;
+
+  yield* fs
+    .makeDirectory(join(input.caseDir, "files"), { recursive: true })
+    .pipe(Effect.mapError(toIOError(`could not create ${join(input.caseDir, "files")}`)));
+  yield* fs
+    .makeDirectory(join(input.caseDir, "expected"), { recursive: true })
+    .pipe(Effect.mapError(toIOError(`could not create ${join(input.caseDir, "expected")}`)));
+
+  yield* fs
+    .writeFileString(
+      join(input.caseDir, "case.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          case: input.caseName,
+          class: input.class,
+          risks: input.risks,
+          ...(input.source !== undefined ? { source: input.source } : {}),
+          ...(input.context !== undefined ? { context: input.context } : {}),
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "case.json")}`)));
+  yield* fs
+    .writeFileString(join(input.caseDir, "prompt.md"), input.promptText ?? promptSkeleton(input.caseName))
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "prompt.md")}`)));
+  yield* fs
+    .writeFileString(join(input.caseDir, "files", ".gitkeep"), "")
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "files", ".gitkeep")}`)));
+  yield* fs
+    .writeFileString(join(input.caseDir, "expected", "answer-key.md"), answerKeySkeleton(input.caseName))
+    .pipe(Effect.mapError(toIOError(`could not write ${join(input.caseDir, "expected", "answer-key.md")}`)));
 });

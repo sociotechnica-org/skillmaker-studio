@@ -46,6 +46,8 @@ export class BundleRecord extends Schema.Class<BundleRecord>("BundleRecord")({
   designHash: Schema.String,
   outputHash: Schema.String,
   drift: Drift,
+  /** The `at` of the bundle's last stage change, or of its creation if it's never moved (issue #82). Absent for old wire clients/journals -- tolerant decode. */
+  stageChangedAt: Schema.optionalKey(Schema.String),
 }) {}
 
 /** One recorded `skill.version_recorded` event (data-model.md §2.7, §2.11). */
@@ -160,6 +162,34 @@ export const STAGES: ReadonlyArray<BundleStage> = [
   "published",
 ];
 
+/**
+ * Human-facing labels for the pipeline — the *display* vocabulary (parallel
+ * verbs), kept deliberately separate from the wire/state names
+ * (`idea`/`researching`/…) so the journal format, guard logic, and every
+ * `stage === "idea"` check stay untouched. The column rename lives here, in one
+ * map, consumed by the Board, the bundle Overview, and the Lab.
+ */
+export const STAGE_LABEL: Record<BundleStage, string> = {
+  idea: "Frame",
+  researching: "Research",
+  drafting: "Draft",
+  evaluating: "Evaluate",
+  published: "Publish",
+};
+
+/** Archived isn't a stage (it's the `archived` flag) — this is its board column label. */
+export const ARCHIVED_LABEL = "Archive";
+
+/**
+ * The Unverified badge's shared style (issue #93): one constant instead of
+ * three hand-copied Tailwind strings, consumed by the Lab Bench (`Lab.tsx`),
+ * Receive's recently-routed tail (`Receive.tsx`), and the bundle detail Evals
+ * tab (`BundlePanel.tsx`). Deliberately violet, not amber -- Lab's drift pill
+ * already owns amber for "something moved"; this badge means "no proof," an
+ * absence, not an alarm.
+ */
+export const UNVERIFIED_BADGE_CLASS = "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300";
+
 /** Mirrors `@skillmaker/core`'s `Machine.GuardStatus` (data-model.md §2.13). */
 export class GuardStatus extends Schema.Class<GuardStatus>("GuardStatus")({
   stage: BundleStage,
@@ -219,6 +249,32 @@ export class StationAvailability extends Schema.Class<StationAvailability>("Stat
   skill: Schema.String,
 }) {}
 
+/**
+ * One named `## Contexts` entry from `dossier.md` (issue #94): "jobs
+ * singular, contexts plural" -- any number of named contracts on the one
+ * job, each a free-prose block (handoff-in, what downstream reads,
+ * environment notes, stakes), not further structured.
+ */
+export class DossierContext extends Schema.Class<DossierContext>("DossierContext")({
+  name: Schema.String,
+  body: Schema.String,
+}) {}
+
+/**
+ * `skills/<slug>/dossier.md`'s parsed sections (issue #94, `Mechanism -
+ * Receiving Dock.md` §HOW's "the dossier"): every field optional -- an
+ * absent one is an honest gap ("fit criterion: unrecorded" on the detail
+ * page), never a defect.
+ */
+export class DossierRecord extends Schema.Class<DossierRecord>("DossierRecord")({
+  job: Schema.optionalKey(Schema.String),
+  contexts: Schema.Array(DossierContext),
+  outOfScope: Schema.optionalKey(Schema.String),
+  basis: Schema.optionalKey(Schema.String),
+  evidence: Schema.optionalKey(Schema.String),
+  fitCriterion: Schema.optionalKey(Schema.String),
+}) {}
+
 export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   "BundleDetailResponse",
 )({
@@ -232,6 +288,11 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   runs: Schema.Array(RunRecord),
   measurements: Schema.Array(MeasurementRecord),
   station: Schema.NullOr(StationAvailability),
+  dossier: DossierRecord,
+  /** The bundle's reviewable source files (design.md, research/*, output/*) for the Files tab, pipeline-ordered. */
+  files: Schema.Array(Schema.String),
+  /** The Unverified badge (issue #93): same derivation as `CatalogEntry.unverified`, computed from this same response's `measurements`. */
+  unverified: Schema.Boolean,
 }) {}
 
 /**
@@ -294,6 +355,14 @@ export class RecordVersionResponse extends Schema.Class<RecordVersionResponse>(
   label: Schema.NullOr(Schema.String),
 }) {}
 
+/** `POST /api/bundles` response -- the board's "+ New bundle" create form. */
+export class CreateBundleResponse extends Schema.Class<CreateBundleResponse>(
+  "CreateBundleResponse",
+)({
+  status: Schema.Literals(["created", "already_exists"]),
+  slug: Schema.String,
+}) {}
+
 /** `GET /api/bundles/:slug/file?path=...` response. */
 export class BundleFileResponse extends Schema.Class<BundleFileResponse>("BundleFileResponse")({
   path: Schema.String,
@@ -320,6 +389,17 @@ export class ChecklistItemView extends Schema.Class<ChecklistItemView>("Checklis
   done: Schema.Boolean,
 }) {}
 
+/**
+ * Mirrors `@skillmaker/core`'s `TodoOrigin`/`TodoOriginRecord` (issue #81,
+ * `"intake"` added issues #91/#92): which upstream signal opened this todo
+ * automatically, if any -- a field report, or an intake (salvage mining /
+ * the triage manifest's "what hurts").
+ */
+export class TodoOriginView extends Schema.Class<TodoOriginView>("TodoOriginView")({
+  kind: Schema.Literals(["field-report", "intake"]),
+  ref: Schema.String,
+}) {}
+
 export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
   id: Schema.String,
   kind: TodoKind,
@@ -334,6 +414,7 @@ export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
   pinned: Schema.optionalKey(Schema.Boolean),
   archived: Schema.Boolean,
   source: ActorView,
+  origin: Schema.optionalKey(TodoOriginView),
 }) {}
 
 export class TodosResponse extends Schema.Class<TodosResponse>("TodosResponse")({
@@ -352,13 +433,19 @@ export class EventsResponse extends Schema.Class<EventsResponse>("EventsResponse
 }) {}
 
 /**
- * One `GET /api/catalog` row (Phase 17, director ruling: the Catalog page
- * survives as a skill browser -- "what skills do we have," discovery at
- * repo scale). `latestVersion` mirrors `VersionRecord` but is nullable (no
- * version recorded yet); `measuredFixtureCount`/`fixtureCount` is the
- * measurements-summary the ruling calls for, derived server-side from the
- * same fixtures/measurements data `BundleDetailResponse` already exposes
- * per-bundle.
+ * One `GET /api/catalog` row (Phase 17, director ruling: the Catalog page,
+ * now the Lab (#64), survives as a skill browser -- "what skills do we
+ * have," discovery at repo scale). `latestVersion` mirrors `VersionRecord`
+ * but is nullable (no version recorded yet); `measuredFixtureCount`/
+ * `fixtureCount` is the measurements-summary the ruling calls for, derived
+ * server-side from the same fixtures/measurements data `BundleDetailResponse`
+ * already exposes per-bundle. Class/endpoint names stay `Catalog*`/
+ * `/api/catalog` -- they mirror the untouched server wire format.
+ *
+ * `openTodoCount` (issue #83): the count of non-terminal todos on this
+ * bundle, folded server-side from the journal on every request (see
+ * `handleCatalog`'s doc comment) -- never stored. Feeds the Lab Bench
+ * mode's open-work signal and `orderForAttention`'s new rank.
  */
 export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
   slug: Schema.String,
@@ -377,6 +464,15 @@ export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
   ),
   fixtureCount: Schema.Number,
   measuredFixtureCount: Schema.Number,
+  openTodoCount: Schema.Number,
+  /**
+   * The Unverified badge (issue #93, `Mechanism - Receiving Dock.md` §HOW):
+   * received (arrived via `skill.routed`, an identity-granting disposition)
+   * AND zero graded measurements ever, at any recorded version. Derived
+   * server-side (`handleCatalog`), never stored -- no "Verified" state
+   * exists on the other side of this boolean, its absence is silence.
+   */
+  unverified: Schema.Boolean,
 }) {}
 
 export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogResponse")({
@@ -385,17 +481,45 @@ export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogRespo
 
 /**
  * `GET /api/skillbook` (data-model.md §2.14): "skills leave the studio with
- * receipts." One changelog entry per version/publish/gate event, newest
- * first; `designMarkdown` is the raw `design.md` content (rendered
- * client-side, same hand-rolled markdown subset `book build`'s
+ * receipts." One changelog entry per version/publish/gate/shipped/reported
+ * event, newest first; `designMarkdown` is the raw `design.md` content
+ * (rendered client-side, same hand-rolled markdown subset `book build`'s
  * `BookRenderer.ts` renders server/CLI-side).
  */
 export class SkillbookChangelogEntry extends Schema.Class<SkillbookChangelogEntry>(
   "SkillbookChangelogEntry",
 )({
-  type: Schema.Literals(["version", "published", "gate"]),
+  type: Schema.Literals(["version", "published", "gate", "shipped", "reported"]),
   at: Schema.String,
   summary: Schema.String,
+}) {}
+
+/**
+ * One measurement cell as it stood at ship time (issue #66) -- a narrower
+ * shape than `MeasurementRecord`: `bundle`/`versionHash` are already the
+ * enclosing `SkillbookShipment`'s own fields.
+ */
+export class ShipReceipt extends Schema.Class<ShipReceipt>("ShipReceipt")({
+  fixtureCase: Schema.String,
+  provider: Schema.String,
+  model: Schema.String,
+  n: Schema.Number,
+  passes: Schema.Number,
+  passRate: Schema.Number,
+  ci: Schema.NullOr(Schema.Tuple([Schema.Number, Schema.Number])),
+}) {}
+
+/**
+ * One `skill.shipped` event, materialized for Ship (issue #66): "where
+ * is this in the world" -- destination, purpose, the version that left, and
+ * the receipts it shipped with, frozen at that moment.
+ */
+export class SkillbookShipment extends Schema.Class<SkillbookShipment>("SkillbookShipment")({
+  at: Schema.String,
+  versionHash: Schema.String,
+  destination: Schema.String,
+  purpose: Schema.String,
+  receipts: Schema.Array(ShipReceipt),
 }) {}
 
 export class SkillbookBundle extends Schema.Class<SkillbookBundle>("SkillbookBundle")({
@@ -407,11 +531,107 @@ export class SkillbookBundle extends Schema.Class<SkillbookBundle>("SkillbookBun
   latestVersion: Schema.NullOr(VersionRecord),
   measurements: Schema.Array(MeasurementRecord),
   changelog: Schema.Array(SkillbookChangelogEntry),
+  shipments: Schema.Array(SkillbookShipment),
 }) {}
 
 export class SkillbookResponse extends Schema.Class<SkillbookResponse>("SkillbookResponse")({
   workspaceName: Schema.String,
   bundles: Schema.Array(SkillbookBundle),
+}) {}
+
+/** Mirrors `@skillmaker/core`'s `FieldReportOutcome` (issue #67) -- the reporter's own read, not a pass/fail eval verdict. */
+export const FieldReportOutcome = Schema.Literals(["worked", "failed", "surprise"]);
+export type FieldReportOutcome = typeof FieldReportOutcome.Type;
+
+/**
+ * `GET /api/field-reports` -- Receive's workspace-wide field-report list
+ * (issue #67): "what is the world telling me about what I shipped."
+ * `versionHash`/`destination` are `null` when the reporter didn't know them.
+ * `fixtureCase` (issue #68) is the harvested fixture's case name on this
+ * bundle's Evals tab, when `fixture harvest --from-report` has turned this
+ * exact report into a fixture; `null` when it hasn't been harvested yet.
+ * `todo` (issue #81) is the other exit door: the todo, if any, opened via
+ * `todo add --from-report` against this exact report -- `null` when no todo
+ * has been opened from it yet.
+ */
+export class FieldReportView extends Schema.Class<FieldReportView>("FieldReportView")({
+  id: Schema.String,
+  bundle: Schema.String,
+  outcome: FieldReportOutcome,
+  report: Schema.String,
+  versionHash: Schema.NullOr(Schema.String),
+  destination: Schema.NullOr(Schema.String),
+  at: Schema.String,
+  actor: ActorView,
+  fixtureCase: Schema.NullOr(Schema.String),
+  todo: Schema.NullOr(
+    Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      status: TodoStatus,
+    }),
+  ),
+}) {}
+
+/** `GET /api/field-reports` response -- newest first, unpaginated (issue #67). */
+export class FieldReportsResponse extends Schema.Class<FieldReportsResponse>("FieldReportsResponse")({
+  reports: Schema.Array(FieldReportView),
+}) {}
+
+/** Mirrors `@skillmaker/core`'s `IntakeRights` (issue #90) -- recorded, never enforced. */
+export const IntakeRights = Schema.Literals(["ours", "licensed", "unclear"]);
+export type IntakeRights = typeof IntakeRights.Type;
+
+/** Mirrors `@skillmaker/core`'s `IntakeVerdict` (issue #90, `Mechanism - Receiving Dock.md` §HOW). */
+export const IntakeVerdict = Schema.Literals(["return", "new", "conflict"]);
+export type IntakeVerdict = typeof IntakeVerdict.Type;
+
+/**
+ * `GET /api/intake` -- the Receive tab's intake queue row (issue #90): one
+ * undisposed `skill.received` crate, its claims verbatim, and its dock
+ * verdict RECOMPUTED server-side on every request (derive, never store --
+ * this is never the same value written to the journal, because nothing is
+ * ever written there at all).
+ */
+export class IntakeCrateView extends Schema.Class<IntakeCrateView>("IntakeCrateView")({
+  intake: Schema.String,
+  source: Schema.String,
+  ref: Schema.NullOr(Schema.String),
+  claimedName: Schema.NullOr(Schema.String),
+  claimedVersionHash: Schema.NullOr(Schema.String),
+  rights: Schema.NullOr(IntakeRights),
+  notes: Schema.NullOr(Schema.String),
+  at: Schema.String,
+  actor: ActorView,
+  verdict: IntakeVerdict,
+}) {}
+
+/** Mirrors `@skillmaker/core`'s `RouteDisposition` (issue #91, `Mechanism - Receiving Dock.md` §HOW): the five exit doors. */
+export const RouteDisposition = Schema.Literals(["return", "new", "upgrade", "fork", "salvage"]);
+export type RouteDisposition = typeof RouteDisposition.Type;
+
+/**
+ * `GET /api/intake`'s "recently routed" tail (issue #91): a disposed crate
+ * leaves `crates` above for good, but a handful of the most recent
+ * `skill.routed` facts still show here -- disposition + reason + the bundle
+ * it landed on (`null` for a `salvage` naming no target), newest first.
+ */
+export class RecentlyRoutedView extends Schema.Class<RecentlyRoutedView>("RecentlyRoutedView")({
+  intake: Schema.String,
+  disposition: RouteDisposition,
+  bundle: Schema.NullOr(Schema.String),
+  reason: Schema.String,
+  claimedName: Schema.NullOr(Schema.String),
+  at: Schema.String,
+  actor: ActorView,
+  /** The Unverified badge (issue #93), while it holds: `false` for every `salvage` row (grants no identity) and for any bundle that already has a graded measurement. */
+  unverified: Schema.Boolean,
+}) {}
+
+/** `GET /api/intake` response -- `crates` oldest first, unpaginated (issue #90: "the dock must not become a shelf"); `recentlyRouted` newest first, capped (issue #91). */
+export class IntakeResponse extends Schema.Class<IntakeResponse>("IntakeResponse")({
+  crates: Schema.Array(IntakeCrateView),
+  recentlyRouted: Schema.Array(RecentlyRoutedView),
 }) {}
 
 /** One `publishTargets` entry (skillmaker.config.json) -- what the viewer's Publish step offers. */

@@ -1,5 +1,5 @@
 /**
- * A hand-rolled client router (ui-pass-spec.md §4.2): five flat routes, one
+ * A hand-rolled client router (ui-pass-spec.md §4.2): six flat routes, one
  * dynamic segment (`:slug`), one query param (`run`) -- not enough surface
  * to justify a router dependency (`packages/viewer/package.json` pulls in
  * none, and no other workspace package does either). `navigate()` calls
@@ -17,33 +17,71 @@ const BUNDLE_TABS: ReadonlyArray<BundleTab> = ["overview", "files", "versions", 
 const isBundleTab = (value: string): value is BundleTab =>
   (BUNDLE_TABS as ReadonlyArray<string>).includes(value);
 
+/** The Lab's two modes (#83): Bench (default, the triage rows) and Queue (the whole workspace's todos). */
+export type LabView = "bench" | "queue";
+
 export type Route =
   | { readonly name: "board" }
-  | { readonly name: "bundle"; readonly slug: string; readonly tab: BundleTab; readonly runId: string | undefined }
-  | { readonly name: "catalog" }
+  | {
+      readonly name: "bundle";
+      readonly slug: string;
+      readonly tab: BundleTab;
+      readonly runId: string | undefined;
+      readonly file: string | undefined;
+    }
+  | { readonly name: "lab"; readonly view: LabView; readonly bundle: string | undefined }
   | { readonly name: "activity" }
-  | { readonly name: "skillbook" }
-  | { readonly name: "skillbook-bundle"; readonly slug: string }
+  | { readonly name: "ship" }
+  | { readonly name: "ship-bundle"; readonly slug: string }
+  | { readonly name: "receive" }
   | { readonly name: "not-found" };
 
-/** Pure -- parses a pathname + search string into a `Route`. Exported for tests. */
+/**
+ * Pure -- parses a pathname + search string into a `Route`. Exported for
+ * tests. `/lab`, `/ship(/:slug)`, and `/receive` are canonical (#72, the
+ * Board · Lab · Ship · Receive · Activity rename that splits Port into its
+ * two jobs). `/catalog`, `/port(/:slug)`, and `/skillbook(/:slug)` are kept
+ * as aliases parsing to the same routes so bookmarks and any deep links
+ * survive -- this is display-layer only, the server API paths behind these
+ * pages (`/api/catalog`, `/api/skillbook`) are untouched.
+ *
+ * `/lab`'s mode is a URL query, not a path segment (#83): `?view=queue`
+ * selects Queue, anything else (including the param's absence) is Bench --
+ * old `/lab` and `/catalog` deep links keep working untouched, they just
+ * default to Bench like they always rendered. `?bundle=<slug>` is Queue's
+ * optional bundle filter (how Bench's per-row open-work signal links in);
+ * it round-trips through the querystring on Bench too so a bookmark never
+ * silently drops it, even though Bench itself ignores it.
+ */
 export const parseRoute = (pathname: string, search: string): Route => {
   const segments = pathname.split("/").filter((segment) => segment.length > 0);
+  const head =
+    segments[0] === "catalog"
+      ? "lab"
+      : segments[0] === "skillbook" || segments[0] === "port"
+        ? "ship"
+        : segments[0];
 
   if (segments.length === 0) {
     return { name: "board" };
   }
-  if (segments[0] === "catalog" && segments.length === 1) {
-    return { name: "catalog" };
+  if (head === "lab" && segments.length === 1) {
+    const params = new URLSearchParams(search);
+    const view: LabView = params.get("view") === "queue" ? "queue" : "bench";
+    const bundle = params.get("bundle") ?? undefined;
+    return { name: "lab", view, bundle };
   }
-  if (segments[0] === "activity" && segments.length === 1) {
+  if (head === "activity" && segments.length === 1) {
     return { name: "activity" };
   }
-  if (segments[0] === "skillbook" && segments.length === 1) {
-    return { name: "skillbook" };
+  if (head === "ship" && segments.length === 1) {
+    return { name: "ship" };
   }
-  if (segments[0] === "skillbook" && segments[1] !== undefined && segments.length === 2) {
-    return { name: "skillbook-bundle", slug: decodeURIComponent(segments[1]) };
+  if (head === "ship" && segments[1] !== undefined && segments.length === 2) {
+    return { name: "ship-bundle", slug: decodeURIComponent(segments[1]) };
+  }
+  if (head === "receive" && segments.length === 1) {
+    return { name: "receive" };
   }
   if (segments[0] === "bundles" && segments[1] !== undefined && segments.length <= 3) {
     const slug = decodeURIComponent(segments[1]);
@@ -51,8 +89,10 @@ export const parseRoute = (pathname: string, search: string): Route => {
     if (tabSegment !== undefined && !isBundleTab(tabSegment)) {
       return { name: "not-found" };
     }
-    const runId = new URLSearchParams(search).get("run") ?? undefined;
-    return { name: "bundle", slug, tab: tabSegment ?? "overview", runId };
+    const params = new URLSearchParams(search);
+    const runId = params.get("run") ?? undefined;
+    const file = params.get("file") ?? undefined;
+    return { name: "bundle", slug, tab: tabSegment ?? "overview", runId, file };
   }
   return { name: "not-found" };
 };
@@ -61,14 +101,35 @@ export const parseRoute = (pathname: string, search: string): Route => {
 export const bundleHref = (slug: string, tab: BundleTab = "overview"): string =>
   tab === "overview" ? `/bundles/${encodeURIComponent(slug)}` : `/bundles/${encodeURIComponent(slug)}/${tab}`;
 
-/** The canonical URL for a bundle's Skillbook chapter. */
-export const skillbookBundleHref = (slug: string): string => `/skillbook/${encodeURIComponent(slug)}`;
+/** The canonical URL for a bundle's Skillbook chapter, now docked at Ship. */
+export const shipBundleHref = (slug: string): string => `/ship/${encodeURIComponent(slug)}`;
+
+/**
+ * The Lab's URL for a given mode, optionally filtered to one bundle's todos
+ * (#83) -- Bench's default view has no query string at all, so the
+ * long-lived bare `/lab` URL is exactly what `labHref("bench")` produces.
+ */
+export const labHref = (view: LabView, bundle?: string): string => {
+  const params = new URLSearchParams();
+  if (view === "queue") {
+    params.set("view", "queue");
+  }
+  if (bundle !== undefined) {
+    params.set("bundle", bundle);
+  }
+  const query = params.toString();
+  return query.length > 0 ? `/lab?${query}` : "/lab";
+};
 
 /** The Evals tab, optionally with a run selected via `?run=`. */
 export const bundleRunHref = (slug: string, runId: string | undefined): string => {
   const base = bundleHref(slug, "evals");
   return runId === undefined ? base : `${base}?run=${encodeURIComponent(runId)}`;
 };
+
+/** The Files tab with a specific source file pre-selected via `?file=`. */
+export const bundleFileHref = (slug: string, file: string): string =>
+  `${bundleHref(slug, "files")}?file=${encodeURIComponent(file)}`;
 
 interface RouterState {
   readonly route: Route;

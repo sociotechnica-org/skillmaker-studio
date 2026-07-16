@@ -1,0 +1,81 @@
+/**
+ * Lab's bench-not-shelf logic (#65, ranks extended #83): what needs
+ * attention, and in what order. Two pure, exported functions kept out of
+ * `Lab.tsx` so they're unit-testable without React -- same pattern as
+ * `nextAction.ts`.
+ *
+ * `driftNeedsAttention` decides which `Drift` values earn a pill: only the
+ * three states where something actually moved (`design-changed`,
+ * `output-hand-edited`, `both`). `in-sync` and `no-version` read as benign
+ * status, not attention -- Lab hides their pill so a pill on Lab always
+ * means "look at this."
+ *
+ * `coverageState` distinguishes three honest measurement states -- no
+ * fixtures yet, fixtures exist but under-measured, all fixtures measured --
+ * per the README rule that coverage (a fixture exists) and validation (it
+ * passes) never merge into one signal.
+ *
+ * `orderForAttention` sorts a catalog page for triage (#83's proposed
+ * ranks, adopted as-is): drifted bundles first, then bundles with open
+ * todos (`openTodoCount > 0`), then measurement gaps (no fixtures or
+ * under-measured), then clean (fully measured); archived bundles always
+ * sink to the bottom regardless of their drift/todo/coverage state, since
+ * there's nothing to act on for a shelved bundle. Open work outranks a
+ * measurement gap -- a todo is a concrete, already-scoped unit of work,
+ * while a coverage gap is just an absence, so the queue with something in
+ * it goes first. Ties keep the incoming order (`Array#sort` is stable).
+ *
+ * The Unverified badge (issue #93) needs NO special case here: it is itself
+ * a measurement gap (`entry.unverified` implies zero measurements ever, so
+ * `entry.measuredFixtureCount` -- which counts a strict subset of "ever" --
+ * is also 0), so an Unverified entry is always ranked by `coverageState`'s
+ * existing `"no-fixtures"`/`"under-measured"` branches (never
+ * `"fully-measured"`) unless drift or open todos already outrank it. See
+ * `labOrder.test.ts` for the composition assertion.
+ */
+import type { CatalogEntry, Drift } from "./schemas.ts";
+
+/** The three `Drift` values that mean "something changed" -- the ones that earn a pill. */
+export type AttentionDrift = "design-changed" | "output-hand-edited" | "both";
+
+/** True for the three drift values that mean "something changed" -- the ones that earn a pill. */
+export const driftNeedsAttention = (drift: Drift): drift is AttentionDrift =>
+  drift === "design-changed" || drift === "output-hand-edited" || drift === "both";
+
+export type CoverageState = "no-fixtures" | "under-measured" | "fully-measured";
+
+/** Which of the three honest coverage states a catalog entry is in. */
+export const coverageState = (
+  entry: Pick<CatalogEntry, "fixtureCount" | "measuredFixtureCount">,
+): CoverageState => {
+  if (entry.fixtureCount === 0) {
+    return "no-fixtures";
+  }
+  if (entry.measuredFixtureCount < entry.fixtureCount) {
+    return "under-measured";
+  }
+  return "fully-measured";
+};
+
+/** Attention-first sort rank: lower sorts earlier. Archived always ranks last, ahead of nothing. */
+const attentionRank = (entry: CatalogEntry): number => {
+  if (entry.archived) {
+    return 4;
+  }
+  if (driftNeedsAttention(entry.drift)) {
+    return 0;
+  }
+  if (entry.openTodoCount > 0) {
+    return 1;
+  }
+  if (coverageState(entry) !== "fully-measured") {
+    return 2;
+  }
+  return 3;
+};
+
+/** Reorders catalog entries for triage: drifted, then open todos, then measurement gaps, then clean, then archived. */
+export const orderForAttention = (
+  entries: ReadonlyArray<CatalogEntry>,
+): ReadonlyArray<CatalogEntry> =>
+  entries.slice().sort((a, b) => attentionRank(a) - attentionRank(b));

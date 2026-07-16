@@ -1,13 +1,18 @@
 /**
- * The `/skillbook` page (data-model.md §2.14): "skills leave the studio with
- * receipts." An index of every bundle (name, one-liner, stage, latest
- * version, measurements summary) plus per-bundle chapters
- * (`/skillbook/:slug`) rendering the same data `skillmaker book build`
- * renders to a static site -- design.md, measurement receipts, and a
- * journal changelog. Reuses `Catalog.tsx`'s stage-badge patterns.
+ * The `/ship` page (#72, Board · Lab · Ship · Receive · Activity): the
+ * shipping bay -- "skills leave with receipts." An index of every bundle
+ * (name, one-liner, stage, latest version, measurements summary) plus
+ * per-bundle chapters (`/ship/:slug`) rendering the same data `skillmaker
+ * book build` renders to a static site -- design.md, measurement receipts,
+ * and a journal changelog. That per-bundle chapter is still the
+ * *Skillbook* -- the paperwork that ships with a skill, not the surface it
+ * left through (`SkillbookBundlePage` below keeps its name for exactly
+ * that reason). Split out of the old two-job `Port` (#64); Receive
+ * (`Receive.tsx`) now owns the inbound half. Reuses `Lab.tsx`'s
+ * stage-badge patterns.
  */
 import type { FC } from "react";
-import { Link, skillbookBundleHref, useRouter } from "../runtime/router.tsx";
+import { Link, shipBundleHref, useRouter } from "../runtime/router.tsx";
 import type { SkillbookBundle } from "../runtime/schemas.ts";
 import { useSkillbook } from "../runtime/useSkillbook.ts";
 
@@ -27,13 +32,24 @@ const shortHash = (hash: string): string => {
   return (hash.startsWith(prefix) ? hash.slice(prefix.length) : hash).slice(0, 12);
 };
 
-const SkillbookRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
+/** "Shipped 2x -- last to acme-fleet" (issue #66): only shown when at least one shipment exists -- Ship's index-row signal of what's out in the world. */
+const shippingLine = (bundle: SkillbookBundle): string | undefined => {
+  if (bundle.shipments.length === 0) {
+    return undefined;
+  }
+  const last = bundle.shipments[0];
+  const count = bundle.shipments.length;
+  return `Shipped ${count}x — last to "${last?.destination}"`;
+};
+
+const ShipRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   const measuredCount = new Set(bundle.measurements.map((m) => m.fixtureCase)).size;
+  const shipping = shippingLine(bundle);
   return (
     <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2">
         <Link
-          href={skillbookBundleHref(bundle.slug)}
+          href={shipBundleHref(bundle.slug)}
           className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
         >
           {bundle.name}
@@ -48,27 +64,30 @@ const SkillbookRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
           {bundle.latestVersion === null ? "No recorded version" : `Version ${shortHash(bundle.latestVersion.hash)}`}
         </span>
         <span>{measuredCount} fixture(s) measured</span>
+        {shipping !== undefined && (
+          <span className="text-emerald-700 dark:text-emerald-400">{shipping}</span>
+        )}
       </div>
     </li>
   );
 };
 
-/** The `/skillbook` index page: one card per bundle. */
-export const Skillbook: FC = () => {
-  const { workspaceName, bundles, loading, error } = useSkillbook();
+/** The `/ship` index page: one card per bundle. */
+export const Ship: FC = () => {
+  const { bundles, loading, error } = useSkillbook();
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
       <div>
-        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Skillbook</h1>
+        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Ship</h1>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          {workspaceName ?? "Skillmaker Studio"} — skills leave the studio with receipts.
+          the shipping bay — skills leave with receipts.
         </p>
       </div>
 
       {error !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
-          Could not load skillbook: {error.message}
+          Could not load ship: {error.message}
         </p>
       )}
 
@@ -78,7 +97,7 @@ export const Skillbook: FC = () => {
 
       <ul className="flex flex-col gap-3">
         {bundles.map((bundle) => (
-          <SkillbookRow key={bundle.slug} bundle={bundle} />
+          <ShipRow key={bundle.slug} bundle={bundle} />
         ))}
         {bundles.length === 0 && !loading && (
           <li className="text-sm text-neutral-400">No Skill Bundles yet.</li>
@@ -185,7 +204,12 @@ const renderMarkdown = (markdown: string): ReadonlyArray<{ readonly key: string;
   return blocks;
 };
 
-/** The `/skillbook/:slug` chapter page: design.md + measurement receipts + changelog. */
+/**
+ * The `/ship/:slug` chapter page: design.md + measurement receipts + a
+ * changelog -- the bundle's *Skillbook* entry (#72: the paperwork that
+ * ships with a skill keeps the Skillbook name; the surface it moves
+ * through is Ship, hence the back-link below).
+ */
 export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
   const { bundles, loading, error } = useSkillbook();
   const { navigate } = useRouter();
@@ -202,7 +226,7 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
     );
   }
   if (bundle === undefined) {
-    return <p className="text-sm text-neutral-400">No such skill in the Skillbook.</p>;
+    return <p className="text-sm text-neutral-400">No such skill in Ship.</p>;
   }
 
   const blocks = renderMarkdown(bundle.designMarkdown);
@@ -211,10 +235,10 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
     <div className="flex max-w-3xl flex-col gap-4">
       <button
         type="button"
-        onClick={() => navigate("/skillbook")}
+        onClick={() => navigate("/ship")}
         className="w-fit text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
       >
-        ← All skills
+        ← Ship
       </button>
 
       <div>
@@ -286,6 +310,37 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Shipments</h2>
+        {bundle.shipments.length === 0 ? (
+          <p className="text-sm text-neutral-400">Never shipped.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {bundle.shipments.map((shipment, i) => (
+              <li
+                key={i}
+                className="flex flex-col gap-1 rounded-md border border-neutral-200 p-3 text-xs dark:border-neutral-800"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-neutral-700 dark:text-neutral-300">
+                  <span className="font-medium">{shipment.destination}</span>
+                  <span className="text-neutral-400">·</span>
+                  <span>{shipment.purpose}</span>
+                </div>
+                <div className="flex flex-wrap gap-3 text-neutral-500 dark:text-neutral-400">
+                  <span className="font-mono">{shortHash(shipment.versionHash)}</span>
+                  <span>{new Date(shipment.at).toLocaleString()}</span>
+                  <span>
+                    {shipment.receipts.length === 0
+                      ? "no receipts at ship time"
+                      : `${shipment.receipts.length} receipt(s) at ship time`}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

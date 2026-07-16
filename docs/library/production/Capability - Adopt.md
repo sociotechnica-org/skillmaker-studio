@@ -53,8 +53,67 @@ The CLI layers journal writes on top of the filesystem work: one
 a `deprecated/` pathname) and an initial `skill.version_recorded`, exactly
 mirroring how `new` and `version record` behave for greenfield bundles.
 
+**The registry/paperwork tripwire** (issue #92, `../outputs/Mechanism -
+Receiving Dock` §HOW: "the registry is the only true witness"): plain
+`adopt` now hash- and name-checks every candidate against the registry
+(`Receive.ts`'s `classifyIntakeEvidence`, reusing the dock's own
+`deriveIntakeVerdict` precedence) before adopting it. A candidate the
+registry can prove is an arrival — its computed hash matches a recorded
+version, or its claimed name collides with an existing bundle's slug/name,
+or it carries a foreign `.skillmaker-adopt.json` marker with no
+`bundle.json` of its own — is **challenged**: listed in the report's
+`challenged` array (never adopted, never written to disk), with a CLI
+message suggesting `skillmaker receive` or `adopt --triage`. Evidence
+surfaced, human decides, never enforced — the same law the dock itself
+follows.
+
+**The triage manifest — bulk import as the same elicitation tree** (issue
+#92): `adopt --triage [path]` acts on nothing. It runs the identical
+discovery sweep (`Adopt.ts`'s `walk`, shared rather than duplicated) plus
+the tripwire above, and writes `adopt-manifest.md` at the workspace root —
+a markdown table (`Triage.ts`'s `renderManifest`/`parseManifest`, a house
+pattern mirrored from `RiskMap.ts`'s tolerant table round-trip), one row
+per not-yet-adopted candidate. Machine columns are automated: name, path,
+mechanical condition (SKILL.md parses / frontmatter complete / has evals —
+the OS&D clipboard) and registry evidence. Human columns default per the
+ruling — deferral, never a false fact: `decision` (keep), `whose` (`mine`
+for a bare candidate; `receive` for an evidence-bearing one — the tripwire
+applied to defaults too), `rights`/`stakes`/`hurts`/`priority` blank,
+`maturity` idea. The maker edits the human columns by hand, in their own
+editor, on purpose (no agentic pre-fill).
+
+`adopt --from-manifest [file]` (default `adopt-manifest.md` at the
+workspace root) executes every row as an **individual act**
+(`Triage.ts`'s `executeManifest`/`executeManifestRow`, no re-run of the
+tripwire — a human has already seen the evidence and decided): `keep` +
+`mine` adopts exactly like plain adopt (`adoptDirectoryInPlace` — the one
+per-directory write path `adoptWorkspace`'s sweep and `Route.ts`'s
+`new`/`fork` dispositions also use, issues #91/#92), entering at
+the stage `maturity` maps to (`idea`→`idea`, `draft`→`drafting`,
+`working`→`evaluating`, recorded honestly via `bundle.stage_changed` with
+`override: true` and reason `"triage: working import"` when past idea);
+`keep` + anything else (`outside`/`came-back`/`unknown`/`receive`) routes
+through `skillmaker receive`'s exact engine for that one directory
+(`receiveCrate`); `archive` adopts then appends `bundle.archived`
+regardless of `whose`; `skip` leaves the directory untouched. A non-empty
+`hurts` mints a todo (`kind: "intake"`, extending `TodoOrigin` — see
+`../board/Entity - Todo`) whose `bundle` is set only when identity was
+actually granted. Idempotent: a row whose directory already holds
+`bundle.json` is skipped, not re-adopted; a row pointing at a vanished
+directory errors honestly without stopping the rest. The summary reports
+every row — adopted, received, archived, skipped, or errored — no silent
+truncation.
+
 Verified: `packages/core/src/Adopt.ts` (in-place layout, marker, skip
-rules, idempotent discovery, AUTO-GENERATED filter) and
+rules, idempotent discovery, AUTO-GENERATED filter, the shared
+`adoptDirectoryInPlace` write path, the registry tripwire's `challenged`
+list) and
 `packages/cli/src/commands/Adopt.ts` (workspace precondition,
 `bundle.created` + `skill.version_recorded` journal events,
-deprecated-path archival).
+deprecated-path archival, `--triage`/`--from-manifest` dispatch). The
+triage manifest itself lives in `packages/core/src/Triage.ts`
+(`triageWorkspace`, `renderManifest`/`parseManifest`,
+`executeManifest`/`executeManifestRow`), covered by
+`packages/core/test/Triage.test.ts`,
+`packages/core/test/Adopt.test.ts`'s tripwire suite, and
+`test/e2e/adopt-triage.e2e.test.ts`'s mixed-directory scenario.

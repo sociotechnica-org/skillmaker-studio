@@ -10,6 +10,9 @@ links:
     - "../production/Entity - Skill Bundle"
     - "../production/Mechanism - Bundle Stage"
     - "./Surface - Board"
+    - "./Surface - Lab"
+    - "../_index/Vision - Board Lab Ship Receive"
+    - "../outputs/Entity - Field Report"
 ---
 
 ## WHAT
@@ -22,8 +25,9 @@ in the `todos` SQLite table from `todo.*` events, never stored as a mutable
 file. Implemented in `packages/core/src/Todo.ts` (schema),
 `packages/core/src/FoldTodos.ts` (fold + defaults + archive rule), and
 `packages/cli/src/commands/Todo.ts` (`skillmaker todo add|list|done|start|
-drop|reopen`); rendered in the viewer's `TodosPanel`
-(`packages/viewer/src/app/components/TodosPanel.tsx`).
+drop|reopen`); rendered in the Lab's Queue mode (issue #83,
+`packages/viewer/src/app/components/Queue.tsx`) -- until #83 this was the
+viewer's persistent `TodosPanel` rail, now retired (see WHY below).
 
 ## WHY
 
@@ -36,6 +40,26 @@ at all). Consolidating into one `Todo` type also finally resolves the old
 model's stage/status polysemy at the *todo* layer: `Todo.status` is a
 Todo-only axis, wholly independent of `bundle.stage` — inherited law "Todo
 status and bundle stage are independent axes" (data-model.md §1.1).
+
+Director ruling (2026-07-15, #80 — "stock and flow"): **the Lab is this
+record's home surface** — a todo is a unit of work on a skill that
+already exists, and the ruling names the todo queue directly as **the
+heart of the Lab** (full ruling: `../_index/Vision - Board Lab Ship
+Receive`; the Board-as-flow half: `./Surface - Board`). That changes
+nothing on this card — the journal stays the sole source of truth
+(`todo.*` events, folded, as below) — only presentation moved: **shipped**
+in #83, off the Board's old persistent right rail and onto the Lab's
+Queue mode (`./Surface - Lab`), the todo queue's actual home surface as
+of this writing, not merely a proposal.
+
+A `Todo.origin` field stamps provenance when a todo is born from field
+signal rather than typed by a human: `origin?: { kind: "field-report",
+ref: <event-id> }`, immutable like `source` and structurally absent from
+`TodoPatch` for the same reason. Proposed here, built in the
+signal-becomes-work issue (#81) -- see "HOW -- origin" below for the full
+shape: the `todos` table gaining a column, `skillmaker todo add
+--from-report <event-id>` defaulting `kind`/`bundle`/`detail` from the
+report, and an origin chip ("from the field") wherever todo rows render.
 
 ## HOW
 
@@ -60,7 +84,7 @@ type Todo = {
 ```
 
 Default priority by kind (`FoldTodos.ts`'s `DEFAULT_PRIORITY_BY_KIND`,
-mirrored client-side in `TodosPanel.tsx`): **bug 10, eval 15, improvement
+mirrored client-side in `Queue.tsx`, formerly `TodosPanel.tsx`): **bug 10, eval 15, improvement
 20, task 30** — bug stays most-urgent-by-default exactly as in the old
 model; `eval` is the new kind (replacing the old forced Testing Card); the
 old generic default is now `task`.
@@ -80,6 +104,56 @@ explicit `now`, true when terminal + `terminalAt` is ≥7 days old + not
 pinned. Sort order (`compareTodos`): priority ascending, then created,
 then id — total and stable.
 
+## HOW -- origin (issue #81)
+
+The stock-and-flow ruling (#80) makes the todo queue the heart of the Lab;
+this pass gives Receive's signal a door into it. `Todo` gains an optional,
+IMMUTABLE `origin?: {kind: "field-report" | "intake", ref: string}`
+(`packages/core/src/Todo.ts`'s `TodoOrigin`/`TodoOriginRecord`) -- `ref` is
+the journal event id of the `skill.field_report` that opened this todo
+(`"field-report"`), or the intake id of the crate/candidate a triage
+manifest row's "hurts" opened it from (`"intake"`, added issue #92, `adopt
+--from-manifest`'s `executeManifestRow`). Named generically (`kind`/`ref`,
+not `eventId`) so a later producer (`run`, `coverage-gap`) can add a kind
+without a breaking change, the same closed-union reasoning `FixtureSource`
+(`Fixtures.ts`, issue #68) already established for fixture provenance.
+Structurally absent from `TodoPatch` -- same immutability as `source`: a
+`todo.updated` patch can never retroactively stamp or change it.
+`FoldTodos.ts` needed no changes at all: `todo.opened` already sets the
+full record verbatim, and `todo.updated` already can't touch fields
+`TodoPatch` doesn't carry.
+
+CLI: `skillmaker todo add <title> --from-report <event-id>` (extends
+`packages/cli/src/commands/Todo.ts`). The domain logic lives in a new core
+module, `packages/core/src/TodoFromReport.ts`'s `openTodoFromReport`,
+mirroring `Harvest.ts`'s core-function-plus-thin-CLI layering and its
+honest-failure shape: an unknown event id
+(`TodoFromReportEventNotFoundError`), an event that exists but isn't a
+`skill.field_report` (`TodoFromReportNotFieldReportError`), or an explicit
+`--bundle` that disagrees with the report's own bundle
+(`TodoFromReportBundleMismatchError`). Unlike harvest, there is no
+file-collision case to guard -- todos are journal-native, not files, so a
+plain `todo.opened` append is exactly what this does too, just with
+report-derived defaults: `--bundle` defaults to the report's bundle,
+`--kind` defaults by outcome (`TODO_KIND_BY_OUTCOME`: `failed` -> `bug`,
+`surprise` -> `eval`, `worked` -> `task`), and `detail` defaults to the
+report's prose verbatim plus `Destination:`/`Version:` lines when the
+report carries them. Every default is overridable; overriding never
+suppresses the `origin` stamp.
+
+Viewer: `Queue.tsx` (`TodosPanel.tsx` until #83) renders a small origin chip
+next to the bundle chip whenever `todo.origin` is set -- "from the field"
+for `"field-report"`, "from intake" for `"intake"` (issue #92) -- provenance,
+not a link (no todo detail page yet, a separate issue). Receive's row-level
+work-chip/copyable-command affordance is described on `Entity - Field
+Report.md`'s "HOW -- todo" section, the mirror image of this one.
+
+Deliberately not in this pass (issue #81's own scope line): no write
+button on Receive, no auto-todo on failed reports -- the human decides what
+the wild means. No `run`/`coverage-gap` producers -- `"field-report"` and
+`"intake"` (issue #92) are the only `origin.kind`s that exist today. No
+todo detail page.
+
 **Merged source cards, folded into this one card:**
 
 - `Component - Testing Card` — **RETIRE**, not merge. Its defining rule
@@ -97,14 +171,17 @@ then id — total and stable.
   restricted to Testing cards — any todo may carry one.
 - `Economy - Priority` → `Todo.priority`.
 - `Economy - Work Order Status` → `Todo.status`.
-- `Surface - Work Order Lane` → the viewer's `TodosPanel`
-  (`packages/viewer/src/app/components/TodosPanel.tsx`): a persistent,
-  collapsible right-side panel on the Board page, not bundle-scoped, with a
-  "show archived" toggle and inline add/complete actions posting
-  `todo.opened`/`todo.status_changed` through `POST /api/events`. It is not
-  a three-lane (Open/In-Progress/Done) sub-surface like the old Work Order
-  Lane — it is a single flat, priority-sorted list with status shown as a
-  checkbox + strikethrough, plus kind chips.
+- `Surface - Work Order Lane` → the viewer's `TodosPanel`, as it stood
+  before issue #83: a persistent, collapsible right-side panel on every
+  route, not bundle-scoped, with a "show archived" toggle and inline
+  add/complete actions posting `todo.opened`/`todo.status_changed` through
+  `POST /api/events`. It was not a three-lane (Open/In-Progress/Done)
+  sub-surface like the old Work Order Lane — it was a single flat,
+  priority-sorted list with status shown as a checkbox + strikethrough,
+  plus kind chips. **Superseded by #83**: `TodosPanel.tsx` is deleted;
+  the same list, extracted rather than rewritten, is now `Queue.tsx`, the
+  Lab's Queue mode (`./Surface - Lab`), no longer chrome shared by every
+  route.
 
 **Older-dupe cards, also accounted for here:**
 
@@ -128,3 +205,26 @@ Also checked `packages/cli/src/commands/Todo.ts`: `skillmaker todo add`
 defaults `kind` to `"task"` and `priority` to the kind default when
 `--priority` is omitted, confirming the default-by-kind rule is enforced
 at the CLI, not just documented.
+
+Origin (issue #81) verified: `packages/core/src/Todo.ts`'s `TodoOrigin`/
+`TodoOriginRecord` (`optionalKey`, structurally absent from `TodoPatch`),
+`packages/core/src/TodoFromReport.ts` (`openTodoFromReport`,
+`TODO_KIND_BY_OUTCOME`), `packages/core/src/Errors.ts`'s three
+`TodoFromReport*` tagged errors, `packages/core/src/IndexService.ts`
+(`todos.origin_json` column, `TodoRecord.origin`), `packages/cli/src/
+commands/Todo.ts` and `packages/cli/src/Cli.ts` (`todo add --from-report`
+routing), and `packages/viewer/src/app/components/TodosPanel.tsx` (the
+"from the field" chip) all present and match this description.
+
+Home surface (issue #83) verified: `packages/viewer/src/app/components/
+TodosPanel.tsx` is deleted; `packages/viewer/src/app/components/
+AppShell.tsx` no longer imports or renders it; the same row/form/toggle
+logic (kind chips, the origin chip, the status checkbox, the add form,
+the show-archived toggle) is present in the new `packages/viewer/src/app/
+components/Queue.tsx`, reached at `/lab?view=queue`
+(`packages/viewer/src/app/components/Lab.tsx`'s mode toggle,
+`packages/viewer/src/app/runtime/router.tsx`'s `parseRoute`/`labHref`).
+`GET /api/catalog`'s `CatalogEntry.openTodoCount`
+(`packages/cli/src/server/Server.ts`'s `handleCatalog`) feeds the Lab
+Bench mode's per-row open-work signal and `runtime/labOrder.ts`'s
+attention rank -- full detail on `./Surface - Lab`.

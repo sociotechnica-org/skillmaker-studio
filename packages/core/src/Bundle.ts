@@ -57,4 +57,13 @@ export class BundleState extends Schema.Class<BundleState>("BundleState")({
   substate: BundleSubstate,
   /** Off/on the active board via bundle.archived / bundle.restored. */
   archived: Schema.Boolean,
+  /**
+   * The `at` of the last `bundle.stage_changed` for this bundle, or of
+   * `bundle.created` if the stage has never changed since (issue #82).
+   * Absent for a bundle implicitly created by the tolerant fold (referenced
+   * before any `bundle.created`) -- there is no honest timestamp for that
+   * case. Generic on purpose: this is "when did the bundle last land on its
+   * current rung," useful well beyond the Published-column doorway.
+   */
+  stageChangedAt: Schema.optionalKey(Schema.String),
 }) {}

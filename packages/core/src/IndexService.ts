@@ -29,8 +29,9 @@ import { BundleState } from "./Bundle.ts";
 import { IndexError, JournalReadError, WorkspaceIOError } from "./Errors.ts";
 import { checkCoverage, COVERAGE_VALUES, parseRiskMap } from "./RiskMap.ts";
 import type { CoverageValue } from "./RiskMap.ts";
+import { parseDossier } from "./Dossier.ts";
 import { scanFixtures } from "./Fixtures.ts";
-import type { FixtureCaseRecord } from "./Fixtures.ts";
+import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
 import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
@@ -38,7 +39,7 @@ import type { Actor } from "./Actor.ts";
 import type { JournalEvent, RunVerdict } from "./Journal.ts";
 import { RunRecord } from "./Run.ts";
 import type { RunStatus } from "./Run.ts";
-import type { ChecklistItem, Todo, TodoKind, TodoStatus } from "./Todo.ts";
+import type { ChecklistItem, Todo, TodoKind, TodoOriginRecord, TodoStatus } from "./Todo.ts";
 import { AdoptMarker } from "./Adopt.ts";
 import {
   ADOPT_MARKER_FILENAME,
@@ -46,10 +47,12 @@ import {
   computeDrift,
   foldSkillVersions,
   latestSkillVersion,
+  WORKSPACE_SCAN_SKIP_DIR_NAMES,
 } from "./Versions.ts";
 import type { BundleLayout, Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
 import { computeMeasurements } from "./Measurements.ts";
+import { foldEverReceivedBundles } from "./Verification.ts";
 import {
   detectNonDiscriminatingChecks,
   formatSelfCritiqueWarning,
@@ -82,6 +85,24 @@ export interface BundleRecord {
   readonly drift: Drift;
   /** Present only for an adopted bundle whose `.skillmaker-adopt.json` marker recorded an `upstream` (i.e. `adopt --source ...` was used for it). */
   readonly upstream?: BundleUpstream;
+  /** Mirrors `BundleState.stageChangedAt` (issue #82) -- absent for a bundle the fold never saw a `bundle.created`/`bundle.stage_changed` for. */
+  readonly stageChangedAt?: string;
+  /**
+   * Issue #93 (`Mechanism - Receiving Dock.md` §HOW, "The Unverified
+   * badge"): `true` iff this bundle's history contains at least one
+   * `skill.routed` event with an identity-granting disposition (`return`/
+   * `new`/`upgrade`/`fork` -- never `salvage`) naming it
+   * (`Verification.ts`'s `foldEverReceivedBundles`). NOT the same fact as
+   * `upstream` above: `adopt --source ...` also stamps `upstream` on a
+   * bundle that declared itself "always mine" (no arrival fact) -- the two
+   * must never be conflated, or a plain adopted bundle would wrongly badge
+   * Unverified. Combined with a bundle's measurement count (zero ever, at
+   * any version) by callers via `Verification.ts`'s `isUnverified` -- kept
+   * as its own boolean here (not a combined `unverified` field) because
+   * IndexService's job is indexing bundle facts, not assembling a display
+   * value that also depends on `listMeasurements`, a separate query.
+   */
+  readonly everReceived: boolean;
 }
 
 /** A materialized `skill.version_recorded` row (data-model.md §2.7, §2.11). */
@@ -108,6 +129,8 @@ export interface TodoRecord {
   readonly pinned?: boolean;
   readonly archived: boolean;
   readonly source: Actor;
+  /** Present only for a todo opened via `todo add --from-report` (issue #81); absent for every hand-opened todo. */
+  readonly origin?: TodoOriginRecord;
 }
 
 export interface ListTodosOptions {
@@ -131,6 +154,10 @@ export interface FixtureRecord {
   readonly risks: ReadonlyArray<string>;
   /** Whether `prompt.md` exists next to `case.json` (PROMPT.MD CHANGE); the Evals tab's prompt.md indicator. */
   readonly hasPromptMd: boolean;
+  /** Present only for a `fixture harvest`ed case (issue #68) -- lets `GET /api/field-reports` match a report back to the fixture it became. */
+  readonly source?: FixtureSourceRecord;
+  /** Names a `dossier.md` context this case exercises (issue #94); absent on every fixture predating this field. */
+  readonly context?: string;
 }
 
 /** A materialized `evals/risk-map.md` row (data-model.md §2.6, §2.11). No results column, ever. */
@@ -188,6 +215,8 @@ interface BundleRow {
   readonly output_hash: string;
   readonly drift: string;
   readonly upstream_json: string | null;
+  readonly stage_changed_at: string | null;
+  readonly ever_received: number;
 }
 
 interface VersionRow {
@@ -212,6 +241,7 @@ interface TodoRow {
   readonly pinned: number;
   readonly archived: number;
   readonly source_json: string;
+  readonly origin_json: string | null;
 }
 
 interface FixtureRow {
@@ -220,6 +250,8 @@ interface FixtureRow {
   readonly class: string;
   readonly risks_json: string;
   readonly has_prompt_md: number;
+  readonly source_json: string | null;
+  readonly context: string | null;
 }
 
 interface RiskCoverageRow {
@@ -262,8 +294,18 @@ interface BundleIdentityLocation {
   readonly upstream?: BundleUpstream;
 }
 
-/** Directory names never descended into while scanning for `bundle.json` (mirrors `Adopt.ts`'s discovery skip-list). */
-const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set(["node_modules", ".git", "dist", ".skillmaker"]);
+/**
+ * Directory names never descended into while scanning for `bundle.json` --
+ * shared with `Adopt.ts`'s discovery skip-list (`Versions.ts`'s
+ * `WORKSPACE_SCAN_SKIP_DIR_NAMES`), not an independent copy. `receiving`
+ * (issue #90, `Mechanism - Receiving Dock.md`) is skipped deliberately: a
+ * crate at the dock is undisposed by definition -- if it happens to still
+ * carry a `bundle.json` from wherever it came from (e.g. a returning
+ * bundle), this scan must never mint it into THIS workspace's catalog as a
+ * side effect. Identity is a human ruling (a disposition, #next), never a
+ * scan result.
+ */
+const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = WORKSPACE_SCAN_SKIP_DIR_NAMES;
 
 const BUNDLE_STAGES: ReadonlyArray<BundleStage> = [
   "idea",
@@ -357,6 +399,8 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
       outputHash: row.output_hash,
       drift: row.drift,
       ...(upstream !== undefined ? { upstream } : {}),
+      ...(row.stage_changed_at !== null ? { stageChangedAt: row.stage_changed_at } : {}),
+      everReceived: row.ever_received !== 0,
     };
   });
 
@@ -389,6 +433,17 @@ const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
       try: () => JSON.parse(row.source_json) as Actor,
       catch: toIndexError(`studio.db: todo "${row.id}" has invalid source_json`),
     });
+    // `origin_json` was written from a `Todo["origin"]` the journal fold
+    // already validated tolerantly, but the DB column can still be
+    // corrupted independently (hand edit, interrupted write) -- same
+    // guarded decode path `rowToFixtureRecord` uses for `source_json`.
+    const origin =
+      row.origin_json !== null
+        ? yield* Effect.try({
+            try: () => JSON.parse(row.origin_json as string) as TodoOriginRecord,
+            catch: toIndexError(`studio.db: todo "${row.id}" has invalid origin_json`),
+          })
+        : undefined;
     return {
       id: row.id,
       kind: row.kind,
@@ -403,6 +458,7 @@ const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
       ...(row.pinned !== 0 ? { pinned: true } : {}),
       archived: row.archived !== 0,
       source,
+      ...(origin !== undefined ? { origin } : {}),
     };
   });
 
@@ -422,12 +478,26 @@ const rowToFixtureRecord = (row: FixtureRow): Effect.Effect<FixtureRecord, Index
         }),
       );
     }
+    // `source_json` was written from a `FixtureCaseRecord["source"]` that
+    // `scanFixtures` already validated tolerantly (Fixtures.ts), but the DB
+    // column can still be corrupted independently (hand edit, interrupted
+    // write) -- so decode through the same guarded path as `risks_json`
+    // above, degrading to a typed `IndexError` instead of an uncaught throw.
+    const source =
+      row.source_json !== null
+        ? yield* Effect.try({
+            try: () => JSON.parse(row.source_json as string) as FixtureRecord["source"],
+            catch: toIndexError(`studio.db: fixture "${row.bundle}/${row.case_name}" has invalid source_json`),
+          })
+        : undefined;
     return {
       bundle: row.bundle,
       caseName: row.case_name,
       class: row.class,
       risks,
       hasPromptMd: row.has_prompt_md !== 0,
+      ...(source !== undefined ? { source } : {}),
+      ...(row.context !== null ? { context: row.context } : {}),
     };
   });
 
@@ -508,7 +578,9 @@ const createSchema = (db: Database): void => {
       design_hash TEXT NOT NULL,
       output_hash TEXT NOT NULL,
       drift TEXT NOT NULL,
-      upstream_json TEXT
+      upstream_json TEXT,
+      stage_changed_at TEXT,
+      ever_received INTEGER NOT NULL DEFAULT 0
     )
   `);
   db.run(`
@@ -540,7 +612,8 @@ const createSchema = (db: Database): void => {
       terminal_at TEXT,
       pinned INTEGER NOT NULL,
       archived INTEGER NOT NULL,
-      source_json TEXT NOT NULL
+      source_json TEXT NOT NULL,
+      origin_json TEXT
     )
   `);
   db.run(`
@@ -560,6 +633,8 @@ const createSchema = (db: Database): void => {
       class TEXT NOT NULL,
       risks_json TEXT NOT NULL,
       has_prompt_md INTEGER NOT NULL DEFAULT 0,
+      source_json TEXT,
+      context TEXT,
       PRIMARY KEY (bundle, case_name)
     )
   `);
@@ -719,6 +794,17 @@ export const layer = (
       // same time.
       yield* Effect.acquireRelease(acquireWorkspaceLock(workspaceRoot), (release) => Effect.sync(release));
 
+      // Self-sufficient: `new Database(dbPath, { create: true })` below
+      // creates the db FILE but not its parent directory -- bun:sqlite
+      // throws SQLITE_CANTOPEN if `dbDir` doesn't exist yet. `rebuild()`
+      // already re-creates `dbDir` before its own atomic rewrite (it can't
+      // assume this initial open succeeded first); doing it here too means
+      // a workspace whose very first `.skillmaker/` write is opening this
+      // layer (e.g. `receive`'s registry read, before any journal append
+      // has run) doesn't need its caller to know about this ordering gap
+      // and pre-create the directory itself.
+      yield* fs.makeDirectory(dbDir, { recursive: true }).pipe(Effect.mapError(toIndexError(`could not create ${dbDir}`)));
+
       const dbExisted = yield* fs
         .exists(dbPath)
         .pipe(Effect.mapError(toIndexError(`could not check ${dbPath}`)));
@@ -771,12 +857,17 @@ export const layer = (
             continue;
           }
 
+          // Raw readdir order is OS-dependent (ext4 hash order vs APFS
+          // alphabetical, same flake class `scanFixtures` fixed, #88) --
+          // sorted so which directory "wins" a duplicate-slug race (the
+          // warning below) is stable across machines, not a coin flip.
           const entries = yield* fs
             .readDirectory(dir)
             .pipe(Effect.mapError(toIndexError(`could not list ${dir}`)));
+          const sortedEntries = entries.slice().sort();
 
           let hasBundleJson = false;
-          for (const entry of entries) {
+          for (const entry of sortedEntries) {
             const full = join(dir, entry);
             const info = yield* fs.stat(full).pipe(Effect.mapError(toIndexError(`could not stat ${full}`)));
             if (info.type === "Directory") {
@@ -871,6 +962,7 @@ export const layer = (
           ...(todo.pinned !== undefined ? { pinned: todo.pinned } : {}),
           archived: isArchived(todo, now),
           source: todo.source,
+          ...(todo.origin !== undefined ? { origin: todo.origin } : {}),
         }));
 
       const populate = (
@@ -886,7 +978,7 @@ export const layer = (
       ): void => {
         const run = db.transaction(() => {
           const insertBundle = db.query(
-            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson)",
+            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json, stage_changed_at, ever_received) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson, $stageChangedAt, $everReceived)",
           );
           for (const record of records) {
             insertBundle.run({
@@ -902,6 +994,8 @@ export const layer = (
               $outputHash: record.outputHash,
               $drift: record.drift,
               $upstreamJson: record.upstream !== undefined ? JSON.stringify(record.upstream) : null,
+              $stageChangedAt: record.stageChangedAt ?? null,
+              $everReceived: record.everReceived ? 1 : 0,
             });
           }
 
@@ -919,7 +1013,7 @@ export const layer = (
           }
 
           const insertTodo = db.query(
-            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, archived, source_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $archived, $source)",
+            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, archived, source_json, origin_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $archived, $source, $origin)",
           );
           for (const todo of todoRecords) {
             insertTodo.run({
@@ -936,6 +1030,7 @@ export const layer = (
               $pinned: todo.pinned === true ? 1 : 0,
               $archived: todo.archived ? 1 : 0,
               $source: JSON.stringify(todo.source),
+              $origin: todo.origin !== undefined ? JSON.stringify(todo.origin) : null,
             });
           }
 
@@ -954,7 +1049,7 @@ export const layer = (
           }
 
           const insertFixture = db.query(
-            "INSERT INTO fixtures (bundle, case_name, class, risks_json, has_prompt_md) VALUES ($bundle, $caseName, $class, $risks, $hasPromptMd)",
+            "INSERT INTO fixtures (bundle, case_name, class, risks_json, has_prompt_md, source_json, context) VALUES ($bundle, $caseName, $class, $risks, $hasPromptMd, $source, $context)",
           );
           for (const fixture of fixtureRecords) {
             insertFixture.run({
@@ -963,6 +1058,8 @@ export const layer = (
               $class: fixture.class,
               $risks: JSON.stringify(fixture.risks),
               $hasPromptMd: fixture.hasPromptMd ? 1 : 0,
+              $source: fixture.source !== undefined ? JSON.stringify(fixture.source) : null,
+              $context: fixture.context ?? null,
             });
           }
 
@@ -1019,6 +1116,10 @@ export const layer = (
         const states = foldBundleStates(events);
         const todos = foldTodos(events);
         const versionsBySlug = foldSkillVersions(events);
+        // Issue #93's arrival fact, folded once per rebuild alongside every
+        // other journal fold above -- no second journal parse (`events` is
+        // already in hand).
+        const everReceivedBundles = foldEverReceivedBundles(events);
 
         // Latest `run.graded` event per run id -- the grading columns
         // joined onto each `runs` row below (data-model.md §2.11's
@@ -1150,6 +1251,20 @@ export const layer = (
             warnings.push({ bundle: slug, source: "risk-map", message: warning });
           }
 
+          // Dossier (issue #94): joins the reindex warning flow exactly
+          // like risk-map/fixtures -- warn, never fail (Part 3 ruling I). A
+          // missing `dossier.md` is fine (an "idea"-stage or pre-dossier
+          // bundle has none yet); its content is read separately, at
+          // request time, by the bundle-detail endpoint (`Server.ts`) --
+          // nothing here persists dossier content, only its warnings.
+          const dossierScan = yield* parseDossier(join(bundleDir, "dossier.md")).pipe(
+            Effect.provideService(FileSystem, fs),
+            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not scan dossier for "${slug}"`)(cause)),
+          );
+          for (const warning of dossierScan.warnings) {
+            warnings.push({ bundle: slug, source: "dossier", message: warning });
+          }
+
           // Runs: scan `runs/<id>/run.json` files (data-model.md §2.8,
           // §2.11) -- populated from files, NOT folded from `run.started`/
           // `run.completed` journal events, since `run.json` is the
@@ -1235,6 +1350,8 @@ export const layer = (
             outputHash: hashes.outputHash,
             drift,
             ...(located?.upstream !== undefined ? { upstream: located.upstream } : {}),
+            ...(state.stageChangedAt !== undefined ? { stageChangedAt: state.stageChangedAt } : {}),
+            everReceived: everReceivedBundles.has(slug),
           });
         }
 

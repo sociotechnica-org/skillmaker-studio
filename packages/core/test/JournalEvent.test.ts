@@ -66,6 +66,36 @@ const samples: ReadonlyArray<Record<string, unknown>> = [
     ...envelope("skill.published"),
     payload: { bundle: "demo", versionHash: "sha256:aaa", target: "claude-code" },
   },
+  {
+    ...envelope("skill.shipped"),
+    payload: {
+      bundle: "demo",
+      versionHash: "sha256:aaa",
+      destination: "acme-agent-fleet",
+      purpose: "eval harness for team X",
+      receipts: [
+        {
+          fixtureCase: "golden-basic",
+          provider: "claude-code",
+          model: "claude-sonnet-5",
+          n: 30,
+          passes: 29,
+          passRate: 29 / 30,
+          ci: [0.85, 0.99],
+        },
+      ],
+    },
+  },
+  {
+    ...envelope("skill.field_report"),
+    payload: {
+      bundle: "demo",
+      outcome: "worked",
+      report: "Ran fine against three prod repos this week.",
+      versionHash: "sha256:aaa",
+      destination: "acme-agent-fleet",
+    },
+  },
   { ...envelope("todo.opened"), payload: { todo } },
   {
     ...envelope("todo.updated"),
@@ -102,6 +132,18 @@ const samples: ReadonlyArray<Record<string, unknown>> = [
     ...envelope("review.resolved"),
     payload: { bundle: "demo", state: "researching", decision: "approve" },
   },
+  {
+    ...envelope("skill.received"),
+    payload: {
+      intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      source: "acme-corp export",
+      ref: "main",
+      claimedName: "Frame the Problem",
+      claimedVersionHash: "sha256:aaa",
+      rights: "licensed",
+      notes: "arrived via a shared drive link",
+    },
+  },
 ];
 
 describe("JournalEvent schema round-trip", () => {
@@ -116,6 +158,42 @@ describe("JournalEvent schema round-trip", () => {
       expect(String(redecoded.type)).toBe(String(expectedType));
     });
   }
+
+  test("skill.field_report decodes with versionHash/destination omitted (issue #67: the reporter may not know either)", async () => {
+    const sample = {
+      ...envelope("skill.field_report"),
+      payload: { bundle: "demo", outcome: "surprise", report: "Worked, but used a tool we didn't expect." },
+    };
+    const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(sample));
+    expect(decoded.type).toBe("skill.field_report");
+  });
+
+  test("skill.received decodes with every optional claim omitted (issue #90: no-claims is the honest default, not an error)", async () => {
+    const sample = {
+      ...envelope("skill.received"),
+      payload: { intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FAW", source: "unknown" },
+    };
+    const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(sample));
+    expect(decoded.type).toBe("skill.received");
+  });
+
+  test("skill.received rejects rights outside ours/licensed/unclear", async () => {
+    const bad = {
+      ...envelope("skill.received"),
+      payload: { intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FAX", source: "unknown", rights: "maybe" },
+    };
+    const outcome = await Effect.runPromiseExit(Schema.decodeUnknownEffect(JournalEvent)(bad));
+    expect(outcome._tag).toBe("Failure");
+  });
+
+  test("skill.field_report rejects an outcome outside worked/failed/surprise", async () => {
+    const bad = {
+      ...envelope("skill.field_report"),
+      payload: { bundle: "demo", outcome: "mixed", report: "..." },
+    };
+    const outcome = await Effect.runPromiseExit(Schema.decodeUnknownEffect(JournalEvent)(bad));
+    expect(outcome._tag).toBe("Failure");
+  });
 
   test("rejects an unknown event type", async () => {
     const bad = { ...envelope("bundle.teleported"), payload: {} };

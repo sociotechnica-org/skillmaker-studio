@@ -1,23 +1,17 @@
 import type { FC } from "react";
 import { useBundles } from "../runtime/useBundles.ts";
-import type { BundleRecord, BundleStage } from "../runtime/schemas.ts";
-import { bundleHref, useRouter } from "../runtime/router.tsx";
+import { ARCHIVED_LABEL, STAGE_LABEL, STAGES, type BundleRecord } from "../runtime/schemas.ts";
+import { bundleHref, Link, useRouter } from "../runtime/router.tsx";
+import { partitionDoorway } from "../runtime/boardDoorway.ts";
 import { BoardColumn } from "./BoardColumn.tsx";
-
-const STAGE_COLUMNS: ReadonlyArray<{ stage: BundleStage; title: string }> = [
-  { stage: "idea", title: "Idea" },
-  { stage: "researching", title: "Researching" },
-  { stage: "drafting", title: "Drafting" },
-  { stage: "evaluating", title: "Evaluating" },
-  { stage: "published", title: "Published" },
-];
+import { NewBundleForm } from "./NewBundleForm.tsx";
 
 /** Archived bundles render in the archived column regardless of stage. */
 const bundlesByColumn = (
   bundles: ReadonlyArray<BundleRecord>,
 ): ReadonlyMap<string, ReadonlyArray<BundleRecord>> => {
   const columns = new Map<string, BundleRecord[]>();
-  for (const { stage } of STAGE_COLUMNS) {
+  for (const stage of STAGES) {
     columns.set(stage, []);
   }
   columns.set("archived", []);
@@ -28,6 +22,22 @@ const bundlesByColumn = (
   }
   return columns;
 };
+
+/**
+ * The Published column's doorway footer (issue #82): "N in the Lab →"
+ * whenever ≥1 published bundle has aged out of the doorway window --
+ * nothing is hidden from the Lab or the journal, only elided from this
+ * one column's cards, and the count says exactly where it went.
+ */
+const DoorwayFooter: FC<{ elidedCount: number }> = ({ elidedCount }) =>
+  elidedCount === 0 ? null : (
+    <Link
+      href="/lab"
+      className="block px-1 text-xs text-neutral-500 hover:underline dark:text-neutral-400"
+    >
+      {elidedCount} in the Lab →
+    </Link>
+  );
 
 /**
  * The Board -- stage columns + an archived column (route `/`). Bundle
@@ -41,6 +51,12 @@ export const Board: FC = () => {
   const { navigate } = useRouter();
   const columns = bundlesByColumn(bundles);
   const onSelect = (slug: string): void => navigate(bundleHref(slug));
+  // Evaluated fresh on every render -- the doorway window is real wall-clock
+  // time, not a value computed once at fetch time (issue #82).
+  const { visible: publishedVisible, elidedCount } = partitionDoorway(
+    columns.get("published") ?? [],
+    new Date(),
+  );
 
   return (
     <>
@@ -53,17 +69,24 @@ export const Board: FC = () => {
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
       ) : (
         <div className="flex gap-4">
-          {STAGE_COLUMNS.map(({ stage, title }) => (
+          {STAGES.map((stage) => (
             <BoardColumn
               key={stage}
-              title={title}
-              bundles={columns.get(stage) ?? []}
+              title={STAGE_LABEL[stage]}
+              bundles={stage === "published" ? publishedVisible : (columns.get(stage) ?? [])}
               fixtureCounts={fixtureCounts}
               onSelect={onSelect}
+              footer={
+                stage === "idea" ? (
+                  <NewBundleForm />
+                ) : stage === "published" ? (
+                  <DoorwayFooter elidedCount={elidedCount} />
+                ) : undefined
+              }
             />
           ))}
           <BoardColumn
-            title="Archived"
+            title={ARCHIVED_LABEL}
             bundles={columns.get("archived") ?? []}
             fixtureCounts={fixtureCounts}
             onSelect={onSelect}

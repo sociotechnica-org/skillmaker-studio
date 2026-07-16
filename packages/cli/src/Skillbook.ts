@@ -15,6 +15,7 @@ import {
   JournalLayer,
   shortHash,
   type MeasurementRecord,
+  type ShipReceipt,
   type VersionRecord,
   type WorkspaceConfig,
 } from "@skillmaker/core";
@@ -25,9 +26,23 @@ import { Path } from "effect/Path";
 import { join } from "node:path";
 
 export interface SkillbookChangelogEntry {
-  readonly type: "version" | "published" | "gate";
+  readonly type: "version" | "published" | "gate" | "shipped" | "reported";
   readonly at: string;
   readonly summary: string;
+}
+
+/**
+ * One `skill.shipped` event, materialized for the Port (issue #66): "where
+ * is this in the world" -- destination, purpose, the version that left, and
+ * the receipts it shipped with, frozen at that moment (never re-derived from
+ * today's measurements).
+ */
+export interface SkillbookShipment {
+  readonly at: string;
+  readonly versionHash: string;
+  readonly destination: string;
+  readonly purpose: string;
+  readonly receipts: ReadonlyArray<ShipReceipt>;
 }
 
 export interface SkillbookBundle {
@@ -40,8 +55,10 @@ export interface SkillbookBundle {
   readonly latestVersion: VersionRecord | null;
   /** Never pooled (data-model.md §1.1 laws 5-6) -- one cell per {fixture, version, provider, model}. */
   readonly measurements: ReadonlyArray<MeasurementRecord>;
-  /** Versions/publishes/gates, newest first. */
+  /** Versions/publishes/gates/shipments/field reports, newest first. */
   readonly changelog: ReadonlyArray<SkillbookChangelogEntry>;
+  /** Every `skill.shipped` event for this bundle, newest first (issue #66: "where is this in the world"). */
+  readonly shipments: ReadonlyArray<SkillbookShipment>;
 }
 
 export interface SkillbookData {
@@ -81,6 +98,7 @@ export const buildSkillbook = Effect.fn("Skillbook.build")(function* (
 
     const bundleEvents = events.filter((event) => bundleForEvent(event) === bundle.slug);
     const changelog: SkillbookChangelogEntry[] = [];
+    const shipments: SkillbookShipment[] = [];
     for (const event of bundleEvents) {
       if (event.type === "skill.version_recorded") {
         const labelSuffix = event.payload.label !== undefined ? ` ("${event.payload.label}")` : "";
@@ -102,9 +120,32 @@ export const buildSkillbook = Effect.fn("Skillbook.build")(function* (
           at: event.at,
           summary: `Publish gate ${event.payload.decision}: ${event.payload.basis}`,
         });
+      } else if (event.type === "skill.shipped") {
+        changelog.push({
+          type: "shipped",
+          at: event.at,
+          summary: `Shipped ${shortHash(event.payload.versionHash)} to "${event.payload.destination}" for "${event.payload.purpose}"`,
+        });
+        shipments.push({
+          at: event.at,
+          versionHash: event.payload.versionHash,
+          destination: event.payload.destination,
+          purpose: event.payload.purpose,
+          receipts: event.payload.receipts,
+        });
+      } else if (event.type === "skill.field_report") {
+        const versionSuffix =
+          event.payload.versionHash !== undefined ? ` (${shortHash(event.payload.versionHash)})` : "";
+        const fromSuffix = event.payload.destination !== undefined ? ` from "${event.payload.destination}"` : "";
+        changelog.push({
+          type: "reported",
+          at: event.at,
+          summary: `Field report: ${event.payload.outcome}${versionSuffix}${fromSuffix} -- ${event.payload.report}`,
+        });
       }
     }
     changelog.sort((a, b) => b.at.localeCompare(a.at));
+    shipments.sort((a, b) => b.at.localeCompare(a.at));
 
     bundles.push({
       slug: bundle.slug,
@@ -115,6 +156,7 @@ export const buildSkillbook = Effect.fn("Skillbook.build")(function* (
       latestVersion: versions[0] ?? null,
       measurements,
       changelog,
+      shipments,
     });
   }
 

@@ -5,6 +5,7 @@
 import { type BundleRecord, IndexService, IndexServiceLayer, Workspace } from "@skillmaker/core";
 import { Effect } from "effect";
 import { type CliResult, expectedFailure, ok } from "../CliResult.ts";
+import { STAGE_LABEL } from "../StageVocab.ts";
 
 export interface ListOptions {
   readonly json: boolean;
@@ -48,7 +49,7 @@ const summarize = (bundles: ReadonlyArray<BundleRecord>, json: boolean): CliResu
 
   const rows = bundles.map((bundle) => ({
     slug: bundle.slug,
-    stage: bundle.stage,
+    stage: STAGE_LABEL[bundle.stage],
     substate: bundle.archived ? `${bundle.substate} (archived)` : bundle.substate,
   }));
 

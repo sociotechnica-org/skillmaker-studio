@@ -29,14 +29,40 @@ export const ADOPT_MARKER_FILENAME = ".skillmaker-adopt.json";
  * output tree: the studio-owned files `Adopt.ts` writes into the discovered
  * directory (mirroring the names `WorkspaceService.createBundle` scaffolds
  * for an in-workspace bundle), never the brownfield repo's own content.
+ * `dossier.md` (issue #94) joined this set for the same reason `design.md`
+ * is here: it's a studio-authored annotation about the skill, not part of
+ * the skill's own output, so editing it must never register as drift.
  */
 export const ADOPT_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
   "bundle.json",
   ADOPT_MARKER_FILENAME,
   "design.md",
+  "dossier.md",
   "research",
   "evals",
   "runs",
+]);
+
+/**
+ * Directory names no full-workspace tree walk ever descends into: workspace
+ * plumbing (`.skillmaker`, `.git`, `node_modules`, `dist`) plus `receiving`
+ * (issue #90, `Mechanism - Receiving Dock.md`) -- a crate at the dock is
+ * undisposed by definition, and its content (which may itself carry a stray
+ * `SKILL.md`/`bundle.json` from wherever it came from) must never be picked
+ * up as a side effect of a scan that has nothing to do with the dock.
+ * `Adopt.ts`'s brownfield discovery walk and `IndexService.ts`'s
+ * `bundle.json` scan both walk the entire workspace root looking for
+ * different files, but "which directories are never workspace content" is
+ * one fact, not two -- both import this single set instead of maintaining
+ * independent copies that can drift out of sync (as `receiving` briefly did
+ * when it was added to only one of the two).
+ */
+export const WORKSPACE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  ".skillmaker",
+  "receiving",
 ]);
 
 /** sha256 of one file's bytes, as `sha256:<hex>`. */
@@ -235,6 +261,24 @@ export const foldSkillVersions = (
 export const latestSkillVersion = (
   versions: ReadonlyArray<SkillVersion> | undefined,
 ): SkillVersion | undefined => (versions === undefined || versions.length === 0 ? undefined : versions.at(-1));
+
+/**
+ * Picks a recorded version: the latest by default, or the newest one whose
+ * hash starts with `prefix` -- a true left-anchored prefix of the full
+ * `"sha256:<hex>"` string, the same convention `shortHash` displays (a slice
+ * from the start), never an anywhere-in-the-string substring match, which
+ * could otherwise pick an unintended version whose hash merely CONTAINS the
+ * given text partway through. Newest match wins when a prefix is still
+ * ambiguous -- `versions` is chronological oldest-first
+ * (`foldSkillVersions`), so the last match is the most recently recorded.
+ */
+export const resolveSkillVersion = (
+  versions: ReadonlyArray<SkillVersion>,
+  prefix: string | undefined,
+): SkillVersion | undefined =>
+  prefix === undefined
+    ? versions.at(-1)
+    : versions.filter((version) => version.hash.startsWith(prefix)).at(-1);
 
 /** A short, human-friendly form of a `"sha256:<hex>"` hash for CLI/viewer display. */
 export const shortHash = (hash: string, length = 12): string => {

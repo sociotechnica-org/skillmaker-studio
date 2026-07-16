@@ -4,21 +4,27 @@
  */
 import { Effect } from "effect";
 import { type CliResult, ok, usageError } from "./CliResult.ts";
-import { runAdopt } from "./commands/Adopt.ts";
+import { runAdopt, runAdoptFromManifest, runAdoptTriage } from "./commands/Adopt.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runBookBuild } from "./commands/BookBuild.ts";
+import { runDossier } from "./commands/Dossier.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
+import { runFixtureHarvest } from "./commands/FixtureHarvest.ts";
 import { runGrade } from "./commands/Grade.ts";
 import { runInit } from "./commands/Init.ts";
 import { runList } from "./commands/List.ts";
 import { runMeasurements } from "./commands/Measurements.ts";
 import { runNew } from "./commands/New.ts";
 import { runPublish } from "./commands/Publish.ts";
+import { runReceive } from "./commands/Receive.ts";
 import { runReindex } from "./commands/Reindex.ts";
+import { runReport } from "./commands/Report.ts";
+import { runRoute } from "./commands/Route.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runReviewResolve } from "./commands/ReviewResolve.ts";
 import { runRun } from "./commands/Run.ts";
 import { runRunRepair } from "./commands/RunRepair.ts";
+import { runShip } from "./commands/Ship.ts";
 import { runStart } from "./commands/Start.ts";
 import { runStationRun } from "./commands/StationRun.ts";
 import { runStatus } from "./commands/Status.ts";
@@ -32,11 +38,15 @@ Usage: skillmaker <command> [options]
 Commands:
   init              Initialize a skillmaker workspace in the current directory
   new <slug>        Create a new Skill Bundle under skills/<slug>/
-  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles (--source <url-or-path> [--ref <ref>] to record upstream provenance for this batch)
+  adopt [path]      Import pre-existing SKILL.md files under path (default cwd) as in-place bundles (--source <url-or-path> [--ref <ref>] to record upstream provenance for this batch); challenges provable arrivals instead of silently adopting them (issue #92)
+  adopt --triage [path]   Sweep without acting: write adopt-manifest.md at the workspace root, one row per discovered skill (issue #92)
+  adopt --from-manifest [file]   Execute a triage manifest (default adopt-manifest.md at the workspace root) as individual acts (issue #92)
   list              List Skill Bundles by stage/substate (rebuilds the index first)
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
+  fixture harvest <slug> <case>   Turn a skill.field_report event into a Lab fixture (--from-report <event-id> required, issue #68)
+  dossier <slug>    Print a bundle's dossier.md: job, contexts, out-of-scope, basis, evidence, fit criterion -- honest gaps shown as "unrecorded" (issue #94)
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
   run repair <slug> [runId]   Terminal-state stuck "running" run(s) whose process is gone, so their transcripts become gradeable
   station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
@@ -48,8 +58,12 @@ Commands:
   advance <slug>          Move a bundle along the state machine (guarded)
   version record <slug>   Record a version: hash design.md + output/ (idempotent on content)
   publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
+  ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
+  report <slug>           Record a field report on a shipped skill -- what the wild says back (§2.9, issue #67)
+  receive <path>          Receive an arriving skill crate at the dock: copy it to receiving/<intake-id>/ and record skill.received (§2.9, issue #90)
+  route <intake-id>       Route a received crate through one of the five exit doors: --as return|new|upgrade|fork|salvage --reason <text> (§2.9, issue #91)
   book build              Render the Skillbook to a static site (§2.14)
-  todo add <title>        Open a new todo
+  todo add <title>        Open a new todo (--from-report <event-id> to seed it from a skill.field_report, issue #81)
   todo list               List todos (rebuilds the index first)
   todo done <id>          Mark a todo done
   todo start <id>         Mark a todo in-progress
@@ -59,34 +73,60 @@ Commands:
 Options:
   --json            Emit machine-readable JSON instead of text
   --name <name>     (new) Display name for the bundle; defaults to a title-cased slug
+                    (route) --as new/fork: display-name override; --as upgrade: version label override
   --port <n>        (start) Port to serve on; overrides skillmaker.config.json
   --no-open         (start) Do not open a browser on startup
   --question <text> (review request) Question for the reviewer
   --decision <d>    (review resolve) approve | revise (required)
   --label <text>    (version record) Human tag for the recorded version, e.g. "v0.3"
   --source <s>      (adopt) URL or local path this batch was imported from; recorded on each adopted skill's marker
+                    (receive) Free-text: where the crate came from; defaults to the given <path> when omitted
   --ref <ref>       (adopt) Ref/tag/pointer alongside --source; ignored without --source
+                    (receive) Ref/tag/pointer alongside --source; optional
+  --triage          (adopt) Sweep and write adopt-manifest.md at the workspace root; acts on nothing (issue #92)
+  --from-manifest [file]  (adopt) Execute a triage manifest as individual acts; defaults to adopt-manifest.md at the workspace root (issue #92)
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
+  --purpose <text>  (ship) Free-text reason the skill is shipping, e.g. "eval harness for team X"
+  --version <hash>  (ship, report) Recorded version hash-prefix; ship defaults to the latest recorded version, report leaves it unset when omitted
+  --outcome <o>     (report) worked | failed | surprise (required)
+  --note <text>     (report) Free-text field report (required)
+  --from <dest>     (report) Where the report came from, e.g. "acme-agent-fleet"; optional
+  --claimed-name <name>      (receive) The maker's claimed name for the arriving skill; optional
+  --claimed-version <v>      (receive) A label or hash the maker claims this version is; optional
+  --rights <r>      (receive) ours | licensed | unclear; optional, recorded never enforced
+  --as <d>          (route) return | new | upgrade | fork | salvage (required)
+  --parent <slug>   (route) the parent bundle slug (required for --as fork)
+  --from-intake <id>   (fixture harvest) the skill.received intake id to harvest, alternative to --from-report (issue #91)
+                    (todo add) the skill.received intake id to seed the todo from, alternative to --from-report (issue #91)
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
+                    (ship) Destination the skill is shipping to, e.g. "acme-agent-fleet"
   --back <stage>    (advance) Move backward to an earlier stage (requires --reason)
   --reason <text>   (advance) Reason for a backward move
+                    (route) The hypothesis (broken? evolved? forked?) -- required on every disposition
   --override        (advance) Bypass guards (journaled as a manual override)
   --kind <kind>     (todo add) task | bug | improvement | eval; defaults to task
   --bundle <slug>   (todo add/list) associate/filter by a bundle slug
+                    (route) --as return/upgrade: the existing bundle routed against (required); --as new/fork: optional slug override for the minted bundle; --as salvage: optional bundle being defended
   --detail <text>   (todo add) free-text detail
   --priority <n>    (todo add) lower = more urgent; defaults by kind
   --pin             (todo add) pin the todo (exempt from auto-archive)
   --all             (todo list) include archived todos
   --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
+                    (fixture harvest) same enum; defaults to hard-case
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
+  --context <name>  (fixture add) names a dossier.md Contexts entry this case exercises; optional, unvalidated (issue #94)
+  --from-report <id>   (fixture harvest) the skill.field_report event id to harvest (required)
+                    (todo add) the skill.field_report event id to seed the todo from (optional, issue #81); defaults --bundle/--kind/--detail from the report
   --fixture <case>  (run) the fixture case to run (required)
   --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"
   --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
   --timeout <s>     (run, station run) prompt timeout in seconds; defaults to 300
   --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
+  --stage <stage>   (route) --as new/fork: entry stage for the minted bundle; defaults to "idea"
   --verdict <v>     (grade) pass | fail | partial (required)
   --notes <text>    (grade, review resolve) free-text notes
+                    (receive) Free-text notes about the arriving crate; optional
   -h, --help        Show this help
 
 Exit codes (run): 0 completed, 1 failed, 2 usage error, 3 infra-error
@@ -118,6 +158,8 @@ const VALUE_FLAGS = new Set([
   "--label",
   "--class",
   "--risks",
+  "--context",
+  "--from-report",
   "--fixture",
   "--provider",
   "--model",
@@ -129,6 +171,19 @@ const VALUE_FLAGS = new Set([
   "--out",
   "--source",
   "--ref",
+  "--purpose",
+  "--version",
+  "--outcome",
+  "--note",
+  "--from",
+  "--claimed-name",
+  "--claimed-version",
+  "--rights",
+  "--as",
+  "--parent",
+  "--stage",
+  "--from-intake",
+  "--from-manifest",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -198,6 +253,19 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "adopt": {
       const targetPath = positionalAfterCommand(argv);
+      if (hasFlag(argv, "--triage")) {
+        return yield* runAdoptTriage(cwd, targetPath, { json });
+      }
+      if (hasFlag(argv, "--from-manifest")) {
+        const rawManifestFile = flagValue(argv, "--from-manifest");
+        // `--from-manifest` takes an OPTIONAL file argument -- if the next
+        // token is itself another flag (or absent), there is no explicit
+        // file and `runAdoptFromManifest` falls back to its own default
+        // (`adopt-manifest.md` at the workspace root).
+        const manifestFile =
+          rawManifestFile !== undefined && !rawManifestFile.startsWith("-") ? rawManifestFile : undefined;
+        return yield* runAdoptFromManifest(cwd, manifestFile, { json });
+      }
       const source = flagValue(argv, "--source");
       const ref = flagValue(argv, "--ref");
       return yield* runAdopt(cwd, targetPath, { json, source, ref });
@@ -212,15 +280,23 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       return yield* runReindex(cwd, { json });
     case "fixture": {
       const subcommand = argv[1];
-      if (subcommand !== "add") {
-        return usageError(
-          `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n`,
-        );
+      if (subcommand === "add") {
+        const [slug, caseName] = twoPositionalsAfter(argv, 2);
+        const klass = flagValue(argv, "--class");
+        const risks = flagValue(argv, "--risks");
+        const context = flagValue(argv, "--context");
+        return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks, context });
       }
-      const [slug, caseName] = twoPositionalsAfter(argv, 2);
-      const klass = flagValue(argv, "--class");
-      const risks = flagValue(argv, "--risks");
-      return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
+      if (subcommand === "harvest") {
+        const [slug, caseName] = twoPositionalsAfter(argv, 2);
+        const klass = flagValue(argv, "--class");
+        const fromReport = flagValue(argv, "--from-report");
+        const fromIntake = flagValue(argv, "--from-intake");
+        return yield* runFixtureHarvest(cwd, slug, caseName, { json, klass, fromReport, fromIntake });
+      }
+      return usageError(
+        `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker fixture harvest <slug> <case> (--from-report <event-id> | --from-intake <intake-id>) [--class <class>]\n`,
+      );
     }
     case "run": {
       if (argv[1] === "repair") {
@@ -305,6 +381,53 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const target = flagValue(argv, "--target");
       return yield* runPublish(cwd, slug, { json, target });
     }
+    case "ship": {
+      const slug = positionalAfterCommand(argv);
+      const to = flagValue(argv, "--to");
+      const purpose = flagValue(argv, "--purpose");
+      const version = flagValue(argv, "--version");
+      return yield* runShip(cwd, slug, { json, to, purpose, version });
+    }
+    case "report": {
+      const slug = positionalAfterCommand(argv);
+      const outcome = flagValue(argv, "--outcome");
+      const note = flagValue(argv, "--note");
+      const version = flagValue(argv, "--version");
+      const from = flagValue(argv, "--from");
+      return yield* runReport(cwd, slug, { json, outcome, note, version, from });
+    }
+    case "receive": {
+      const targetPath = positionalAfterCommand(argv);
+      const source = flagValue(argv, "--source");
+      const ref = flagValue(argv, "--ref");
+      const claimedName = flagValue(argv, "--claimed-name");
+      const claimedVersion = flagValue(argv, "--claimed-version");
+      const rights = flagValue(argv, "--rights");
+      const notes = flagValue(argv, "--notes");
+      return yield* runReceive(cwd, targetPath, {
+        json,
+        source,
+        ref,
+        claimedName,
+        claimedVersion,
+        rights,
+        notes,
+      });
+    }
+    case "route": {
+      const intake = positionalAfterCommand(argv);
+      const as = flagValue(argv, "--as");
+      const bundle = flagValue(argv, "--bundle");
+      const parent = flagValue(argv, "--parent");
+      const name = flagValue(argv, "--name");
+      const stage = flagValue(argv, "--stage");
+      const reason = flagValue(argv, "--reason");
+      return yield* runRoute(cwd, intake, { json, as, bundle, parent, name, stage, reason });
+    }
+    case "dossier": {
+      const slug = positionalAfterCommand(argv);
+      return yield* runDossier(cwd, slug, { json });
+    }
     case "book": {
       const subcommand = argv[1];
       if (subcommand !== "build") {
@@ -323,6 +446,8 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         const bundle = flagValue(argv, "--bundle");
         const detail = flagValue(argv, "--detail");
         const priority = flagValue(argv, "--priority");
+        const fromReport = flagValue(argv, "--from-report");
+        const fromIntake = flagValue(argv, "--from-intake");
         return yield* runTodoAdd(cwd, title, {
           json,
           kind,
@@ -330,6 +455,8 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
           detail,
           priority,
           pin: hasFlag(argv, "--pin"),
+          fromReport,
+          fromIntake,
         });
       }
       if (subcommand === "list") {

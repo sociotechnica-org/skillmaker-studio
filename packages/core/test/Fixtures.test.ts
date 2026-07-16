@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { isKnownRiskFamily, riskFamily, scanFixtures } from "../src/Fixtures.ts";
+import { FixtureCase, isKnownRiskFamily, riskFamily, scanFixtures, writeFixtureScaffold } from "../src/Fixtures.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
 const writeCase = (
@@ -46,6 +46,26 @@ describe("scanFixtures", () => {
         const result = yield* scanFixtures(dir);
         expect(result.cases).toEqual([]);
         expect(result.warnings).toEqual([]);
+      }),
+    );
+  });
+
+  test("cases come back sorted by name regardless of creation order", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        // Created deliberately out of alphabetical order: raw readdir order is
+        // OS-dependent, and consumers (e.g. field-report -> fixture
+        // attribution) rely on scan order being stable.
+        for (const name of ["hard-case-1-copy", "golden-1", "hard-case-1"]) {
+          yield* writeCase(dir, name, { schemaVersion: 1, case: name, class: "golden", risks: [] });
+        }
+
+        const result = yield* scanFixtures(dir);
+        expect(result.cases.map((c) => c.caseName)).toEqual([
+          "golden-1",
+          "hard-case-1",
+          "hard-case-1-copy",
+        ]);
       }),
     );
   });
@@ -270,6 +290,253 @@ describe("scanFixtures", () => {
         const result = yield* scanFixtures(dir);
         expect(result.cases).toEqual([]);
         expect(result.warnings.some((w) => w.includes("must be a JSON object"))).toBe(true);
+      }),
+    );
+  });
+
+  // Issue #68 (`fixture harvest`): `source` is optional provenance --
+  // absent on every case predating harvest, present only on a harvested one.
+  test("a well-formed source field -> captured, no warning", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "harvested-1", {
+          schemaVersion: 1,
+          case: "harvested-1",
+          class: "hard-case",
+          risks: [],
+          source: { kind: "field-report", eventId: "11111111-1111-1111-1111-111111111111" },
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases).toEqual([
+          {
+            caseName: "harvested-1",
+            class: "hard-case",
+            risks: [],
+            hasPromptMd: true,
+            source: { kind: "field-report", eventId: "11111111-1111-1111-1111-111111111111" },
+          },
+        ]);
+      }),
+    );
+  });
+
+  test("a source field with a destination -> captured verbatim", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "harvested-2", {
+          schemaVersion: 1,
+          case: "harvested-2",
+          class: "hard-case",
+          risks: [],
+          source: {
+            kind: "field-report",
+            eventId: "22222222-2222-2222-2222-222222222222",
+            destination: "acme-agent-fleet",
+          },
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.source).toEqual({
+          kind: "field-report",
+          eventId: "22222222-2222-2222-2222-222222222222",
+          destination: "acme-agent-fleet",
+        });
+      }),
+    );
+  });
+
+  test("no source field -> absent, no warning (every pre-harvest case.json)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "no-source", { schemaVersion: 1, case: "no-source", class: "golden", risks: [] });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.source).toBeUndefined();
+      }),
+    );
+  });
+
+  test("a malformed source field -> warning, case still scanned", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "bad-source", {
+          schemaVersion: 1,
+          case: "bad-source",
+          class: "hard-case",
+          risks: [],
+          source: { kind: "manual" },
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings.some((w) => w.includes('malformed "source" field'))).toBe(true);
+        expect(result.cases[0]?.source).toBeUndefined();
+      }),
+    );
+  });
+
+  // Issue #94 (`Mechanism - Receiving Dock.md`'s "jobs singular, contexts
+  // plural" ruling): `context` is a plain string tag, tolerant like `source`.
+  test("a well-formed context field -> captured, no warning", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "contextual-1", {
+          schemaVersion: 1,
+          case: "contextual-1",
+          class: "golden",
+          risks: [],
+          context: "PR review comment",
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.context).toBe("PR review comment");
+      }),
+    );
+  });
+
+  test("no context field -> absent, no warning (every case predating this field)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "no-context", { schemaVersion: 1, case: "no-context", class: "golden", risks: [] });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.context).toBeUndefined();
+      }),
+    );
+  });
+
+  test("a malformed context field -> warning, case still scanned", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeCase(dir, "bad-context", {
+          schemaVersion: 1,
+          case: "bad-context",
+          class: "golden",
+          risks: [],
+          context: 42,
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings.some((w) => w.includes('malformed "context" field'))).toBe(true);
+        expect(result.cases[0]?.context).toBeUndefined();
+      }),
+    );
+  });
+});
+
+describe("FixtureCase schema round-trip", () => {
+  const decode = Schema.decodeUnknownEffect(FixtureCase);
+
+  test("decodes without a source field (every fixture predating harvest)", async () => {
+    const decoded = await Effect.runPromise(
+      decode({ schemaVersion: 1, case: "golden-1", class: "golden", risks: ["IN-1"] }),
+    );
+    expect(decoded.source).toBeUndefined();
+  });
+
+  test("decodes with a source field (a harvested fixture, issue #68)", async () => {
+    const decoded = await Effect.runPromise(
+      decode({
+        schemaVersion: 1,
+        case: "hard-case-1",
+        class: "hard-case",
+        risks: [],
+        source: { kind: "field-report", eventId: "11111111-1111-1111-1111-111111111111" },
+      }),
+    );
+    expect(decoded.source?.kind).toBe("field-report");
+    if (decoded.source?.kind === "field-report") {
+      expect(decoded.source.eventId).toBe("11111111-1111-1111-1111-111111111111");
+      expect(decoded.source.destination).toBeUndefined();
+    }
+  });
+
+  test("decodes with an intake source field (a salvaged crate, issue #91)", async () => {
+    const decoded = await Effect.runPromise(
+      decode({
+        schemaVersion: 1,
+        case: "hard-case-2",
+        class: "hard-case",
+        risks: [],
+        source: { kind: "intake", intake: "in-11111111-1111-1111-1111-111111111111" },
+      }),
+    );
+    expect(decoded.source?.kind).toBe("intake");
+    if (decoded.source?.kind === "intake") {
+      expect(decoded.source.intake).toBe("in-11111111-1111-1111-1111-111111111111");
+    }
+  });
+});
+
+describe("writeFixtureScaffold", () => {
+  test("writes case.json/prompt.md/files/expected the same way for a plain scaffold", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        const caseDir = path.join(dir, "evals", "fixtures", "golden-1");
+
+        yield* writeFixtureScaffold({ caseDir, caseName: "golden-1", class: "golden", risks: ["IN-1"] });
+
+        const caseJson = JSON.parse(yield* fs.readFileString(path.join(caseDir, "case.json"))) as unknown;
+        expect(caseJson).toEqual({ schemaVersion: 1, case: "golden-1", class: "golden", risks: ["IN-1"] });
+        const prompt = yield* fs.readFileString(path.join(caseDir, "prompt.md"));
+        expect(prompt).toContain("golden-1");
+        expect(yield* fs.exists(path.join(caseDir, "files", ".gitkeep"))).toBe(true);
+        expect(yield* fs.exists(path.join(caseDir, "expected", "answer-key.md"))).toBe(true);
+      }),
+    );
+  });
+
+  test("seeds prompt.md from promptText and stamps source, when given (fixture harvest's use)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        const caseDir = path.join(dir, "evals", "fixtures", "hard-case-1");
+
+        yield* writeFixtureScaffold({
+          caseDir,
+          caseName: "hard-case-1",
+          class: "hard-case",
+          risks: [],
+          promptText: "Broke on a repo with no package.json.\n",
+          source: { kind: "field-report", eventId: "33333333-3333-3333-3333-333333333333" },
+        });
+
+        const prompt = yield* fs.readFileString(path.join(caseDir, "prompt.md"));
+        expect(prompt).toBe("Broke on a repo with no package.json.\n");
+        const caseJson = JSON.parse(yield* fs.readFileString(path.join(caseDir, "case.json"))) as {
+          readonly source: unknown;
+        };
+        expect(caseJson.source).toEqual({
+          kind: "field-report",
+          eventId: "33333333-3333-3333-3333-333333333333",
+        });
+      }),
+    );
+  });
+
+  // Issue #94's fixture `context` field: write -> re-scan round-trip.
+  test("stamps context, when given, and scanFixtures reads it back", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* writeFixtureScaffold({
+          caseDir: `${dir}/evals/fixtures/contextual-2`,
+          caseName: "contextual-2",
+          class: "golden",
+          risks: [],
+          context: "chain position: reviewer",
+        });
+
+        const result = yield* scanFixtures(dir);
+        expect(result.warnings).toEqual([]);
+        expect(result.cases[0]?.context).toBe("chain position: reviewer");
       }),
     );
   });

@@ -83,6 +83,47 @@ describe("IndexService.rebuild", () => {
     );
   });
 
+  test("stageChangedAt (issue #82): mirrors the fold's timestamp and survives a reindex", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "alpha" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:alpha",
+            payload: { bundle: "alpha" },
+          });
+          yield* journal.append({
+            type: "bundle.stage_changed",
+            actor,
+            payload: { bundle: "alpha", from: "idea", to: "published" },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const alpha = yield* index.getBundle("alpha");
+          expect(typeof alpha?.stageChangedAt).toBe("string");
+          const firstStageChangedAt = alpha?.stageChangedAt;
+
+          // Reindex is a full rebuild from the same journal (no schema
+          // migration code) -- the timestamp is derived fresh every time
+          // and must come out identical, not drift or reset.
+          yield* index.rebuild();
+          const alphaAgain = yield* index.getBundle("alpha");
+          expect(alphaAgain?.stageChangedAt).toBe(firstStageChangedAt);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
   test("a bundle on disk but absent from the journal appears with default state", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
@@ -220,6 +261,25 @@ describe("IndexService.rebuild", () => {
               },
             },
           });
+          // Opened via `todo add --from-report` (issue #81) -- proves
+          // `origin` round-trips through the `todos` table's `origin_json`
+          // column, same guarded decode path fixtures' `source_json` uses.
+          yield* journal.append({
+            type: "todo.opened",
+            actor,
+            payload: {
+              todo: {
+                id: "td-3",
+                kind: "bug",
+                status: "open",
+                title: "Investigate crash reported in the field",
+                priority: 10,
+                created: "2026-07-01",
+                source: actor,
+                origin: { kind: "field-report", ref: "evt-abc" },
+              },
+            },
+          });
         }).pipe(Effect.provide(JournalLayer(journalPath)));
 
         const staleStatusChange = JSON.stringify({
@@ -235,16 +295,20 @@ describe("IndexService.rebuild", () => {
         yield* Effect.gen(function* () {
           const index = yield* IndexService;
           const result = yield* index.rebuild();
-          expect(result.todos).toBe(2);
+          expect(result.todos).toBe(3);
 
           const openOnly = yield* index.listTodos();
-          expect(openOnly.map((t) => t.id)).toEqual(["td-1"]);
+          expect(openOnly.map((t) => t.id)).toEqual(["td-1", "td-3"]);
 
           const all = yield* index.listTodos({ includeArchived: true });
-          expect(all.map((t) => t.id)).toEqual(["td-1", "td-2"]);
+          expect(all.map((t) => t.id)).toEqual(["td-1", "td-3", "td-2"]);
           const done = all.find((t) => t.id === "td-2");
           expect(done?.archived).toBe(true);
           expect(done?.status).toBe("done");
+          expect(done?.origin).toBeUndefined();
+
+          const fromReport = all.find((t) => t.id === "td-3");
+          expect(fromReport?.origin).toEqual({ kind: "field-report", ref: "evt-abc" });
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
@@ -409,6 +473,79 @@ bundle: frame-the-problem
 
           const warnings = yield* index.listWarnings();
           expect(warnings).toEqual([]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  // Issue #94: the dossier scanner joins the reindex warning flow like
+  // risk-map/fixtures (warn, never fail), and a fixture's `context` tag is
+  // tolerated the same way `source` already is.
+  test("a scaffolded dossier.md and a context-tagged fixture both reindex warning-free", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "context-demo" });
+
+        const bundleDir = path.join(dir, "skills", "context-demo");
+        const caseDir = path.join(bundleDir, "evals", "fixtures", "reviewer-context");
+        yield* fs.makeDirectory(caseDir, { recursive: true });
+        yield* fs.writeFileString(
+          path.join(caseDir, "case.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            case: "reviewer-context",
+            class: "golden",
+            risks: [],
+            context: "PR review comment",
+          }),
+        );
+        yield* fs.writeFileString(path.join(caseDir, "prompt.md"), "Do the thing.\n");
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.warnings).toEqual([]);
+
+          const fixtures = yield* index.listFixtures("context-demo");
+          expect(fixtures[0]?.context).toBe("PR review comment");
+
+          const warnings = yield* index.listWarnings("context-demo");
+          expect(warnings.filter((w) => w.source === "dossier")).toEqual([]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("a malformed dossier.md produces a persisted, queryable warning without failing rebuild", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "loose-dossier" });
+
+        const bundleDir = path.join(dir, "skills", "loose-dossier");
+        yield* fs.writeFileString(
+          path.join(bundleDir, "dossier.md"),
+          "## Contexts\nRuns everywhere, no names given.\n",
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const dossierWarnings = (yield* index.listWarnings("loose-dossier")).filter(
+            (w) => w.source === "dossier",
+          );
+          expect(dossierWarnings.length).toBe(1);
+          expect(dossierWarnings[0]?.message).toContain("no named context");
+
+          const bundle = yield* index.getBundle("loose-dossier");
+          expect(bundle?.slug).toBe("loose-dossier");
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
@@ -735,6 +872,162 @@ describe("IndexService.rebuild -- duplicate skill.version_recorded tolerance", (
 
           const bundles = yield* index.listBundles();
           expect(bundles.map((b) => b.slug).sort()).toEqual(["demo", "other"]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+});
+
+describe("IndexService.rebuild: everReceived (issue #93, the Unverified badge's arrival fact)", () => {
+  test("a bundle named by an identity-granting skill.routed event carries everReceived: true; an untouched bundle stays false; it survives a reindex round-trip", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "arrived" });
+        yield* workspace.createBundle(dir, { slug: "never-received" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:arrived",
+            payload: { bundle: "arrived" },
+          });
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:never-received",
+            payload: { bundle: "never-received" },
+          });
+          yield* journal.append({
+            type: "skill.routed",
+            actor,
+            payload: { intake: "in-1", disposition: "new", bundle: "arrived", reason: "no overlap" },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+
+          const arrived = yield* index.getBundle("arrived");
+          expect(arrived?.everReceived).toBe(true);
+
+          const neverReceived = yield* index.getBundle("never-received");
+          expect(neverReceived?.everReceived).toBe(false);
+
+          // Reindex (a second rebuild()) must reproduce the exact same
+          // facts -- everReceived is folded fresh from the journal every
+          // time, never a one-shot stamp.
+          yield* index.rebuild();
+          const arrivedAgain = yield* index.getBundle("arrived");
+          expect(arrivedAgain?.everReceived).toBe(true);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("salvage naming an existing bundle never marks it everReceived -- salvage grants no identity", () => {
+    return withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "defended" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:defended",
+            payload: { bundle: "defended" },
+          });
+          yield* journal.append({
+            type: "skill.routed",
+            actor,
+            payload: {
+              intake: "in-1",
+              disposition: "salvage",
+              bundle: "defended",
+              reason: "hypothesis broken, mined against the existing bundle",
+            },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const defended = yield* index.getBundle("defended");
+          expect(defended?.everReceived).toBe(false);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+});
+
+describe("IndexService: traveled receipts never leak into measurements (issue #93)", () => {
+  test("a skill.shipped event's receipts snapshot never appears in listMeasurements, even with zero real runs -- claims/proof never merge", () => {
+    return withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "shipped-but-unmeasured" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:shipped-but-unmeasured",
+            payload: { bundle: "shipped-but-unmeasured" },
+          });
+          yield* journal.append({
+            type: "skill.routed",
+            actor,
+            payload: { intake: "in-1", disposition: "new", bundle: "shipped-but-unmeasured", reason: "no overlap" },
+          });
+          // A hand-crafted skill.shipped carrying a NON-EMPTY receipts
+          // snapshot, with no run.json/run.graded anywhere in this
+          // workspace -- the traveled-receipts nuance: this "proof" is a
+          // claim frozen at ship time, never a re-derivable graded run, so
+          // it must never surface through listMeasurements/computeMeasurements.
+          yield* journal.append({
+            type: "skill.shipped",
+            actor,
+            payload: {
+              bundle: "shipped-but-unmeasured",
+              versionHash: "sha256:deadbeef",
+              destination: "some other workspace",
+              purpose: "test",
+              receipts: [
+                {
+                  fixtureCase: "golden-basic",
+                  provider: "claude-code",
+                  model: "claude",
+                  n: 10,
+                  passes: 10,
+                  passRate: 1,
+                  ci: [0.8, 1],
+                },
+              ],
+            },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+
+          const measurements = yield* index.listMeasurements("shipped-but-unmeasured");
+          expect(measurements).toEqual([]);
+
+          const bundle = yield* index.getBundle("shipped-but-unmeasured");
+          expect(bundle?.everReceived).toBe(true);
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );

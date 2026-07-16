@@ -8,6 +8,14 @@
  * job — this fold never rejects an event). Bundles referenced by an event
  * before any `bundle.created` are created implicitly with that event's
  * effect applied on top of the default state (tolerant fold).
+ *
+ * `stageChangedAt` (issue #82) is stamped with the `at` of `bundle.created`
+ * and of every `bundle.stage_changed`, forward or backward -- there is no
+ * special case for a bundle pulled backward (e.g. published -> drafting):
+ * it is just another stage change, and the timestamp always reflects the
+ * most recent one. A bundle created only by the tolerant fold (no
+ * `bundle.created` seen) has no `stageChangedAt` -- there is no honest
+ * timestamp to give it.
  */
 import { BundleState } from "./Bundle.ts";
 import type { JournalEvent } from "./Journal.ts";
@@ -39,12 +47,16 @@ export const foldBundleStates = (
   for (const event of events) {
     switch (event.type) {
       case "bundle.created": {
-        ensure(event.payload.bundle);
+        const current = ensure(event.payload.bundle);
+        states.set(current.slug, BundleState.make({ ...current, stageChangedAt: event.at }));
         break;
       }
       case "bundle.stage_changed": {
         const current = ensure(event.payload.bundle);
-        states.set(current.slug, BundleState.make({ ...current, stage: event.payload.to }));
+        states.set(
+          current.slug,
+          BundleState.make({ ...current, stage: event.payload.to, stageChangedAt: event.at }),
+        );
         break;
       }
       case "bundle.archived": {
@@ -95,6 +107,8 @@ export const bundleForEvent = (event: JournalEvent): string | undefined => {
     case "bundle.restored":
     case "skill.version_recorded":
     case "skill.published":
+    case "skill.shipped":
+    case "skill.field_report":
     case "station.started":
     case "review.requested":
     case "review.resolved":
@@ -109,6 +123,19 @@ export const bundleForEvent = (event: JournalEvent): string | undefined => {
     case "run.graded":
     case "todo.status_changed":
       return undefined;
+    // `skill.received` (issue #90) carries `intake`, never `bundle` -- a
+    // crate has no identity yet. Explicitly listed (not left to the
+    // `default` below) so this stays a deliberate fact, not an oversight:
+    // the Activity feed renders it workspace-level, like nothing else does.
+    case "skill.received":
+      return undefined;
+    // `skill.routed` (issue #91) carries `bundle` only for some
+    // dispositions (absent on a `salvage` that names no existing bundle) --
+    // `event.payload.bundle` is already `string | undefined`, so this falls
+    // through to that value as-is, same shape this function already returns
+    // for every other event type.
+    case "skill.routed":
+      return event.payload.bundle;
     default:
       return undefined;
   }

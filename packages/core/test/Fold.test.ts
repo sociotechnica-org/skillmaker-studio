@@ -19,16 +19,56 @@ const envelope = <T extends string>(type: T) => {
 
 describe("foldBundleStates", () => {
   test("bundle.created sets stage idea, substate working, archived false", () => {
-    const events: ReadonlyArray<JournalEvent> = [
-      { ...envelope("bundle.created"), payload: { bundle: "demo" } },
-    ];
+    const created = { ...envelope("bundle.created"), payload: { bundle: "demo" } };
+    const events: ReadonlyArray<JournalEvent> = [created];
     const states = foldBundleStates(events);
     expect(states.get("demo")).toEqual({
       slug: "demo",
       stage: "idea",
       substate: "working",
       archived: false,
+      stageChangedAt: created.at,
     });
+  });
+
+  test("stageChangedAt (issue #82): bundle.created stamps it when no move has happened yet", () => {
+    const created = { ...envelope("bundle.created"), payload: { bundle: "demo" } };
+    const states = foldBundleStates([created]);
+    expect(states.get("demo")?.stageChangedAt).toBe(created.at);
+  });
+
+  test("stageChangedAt: bundle.stage_changed re-stamps it to the move's own `at`", () => {
+    const created = { ...envelope("bundle.created"), payload: { bundle: "demo" } };
+    const moved = {
+      ...envelope("bundle.stage_changed"),
+      payload: { bundle: "demo", from: "idea", to: "researching" },
+    } as JournalEvent;
+    const states = foldBundleStates([created, moved]);
+    expect(states.get("demo")?.stageChangedAt).toBe(moved.at);
+    expect(states.get("demo")?.stageChangedAt).not.toBe(created.at);
+  });
+
+  test("stageChangedAt: a backward move (re-conception) re-stamps like any other move -- no special case", () => {
+    const created = { ...envelope("bundle.created"), payload: { bundle: "demo" } };
+    const toPublished = {
+      ...envelope("bundle.stage_changed"),
+      payload: { bundle: "demo", from: "evaluating", to: "published" },
+    } as JournalEvent;
+    const backward = {
+      ...envelope("bundle.stage_changed"),
+      payload: { bundle: "demo", from: "published", to: "drafting", reason: "re-conception" },
+    } as JournalEvent;
+    const states = foldBundleStates([created, toPublished, backward]);
+    expect(states.get("demo")?.stage).toBe("drafting");
+    expect(states.get("demo")?.stageChangedAt).toBe(backward.at);
+  });
+
+  test("stageChangedAt: absent for a bundle implicitly created by the tolerant fold", () => {
+    const events: ReadonlyArray<JournalEvent> = [
+      { ...envelope("bundle.archived"), payload: { bundle: "never-created" } },
+    ];
+    const states = foldBundleStates(events);
+    expect(states.get("never-created")?.stageChangedAt).toBeUndefined();
   });
 
   test("review.requested moves substate to awaiting-review; review.resolved moves it back", () => {
@@ -113,9 +153,10 @@ describe("foldBundleStates", () => {
     expect(states.get("demo")?.stage).toBe("idea");
   });
 
-  test("unrelated event types (bundle.gate_decided, todo.*, run.*, station.started) do not affect state", () => {
+  test("unrelated event types (bundle.gate_decided, todo.*, run.*, station.started, skill.field_report) do not affect state", () => {
+    const created = { ...envelope("bundle.created"), payload: { bundle: "demo" } };
     const events: ReadonlyArray<JournalEvent> = [
-      { ...envelope("bundle.created"), payload: { bundle: "demo" } },
+      created,
       {
         ...envelope("bundle.gate_decided"),
         payload: { bundle: "demo", gate: "publish", decision: "approved", basis: "evals pass" },
@@ -124,6 +165,10 @@ describe("foldBundleStates", () => {
         ...envelope("station.started"),
         payload: { bundle: "demo", state: "researching" },
       },
+      {
+        ...envelope("skill.field_report"),
+        payload: { bundle: "demo", outcome: "failed", report: "Broke on an edge case." },
+      },
     ];
     const states = foldBundleStates(events);
     expect(states.get("demo")).toEqual({
@@ -131,6 +176,7 @@ describe("foldBundleStates", () => {
       stage: "idea",
       substate: "working",
       archived: false,
+      stageChangedAt: created.at,
     });
   });
 
@@ -152,6 +198,28 @@ describe("foldBundleStates", () => {
 describe("bundleForEvent", () => {
   test("extracts the direct bundle field", () => {
     const event = { ...envelope("bundle.created"), payload: { bundle: "demo" } } as JournalEvent;
+    expect(bundleForEvent(event)).toBe("demo");
+  });
+
+  test("extracts the bundle field from skill.shipped (issue #66)", () => {
+    const event = {
+      ...envelope("skill.shipped"),
+      payload: {
+        bundle: "demo",
+        versionHash: "sha256:aaa",
+        destination: "acme-agent-fleet",
+        purpose: "eval harness",
+        receipts: [],
+      },
+    } as JournalEvent;
+    expect(bundleForEvent(event)).toBe("demo");
+  });
+
+  test("extracts the bundle field from skill.field_report (issue #67)", () => {
+    const event = {
+      ...envelope("skill.field_report"),
+      payload: { bundle: "demo", outcome: "worked", report: "Worked great." },
+    } as JournalEvent;
     expect(bundleForEvent(event)).toBe("demo");
   });
 

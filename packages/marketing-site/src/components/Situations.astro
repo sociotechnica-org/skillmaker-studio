@@ -1,0 +1,43 @@
+---
+const situations = [
+  {
+    title: "A new model just shipped.",
+    body: "Your skills were tuned on the last one. Some still work — you can't say which, and rerunning a few prompts by hand doesn't scale past three skills. Adopt the repo in place, add fixtures, and re-earn every skill with pass rates pinned to the exact model that produced them.",
+    command: "skillmaker run",
+  },
+  {
+    title: "You inherited skills you didn't write.",
+    body: "A teammate left, or you're vendoring a public repo. Reading a SKILL.md tells you what it says — not whether it works. Adopt wraps every file as a bundle without moving it (QA'd on real public repos: 59/60 and 39/39), and graded runs turn “seems fine” into n · pass rate · confidence interval.",
+    command: "skillmaker adopt",
+  },
+  {
+    title: "Your team is standardizing on skills.",
+    body: "Five people, five private variants of the same skill, and you've been asked to publish the blessed set. Skills clear a review gate before publishing to a marketplace manifest, each carrying its design rationale and measurements — so “why do we trust this one” has an answer that isn't you.",
+    command: "skillmaker publish",
+  },
+];
+---
+
+<section id="situations" class="mx-auto max-w-5xl px-6 py-16 sm:py-20">
+  <div class="max-w-3xl">
+    <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+      When you&#39;d reach for this
+    </h2>
+    <p class="mt-4 text-ink-dim leading-relaxed">
+      Skillmaker isn&#39;t for admiring the skill you just wrote. It&#39;s for the
+      three moments when &ldquo;seems to work&rdquo; stops being an answer.
+    </p>
+  </div>
+
+  <div class="mt-10 grid gap-8 sm:grid-cols-3">
+    {
+      situations.map((situation) => (
+        <div class="flex flex-col rounded-lg border border-border bg-surface p-6">
+          <h3 class="text-lg font-semibold text-ink">{situation.title}</h3>
+          <p class="mt-3 flex-1 text-sm leading-relaxed text-ink-dim">{situation.body}</p>
+          <code class="mt-4 block font-mono text-sm text-accent">$ {situation.command}</code>
+        </div>
+      ))
+    }
+  </div>
+</section>

@@ -19,6 +19,7 @@ import { Effect } from "effect";
 import { Path } from "effect/Path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { type CliResult, expectedFailure, ok, usageError } from "../CliResult.ts";
+import { resolveStage } from "../StageVocab.ts";
 
 export interface AdvanceOptions {
   readonly json: boolean;
@@ -27,9 +28,6 @@ export interface AdvanceOptions {
   readonly reason?: string;
   readonly override: boolean;
 }
-
-const isBundleStage = (value: string): value is BundleStage =>
-  (STAGES as ReadonlyArray<string>).includes(value);
 
 type AdvanceOutcome =
   | { readonly kind: "advanced"; readonly from: BundleStage; readonly to: BundleStage }
@@ -50,10 +48,12 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
     return usageError("skillmaker advance: pass either --to or --back, not both\n");
   }
 
-  if (options.to !== undefined && !isBundleStage(options.to)) {
+  const toStage: BundleStage | undefined = options.to !== undefined ? resolveStage(options.to) : undefined;
+  if (options.to !== undefined && toStage === undefined) {
     return usageError(`skillmaker advance: invalid --to stage "${options.to}"\n`);
   }
-  if (options.back !== undefined && !isBundleStage(options.back)) {
+  const backStage: BundleStage | undefined = options.back !== undefined ? resolveStage(options.back) : undefined;
+  if (options.back !== undefined && backStage === undefined) {
     return usageError(`skillmaker advance: invalid --back stage "${options.back}"\n`);
   }
   if (options.back !== undefined && (options.reason === undefined || options.reason.trim().length === 0)) {
@@ -74,14 +74,6 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
   const path = yield* Path;
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
-
-  // Re-narrow to typed stages here: a closure captures the *declared* type
-  // of a captured variable, not a prior flow-narrowing of it, so the
-  // `isBundleStage` checks above don't carry into the `Effect.gen` below.
-  const backStage: BundleStage | undefined =
-    options.back !== undefined && isBundleStage(options.back) ? options.back : undefined;
-  const toStage: BundleStage | undefined =
-    options.to !== undefined && isBundleStage(options.to) ? options.to : undefined;
 
   const outcome: AdvanceOutcome = yield* Effect.gen(function* () {
     const journal = yield* Journal;
