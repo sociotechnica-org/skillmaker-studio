@@ -247,6 +247,50 @@ export class SkillReceivedEvent extends Schema.Class<SkillReceivedEvent>(
   }),
 }) {}
 
+/**
+ * The five exit doors out of the dock (issue #91, `Mechanism - Receiving
+ * Dock.md` §HOW): `return` (ours, coming home -- hash matches a recorded
+ * version), `new` (no overlap -- adopt into the corpus), `upgrade` (same
+ * name, different content -- next version of the existing bundle), `fork`
+ * (shared ancestry, diverged intent -- new bundle, provenance link to the
+ * parent), `salvage` (hypothesis broken -- no identity granted, the crate
+ * stays at the dock as evidence).
+ */
+export const RouteDisposition = Schema.Literals(["return", "new", "upgrade", "fork", "salvage"]);
+export type RouteDisposition = typeof RouteDisposition.Type;
+
+/**
+ * `skill.routed` (issue #91): the `review.requested`/`review.resolved`
+ * pairing applied to cargo -- an undisposed crate is a `skill.received` with
+ * no `skill.routed` referencing its `intake` (`Receive.ts`'s
+ * `listUndisposedIntake`). `reason` is required on every disposition, no
+ * exceptions: the hypothesis (broken? evolved? forked?) IS the point, the
+ * same house law backward stage moves already demand
+ * (`BundleStageChangedEvent`). `bundle` is set for every disposition except
+ * a `salvage` that names no existing bundle to defend -- optional at the
+ * schema level for all five (a discriminated union enforcing "required
+ * unless salvage-without-target" would be considerably more machinery for a
+ * rule `Route.ts`'s `routeCrate` already enforces at append time, the same
+ * choice `BundleStageChangedEvent.reason`'s optionality + `Machine.ts`'s
+ * guard makes for backward-move reasons). No `idempotencyKey`: routing twice
+ * for the same intake is guarded by `Route.ts`'s own fold-based check
+ * (mirrors `Machine.ts`'s guard-reads-the-fold pattern, not
+ * `Journal.append`'s generic idempotency-key comparison), so a genuine
+ * conflict (a second, different disposition for an already-routed intake)
+ * surfaces as `Route.ts`'s own `RouteAlreadyRoutedError`, not
+ * `JournalIdempotencyConflictError`.
+ */
+export class SkillRoutedEvent extends Schema.Class<SkillRoutedEvent>("SkillRoutedEvent")({
+  ...envelopeFields,
+  type: Schema.Literal("skill.routed"),
+  payload: Schema.Struct({
+    intake: Schema.String,
+    disposition: RouteDisposition,
+    bundle: Schema.optionalKey(Schema.String),
+    reason: Schema.String,
+  }),
+}) {}
+
 // ---------------------------------------------------------------------------
 // todo.*
 // ---------------------------------------------------------------------------
@@ -410,6 +454,7 @@ export const JournalEvent = Schema.Union([
   SkillShippedEvent,
   SkillFieldReportEvent,
   SkillReceivedEvent,
+  SkillRoutedEvent,
   TodoOpenedEvent,
   TodoUpdatedEvent,
   TodoStatusChangedEvent,

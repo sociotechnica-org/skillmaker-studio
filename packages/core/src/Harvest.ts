@@ -18,14 +18,37 @@ import { join } from "node:path";
 import {
   HarvestCaseExistsError,
   HarvestEventNotFoundError,
+  HarvestIntakeNotFoundError,
   HarvestNotFieldReportError,
   HarvestWrongBundleError,
   WorkspaceIOError,
 } from "./Errors.ts";
 import { type FixtureClass, type FixtureSourceRecord, writeFixtureScaffold } from "./Fixtures.ts";
 import { Journal } from "./JournalService.ts";
+import { findReceivedEvent } from "./Receive.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
+
+/**
+ * The case-directory-collision guard both `harvestFixture` and
+ * `harvestFixtureFromIntake` need identically (issue #91): resolves and
+ * returns the target `evals/fixtures/<case>/` directory, or fails
+ * `HarvestCaseExistsError` if it already exists -- one place instead of two
+ * copies of the same check.
+ */
+const guardCaseAvailable = Effect.fn("Harvest.guardCaseAvailable")(function* (
+  bundle: string,
+  bundleDir: string,
+  caseName: string,
+) {
+  const fs = yield* FileSystem;
+  const caseDir = join(bundleDir, "evals", "fixtures", caseName);
+  const caseDirExists = yield* fs.exists(caseDir).pipe(Effect.mapError(toIOError(`could not check ${caseDir}`)));
+  if (caseDirExists) {
+    return yield* Effect.fail(HarvestCaseExistsError.make({ bundle, caseName }));
+  }
+  return caseDir;
+});
 
 export interface HarvestFixtureInput {
   readonly bundle: string;
@@ -41,7 +64,7 @@ export interface HarvestFixtureInput {
 export interface HarvestFixtureResult {
   readonly caseName: string;
   readonly class: FixtureClass;
-  readonly source: FixtureSourceRecord;
+  readonly source: Extract<FixtureSourceRecord, { readonly kind: "field-report" }>;
 }
 
 /**
@@ -57,7 +80,6 @@ export interface HarvestFixtureResult {
  */
 export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (input: HarvestFixtureInput) {
   const journal = yield* Journal;
-  const fs = yield* FileSystem;
 
   const events = yield* journal.readAll();
   const event = events.find((candidate) => candidate.id === input.eventId);
@@ -79,15 +101,9 @@ export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (inp
     );
   }
 
-  const caseDir = join(input.bundleDir, "evals", "fixtures", input.caseName);
-  const caseDirExists = yield* fs
-    .exists(caseDir)
-    .pipe(Effect.mapError(toIOError(`could not check ${caseDir}`)));
-  if (caseDirExists) {
-    return yield* Effect.fail(HarvestCaseExistsError.make({ bundle: input.bundle, caseName: input.caseName }));
-  }
+  const caseDir = yield* guardCaseAvailable(input.bundle, input.bundleDir, input.caseName);
 
-  const source: FixtureSourceRecord = {
+  const source: HarvestFixtureResult["source"] = {
     kind: "field-report",
     eventId: input.eventId,
     ...(event.payload.destination !== undefined ? { destination: event.payload.destination } : {}),
@@ -103,6 +119,73 @@ export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (inp
   });
 
   const result: HarvestFixtureResult = {
+    caseName: input.caseName,
+    class: input.klass,
+    source,
+  };
+  return result;
+});
+
+export interface HarvestFixtureFromIntakeInput {
+  readonly bundle: string;
+  /** `<workspaceRoot>/<skillsDir>/<slug>`. */
+  readonly bundleDir: string;
+  /** The new fixture's case name -- becomes the directory name. */
+  readonly caseName: string;
+  /** The `skill.received` event's intake id to harvest, `--from-intake`'s value. */
+  readonly intake: string;
+  readonly klass: FixtureClass;
+}
+
+export interface HarvestFixtureFromIntakeResult {
+  readonly caseName: string;
+  readonly class: FixtureClass;
+  readonly source: Extract<FixtureSourceRecord, { readonly kind: "intake" }>;
+}
+
+/**
+ * The dock's harvest door (issue #91, `Mechanism - Receiving Dock.md` §HOW,
+ * salvage disposition): "diffs are mined into fixtures... the crate stays
+ * at the dock, un-accessioned, retained as evidence." Mirrors
+ * `harvestFixture` exactly (unknown intake id -> `HarvestIntakeNotFoundError`,
+ * the same `HarvestCaseExistsError` collision guard, the same
+ * `writeFixtureScaffold` write), but resolves a `skill.received` event by
+ * `intake` id instead of a `skill.field_report` by event id, and stamps
+ * `source: {kind: "intake", intake}` instead. No `HarvestWrongBundleError`-
+ * equivalent guard: an intake crate carries no `bundle` at all (identity is
+ * decided by routing, not by this read), so there is no bundle to disagree
+ * with -- this deliberately never checks (nor requires) the crate's routing
+ * state either, matching house law (no gate anywhere): harvesting from an
+ * intake is a generically useful, ungated capability regardless of whether
+ * -- or how -- that intake has been routed. `prompt.md` seeds the ordinary
+ * empty-task-prompt skeleton (`writeFixtureScaffold`'s default): unlike a
+ * field report's prose, a crate has no single "what happened" narrative to
+ * seed it from -- the mining stays manual, as designed.
+ */
+export const harvestFixtureFromIntake = Effect.fn("Harvest.harvestFixtureFromIntake")(function* (
+  input: HarvestFixtureFromIntakeInput,
+) {
+  const journal = yield* Journal;
+
+  const events = yield* journal.readAll();
+  const received = findReceivedEvent(events, input.intake);
+  if (received === undefined) {
+    return yield* Effect.fail(HarvestIntakeNotFoundError.make({ intake: input.intake }));
+  }
+
+  const caseDir = yield* guardCaseAvailable(input.bundle, input.bundleDir, input.caseName);
+
+  const source: HarvestFixtureFromIntakeResult["source"] = { kind: "intake", intake: input.intake };
+
+  yield* writeFixtureScaffold({
+    caseDir,
+    caseName: input.caseName,
+    class: input.klass,
+    risks: [],
+    source,
+  });
+
+  const result: HarvestFixtureFromIntakeResult = {
     caseName: input.caseName,
     class: input.klass,
     source,

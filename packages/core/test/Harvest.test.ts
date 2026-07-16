@@ -3,8 +3,9 @@ import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
-import { harvestFixture } from "../src/Harvest.ts";
+import { harvestFixture, harvestFixtureFromIntake } from "../src/Harvest.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
+import { receiveCrate } from "../src/Receive.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
 const actor = Actor.make({ kind: "user", name: "test-user" });
@@ -209,6 +210,94 @@ describe("harvestFixture", () => {
         }).pipe(Effect.provide(JournalLayer(journalPath)));
 
         expect(result.source.destination).toBeUndefined();
+      }),
+    );
+  });
+});
+
+describe("harvestFixtureFromIntake (issue #91, salvage's mining door)", () => {
+  test("errors with HarvestIntakeNotFoundError when the intake id isn't in the journal at all", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const bundleDir = join(dir, "skills", "demo");
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+
+        const outcome = yield* harvestFixtureFromIntake({
+          bundle: "demo",
+          bundleDir,
+          caseName: "hard-case-1",
+          intake: "in-does-not-exist",
+          klass: "hard-case",
+        }).pipe(Effect.provide(JournalLayer(journalPath)), Effect.flip);
+
+        expect(outcome._tag).toBe("HarvestIntakeNotFoundError");
+      }),
+    );
+  });
+
+  test("errors with HarvestCaseExistsError when evals/fixtures/<case>/ already exists", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const bundleDir = join(dir, "skills", "demo");
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        const fs = yield* FileSystem;
+        yield* fs.makeDirectory(join(bundleDir, "evals", "fixtures", "hard-case-1"), { recursive: true });
+
+        const sourcePath = join(dir, "incoming", "salvaged-crate");
+        yield* fs.makeDirectory(sourcePath, { recursive: true });
+        yield* fs.writeFileString(join(sourcePath, "SKILL.md"), "---\nname: salvaged\n---\nBroken hypothesis.\n");
+
+        const outcome = yield* Effect.gen(function* () {
+          const received = yield* receiveCrate({ workspaceRoot: dir, sourcePath, source: "test", actor });
+          return yield* harvestFixtureFromIntake({
+            bundle: "demo",
+            bundleDir,
+            caseName: "hard-case-1",
+            intake: received.intake,
+            klass: "hard-case",
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)), Effect.flip);
+
+        expect(outcome._tag).toBe("HarvestCaseExistsError");
+      }),
+    );
+  });
+
+  test("happy path: stamps case.json's source with {kind: 'intake', intake}, no bundle disagreement possible (a crate has no bundle at all)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const bundleDir = join(dir, "skills", "demo");
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        const fs = yield* FileSystem;
+
+        const sourcePath = join(dir, "incoming", "salvaged-crate");
+        yield* fs.makeDirectory(sourcePath, { recursive: true });
+        yield* fs.writeFileString(join(sourcePath, "SKILL.md"), "---\nname: salvaged\n---\nBroken hypothesis.\n");
+
+        const result = yield* Effect.gen(function* () {
+          const received = yield* receiveCrate({ workspaceRoot: dir, sourcePath, source: "test", actor });
+          return {
+            intake: received.intake,
+            harvested: yield* harvestFixtureFromIntake({
+              bundle: "demo",
+              bundleDir,
+              caseName: "hard-case-1",
+              intake: received.intake,
+              klass: "hard-case",
+            }),
+          };
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        expect(result.harvested.source).toEqual({ kind: "intake", intake: result.intake });
+
+        const caseDir = join(bundleDir, "evals", "fixtures", "hard-case-1");
+        const caseJson = JSON.parse(yield* fs.readFileString(join(caseDir, "case.json"))) as {
+          readonly source: unknown;
+        };
+        expect(caseJson.source).toEqual({ kind: "intake", intake: result.intake });
+        // Manual mining, not auto-narrated: prompt.md gets the ordinary empty skeleton, not crate content.
+        const prompt = yield* fs.readFileString(join(caseDir, "prompt.md"));
+        expect(prompt).toContain("hard-case-1");
       }),
     );
   });

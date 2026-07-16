@@ -46,7 +46,16 @@ const titleCaseFromSlug = (slug: string): string =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
-const slugify = (name: string): string => {
+/**
+ * kebab-case fold, exported for `Route.ts` (issue #91): `Route.ts` already
+ * imports `adoptDirectoryInPlace` from this module (and `gatherIntakeRegistry`/
+ * `hashReceivedCrate` from `Receive.ts`), so the cross-module dependency this
+ * duplicate would otherwise avoid already exists there -- a third local copy
+ * would only add drift risk with no coupling saved. `Receive.ts` keeps its own
+ * separate copy: it has no other dependency on this module, so a fresh import
+ * just to share four lines would be the worse trade for it specifically.
+ */
+export const slugify = (name: string): string => {
   const lowered = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return lowered.length > 0 ? lowered : "skill";
 };
@@ -323,6 +332,17 @@ export class AdoptMarker extends Schema.Class<AdoptMarker>("AdoptMarker")({
   ),
   /** `optionalKey` so pre-fix markers still decode; absent means "not recorded", not "no upstream". */
   upstream: Schema.optionalKey(AdoptUpstream),
+  /**
+   * `route --as fork` (issue #91, `Mechanism - Receiving Dock.md` §HOW):
+   * the parent bundle's slug, when this bundle was minted by forking an
+   * arriving crate off of an existing one -- "shared ancestry, diverged
+   * intent." Lives here, not on `skill.routed`'s journal payload: provenance
+   * that isn't a per-event fact about the routing decision itself (like
+   * `AdoptUpstream.source`/`ref` above) belongs on the bundle's own marker,
+   * same house law. `optionalKey` so every marker written before #91 (and
+   * every non-forked bundle after it) still decodes with no `forkOf` at all.
+   */
+  forkOf: Schema.optionalKey(Schema.String),
 }) {}
 
 export interface AdoptedSkill {
@@ -369,6 +389,107 @@ export interface AdoptWorkspaceOptions {
  * mirroring how `New.ts` layers journal writes on top of
  * `Workspace.createBundle`.
  */
+export interface AdoptDirectoryUpstream {
+  readonly source: string;
+  readonly ref?: string;
+}
+
+export interface AdoptDirectoryInput {
+  /** The directory to wrap in place -- caller has already confirmed it contains a top-level `SKILL.md` (`adoptWorkspace`'s discovery walk; `Route.ts`'s dock crate, `Mechanism - Receiving Dock.md`, issue #91). */
+  readonly dir: string;
+  /** `SKILL.md`'s content, already read by the caller (discovery reads it to detect the generated-output marker; `Route.ts` reads it after moving the crate). */
+  readonly skillMdContent: string;
+  /** Preferred base string to slugify before uniquification; falls back to `basename(dir)` (`adoptWorkspace`'s own convention) when omitted. */
+  readonly slugBase?: string;
+  /** Slugs already spoken for -- `uniqueSlug` appends `-2`, `-3`, ... until it finds one that isn't in this set. */
+  readonly usedSlugs: ReadonlySet<string>;
+  /** Overrides `bundle.json`'s `name` ahead of `SKILL.md`'s own frontmatter `name:` field -- `adoptWorkspace` never passes this (frontmatter or a title-cased slug decide, as always); `Route.ts`'s `--name` does. */
+  readonly nameOverride?: string;
+  /** `adopt --source`'s upstream provenance, when this batch/crate came stamped with one. */
+  readonly upstream?: AdoptDirectoryUpstream;
+  /** `route --as fork`'s parent link (issue #91): the existing bundle this one was forked from, recorded on the marker as `forkOf`. */
+  readonly forkOf?: string;
+}
+
+export interface AdoptDirectoryResult {
+  readonly slug: string;
+  readonly name: string;
+  readonly generated: boolean;
+  /** Frontmatter-parse warnings only (nonstandard keys, missing block) -- lifecycle/generated-marker prose is the caller's own concern, same split `adoptWorkspace`'s loop already made before this was factored out. */
+  readonly warnings: ReadonlyArray<string>;
+}
+
+/**
+ * Wraps ONE already-discovered (or already-moved) skill directory in place:
+ * parses `SKILL.md`'s frontmatter (permissive, `parseFrontmatter`), mints a
+ * unique slug, writes `bundle.json` + the `.skillmaker-adopt.json` marker
+ * (§3B.8) -- exactly the per-skill mechanics `adoptWorkspace`'s discovery
+ * loop performs, factored out here so a caller with its own already-known
+ * target directory (`Route.ts`'s `new`/`fork` dispositions, issue #91) mints
+ * the same `bundle.json`/marker pair without reimplementing it. Does not
+ * read `SKILL.md` itself (the caller already has its content one way or
+ * another) or check for slug collisions beyond `usedSlugs` -- what "already
+ * adopted" or "slug taken" means differs by caller (a filesystem check for
+ * `adoptWorkspace`, a workspace-wide registry + directory check for
+ * `Route.ts`), so that stays the caller's job.
+ */
+export const adoptDirectoryInPlace = Effect.fn("Adopt.adoptDirectoryInPlace")(function* (
+  input: AdoptDirectoryInput,
+) {
+  const fs = yield* FileSystem;
+
+  const { data: frontmatter, warnings: frontmatterWarnings } = parseFrontmatter(input.skillMdContent);
+  const generated = GENERATED_MARKER_PATTERN.test(input.skillMdContent);
+
+  const baseSlug = slugify(input.slugBase ?? basename(input.dir));
+  const slug = uniqueSlug(baseSlug, input.usedSlugs);
+
+  const identity = BundleIdentity.make({
+    schemaVersion: 1,
+    slug,
+    name: input.nameOverride ?? stringField(frontmatter, "name") ?? titleCaseFromSlug(slug),
+    oneLiner: stringField(frontmatter, "description") ?? "",
+    tags: [],
+    created: todayIsoDate(),
+    targets: ["claude-code"],
+  });
+
+  const bundleJsonPath = join(input.dir, "bundle.json");
+  yield* fs
+    .writeFileString(bundleJsonPath, `${JSON.stringify(identity, null, 2)}\n`)
+    .pipe(Effect.mapError(toIOError(`could not write ${bundleJsonPath}`)));
+
+  const adoptedAt = new Date().toISOString();
+  const marker = AdoptMarker.make({
+    schemaVersion: 1,
+    adoptedAt,
+    layout: "in-place",
+    skillPath: "SKILL.md",
+    generated,
+    frontmatter,
+    ...(input.upstream !== undefined
+      ? {
+          upstream: AdoptUpstream.make({
+            source: input.upstream.source,
+            ...(input.upstream.ref !== undefined ? { ref: input.upstream.ref } : {}),
+            importedAt: adoptedAt,
+          }),
+        }
+      : {}),
+    ...(input.forkOf !== undefined ? { forkOf: input.forkOf } : {}),
+  });
+  yield* fs
+    .writeFileString(join(input.dir, ADOPT_MARKER_FILENAME), `${JSON.stringify(marker, null, 2)}\n`)
+    .pipe(Effect.mapError(toIOError(`could not write ${ADOPT_MARKER_FILENAME} in ${input.dir}`)));
+
+  return {
+    slug,
+    name: identity.name,
+    generated,
+    warnings: frontmatterWarnings,
+  } satisfies AdoptDirectoryResult;
+});
+
 export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
   root: string,
   options: AdoptWorkspaceOptions = {},
@@ -398,13 +519,22 @@ export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
     const content = yield* fs
       .readFileString(skillMdPath)
       .pipe(Effect.mapError(toIOError(`could not read ${skillMdPath}`)));
-    const { data: frontmatter, warnings: frontmatterWarnings } = parseFrontmatter(content);
-    const generated = GENERATED_MARKER_PATTERN.test(content);
 
     const { lifecycle, note } = lifecycleFromPath(relativePath);
 
-    const skillWarnings: string[] = [...frontmatterWarnings];
-    if (generated) {
+    const wrapped = yield* adoptDirectoryInPlace({
+      dir,
+      skillMdContent: content,
+      slugBase: basename(dir),
+      usedSlugs,
+      ...(options.source !== undefined
+        ? { upstream: { source: options.source, ...(options.ref !== undefined ? { ref: options.ref } : {}) } }
+        : {}),
+    });
+    usedSlugs.add(wrapped.slug);
+
+    const skillWarnings: string[] = [...wrapped.warnings];
+    if (wrapped.generated) {
       skillWarnings.push(
         "SKILL.md appears to be generated output (an \"AUTO-GENERATED\" marker was found) — imported as-is, flagged rather than treated as hand-authored source",
       );
@@ -413,47 +543,14 @@ export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
       skillWarnings.push(note);
     }
 
-    const baseSlug = slugify(basename(dir));
-    const slug = uniqueSlug(baseSlug, usedSlugs);
-    usedSlugs.add(slug);
-
-    const identity = BundleIdentity.make({
-      schemaVersion: 1,
-      slug,
-      name: stringField(frontmatter, "name") ?? titleCaseFromSlug(slug),
-      oneLiner: stringField(frontmatter, "description") ?? "",
-      tags: [],
-      created: todayIsoDate(),
-      targets: ["claude-code"],
+    adopted.push({
+      slug: wrapped.slug,
+      dir,
+      relativePath,
+      lifecycle,
+      generated: wrapped.generated,
+      warnings: skillWarnings,
     });
-
-    yield* fs
-      .writeFileString(bundleJsonPath, `${JSON.stringify(identity, null, 2)}\n`)
-      .pipe(Effect.mapError(toIOError(`could not write ${bundleJsonPath}`)));
-
-    const adoptedAt = new Date().toISOString();
-    const marker = AdoptMarker.make({
-      schemaVersion: 1,
-      adoptedAt,
-      layout: "in-place",
-      skillPath: "SKILL.md",
-      generated,
-      frontmatter,
-      ...(options.source !== undefined
-        ? {
-            upstream: AdoptUpstream.make({
-              source: options.source,
-              ...(options.ref !== undefined ? { ref: options.ref } : {}),
-              importedAt: adoptedAt,
-            }),
-          }
-        : {}),
-    });
-    yield* fs
-      .writeFileString(join(dir, ADOPT_MARKER_FILENAME), `${JSON.stringify(marker, null, 2)}\n`)
-      .pipe(Effect.mapError(toIOError(`could not write ${ADOPT_MARKER_FILENAME} in ${dir}`)));
-
-    adopted.push({ slug, dir, relativePath, lifecycle, generated, warnings: skillWarnings });
   }
 
   return {

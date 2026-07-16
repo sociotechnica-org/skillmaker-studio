@@ -18,17 +18,18 @@ export class ChecklistItem extends Schema.Class<ChecklistItem>("ChecklistItem")(
 }) {}
 
 /**
- * A todo's optional provenance (issue #81): which upstream signal opened
- * this todo automatically, if any. `"field-report"` is the only `kind`
- * today -- named generically (`ref`, not `eventId`) so later producers
- * (`run`, `coverage-gap`) can add a kind without a breaking change to this
- * shape, same closed-union reasoning as `FixtureSource` (`Fixtures.ts`).
- * Immutable like `source`: structurally absent from `TodoPatch`, so a
- * `todo.updated` patch can never retroactively stamp or change it.
+ * A todo's optional provenance (issue #81, `"intake"` added issue #91):
+ * which upstream signal opened this todo automatically, if any -- named
+ * generically (`ref`, not `eventId`) so later producers can add a kind
+ * without a breaking change to this shape, exactly the extension point this
+ * was built for: `"intake"` reuses the same `ref` field for an intake id
+ * instead of a journal event id, no schema surgery required. Immutable like
+ * `source`: structurally absent from `TodoPatch`, so a `todo.updated` patch
+ * can never retroactively stamp or change it.
  */
 export class TodoOrigin extends Schema.Class<TodoOrigin>("TodoOrigin")({
-  kind: Schema.Literal("field-report"),
-  /** The journal event id this todo traces back to, e.g. a `skill.field_report`'s id. */
+  kind: Schema.Literals(["field-report", "intake"]),
+  /** The journal event id (`field-report`) or intake id (`intake`) this todo traces back to. */
   ref: Schema.String,
 }) {}
 
@@ -38,7 +39,7 @@ export class TodoOrigin extends Schema.Class<TodoOrigin>("TodoOrigin")({
  * provenance references, so a future producer kind lands in one place.
  */
 export interface TodoOriginRecord {
-  readonly kind: "field-report";
+  readonly kind: "field-report" | "intake";
   readonly ref: string;
 }
 

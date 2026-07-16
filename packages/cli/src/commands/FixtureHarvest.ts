@@ -1,22 +1,26 @@
 /**
- * `skillmaker fixture harvest <slug> <case> --from-report <event-id> [--class
- * <class>] [--json]` -- closes the field-report loop (issue #68, `Vision -
- * Board Lab Ship Receive.md` §WHY: "a skill that fails in production *is* a
- * new fixture"). Thin argument/output wrapper around core's `harvestFixture`
- * (`Harvest.ts`), same layering `report`/`ship` use: this command only
- * parses argv, resolves the workspace, and maps `harvestFixture`'s tagged
- * errors to honest CLI failures. Default fixture class `hard-case` (the
- * wild's specialty) -- `--class` overrides to any of `FIXTURE_CLASSES`.
- * Fixtures stay files, not events -- harvest never appends to the journal
- * (`FixtureAdd.ts`'s rule, unchanged); the journal is only read, to resolve
- * `--from-report`.
+ * `skillmaker fixture harvest <slug> <case> (--from-report <event-id> |
+ * --from-intake <intake-id>) [--class <class>] [--json]` -- closes the
+ * field-report loop (issue #68, `Vision - Board Lab Ship Receive.md` §WHY:
+ * "a skill that fails in production *is* a new fixture") and the dock's
+ * salvage door (issue #91, `Mechanism - Receiving Dock.md` §HOW: "diffs are
+ * mined into fixtures"). Thin argument/output wrapper around core's
+ * `harvestFixture`/`harvestFixtureFromIntake` (`Harvest.ts`), same layering
+ * `report`/`ship` use: this command only parses argv, resolves the
+ * workspace, and maps the tagged errors to honest CLI failures. Default
+ * fixture class `hard-case` (the wild's specialty) -- `--class` overrides to
+ * any of `FIXTURE_CLASSES`. Fixtures stay files, not events -- harvest never
+ * appends to the journal (`FixtureAdd.ts`'s rule, unchanged); the journal is
+ * only read, to resolve `--from-report`/`--from-intake`.
  */
 import {
   FIXTURE_CLASSES,
   harvestFixture,
+  harvestFixtureFromIntake,
   isFixtureClass,
   JournalLayer,
   Workspace,
+  type HarvestFixtureFromIntakeResult,
   type HarvestFixtureResult,
 } from "@skillmaker/core";
 import { Effect } from "effect";
@@ -28,6 +32,7 @@ export interface FixtureHarvestOptions {
   readonly json: boolean;
   readonly klass?: string;
   readonly fromReport?: string;
+  readonly fromIntake?: string;
 }
 
 export const runFixtureHarvest = Effect.fn("runFixtureHarvest")(function* (
@@ -36,13 +41,18 @@ export const runFixtureHarvest = Effect.fn("runFixtureHarvest")(function* (
   caseName: string | undefined,
   options: FixtureHarvestOptions,
 ) {
-  const usage = `Usage: skillmaker fixture harvest <slug> <case> --from-report <event-id> [--class ${FIXTURE_CLASSES.join("|")}]\n`;
+  const usage = `Usage: skillmaker fixture harvest <slug> <case> (--from-report <event-id> | --from-intake <intake-id>) [--class ${FIXTURE_CLASSES.join("|")}]\n`;
 
   if (slug === undefined || caseName === undefined) {
     return usageError(`skillmaker fixture harvest: missing <slug> <case>\n\n${usage}`);
   }
-  if (options.fromReport === undefined || options.fromReport.trim().length === 0) {
-    return usageError(`skillmaker fixture harvest: missing --from-report <event-id>\n\n${usage}`);
+  const fromReport = options.fromReport !== undefined && options.fromReport.trim().length > 0 ? options.fromReport.trim() : undefined;
+  const fromIntake = options.fromIntake !== undefined && options.fromIntake.trim().length > 0 ? options.fromIntake.trim() : undefined;
+  if (fromReport === undefined && fromIntake === undefined) {
+    return usageError(`skillmaker fixture harvest: missing --from-report <event-id> or --from-intake <intake-id>\n\n${usage}`);
+  }
+  if (fromReport !== undefined && fromIntake !== undefined) {
+    return usageError(`skillmaker fixture harvest: pass either --from-report or --from-intake, not both\n\n${usage}`);
   }
 
   const klass = options.klass ?? "hard-case";
@@ -73,7 +83,35 @@ export const runFixtureHarvest = Effect.fn("runFixtureHarvest")(function* (
   }
 
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
-  const eventId = options.fromReport.trim();
+
+  if (fromIntake !== undefined) {
+    const outcome = yield* harvestFixtureFromIntake({
+      bundle: slug,
+      bundleDir,
+      caseName,
+      intake: fromIntake,
+      klass,
+    }).pipe(
+      Effect.provide(JournalLayer(journalPath)),
+      Effect.map((result) => ({ kind: "ok" as const, result })),
+      Effect.catchTag("HarvestIntakeNotFoundError", (error) =>
+        Effect.succeed({ kind: "intake_not_found" as const, intake: error.intake }),
+      ),
+      Effect.catchTag("HarvestCaseExistsError", () => Effect.succeed({ kind: "case_exists" as const })),
+    );
+
+    if (outcome.kind === "intake_not_found") {
+      return expectedFailure(`skillmaker fixture harvest: no such intake "${outcome.intake}"\n`);
+    }
+    if (outcome.kind === "case_exists") {
+      return expectedFailure(`skillmaker fixture harvest: evals/fixtures/${caseName}/ already exists for "${slug}"\n`);
+    }
+
+    return summarizeFromIntake(slug, outcome.result, options.json);
+  }
+
+  // `fromReport !== undefined` -- the earlier guard already ruled out both being undefined or both being set.
+  const eventId = fromReport as string;
 
   const outcome = yield* harvestFixture({
     bundle: slug,
@@ -138,5 +176,22 @@ const summarize = (slug: string, result: HarvestFixtureResult, json: boolean): C
   }
   return ok(
     `skillmaker: harvested field report ${result.source.eventId} into ${slug}/evals/fixtures/${result.caseName}/ (class: ${result.class})\n`,
+  );
+};
+
+const summarizeFromIntake = (slug: string, result: HarvestFixtureFromIntakeResult, json: boolean): CliResult => {
+  if (json) {
+    return ok(
+      `${JSON.stringify({
+        status: "harvested",
+        bundle: slug,
+        case: result.caseName,
+        class: result.class,
+        source: result.source,
+      })}\n`,
+    );
+  }
+  return ok(
+    `skillmaker: harvested intake ${result.source.intake} into ${slug}/evals/fixtures/${result.caseName}/ (class: ${result.class})\n`,
   );
 };

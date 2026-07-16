@@ -225,19 +225,36 @@ become a shelf); (2) the dispositions — `skill.routed` and the five
 exits; (3) the triage manifest and the adopt-side evidence tripwire;
 (4) the Unverified badge; (5) the dossier fields and their honest gaps.
 
-Verified: sequencing step (1), the dock itself, is built (issue #90).
-`skill.received` lands in `Journal.ts` (intake ids, no `bundle` field);
-`Receive.ts` copies the crate to `receiving/<intake-id>/` (source
+Verified: sequencing steps (1) and (2) are built. The dock itself (issue
+#90): `skill.received` lands in `Journal.ts` (intake ids, no `bundle`
+field); `Receive.ts` copies the crate to `receiving/<intake-id>/` (source
 untouched) and derives the return/new/conflict verdict at read time
 from a fresh content hash against the registry (`hashReceivedCrate`,
 `gatherIntakeRegistry`, `deriveIntakeVerdict` -- never stored);
-`skillmaker receive <path>` is the one door; `GET /api/intake` and
-Receive's Intake section surface undisposed crates oldest first, no
-write button. Still unbuilt: `skill.routed` and the five dispositions
-(so every received crate is undisposed today by construction, not by a
-special case -- `listUndisposedIntake` needs no change once routing
-ships), the triage manifest, the Unverified badge, and context tags.
-`adoptWorkspace` (`Adopt.ts`) remains filesystem-only with
-`--source`/`--ref` recorded in the marker file, not the journal. This
-card records the Director's adopted design; the sequenced
-implementation issues are the source of truth for build status.
+`skillmaker receive <path>` is the one door. The five dispositions
+(issue #91): `skill.routed { intake, disposition, bundle?, reason }`
+lands in `Journal.ts`; `Route.ts`'s `routeCrate` is the engine --
+`return` proves a hash match against a named bundle with no file
+movement, `new`/`fork` move the crate directory into `skills/<slug>/`
+and wrap it via `Adopt.ts`'s (now-shared) `adoptDirectoryInPlace`
+(`fork` additionally stamps the marker's `forkOf`), `upgrade` lands the
+crate's content into an existing bundle's output and calls
+`Versions.ts`'s `recordSkillVersion`, `salvage` grants no identity and
+touches no files -- the crate stays at the dock as evidence. Idempotent
+per intake (same disposition twice is a no-op; a different one is an
+honest conflict). `skillmaker route <intake-id> --as <disposition>
+--reason <text> [--bundle <slug>] [--parent <slug>] [--name <name>]
+[--stage <stage>]` is the CLI door; `GET /api/intake` now returns only
+undisposed crates (a routed crate, including `salvage`, leaves the
+list for good) plus a capped `recentlyRouted` tail; Receive's Intake
+section shows the five doors as copyable `skillmaker route` commands
+per crate, the verdict-matching door(s) visually suggested, no write
+button. Salvage's mining doors are additive extensions of the existing
+signal-side commands: `fixture harvest --from-intake <id>` and `todo
+add --from-intake <id>` stamp `{kind: "intake", ...}` provenance
+alongside the pre-existing `field-report` kind on `FixtureCase.source`/
+`Todo.origin`. Still unbuilt: the triage manifest and the adopt-side
+evidence tripwire (issue #92, in flight in parallel), the Unverified
+badge, the dossier fields, and context tags. This card records the
+Director's adopted design; the sequenced implementation issues are the
+source of truth for build status.

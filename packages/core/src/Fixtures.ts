@@ -75,13 +75,13 @@ export class FixtureGrading extends Schema.Class<FixtureGrading>("FixtureGrading
 
 /**
  * `case.json`'s optional provenance (issue #68, `fixture harvest`): which
- * `skill.field_report` event this fixture was harvested from. `"field-
- * report"` is the only `kind` today -- a closed union so a future
- * provenance source (e.g. an adopted upstream case) is additive, not a
- * breaking change to this shape. Optional at every level so every `case.json`
- * written before harvest existed still validates.
+ * `skill.field_report` event this fixture was harvested from. Optional at
+ * every level so every `case.json` written before harvest existed still
+ * validates.
  */
-export class FixtureSource extends Schema.Class<FixtureSource>("FixtureSource")({
+export class FixtureSourceFieldReport extends Schema.Class<FixtureSourceFieldReport>(
+  "FixtureSourceFieldReport",
+)({
   kind: Schema.Literal("field-report"),
   /** The harvested `skill.field_report` event's id. */
   eventId: Schema.String,
@@ -90,17 +90,41 @@ export class FixtureSource extends Schema.Class<FixtureSource>("FixtureSource")(
 }) {}
 
 /**
+ * `case.json`'s other provenance kind (issue #91, `Mechanism - Receiving
+ * Dock.md`): a fixture mined from a salvaged crate at the dock --
+ * "salvage: no identity granted; diffs are mined into fixtures... the crate
+ * stays at the dock, un-accessioned, retained as evidence." References the
+ * `skill.received` event's `intake` id (an `in-<uuid>`), not a bundle -- the
+ * crate never got one.
+ */
+export class FixtureSourceIntake extends Schema.Class<FixtureSourceIntake>("FixtureSourceIntake")({
+  kind: Schema.Literal("intake"),
+  /** The `skill.received` event's `intake` id the fixture was harvested from. */
+  intake: Schema.String,
+}) {}
+
+/**
+ * `case.json`'s optional provenance (issue #68's `field-report`, issue
+ * #91's `intake`): a discriminated union, not a single shape with an
+ * optional/generic ref field, because the two kinds key on genuinely
+ * different things (a journal event id vs. an intake id) -- `field-report`'s
+ * existing `eventId` field name is load-bearing (already-committed
+ * `case.json` files use it) and stays untouched; `intake` is purely
+ * additive.
+ */
+export const FixtureSource = Schema.Union([FixtureSourceFieldReport, FixtureSourceIntake]);
+export type FixtureSource = typeof FixtureSource.Type;
+
+/**
  * The plain-object form of `FixtureSource` -- the ONE shape every record
  * carrying fixture provenance references (`FixtureCaseRecord`,
  * `FixtureScaffoldInput`, `IndexService`'s `FixtureRecord`, harvest's
  * result), so a future provenance kind lands in one place instead of
  * structurally-compatible hand copies that can silently drift.
  */
-export interface FixtureSourceRecord {
-  readonly kind: "field-report";
-  readonly eventId: string;
-  readonly destination?: string;
-}
+export type FixtureSourceRecord =
+  | { readonly kind: "field-report"; readonly eventId: string; readonly destination?: string }
+  | { readonly kind: "intake"; readonly intake: string };
 
 /**
  * The documented `case.json` shape (data-model.md §2.5, PROMPT.MD CHANGE).
@@ -243,11 +267,12 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
       );
     }
 
-    // `source` (issue #68, `fixture harvest`): tolerantly read, same as
-    // every other field here -- a valid `{kind: "field-report", eventId}`
-    // is captured silently (no warning, it's expected on a harvested
-    // fixture), a present-but-malformed shape is reported and dropped, and
-    // an absent `source` (every hand-scaffolded fixture) is silently fine.
+    // `source` (issue #68's `field-report`, issue #91's `intake`):
+    // tolerantly read, same as every other field here -- a valid shape for
+    // either kind is captured silently (no warning, it's expected on a
+    // harvested fixture), a present-but-malformed shape is reported and
+    // dropped, and an absent `source` (every hand-scaffolded fixture) is
+    // silently fine.
     const sourceRaw = parsed.source;
     let source: FixtureCaseRecord["source"];
     if (sourceRaw !== undefined) {
@@ -257,9 +282,11 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
           eventId: sourceRaw.eventId,
           ...(typeof sourceRaw.destination === "string" ? { destination: sourceRaw.destination } : {}),
         };
+      } else if (isRecord(sourceRaw) && sourceRaw.kind === "intake" && typeof sourceRaw.intake === "string") {
+        source = { kind: "intake", intake: sourceRaw.intake };
       } else {
         warnings.push(
-          `evals/fixtures/${entry}/case.json has a malformed "source" field (expected {kind: "field-report", eventId: string})`,
+          `evals/fixtures/${entry}/case.json has a malformed "source" field (expected {kind: "field-report", eventId: string} or {kind: "intake", intake: string})`,
         );
       }
     }

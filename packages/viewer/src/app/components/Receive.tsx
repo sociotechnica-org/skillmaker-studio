@@ -26,16 +26,43 @@
  *
  * The Intake section (issue #90, `Mechanism - Receiving Dock.md`) is the
  * OTHER cargo arriving here -- skills themselves, not signal about a shipped
- * skill: `skillmaker receive <path>` is the only door (CLI-first, no write
- * button here either -- "the CLI flags are the form for now"), and this
- * section reads `GET /api/intake`'s undisposed crates, oldest first ("the
- * dock must not become a shelf: oldest-first IS the attention ordering"),
- * each with its verdict recomputed server-side on every request.
+ * skill: `skillmaker receive <path>` is the only door for RECEIVING a crate
+ * (CLI-first, no write button here either -- "the CLI flags are the form for
+ * now"), and this section reads `GET /api/intake`'s undisposed crates,
+ * oldest first ("the dock must not become a shelf: oldest-first IS the
+ * attention ordering"), each with its verdict recomputed server-side on
+ * every request.
+ *
+ * The five exit doors (issue #91) follow the exact same CLI-first pattern
+ * as harvest/todo above: no write buttons, each undisposed crate row shows
+ * all five `skillmaker route` commands as copyable text, pre-filled with the
+ * intake id and (where the disposition needs one) a `<bundle>`/`<parent>`
+ * placeholder for the human to fill in -- resolving WHICH bundle a
+ * `return`/`conflict` verdict specifically points at would need per-bundle
+ * plumbing beyond the workspace-wide registry set `GET /api/intake` already
+ * computes, so that's left as a human fill-in, same as harvest's `<case>`/
+ * todo's `<title>` placeholders. The door(s) matching the crate's OWN
+ * verdict are visually distinguished as "the verdict's suggestion" --
+ * `new`/`return` verdicts suggest exactly one door; `conflict` (the
+ * identically-labeled stranger) suggests the three judgment calls
+ * (`upgrade`/`fork`/`salvage`), since a hash+name overlap with different
+ * content is precisely the case a human, not the dock, must rule on. Once
+ * disposed, a crate leaves this list; `GET /api/intake`'s `recentlyRouted`
+ * tail (below) is where its disposition + reason still show, so a routed
+ * crate doesn't vanish without a trace.
  */
 import { type FC, type FormEvent, type ReactNode, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
 import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
-import type { FieldReportOutcome, FieldReportView, IntakeCrateView, IntakeVerdict, TodoStatus } from "../runtime/schemas.ts";
+import type {
+  FieldReportOutcome,
+  FieldReportView,
+  IntakeCrateView,
+  IntakeVerdict,
+  RecentlyRoutedView,
+  RouteDisposition,
+  TodoStatus,
+} from "../runtime/schemas.ts";
 import { useBundles } from "../runtime/useBundles.ts";
 import { useFieldReports } from "../runtime/useFieldReports.ts";
 import { useIntake } from "../runtime/useIntake.ts";
@@ -235,6 +262,61 @@ const VERDICT_BADGE_CLASS: Readonly<Record<IntakeVerdict, string>> = {
   new: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
 };
 
+const DISPOSITIONS: ReadonlyArray<RouteDisposition> = ["return", "new", "upgrade", "fork", "salvage"];
+
+/** The dock verdict's suggested door(s) (issue #91): `return`/`new` each point at exactly one door; `conflict` (the identically-labeled stranger) is precisely the case the dock CANNOT resolve on its own, so it suggests the three human judgment calls instead. */
+const SUGGESTED_DISPOSITIONS: Readonly<Record<IntakeVerdict, ReadonlyArray<RouteDisposition>>> = {
+  return: ["return"],
+  new: ["new"],
+  conflict: ["upgrade", "fork", "salvage"],
+};
+
+/** One `skillmaker route` command per disposition, pre-filled with the intake id -- `<bundle>`/`<parent>`/`<name>` are left as human fill-ins, same convention as harvest's `<case>`/todo's `<title>` placeholders elsewhere on this page. */
+const routeCommand = (intake: string, disposition: RouteDisposition): string => {
+  switch (disposition) {
+    case "return":
+      return `skillmaker route ${intake} --as return --bundle <slug> --reason "<why>"`;
+    case "new":
+      return `skillmaker route ${intake} --as new --reason "<why>"`;
+    case "upgrade":
+      return `skillmaker route ${intake} --as upgrade --bundle <slug> --reason "<why>"`;
+    case "fork":
+      return `skillmaker route ${intake} --as fork --parent <slug> --reason "<why>"`;
+    case "salvage":
+      return `skillmaker route ${intake} --as salvage --reason "<why>"`;
+  }
+};
+
+/** The five exit doors, each a copyable `skillmaker route` command; the door(s) matching the crate's own verdict are visually distinguished as "the verdict's suggestion." */
+const RouteDoors: FC<{ crate: IntakeCrateView }> = ({ crate }) => {
+  const suggested = new Set(SUGGESTED_DISPOSITIONS[crate.verdict]);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        Route this crate
+      </span>
+      <ul className="flex flex-col gap-1">
+        {DISPOSITIONS.map((disposition) => (
+          <li key={disposition} className="flex items-center gap-2">
+            <code
+              className={`w-fit select-all rounded-md px-2 py-1 text-[11px] ${
+                suggested.has(disposition)
+                  ? "bg-neutral-900 text-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
+                  : "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
+              }`}
+            >
+              {routeCommand(crate.intake, disposition)}
+            </code>
+            {suggested.has(disposition) && (
+              <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">suggested</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
 /** One undisposed crate at the dock: claims verbatim, the verdict recomputed server-side, an "unclear rights" flag when present -- recorded, never a gate. */
 const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
   <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
@@ -261,6 +343,31 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
     <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
       {crate.intake}
     </code>
+    <RouteDoors crate={crate} />
+  </li>
+);
+
+/** One recently routed crate (issue #91): the disposition + reason a disposed crate left with, after it leaves `crates` above -- the "recently routed" tail so a routed crate doesn't vanish without a trace. */
+const RecentlyRoutedRow: FC<{ routed: RecentlyRoutedView }> = ({ routed }) => (
+  <li className="flex flex-col gap-1 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+        {routed.claimedName ?? "unnamed crate"}
+      </span>
+      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+        {routed.disposition}
+      </span>
+      {routed.bundle !== null && (
+        <Link
+          href={bundleHref(routed.bundle)}
+          className="text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
+        >
+          {routed.bundle}
+        </Link>
+      )}
+    </div>
+    <p className="text-xs text-neutral-500 dark:text-neutral-400">{routed.reason}</p>
+    <span className="text-[11px] text-neutral-400">{new Date(routed.at).toLocaleString()}</span>
   </li>
 );
 
@@ -272,7 +379,7 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
  * "nothing here yet."
  */
 const IntakeSection: FC = () => {
-  const { crates, loading, error } = useIntake();
+  const { crates, recentlyRouted, loading, error } = useIntake();
 
   return (
     <div className="flex flex-col gap-2">
@@ -301,6 +408,19 @@ const IntakeSection: FC = () => {
             <CrateRow key={crate.intake} crate={crate} />
           ))}
         </ul>
+      )}
+
+      {recentlyRouted.length > 0 && (
+        <div className="flex flex-col gap-2 pt-2">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+            Recently routed
+          </h3>
+          <ul className="flex flex-col gap-2">
+            {recentlyRouted.map((routed) => (
+              <RecentlyRoutedRow key={routed.intake} routed={routed} />
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

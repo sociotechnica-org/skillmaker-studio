@@ -400,8 +400,26 @@ describe("FixtureCase schema round-trip", () => {
       }),
     );
     expect(decoded.source?.kind).toBe("field-report");
-    expect(decoded.source?.eventId).toBe("11111111-1111-1111-1111-111111111111");
-    expect(decoded.source?.destination).toBeUndefined();
+    if (decoded.source?.kind === "field-report") {
+      expect(decoded.source.eventId).toBe("11111111-1111-1111-1111-111111111111");
+      expect(decoded.source.destination).toBeUndefined();
+    }
+  });
+
+  test("decodes with an intake source field (a salvaged crate, issue #91)", async () => {
+    const decoded = await Effect.runPromise(
+      decode({
+        schemaVersion: 1,
+        case: "hard-case-2",
+        class: "hard-case",
+        risks: [],
+        source: { kind: "intake", intake: "in-11111111-1111-1111-1111-111111111111" },
+      }),
+    );
+    expect(decoded.source?.kind).toBe("intake");
+    if (decoded.source?.kind === "intake") {
+      expect(decoded.source.intake).toBe("in-11111111-1111-1111-1111-111111111111");
+    }
   });
 });
 

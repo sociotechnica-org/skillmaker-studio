@@ -18,6 +18,7 @@ import { runPublish } from "./commands/Publish.ts";
 import { runReceive } from "./commands/Receive.ts";
 import { runReindex } from "./commands/Reindex.ts";
 import { runReport } from "./commands/Report.ts";
+import { runRoute } from "./commands/Route.ts";
 import { runReviewRequest } from "./commands/ReviewRequest.ts";
 import { runReviewResolve } from "./commands/ReviewResolve.ts";
 import { runRun } from "./commands/Run.ts";
@@ -56,6 +57,7 @@ Commands:
   ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
   report <slug>           Record a field report on a shipped skill -- what the wild says back (§2.9, issue #67)
   receive <path>          Receive an arriving skill crate at the dock: copy it to receiving/<intake-id>/ and record skill.received (§2.9, issue #90)
+  route <intake-id>       Route a received crate through one of the five exit doors: --as return|new|upgrade|fork|salvage --reason <text> (§2.9, issue #91)
   book build              Render the Skillbook to a static site (§2.14)
   todo add <title>        Open a new todo (--from-report <event-id> to seed it from a skill.field_report, issue #81)
   todo list               List todos (rebuilds the index first)
@@ -67,6 +69,7 @@ Commands:
 Options:
   --json            Emit machine-readable JSON instead of text
   --name <name>     (new) Display name for the bundle; defaults to a title-cased slug
+                    (route) --as new/fork: display-name override; --as upgrade: version label override
   --port <n>        (start) Port to serve on; overrides skillmaker.config.json
   --no-open         (start) Do not open a browser on startup
   --question <text> (review request) Question for the reviewer
@@ -85,14 +88,20 @@ Options:
   --claimed-name <name>      (receive) The maker's claimed name for the arriving skill; optional
   --claimed-version <v>      (receive) A label or hash the maker claims this version is; optional
   --rights <r>      (receive) ours | licensed | unclear; optional, recorded never enforced
+  --as <d>          (route) return | new | upgrade | fork | salvage (required)
+  --parent <slug>   (route) the parent bundle slug (required for --as fork)
+  --from-intake <id>   (fixture harvest) the skill.received intake id to harvest, alternative to --from-report (issue #91)
+                    (todo add) the skill.received intake id to seed the todo from, alternative to --from-report (issue #91)
   --out <dir>       (book build) Output directory; defaults to .skillmaker/skillbook/
   --to <stage>      (advance) Target stage; defaults to the next stage
                     (ship) Destination the skill is shipping to, e.g. "acme-agent-fleet"
   --back <stage>    (advance) Move backward to an earlier stage (requires --reason)
   --reason <text>   (advance) Reason for a backward move
+                    (route) The hypothesis (broken? evolved? forked?) -- required on every disposition
   --override        (advance) Bypass guards (journaled as a manual override)
   --kind <kind>     (todo add) task | bug | improvement | eval; defaults to task
   --bundle <slug>   (todo add/list) associate/filter by a bundle slug
+                    (route) --as return/upgrade: the existing bundle routed against (required); --as new/fork: optional slug override for the minted bundle; --as salvage: optional bundle being defended
   --detail <text>   (todo add) free-text detail
   --priority <n>    (todo add) lower = more urgent; defaults by kind
   --pin             (todo add) pin the todo (exempt from auto-archive)
@@ -107,6 +116,7 @@ Options:
   --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
   --timeout <s>     (run, station run) prompt timeout in seconds; defaults to 300
   --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
+  --stage <stage>   (route) --as new/fork: entry stage for the minted bundle; defaults to "idea"
   --verdict <v>     (grade) pass | fail | partial (required)
   --notes <text>    (grade, review resolve) free-text notes
                     (receive) Free-text notes about the arriving crate; optional
@@ -161,6 +171,10 @@ const VALUE_FLAGS = new Set([
   "--claimed-name",
   "--claimed-version",
   "--rights",
+  "--as",
+  "--parent",
+  "--stage",
+  "--from-intake",
 ]);
 
 /** The first two positional arguments at or after `startIndex`, e.g. `<slug> <case>`. */
@@ -254,10 +268,11 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         const [slug, caseName] = twoPositionalsAfter(argv, 2);
         const klass = flagValue(argv, "--class");
         const fromReport = flagValue(argv, "--from-report");
-        return yield* runFixtureHarvest(cwd, slug, caseName, { json, klass, fromReport });
+        const fromIntake = flagValue(argv, "--from-intake");
+        return yield* runFixtureHarvest(cwd, slug, caseName, { json, klass, fromReport, fromIntake });
       }
       return usageError(
-        `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker fixture harvest <slug> <case> --from-report <event-id> [--class <class>]\n`,
+        `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker fixture harvest <slug> <case> (--from-report <event-id> | --from-intake <intake-id>) [--class <class>]\n`,
       );
     }
     case "run": {
@@ -376,6 +391,16 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         notes,
       });
     }
+    case "route": {
+      const intake = positionalAfterCommand(argv);
+      const as = flagValue(argv, "--as");
+      const bundle = flagValue(argv, "--bundle");
+      const parent = flagValue(argv, "--parent");
+      const name = flagValue(argv, "--name");
+      const stage = flagValue(argv, "--stage");
+      const reason = flagValue(argv, "--reason");
+      return yield* runRoute(cwd, intake, { json, as, bundle, parent, name, stage, reason });
+    }
     case "book": {
       const subcommand = argv[1];
       if (subcommand !== "build") {
@@ -395,6 +420,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         const detail = flagValue(argv, "--detail");
         const priority = flagValue(argv, "--priority");
         const fromReport = flagValue(argv, "--from-report");
+        const fromIntake = flagValue(argv, "--from-intake");
         return yield* runTodoAdd(cwd, title, {
           json,
           kind,
@@ -403,6 +429,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
           priority,
           pin: hasFlag(argv, "--pin"),
           fromReport,
+          fromIntake,
         });
       }
       if (subcommand === "list") {

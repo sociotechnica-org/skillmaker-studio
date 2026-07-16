@@ -16,13 +16,15 @@
 import { Effect } from "effect";
 import type { Actor } from "./Actor.ts";
 import {
+  TodoFromIntakeNotFoundError,
   TodoFromReportBundleMismatchError,
   TodoFromReportEventNotFoundError,
   TodoFromReportNotFieldReportError,
 } from "./Errors.ts";
 import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
-import type { FieldReportOutcome } from "./Journal.ts";
+import type { FieldReportOutcome, SkillReceivedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
+import { findReceivedEvent } from "./Receive.ts";
 import type { Todo, TodoKind } from "./Todo.ts";
 import { shortHash } from "./Versions.ts";
 
@@ -129,5 +131,82 @@ export const openTodoFromReport = Effect.fn("TodoFromReport.openTodoFromReport")
   yield* journal.append({ type: "todo.opened", actor: input.actor, payload: { todo } });
 
   const result: OpenTodoFromReportResult = { todo };
+  return result;
+});
+
+// ---------------------------------------------------------------------------
+// todo add --from-intake (issue #91, the dock's salvage door)
+// ---------------------------------------------------------------------------
+
+export interface OpenTodoFromIntakeInput {
+  readonly title: string;
+  /** The `skill.received` event's intake id, `--from-intake`'s value. */
+  readonly intake: string;
+  readonly actor: Actor;
+  readonly id: string;
+  readonly created: string;
+  /** Unlike `openTodoFromReport`, there is no bundle to default from -- a crate carries no identity until routed; `--bundle` names the bundle a salvaged intake's work order belongs to, when there is one. */
+  readonly bundle?: string;
+  readonly kind?: TodoKind;
+  readonly detail?: string;
+  readonly priority?: number;
+  readonly pinned?: boolean;
+}
+
+export interface OpenTodoFromIntakeResult {
+  readonly todo: Todo;
+}
+
+/** `detail`'s default (issue #91): the crate's recorded notes/source/claim, the closest analogue to a field report's prose a `skill.received` event carries. */
+const defaultIntakeDetail = (payload: SkillReceivedEvent["payload"]): string => {
+  const lines = [payload.notes ?? "(no notes recorded at intake)"];
+  lines.push(`Source: ${payload.source}`);
+  if (payload.claimedName !== undefined) {
+    lines.push(`Claimed name: ${payload.claimedName}`);
+  }
+  return lines.join("\n");
+};
+
+/**
+ * Resolves `intake` against the full journal (unknown id ->
+ * `TodoFromIntakeNotFoundError`), computes `kind`/`detail`/`priority`
+ * defaults (all overridable, mirroring `openTodoFromReport`), stamps
+ * `origin: {kind: "intake", ref: intake}`, and appends `todo.opened` --
+ * salvage's "work order into todos" door (`Mechanism - Receiving Dock.md`
+ * §HOW). `kind` defaults to `"task"` (a crate carries no `outcome` signal
+ * like a field report's `worked`/`failed`/`surprise` to key off of) --
+ * `--kind` overrides as usual.
+ */
+export const openTodoFromIntake = Effect.fn("TodoFromReport.openTodoFromIntake")(function* (
+  input: OpenTodoFromIntakeInput,
+) {
+  const journal = yield* Journal;
+  const events = yield* journal.readAll();
+  const received = findReceivedEvent(events, input.intake);
+  if (received === undefined) {
+    return yield* Effect.fail(TodoFromIntakeNotFoundError.make({ intake: input.intake }));
+  }
+
+  const kind = input.kind ?? "task";
+  const priority = input.priority ?? DEFAULT_PRIORITY_BY_KIND[kind];
+  const detail = input.detail ?? defaultIntakeDetail(received.payload);
+
+  const todo = {
+    id: input.id,
+    kind,
+    status: "open" as const,
+    title: input.title,
+    detail,
+    priority,
+    ...(input.bundle !== undefined ? { bundle: input.bundle } : {}),
+    created: input.created,
+    ...(input.pinned === true ? { pinned: true } : {}),
+    source: input.actor,
+    origin: { kind: "intake" as const, ref: input.intake },
+  };
+
+  yield* journal.append({ type: "todo.opened", actor: input.actor, payload: { todo } });
+
+  const result: OpenTodoFromIntakeResult = { todo };
   return result;
 });

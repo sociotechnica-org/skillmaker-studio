@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import { FileSystem } from "effect/FileSystem";
+import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
-import { openTodoFromReport, TODO_KIND_BY_OUTCOME } from "../src/TodoFromReport.ts";
+import { receiveCrate } from "../src/Receive.ts";
+import { openTodoFromIntake, openTodoFromReport, TODO_KIND_BY_OUTCOME } from "../src/TodoFromReport.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
 const actor = Actor.make({ kind: "user", name: "test-user" });
@@ -203,6 +206,106 @@ describe("openTodoFromReport", () => {
 
         expect(result.todo.detail).toBe("Worked great.");
         expect(result.todo.kind).toBe("task");
+      }),
+    );
+  });
+});
+
+describe("openTodoFromIntake (issue #91, salvage's work-order door)", () => {
+  const receiveCrateAt = (workspaceRoot: string, relativePath: string, skillMdContent: string) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem;
+      const sourcePath = join(workspaceRoot, "incoming", relativePath);
+      yield* fs.makeDirectory(sourcePath, { recursive: true });
+      yield* fs.writeFileString(join(sourcePath, "SKILL.md"), skillMdContent);
+      return yield* receiveCrate({ workspaceRoot, sourcePath, source: "test", actor });
+    });
+
+  test("errors with TodoFromIntakeNotFoundError when the intake id isn't in the journal at all", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+        const outcome = yield* openTodoFromIntake({
+          ...baseInput,
+          intake: "in-does-not-exist",
+        }).pipe(Effect.provide(JournalLayer(journalPath)), Effect.flip);
+
+        expect(outcome._tag).toBe("TodoFromIntakeNotFoundError");
+      }),
+    );
+  });
+
+  test("happy path: kind defaults to task, detail defaults from the crate's notes/source/claim, stamps origin: {kind: 'intake', ref: intake}", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+
+        const outcome = yield* Effect.gen(function* () {
+          const received = yield* receiveCrateAt(dir, "salvaged-1", "---\nname: salvaged-skill\n---\nBroken.\n");
+          return {
+            intake: received.intake,
+            result: yield* openTodoFromIntake({ ...baseInput, intake: received.intake }),
+          };
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        const { todo } = outcome.result;
+        expect(todo.kind).toBe("task");
+        expect(todo.status).toBe("open");
+        expect(todo.bundle).toBeUndefined();
+        expect(todo.detail).toContain("no notes recorded at intake");
+        expect(todo.detail).toContain("Source: test");
+        expect(todo.origin).toEqual({ kind: "intake", ref: outcome.intake });
+      }),
+    );
+  });
+
+  test("--bundle names the bundle the salvaged crate's work order belongs to (there is no default to derive it from)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+
+        const result = yield* Effect.gen(function* () {
+          const received = yield* receiveCrateAt(dir, "salvaged-2", "---\nname: salvaged-skill\n---\nBroken.\n");
+          return yield* openTodoFromIntake({
+            ...baseInput,
+            intake: received.intake,
+            bundle: "existing-skill",
+            detail: "Custom detail.",
+            kind: "bug",
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        expect(result.todo.bundle).toBe("existing-skill");
+        expect(result.todo.detail).toBe("Custom detail.");
+        expect(result.todo.kind).toBe("bug");
+      }),
+    );
+  });
+
+  test("the crate's claimed name and notes surface in the default detail when present", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+        const fs = yield* FileSystem;
+        const sourcePath = join(dir, "incoming", "salvaged-3");
+        yield* fs.makeDirectory(sourcePath, { recursive: true });
+        yield* fs.writeFileString(join(sourcePath, "SKILL.md"), "---\nname: salvaged-skill\n---\nBroken.\n");
+
+        const result = yield* Effect.gen(function* () {
+          const received = yield* receiveCrate({
+            workspaceRoot: dir,
+            sourcePath,
+            source: "an external contributor",
+            claimedName: "Salvaged Skill",
+            notes: "Fails on empty input.",
+            actor,
+          });
+          return yield* openTodoFromIntake({ ...baseInput, intake: received.intake });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        expect(result.todo.detail).toBe(
+          "Fails on empty input.\nSource: an external contributor\nClaimed name: Salvaged Skill",
+        );
       }),
     );
   });

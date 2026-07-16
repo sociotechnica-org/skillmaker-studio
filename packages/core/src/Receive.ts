@@ -59,6 +59,19 @@ const slugify = (name: string): string =>
 export const hashReceivedCrate = (crateDir: string) =>
   hashOutputTree(crateDir, { excludeTopLevel: ADOPT_EXCLUDED_NAMES });
 
+/**
+ * The one shared `skill.received`-by-intake-id lookup (issue #91): every
+ * caller resolving `--from-intake`/an intake id against the full journal
+ * (`Route.ts`'s `routeCrate`, `Harvest.ts`'s `harvestFixtureFromIntake`,
+ * `TodoFromReport.ts`'s `openTodoFromIntake`) needs exactly this type-guarded
+ * `find`, so it lives here once instead of three copies that could drift.
+ */
+export const findReceivedEvent = (
+  events: ReadonlyArray<JournalEvent>,
+  intake: string,
+): SkillReceivedEvent | undefined =>
+  events.find((event): event is SkillReceivedEvent => event.type === "skill.received" && event.payload.intake === intake);
+
 export interface IntakeRegistryBundle {
   readonly slug: string;
   readonly name: string;
@@ -128,25 +141,25 @@ export const deriveIntakeVerdict = (
 };
 
 /**
- * Forward-compatible undisposed derivation (issue #90's design note: the
- * NEXT issue ships `skill.routed`, so this reads "received events with no
- * routing event referencing their intake id" rather than hard-coding "every
- * crate is undisposed" -- once `skill.routed` joins `Journal.ts`'s union,
- * this needs no change at all. `event.type` is read as a plain string
- * (rather than narrowed via the `JournalEvent` union, which doesn't carry
- * `"skill.routed"` yet) for exactly that reason -- comparing a union of
- * known literals against a string the union doesn't include is exactly what
- * this forward-compatibility requires.
+ * Undisposed derivation (issue #90's design note, made real by issue #91's
+ * `skill.routed`): "received events with no routing event referencing their
+ * intake id." Before #91 shipped, `skill.routed` didn't exist in
+ * `Journal.ts`'s union yet, so this read `event.type` as a plain string
+ * against a hard-coded `"skill.routed"` literal the union didn't carry --
+ * now that `SkillRoutedEvent` is a real member, the filter below narrows on
+ * it directly, no cast required. An intake routed `salvage` counts as
+ * disposed exactly like every other disposition: "In Receiving" is the
+ * place (undisposed, until a human routes it), not a judgment about which
+ * way it was routed -- salvage's crate stays physically at
+ * `receiving/<intake-id>/` as evidence, but it leaves THIS list.
  */
 export const listUndisposedIntake = (
   events: ReadonlyArray<JournalEvent>,
 ): ReadonlyArray<SkillReceivedEvent> => {
   const routedIntakeIds = new Set<string>();
   for (const event of events) {
-    const type: string = event.type;
-    if (type === "skill.routed") {
-      const payload = (event as unknown as { readonly payload: { readonly intake: string } }).payload;
-      routedIntakeIds.add(payload.intake);
+    if (event.type === "skill.routed") {
+      routedIntakeIds.add(event.payload.intake);
     }
   }
 
