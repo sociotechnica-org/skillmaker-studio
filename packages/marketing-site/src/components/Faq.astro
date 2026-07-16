@@ -9,6 +9,10 @@ const items = [
     a: "Bundles target any ACP-drivable agent. claude-code and codex are both full eval peers today — one skill, measured per provider, never pooled together. Publishing to a Codex-format marketplace manifest is still best-effort (no published spec to conform to yet); the git-directory and Claude-marketplace targets are on solid ground.",
   },
   {
+    q: "We already have a repo full of skills. Do we have to restructure it?",
+    a: "No. skillmaker adopt wraps every existing SKILL.md as a bundle in place — no files move, your layout stays yours. It's been QA'd against real public skills repos with very different structures (59/60 and 39/39 adopted). Evidence accrues from there: add fixtures to the skills you actually depend on first.",
+  },
+  {
     q: "Where does my data live?",
     a: "In your repo. Files plus a git-tracked JSONL journal. SQLite is a throwaway index. No server, no account.",
   },

@@ -1,38 +1,34 @@
 ---
 const steps = [
   {
-    command: "skillmaker new",
-    title: "Scaffold a Skill Bundle.",
-    body: "skillmaker new <slug> creates a design doc, fixture slot, output slot, and stations for the skill — a real bundle, not a bare file.",
+    command: "skillmaker adopt",
+    title: "Point it at the repo you already have.",
+    body: "Nothing moves, nothing restructures. Your existing skills become measurable in place.",
   },
   {
-    title: "Build and prove.",
-    body: "Draft SKILL.md from the design, add fixtures by failure class, run them against real agents, grade the read-outs.",
+    title: "Decide what good means.",
+    body: "Design evals where the skill lives — our agents help you choose what to test and build the fixtures, in plain English. No eval background required.",
   },
   {
-    command: "skillmaker advance",
-    title: "Move through the gates.",
-    body: "Advance the bundle through idea → researching → drafting → evaluating → published, with the journal recording every judgment. Ship the output; keep the asset.",
+    command: "skillmaker run",
+    title: "Read the receipts.",
+    body: "Run against the real agent enough times to get a real number — n, pass rate, confidence interval — pinned to the exact skill version and model that earned it. When the number moves, you know first.",
   },
 ];
 
+// TODO(honesty): re-capture this transcript from the real CLI before public deploy — see site-strategy-2026-07-15.md §7
 const session = [
-  { cmd: "skillmaker init", out: "skillmaker: initialized workspace at ~/projects/my-skills" },
   {
-    cmd: 'skillmaker new bash-guardrails --name "Bash Guardrails"',
-    out: "skillmaker: created bundle bash-guardrails",
+    cmd: "skillmaker adopt",
+    out: "skillmaker: found 12 skills in ./skills\nskillmaker: adopted 12/12 in place — 0 files moved",
   },
   {
     cmd: "skillmaker status bash-guardrails",
     out: [
       "slug:        bash-guardrails",
-      "name:        Bash Guardrails",
-      "stage:       idea",
-      "substate:    working",
-      "events:      1",
-      "last event:  bundle.created at 2026-07-11T09:47:31.618Z",
-      "fixtures:    0",
-      "coverage:    0 covered, 0 partial, 0 gap",
+      "stage:       evaluating",
+      "fixtures:    5",
+      "coverage:    3 covered, 1 partial, 1 gap",
     ].join("\n"),
   },
   { cmd: "skillmaker start", out: "skillmaker: serving my-skills at http://localhost:4322" },
@@ -60,11 +56,11 @@ const session = [
   <div class="mt-12 rounded-lg border border-border bg-surface shadow-xl shadow-black/30">
     <div class="flex items-center justify-between border-b border-border px-4 py-3">
       <div class="flex items-center gap-1.5" aria-hidden="true">
-        <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
-        <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
-        <span class="h-2.5 w-2.5 rounded-full bg-white/15"></span>
+        <span class="h-2.5 w-2.5 rounded-full bg-ink/15"></span>
+        <span class="h-2.5 w-2.5 rounded-full bg-ink/15"></span>
+        <span class="h-2.5 w-2.5 rounded-full bg-ink/15"></span>
       </div>
-      <span class="font-mono text-xs text-ink-dim">skillmaker in 30 seconds</span>
+      <span class="font-mono text-xs text-ink-dim">the adopt motion</span>
       <span></span>
     </div>
     <pre class="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed text-ink">{

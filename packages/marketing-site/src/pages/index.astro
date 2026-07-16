@@ -1,12 +1,17 @@
 ---
+import AfterState from "../components/AfterState.astro";
+import Coping from "../components/Coping.astro";
+import CredBar from "../components/CredBar.astro";
 import Faq from "../components/Faq.astro";
-import Features from "../components/Features.astro";
+import FinalCta from "../components/FinalCta.astro";
 import Footer from "../components/Footer.astro";
 import Header from "../components/Header.astro";
 import Hero from "../components/Hero.astro";
 import HowItWorks from "../components/HowItWorks.astro";
-import Pillars from "../components/Pillars.astro";
-import Why from "../components/Why.astro";
+import Insight from "../components/Insight.astro";
+import Receipts from "../components/Receipts.astro";
+import Situations from "../components/Situations.astro";
+import VsTheBench from "../components/VsTheBench.astro";
 import "../styles/global.css";
 
 const title = "Skillmaker Studio — Ship agent skills with receipts.";
@@ -26,16 +31,27 @@ const description =
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary" />
     <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body class="min-h-screen bg-canvas text-ink antialiased">
     <Header />
     <main>
       <Hero />
-      <Why />
-      <Pillars />
+      <CredBar />
+      <Coping />
+      <Insight />
+      <AfterState />
+      <VsTheBench />
       <HowItWorks />
-      <Features />
+      <Situations />
+      <Receipts />
       <Faq />
+      <FinalCta />
     </main>
     <Footer />
   </body>

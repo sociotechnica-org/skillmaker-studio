@@ -1,0 +1,63 @@
+---
+const issuesUrl = "https://github.com/sociotechnica-org/skillmaker-studio/issues";
+const installLines = [
+  "curl -fsSL https://skillmaker.studio/install.sh | sh",
+  "skillmaker adopt",
+];
+---
+
+<section id="find-out-first" class="mx-auto max-w-5xl px-6 py-16 sm:py-20">
+  <div class="max-w-3xl">
+    <p class="mb-4 text-sm font-medium uppercase tracking-widest text-accent">the next step</p>
+    <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Find out first.</h2>
+    <p class="mt-4 text-lg leading-relaxed text-ink-dim">
+      Your agent will do something unexpected — that was never in question. Whether
+      you find out first is the part you can choose.
+    </p>
+  </div>
+
+  <div class="mt-10 max-w-3xl rounded-lg border border-border bg-surface shadow-2xl shadow-black/40">
+    <div class="flex items-center justify-between border-b border-border px-4 py-3">
+      <div class="flex items-center gap-1.5" aria-hidden="true">
+        <span class="h-2.5 w-2.5 rounded-full bg-ink/15"></span>
+        <span class="h-2.5 w-2.5 rounded-full bg-ink/15"></span>
+        <span class="h-2.5 w-2.5 rounded-full bg-ink/15"></span>
+      </div>
+      <span class="font-mono text-xs text-ink-dim">ninety seconds</span>
+    </div>
+    <pre class="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed text-ink">{installLines.map((line) => `$ ${line}`).join("\n")}</pre>
+    <p class="border-t border-border px-4 py-3 text-xs text-ink-dim">
+      Free, local, phones nothing home. Ninety seconds on the repo you already have.
+    </p>
+  </div>
+
+  <div class="mt-10 grid max-w-3xl gap-6 sm:grid-cols-2">
+    <div class="rounded-lg border border-border bg-surface p-6">
+      <h3 class="text-lg font-semibold text-ink">Want hands-on help?</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-dim">
+        We&#39;re working with a small first round of design partners — testing,
+        maintaining, and scaling real skill portfolios with the teams that own them.
+        <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">Open an issue</a>
+        and tell us what broke.
+      </p>
+    </div>
+    <div class="rounded-lg border border-border bg-surface p-6">
+      <h3 class="text-lg font-semibold text-ink">Running skills as a team?</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-dim">
+        We&#39;re designing the multi-player studio with a handful of companies.
+        <a href={issuesUrl} class="text-accent transition hover:text-accent-dim" rel="noreferrer">Talk to us</a>.
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-12 max-w-3xl">
+    <p class="leading-relaxed text-ink-dim">
+      We can&#39;t make your agent predictable — nobody can; that&#39;s what you
+      hired it for. We can make sure nothing drifts silently, nothing fails
+      anonymously, and nothing stays wrong.
+    </p>
+    <p class="mt-4 text-lg font-medium text-ink">
+      The only thing you risk is finding out.
+    </p>
+  </div>
+</section>
