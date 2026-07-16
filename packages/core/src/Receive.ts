@@ -59,6 +59,19 @@ const slugify = (name: string): string =>
 export const hashReceivedCrate = (crateDir: string) =>
   hashOutputTree(crateDir, { excludeTopLevel: ADOPT_EXCLUDED_NAMES });
 
+/**
+ * The one shared `skill.received`-by-intake-id lookup (issue #91): every
+ * caller resolving `--from-intake`/an intake id against the full journal
+ * (`Route.ts`'s `routeCrate`, `Harvest.ts`'s `harvestFixtureFromIntake`,
+ * `TodoFromReport.ts`'s `openTodoFromIntake`) needs exactly this type-guarded
+ * `find`, so it lives here once instead of three copies that could drift.
+ */
+export const findReceivedEvent = (
+  events: ReadonlyArray<JournalEvent>,
+  intake: string,
+): SkillReceivedEvent | undefined =>
+  events.find((event): event is SkillReceivedEvent => event.type === "skill.received" && event.payload.intake === intake);
+
 export interface IntakeRegistryBundle {
   readonly slug: string;
   readonly name: string;

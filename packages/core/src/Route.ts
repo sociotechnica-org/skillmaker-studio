@@ -35,7 +35,7 @@
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { join } from "node:path";
-import { adoptDirectoryInPlace } from "./Adopt.ts";
+import { adoptDirectoryInPlace, slugify } from "./Adopt.ts";
 import type { Actor } from "./Actor.ts";
 import type { BundleStage } from "./Bundle.ts";
 import {
@@ -49,7 +49,7 @@ import {
 import { layer as IndexServiceLayer } from "./IndexService.ts";
 import type { JournalEvent, RouteDisposition, SkillReceivedEvent, SkillRoutedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
-import { gatherIntakeRegistry, hashReceivedCrate, type IntakeRegistry } from "./Receive.ts";
+import { findReceivedEvent, gatherIntakeRegistry, hashReceivedCrate, type IntakeRegistry } from "./Receive.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
   computeBundleHashes,
@@ -67,20 +67,6 @@ export const DISPOSITIONS: ReadonlyArray<RouteDisposition> = ["return", "new", "
 /** Type guard for `--as` values arriving as raw strings from argv. */
 export const isRouteDisposition = (value: string): value is RouteDisposition =>
   (DISPOSITIONS as ReadonlyArray<string>).includes(value);
-
-/**
- * Deliberately a THIRD local duplicate of the same four-line kebab-case fold
- * `Adopt.ts` and `Receive.ts` each already carry their own copy of, and
- * document the same way: a cross-module dependency for this is a worse
- * trade than the duplication. Mirrors `Adopt.ts`'s version exactly,
- * including its empty-string fallback (an explicit `--name ""` or a claimed
- * name that is nothing but punctuation must still resolve to a legal
- * directory name).
- */
-const slugify = (name: string): string => {
-  const lowered = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return lowered.length > 0 ? lowered : "skill";
-};
 
 export interface RouteCrateInput {
   readonly workspaceRoot: string;
@@ -141,6 +127,26 @@ const bundleDirFor = (ctx: RouteContext, slug: string): string =>
 
 const bundleKnown = (ctx: RouteContext, slug: string): boolean =>
   ctx.registry.bundles.some((bundle) => bundle.slug === slug);
+
+/**
+ * `return`/`fork`/`upgrade`'s "a specific, already-known bundle" guard --
+ * `return`/`upgrade`'s `--bundle` and `fork`'s `--parent` are all the same
+ * requirement (a real value naming a bundle the registry actually knows
+ * about), so this is the one place that check lives instead of three
+ * near-identical repeats. Defensive only -- the CLI already requires the
+ * flag before ever calling in; an undefined/unknown value never matches a
+ * real slug, so this still resolves to an honest error rather than a crash
+ * if it's ever reached some other way.
+ */
+const requireKnownBundle = Effect.fn("Route.requireKnownBundle")(function* (
+  ctx: RouteContext,
+  bundle: string | undefined,
+) {
+  if (bundle === undefined || !bundleKnown(ctx, bundle)) {
+    return yield* Effect.fail(RouteBundleNotFoundError.make({ bundle: bundle ?? "" }));
+  }
+  return bundle;
+});
 
 /** `new`/`fork`'s slug-collision guard (issue #91's honest error list: "slug collision on new/fork"): checked two ways -- against the workspace-wide registry (a known bundle living anywhere, in-place or not) and against the literal target directory (a stray, not-yet-indexed directory already sitting where this bundle would land). */
 const guardSlugAvailable = Effect.fn("Route.guardSlugAvailable")(function* (ctx: RouteContext, slug: string) {
@@ -312,14 +318,7 @@ const routeReturn = Effect.fn("Route.routeReturn")(function* (
   ctx: RouteContext,
   events: ReadonlyArray<JournalEvent>,
 ) {
-  const bundle = ctx.input.bundle;
-  // Defensive only -- the CLI requires `--bundle` for `return` before ever
-  // calling in; an empty bundle name never matches a real slug, so this
-  // still resolves to an honest error rather than a crash if it's ever
-  // reached some other way.
-  if (bundle === undefined || !bundleKnown(ctx, bundle)) {
-    return yield* Effect.fail(RouteBundleNotFoundError.make({ bundle: bundle ?? "" }));
-  }
+  const bundle = yield* requireKnownBundle(ctx, ctx.input.bundle);
 
   const computedHash = yield* hashReceivedCrate(ctx.crateDir);
   const versions = foldSkillVersions(events).get(bundle) ?? [];
@@ -355,10 +354,7 @@ const routeNew = Effect.fn("Route.routeNew")(function* (ctx: RouteContext) {
 
 /** "fork": shared ancestry, diverged intent -- new bundle, provenance link to the parent (`--parent`, required). */
 const routeFork = Effect.fn("Route.routeFork")(function* (ctx: RouteContext) {
-  const parent = ctx.input.parent;
-  if (parent === undefined || !bundleKnown(ctx, parent)) {
-    return yield* Effect.fail(RouteBundleNotFoundError.make({ bundle: parent ?? "" }));
-  }
+  const parent = yield* requireKnownBundle(ctx, ctx.input.parent);
 
   const landed = yield* landAndAdopt(ctx, { forkOf: parent, versionLabel: "forked" });
   yield* appendRouted(ctx, { disposition: "fork", bundle: landed.slug });
@@ -376,10 +372,7 @@ const routeFork = Effect.fn("Route.routeFork")(function* (ctx: RouteContext) {
 
 /** "upgrade": same name, different content, hypothesis evolved -- the crate's content becomes the existing bundle's next recorded version. */
 const routeUpgrade = Effect.fn("Route.routeUpgrade")(function* (ctx: RouteContext) {
-  const bundle = ctx.input.bundle;
-  if (bundle === undefined || !bundleKnown(ctx, bundle)) {
-    return yield* Effect.fail(RouteBundleNotFoundError.make({ bundle: bundle ?? "" }));
-  }
+  const bundle = yield* requireKnownBundle(ctx, ctx.input.bundle);
 
   const bundleDir = bundleDirFor(ctx, bundle);
   const layout = yield* detectBundleLayout(bundleDir);
@@ -428,9 +421,7 @@ export const routeCrate = Effect.fn("Route.routeCrate")(function* (input: RouteC
   const journal = yield* Journal;
   const events = yield* journal.readAll();
 
-  const received = events.find(
-    (event): event is SkillReceivedEvent => event.type === "skill.received" && event.payload.intake === input.intake,
-  );
+  const received = findReceivedEvent(events, input.intake);
   if (received === undefined) {
     return yield* Effect.fail(RouteIntakeNotFoundError.make({ intake: input.intake }));
   }

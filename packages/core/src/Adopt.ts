@@ -46,7 +46,16 @@ const titleCaseFromSlug = (slug: string): string =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
-const slugify = (name: string): string => {
+/**
+ * kebab-case fold, exported for `Route.ts` (issue #91): `Route.ts` already
+ * imports `adoptDirectoryInPlace` from this module (and `gatherIntakeRegistry`/
+ * `hashReceivedCrate` from `Receive.ts`), so the cross-module dependency this
+ * duplicate would otherwise avoid already exists there -- a third local copy
+ * would only add drift risk with no coupling saved. `Receive.ts` keeps its own
+ * separate copy: it has no other dependency on this module, so a fresh import
+ * just to share four lines would be the worse trade for it specifically.
+ */
+export const slugify = (name: string): string => {
   const lowered = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return lowered.length > 0 ? lowered : "skill";
 };

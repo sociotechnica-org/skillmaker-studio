@@ -24,10 +24,31 @@ import {
   WorkspaceIOError,
 } from "./Errors.ts";
 import { type FixtureClass, type FixtureSourceRecord, writeFixtureScaffold } from "./Fixtures.ts";
-import type { SkillReceivedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
+import { findReceivedEvent } from "./Receive.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
+
+/**
+ * The case-directory-collision guard both `harvestFixture` and
+ * `harvestFixtureFromIntake` need identically (issue #91): resolves and
+ * returns the target `evals/fixtures/<case>/` directory, or fails
+ * `HarvestCaseExistsError` if it already exists -- one place instead of two
+ * copies of the same check.
+ */
+const guardCaseAvailable = Effect.fn("Harvest.guardCaseAvailable")(function* (
+  bundle: string,
+  bundleDir: string,
+  caseName: string,
+) {
+  const fs = yield* FileSystem;
+  const caseDir = join(bundleDir, "evals", "fixtures", caseName);
+  const caseDirExists = yield* fs.exists(caseDir).pipe(Effect.mapError(toIOError(`could not check ${caseDir}`)));
+  if (caseDirExists) {
+    return yield* Effect.fail(HarvestCaseExistsError.make({ bundle, caseName }));
+  }
+  return caseDir;
+});
 
 export interface HarvestFixtureInput {
   readonly bundle: string;
@@ -59,7 +80,6 @@ export interface HarvestFixtureResult {
  */
 export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (input: HarvestFixtureInput) {
   const journal = yield* Journal;
-  const fs = yield* FileSystem;
 
   const events = yield* journal.readAll();
   const event = events.find((candidate) => candidate.id === input.eventId);
@@ -81,13 +101,7 @@ export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (inp
     );
   }
 
-  const caseDir = join(input.bundleDir, "evals", "fixtures", input.caseName);
-  const caseDirExists = yield* fs
-    .exists(caseDir)
-    .pipe(Effect.mapError(toIOError(`could not check ${caseDir}`)));
-  if (caseDirExists) {
-    return yield* Effect.fail(HarvestCaseExistsError.make({ bundle: input.bundle, caseName: input.caseName }));
-  }
+  const caseDir = yield* guardCaseAvailable(input.bundle, input.bundleDir, input.caseName);
 
   const source: HarvestFixtureResult["source"] = {
     kind: "field-report",
@@ -152,24 +166,14 @@ export const harvestFixtureFromIntake = Effect.fn("Harvest.harvestFixtureFromInt
   input: HarvestFixtureFromIntakeInput,
 ) {
   const journal = yield* Journal;
-  const fs = yield* FileSystem;
 
   const events = yield* journal.readAll();
-  const received = events.find(
-    (candidate): candidate is SkillReceivedEvent =>
-      candidate.type === "skill.received" && candidate.payload.intake === input.intake,
-  );
+  const received = findReceivedEvent(events, input.intake);
   if (received === undefined) {
     return yield* Effect.fail(HarvestIntakeNotFoundError.make({ intake: input.intake }));
   }
 
-  const caseDir = join(input.bundleDir, "evals", "fixtures", input.caseName);
-  const caseDirExists = yield* fs
-    .exists(caseDir)
-    .pipe(Effect.mapError(toIOError(`could not check ${caseDir}`)));
-  if (caseDirExists) {
-    return yield* Effect.fail(HarvestCaseExistsError.make({ bundle: input.bundle, caseName: input.caseName }));
-  }
+  const caseDir = yield* guardCaseAvailable(input.bundle, input.bundleDir, input.caseName);
 
   const source: HarvestFixtureFromIntakeResult["source"] = { kind: "intake", intake: input.intake };
 

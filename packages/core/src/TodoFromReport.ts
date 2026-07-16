@@ -24,6 +24,7 @@ import {
 import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
 import type { FieldReportOutcome, SkillReceivedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
+import { findReceivedEvent } from "./Receive.ts";
 import type { Todo, TodoKind } from "./Todo.ts";
 import { shortHash } from "./Versions.ts";
 
@@ -181,10 +182,7 @@ export const openTodoFromIntake = Effect.fn("TodoFromReport.openTodoFromIntake")
 ) {
   const journal = yield* Journal;
   const events = yield* journal.readAll();
-  const received = events.find(
-    (candidate): candidate is SkillReceivedEvent =>
-      candidate.type === "skill.received" && candidate.payload.intake === input.intake,
-  );
+  const received = findReceivedEvent(events, input.intake);
   if (received === undefined) {
     return yield* Effect.fail(TodoFromIntakeNotFoundError.make({ intake: input.intake }));
   }
