@@ -4,9 +4,13 @@ The public marketing/landing site for Skillmaker Studio
 (`https://skillmaker.studio` — deploy pending, this package builds the
 static site only).
 
-Static Astro 5 site: one route (`/`), no client framework, Tailwind v4 via
-`@tailwindcss/vite`. Copy is sourced from
-[`docs/plans/2026-07-10-playmaker-to-skillmaker-migration/marketing-copy.md`](../../docs/plans/2026-07-10-playmaker-to-skillmaker-migration/marketing-copy.md).
+Static Astro 5 site: one route (`/`, the pull-infomercial spine; `/b`
+redirects there from the head-to-head era), no client framework, Tailwind v4
+via `@tailwindcss/vite`. Copy rationale and rulings live in
+[`docs/gtm/2026-07-12-pull-driven-sales/`](../../docs/gtm/2026-07-12-pull-driven-sales/)
+(site strategy, voice-of-customer language research, competitor landscape).
+Earlier candidate builds (the layer-0 site, the Structure C spine) were
+removed 2026-07-16 and survive in git history.
 
 ## Scripts
 
