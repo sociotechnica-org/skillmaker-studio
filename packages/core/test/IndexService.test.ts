@@ -804,3 +804,159 @@ describe("IndexService.rebuild -- duplicate skill.version_recorded tolerance", (
     );
   });
 });
+
+describe("IndexService.rebuild: everReceived (issue #93, the Unverified badge's arrival fact)", () => {
+  test("a bundle named by an identity-granting skill.routed event carries everReceived: true; an untouched bundle stays false; it survives a reindex round-trip", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "arrived" });
+        yield* workspace.createBundle(dir, { slug: "never-received" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:arrived",
+            payload: { bundle: "arrived" },
+          });
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:never-received",
+            payload: { bundle: "never-received" },
+          });
+          yield* journal.append({
+            type: "skill.routed",
+            actor,
+            payload: { intake: "in-1", disposition: "new", bundle: "arrived", reason: "no overlap" },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+
+          const arrived = yield* index.getBundle("arrived");
+          expect(arrived?.everReceived).toBe(true);
+
+          const neverReceived = yield* index.getBundle("never-received");
+          expect(neverReceived?.everReceived).toBe(false);
+
+          // Reindex (a second rebuild()) must reproduce the exact same
+          // facts -- everReceived is folded fresh from the journal every
+          // time, never a one-shot stamp.
+          yield* index.rebuild();
+          const arrivedAgain = yield* index.getBundle("arrived");
+          expect(arrivedAgain?.everReceived).toBe(true);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("salvage naming an existing bundle never marks it everReceived -- salvage grants no identity", () => {
+    return withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "defended" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:defended",
+            payload: { bundle: "defended" },
+          });
+          yield* journal.append({
+            type: "skill.routed",
+            actor,
+            payload: {
+              intake: "in-1",
+              disposition: "salvage",
+              bundle: "defended",
+              reason: "hypothesis broken, mined against the existing bundle",
+            },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const defended = yield* index.getBundle("defended");
+          expect(defended?.everReceived).toBe(false);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+});
+
+describe("IndexService: traveled receipts never leak into measurements (issue #93)", () => {
+  test("a skill.shipped event's receipts snapshot never appears in listMeasurements, even with zero real runs -- claims/proof never merge", () => {
+    return withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "shipped-but-unmeasured" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: "bundle.created:shipped-but-unmeasured",
+            payload: { bundle: "shipped-but-unmeasured" },
+          });
+          yield* journal.append({
+            type: "skill.routed",
+            actor,
+            payload: { intake: "in-1", disposition: "new", bundle: "shipped-but-unmeasured", reason: "no overlap" },
+          });
+          // A hand-crafted skill.shipped carrying a NON-EMPTY receipts
+          // snapshot, with no run.json/run.graded anywhere in this
+          // workspace -- the traveled-receipts nuance: this "proof" is a
+          // claim frozen at ship time, never a re-derivable graded run, so
+          // it must never surface through listMeasurements/computeMeasurements.
+          yield* journal.append({
+            type: "skill.shipped",
+            actor,
+            payload: {
+              bundle: "shipped-but-unmeasured",
+              versionHash: "sha256:deadbeef",
+              destination: "some other workspace",
+              purpose: "test",
+              receipts: [
+                {
+                  fixtureCase: "golden-basic",
+                  provider: "claude-code",
+                  model: "claude",
+                  n: 10,
+                  passes: 10,
+                  passRate: 1,
+                  ci: [0.8, 1],
+                },
+              ],
+            },
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+
+          const measurements = yield* index.listMeasurements("shipped-but-unmeasured");
+          expect(measurements).toEqual([]);
+
+          const bundle = yield* index.getBundle("shipped-but-unmeasured");
+          expect(bundle?.everReceived).toBe(true);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+});

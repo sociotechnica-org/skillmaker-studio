@@ -17,7 +17,9 @@ import {
   gatherIntakeRegistry,
   guardStatus,
   hashReceivedCrate,
+  isIdentityGrantingDisposition,
   isTerminalStatus,
+  isUnverified,
   IndexService,
   IndexServiceLayer,
   Journal,
@@ -345,7 +347,41 @@ const handleIntake = async (root: string): Promise<Response> => {
   const events = await readJournalEvents(root);
   const undisposed = listUndisposedIntake(events);
 
-  const registry = await runIndexEffect(root, gatherIntakeRegistry(events));
+  const routedTail = events.filter((event) => event.type === "skill.routed").slice(-RECENTLY_ROUTED_LIMIT).reverse();
+
+  // The tail's own Unverified badge (issue #93): only an identity-granting
+  // disposition (never `salvage`) naming a bundle is even a candidate --
+  // for those, the badge holds until that bundle's FIRST graded
+  // measurement ever, so this needs a measurement count per distinct
+  // bundle referenced. `receivedIdentity` is computed once per row here and
+  // reused below (both to gather candidate slugs and to derive the row's
+  // own `unverified`), rather than re-deriving it from the raw event twice.
+  // Gathered in the SAME `runIndexEffect` call as the dock registry below --
+  // one shared rebuild(), not a second one.
+  const routedRows = routedTail.map((event) => ({
+    event,
+    bundle: event.payload.bundle ?? null,
+    receivedIdentity:
+      event.payload.bundle !== undefined && isIdentityGrantingDisposition(event.payload.disposition),
+  }));
+  const badgeCandidateSlugs = new Set<string>();
+  for (const row of routedRows) {
+    if (row.receivedIdentity && row.bundle !== null) badgeCandidateSlugs.add(row.bundle);
+  }
+
+  const { registry, measurementCountByBundle } = await runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const registryResult = yield* gatherIntakeRegistry(events);
+      const index = yield* IndexService;
+      const counts = new Map<string, number>();
+      for (const slug of badgeCandidateSlugs) {
+        const measurements = yield* index.listMeasurements(slug);
+        counts.set(slug, measurements.length);
+      }
+      return { registry: registryResult, measurementCountByBundle: counts };
+    }),
+  );
 
   const crates = await Promise.all(
     undisposed.map(async (event) => {
@@ -375,19 +411,23 @@ const handleIntake = async (root: string): Promise<Response> => {
       claimedNameByIntake.set(event.payload.intake, event.payload.claimedName ?? null);
     }
   }
-  const recentlyRouted = events
-    .filter((event) => event.type === "skill.routed")
-    .slice(-RECENTLY_ROUTED_LIMIT)
-    .reverse()
-    .map((event) => ({
+  const recentlyRouted = routedRows.map(({ event, bundle, receivedIdentity }) => {
+    const measurementCount = bundle !== null ? measurementCountByBundle.get(bundle) ?? 0 : 0;
+    return {
       intake: event.payload.intake,
       disposition: event.payload.disposition,
-      bundle: event.payload.bundle ?? null,
+      bundle,
       reason: event.payload.reason,
       claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
       at: event.at,
       actor: event.actor,
-    }));
+      // The Unverified badge on the tail (issue #93): holds while the
+      // bundle it landed on has zero graded measurements ever, at any
+      // version. `salvage` never qualifies (grants no identity, even when
+      // it names an existing bundle it defended).
+      unverified: isUnverified(receivedIdentity, measurementCount),
+    };
+  });
 
   return jsonResponse({ crates, recentlyRouted });
 };
@@ -416,6 +456,13 @@ const handleIntake = async (root: string): Promise<Response> => {
  * `handleFieldReports` runs over its own separately-read `events`), so this
  * reads that table back via `listTodos()` instead of re-reading and
  * re-folding the journal a second time in this handler.
+ *
+ * `unverified` (issue #93, the Unverified badge): `bundle.everReceived`
+ * (folded from `skill.routed` at THIS SAME `rebuild()`, `IndexService.ts`)
+ * combined with `measurements.length === 0` (already fetched two lines
+ * below for `measuredFixtureCount` -- the SAME unfiltered, any-version list,
+ * never re-queried) via core's `isUnverified`. No extra journal parse, no
+ * new endpoint.
  */
 const handleCatalog = async (root: string): Promise<Response> =>
   runIndexEffect(
@@ -470,6 +517,12 @@ const handleCatalog = async (root: string): Promise<Response> =>
           fixtureCount: fixtures.length,
           measuredFixtureCount: measuredFixtureCases.size,
           openTodoCount: openTodoCountByBundle.get(bundle.slug) ?? 0,
+          // The Unverified badge (issue #93): received + zero graded
+          // measurements EVER, at any version -- `measurements` above is
+          // already the bundle's FULL, unfiltered measurement list (no
+          // version scoping), and `bundle.everReceived` is already on the
+          // record from this SAME rebuild() -- no extra journal parse.
+          unverified: isUnverified(bundle.everReceived, measurements.length),
         });
       }
       return jsonResponse({ entries });
@@ -801,6 +854,10 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     warnings,
     runs,
     measurements,
+    // The Unverified badge (issue #93): same derivation, same inputs as
+    // `handleCatalog` -- `bundle.everReceived` (from THIS SAME rebuild) and
+    // `measurements.length` (already fetched above, unfiltered/any-version).
+    unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
     files: listReviewableBundleFiles(root, config, slug),
   });

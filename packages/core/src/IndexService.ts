@@ -51,6 +51,7 @@ import {
 import type { BundleLayout, Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
 import { computeMeasurements } from "./Measurements.ts";
+import { foldEverReceivedBundles } from "./Verification.ts";
 import {
   detectNonDiscriminatingChecks,
   formatSelfCritiqueWarning,
@@ -85,6 +86,22 @@ export interface BundleRecord {
   readonly upstream?: BundleUpstream;
   /** Mirrors `BundleState.stageChangedAt` (issue #82) -- absent for a bundle the fold never saw a `bundle.created`/`bundle.stage_changed` for. */
   readonly stageChangedAt?: string;
+  /**
+   * Issue #93 (`Mechanism - Receiving Dock.md` §HOW, "The Unverified
+   * badge"): `true` iff this bundle's history contains at least one
+   * `skill.routed` event with an identity-granting disposition (`return`/
+   * `new`/`upgrade`/`fork` -- never `salvage`) naming it
+   * (`Verification.ts`'s `foldEverReceivedBundles`). NOT the same fact as
+   * `upstream` above: `adopt --source ...` also stamps `upstream` on a
+   * bundle that declared itself "always mine" (no arrival fact) -- the two
+   * must never be conflated, or a plain adopted bundle would wrongly badge
+   * Unverified. Combined with a bundle's measurement count (zero ever, at
+   * any version) by callers via `Verification.ts`'s `isUnverified` -- kept
+   * as its own boolean here (not a combined `unverified` field) because
+   * IndexService's job is indexing bundle facts, not assembling a display
+   * value that also depends on `listMeasurements`, a separate query.
+   */
+  readonly everReceived: boolean;
 }
 
 /** A materialized `skill.version_recorded` row (data-model.md §2.7, §2.11). */
@@ -196,6 +213,7 @@ interface BundleRow {
   readonly drift: string;
   readonly upstream_json: string | null;
   readonly stage_changed_at: string | null;
+  readonly ever_received: number;
 }
 
 interface VersionRow {
@@ -378,6 +396,7 @@ const rowToBundleRecord = (row: BundleRow): Effect.Effect<BundleRecord, IndexErr
       drift: row.drift,
       ...(upstream !== undefined ? { upstream } : {}),
       ...(row.stage_changed_at !== null ? { stageChangedAt: row.stage_changed_at } : {}),
+      everReceived: row.ever_received !== 0,
     };
   });
 
@@ -555,7 +574,8 @@ const createSchema = (db: Database): void => {
       output_hash TEXT NOT NULL,
       drift TEXT NOT NULL,
       upstream_json TEXT,
-      stage_changed_at TEXT
+      stage_changed_at TEXT,
+      ever_received INTEGER NOT NULL DEFAULT 0
     )
   `);
   db.run(`
@@ -952,7 +972,7 @@ export const layer = (
       ): void => {
         const run = db.transaction(() => {
           const insertBundle = db.query(
-            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json, stage_changed_at) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson, $stageChangedAt)",
+            "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json, stage_changed_at, ever_received) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson, $stageChangedAt, $everReceived)",
           );
           for (const record of records) {
             insertBundle.run({
@@ -969,6 +989,7 @@ export const layer = (
               $drift: record.drift,
               $upstreamJson: record.upstream !== undefined ? JSON.stringify(record.upstream) : null,
               $stageChangedAt: record.stageChangedAt ?? null,
+              $everReceived: record.everReceived ? 1 : 0,
             });
           }
 
@@ -1088,6 +1109,10 @@ export const layer = (
         const states = foldBundleStates(events);
         const todos = foldTodos(events);
         const versionsBySlug = foldSkillVersions(events);
+        // Issue #93's arrival fact, folded once per rebuild alongside every
+        // other journal fold above -- no second journal parse (`events` is
+        // already in hand).
+        const everReceivedBundles = foldEverReceivedBundles(events);
 
         // Latest `run.graded` event per run id -- the grading columns
         // joined onto each `runs` row below (data-model.md §2.11's
@@ -1305,6 +1330,7 @@ export const layer = (
             drift,
             ...(located?.upstream !== undefined ? { upstream: located.upstream } : {}),
             ...(state.stageChangedAt !== undefined ? { stageChangedAt: state.stageChangedAt } : {}),
+            everReceived: everReceivedBundles.has(slug),
           });
         }
 

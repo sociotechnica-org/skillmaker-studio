@@ -54,14 +54,15 @@
 import { type FC, type FormEvent, type ReactNode, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
 import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
-import type {
-  FieldReportOutcome,
-  FieldReportView,
-  IntakeCrateView,
-  IntakeVerdict,
-  RecentlyRoutedView,
-  RouteDisposition,
-  TodoStatus,
+import {
+  UNVERIFIED_BADGE_CLASS,
+  type FieldReportOutcome,
+  type FieldReportView,
+  type IntakeCrateView,
+  type IntakeVerdict,
+  type RecentlyRoutedView,
+  type RouteDisposition,
+  type TodoStatus,
 } from "../runtime/schemas.ts";
 import { useBundles } from "../runtime/useBundles.ts";
 import { useFieldReports } from "../runtime/useFieldReports.ts";
@@ -347,7 +348,7 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
   </li>
 );
 
-/** One recently routed crate (issue #91): the disposition + reason a disposed crate left with, after it leaves `crates` above -- the "recently routed" tail so a routed crate doesn't vanish without a trace. */
+/** One recently routed crate (issue #91): the disposition + reason a disposed crate left with, after it leaves `crates` above -- the "recently routed" tail so a routed crate doesn't vanish without a trace. Carries the Unverified badge (issue #93) while it holds. */
 const RecentlyRoutedRow: FC<{ routed: RecentlyRoutedView }> = ({ routed }) => (
   <li className="flex flex-col gap-1 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
     <div className="flex flex-wrap items-center gap-2">
@@ -364,6 +365,14 @@ const RecentlyRoutedRow: FC<{ routed: RecentlyRoutedView }> = ({ routed }) => (
         >
           {routed.bundle}
         </Link>
+      )}
+      {routed.unverified && (
+        <span
+          title="Arrived from outside; we have not yet measured it."
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${UNVERIFIED_BADGE_CLASS}`}
+        >
+          Unverified
+        </span>
       )}
     </div>
     <p className="text-xs text-neutral-500 dark:text-neutral-400">{routed.reason}</p>

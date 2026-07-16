@@ -39,7 +39,7 @@ import {
   type CoverageState,
 } from "../runtime/labOrder.ts";
 import { bundleHref, labHref, Link, type LabView } from "../runtime/router.tsx";
-import { STAGE_LABEL, type BundleStage, type CatalogEntry } from "../runtime/schemas.ts";
+import { STAGE_LABEL, UNVERIFIED_BADGE_CLASS, type BundleStage, type CatalogEntry } from "../runtime/schemas.ts";
 import { useCatalog } from "../runtime/useCatalog.ts";
 import { Queue } from "./Queue.tsx";
 
@@ -105,6 +105,14 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => {
         {driftNeedsAttention(entry.drift) && (
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS}`}>
             {DRIFT_LABEL[entry.drift]}
+          </span>
+        )}
+        {entry.unverified && (
+          <span
+            title="Arrived from outside; we have not yet measured it."
+            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${UNVERIFIED_BADGE_CLASS}`}
+          >
+            Unverified
           </span>
         )}
         {entry.openTodoCount > 0 && (
