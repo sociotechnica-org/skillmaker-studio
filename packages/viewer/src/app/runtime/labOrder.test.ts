@@ -13,6 +13,7 @@ const entry = (overrides: Partial<CatalogEntry> & { slug: string }): CatalogEntr
   fixtureCount: 0,
   measuredFixtureCount: 0,
   openTodoCount: 0,
+  unverified: false,
   ...overrides,
 });
 
@@ -142,5 +143,41 @@ describe("orderForAttention", () => {
     orderForAttention(input);
 
     expect(input.map((e) => e.slug)).toEqual(["b", "a"]);
+  });
+
+  // Issue #93, "the Unverified badge needs no special case": an unverified
+  // entry (received + zero measurements ever) always carries
+  // `measuredFixtureCount: 0` (a strict subset of "ever" can't be positive
+  // when "ever" is zero) -- so it composes into the existing measurement-gap
+  // tier automatically, ranked below drift/open-todos and above clean, with
+  // no dedicated `unverified` branch in `orderForAttention` at all.
+  test("an Unverified entry composes into the existing measurement-gap tier -- no special case needed", () => {
+    const clean = entry({ slug: "clean", fixtureCount: 2, measuredFixtureCount: 2 });
+    const unverifiedNoFixtures = entry({ slug: "unverified-no-fixtures", unverified: true, fixtureCount: 0, measuredFixtureCount: 0 });
+    const unverifiedWithFixtures = entry({
+      slug: "unverified-with-fixtures",
+      unverified: true,
+      fixtureCount: 3,
+      measuredFixtureCount: 0,
+    });
+    const openTodos = entry({
+      slug: "open-todos",
+      fixtureCount: 2,
+      measuredFixtureCount: 2,
+      openTodoCount: 1,
+    });
+    const drifted = entry({ slug: "drifted", drift: "both", fixtureCount: 2, measuredFixtureCount: 2 });
+
+    const ordered = orderForAttention([clean, unverifiedNoFixtures, openTodos, drifted, unverifiedWithFixtures]);
+
+    // Drift and open todos still outrank an unverified/measurement-gap
+    // entry; both unverified entries land in the gap tier, ahead of clean.
+    expect(ordered.map((e) => e.slug)).toEqual([
+      "drifted",
+      "open-todos",
+      "unverified-no-fixtures",
+      "unverified-with-fixtures",
+      "clean",
+    ]);
   });
 });

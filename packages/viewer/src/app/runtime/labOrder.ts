@@ -24,6 +24,14 @@
  * measurement gap -- a todo is a concrete, already-scoped unit of work,
  * while a coverage gap is just an absence, so the queue with something in
  * it goes first. Ties keep the incoming order (`Array#sort` is stable).
+ *
+ * The Unverified badge (issue #93) needs NO special case here: it is itself
+ * a measurement gap (`entry.unverified` implies zero measurements ever, so
+ * `entry.measuredFixtureCount` -- which counts a strict subset of "ever" --
+ * is also 0), so an Unverified entry is always ranked by `coverageState`'s
+ * existing `"no-fixtures"`/`"under-measured"` branches (never
+ * `"fully-measured"`) unless drift or open todos already outrank it. See
+ * `labOrder.test.ts` for the composition assertion.
  */
 import type { CatalogEntry, Drift } from "./schemas.ts";
 

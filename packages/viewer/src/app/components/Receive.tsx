@@ -347,7 +347,15 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
   </li>
 );
 
-/** One recently routed crate (issue #91): the disposition + reason a disposed crate left with, after it leaves `crates` above -- the "recently routed" tail so a routed crate doesn't vanish without a trace. */
+/**
+ * The Unverified badge (issue #93): deliberately violet, not amber -- Lab's
+ * drift pill already owns amber for "something moved"; this badge means "no
+ * proof," an absence, not an alarm. Same hue `Lab.tsx` uses, so the badge
+ * reads as one consistent signal across the Bench and Receive.
+ */
+const UNVERIFIED_BADGE_CLASS = "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300";
+
+/** One recently routed crate (issue #91): the disposition + reason a disposed crate left with, after it leaves `crates` above -- the "recently routed" tail so a routed crate doesn't vanish without a trace. Carries the Unverified badge (issue #93) while it holds. */
 const RecentlyRoutedRow: FC<{ routed: RecentlyRoutedView }> = ({ routed }) => (
   <li className="flex flex-col gap-1 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
     <div className="flex flex-wrap items-center gap-2">
@@ -364,6 +372,14 @@ const RecentlyRoutedRow: FC<{ routed: RecentlyRoutedView }> = ({ routed }) => (
         >
           {routed.bundle}
         </Link>
+      )}
+      {routed.unverified && (
+        <span
+          title="Arrived from outside; we have not yet measured it."
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${UNVERIFIED_BADGE_CLASS}`}
+        >
+          Unverified
+        </span>
       )}
     </div>
     <p className="text-xs text-neutral-500 dark:text-neutral-400">{routed.reason}</p>

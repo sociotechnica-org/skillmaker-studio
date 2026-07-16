@@ -254,6 +254,8 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   station: Schema.NullOr(StationAvailability),
   /** The bundle's reviewable source files (design.md, research/*, output/*) for the Files tab, pipeline-ordered. */
   files: Schema.Array(Schema.String),
+  /** The Unverified badge (issue #93): same derivation as `CatalogEntry.unverified`, computed from this same response's `measurements`. */
+  unverified: Schema.Boolean,
 }) {}
 
 /**
@@ -426,6 +428,14 @@ export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
   fixtureCount: Schema.Number,
   measuredFixtureCount: Schema.Number,
   openTodoCount: Schema.Number,
+  /**
+   * The Unverified badge (issue #93, `Mechanism - Receiving Dock.md` §HOW):
+   * received (arrived via `skill.routed`, an identity-granting disposition)
+   * AND zero graded measurements ever, at any recorded version. Derived
+   * server-side (`handleCatalog`), never stored -- no "Verified" state
+   * exists on the other side of this boolean, its absence is silence.
+   */
+  unverified: Schema.Boolean,
 }) {}
 
 export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogResponse")({
@@ -577,6 +587,8 @@ export class RecentlyRoutedView extends Schema.Class<RecentlyRoutedView>("Recent
   claimedName: Schema.NullOr(Schema.String),
   at: Schema.String,
   actor: ActorView,
+  /** The Unverified badge (issue #93), while it holds: `false` for every `salvage` row (grants no identity) and for any bundle that already has a graded measurement. */
+  unverified: Schema.Boolean,
 }) {}
 
 /** `GET /api/intake` response -- `crates` oldest first, unpaginated (issue #90: "the dock must not become a shelf"); `recentlyRouted` newest first, capped (issue #91). */

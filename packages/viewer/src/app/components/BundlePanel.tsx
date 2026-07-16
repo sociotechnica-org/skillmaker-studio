@@ -305,6 +305,7 @@ export const BundlePanel: FC<{
               runs={detail.runs}
               measurements={detail.measurements}
               versions={detail.versions}
+              unverified={detail.unverified}
               runId={runId}
               onOpenRun={(id) => navigate(bundleRunHref(slug, id))}
               onCloseRun={() => navigate(bundleHref(slug, "evals"))}
@@ -1254,12 +1255,27 @@ const EvalsTab: FC<{
   runs: ReadonlyArray<RunRecord>;
   measurements: ReadonlyArray<MeasurementRecord>;
   versions: ReadonlyArray<VersionRecord>;
+  /** The Unverified badge (issue #93): received + zero graded measurements ever, at any version. Rendered here, right next to the coverage/validation display it's the honest counterpart to. */
+  unverified: boolean;
   /** The open run, sourced from the route's `?run=` query param (ui-pass-spec.md §3.1/§3.4#5) -- not local state, so it survives reload/back-forward. */
   runId: string | undefined;
   onOpenRun: (runId: string) => void;
   onCloseRun: () => void;
   onChanged: () => void;
-}> = ({ slug, fixtures, riskCoverage, warnings, runs, measurements, versions, runId, onOpenRun, onCloseRun, onChanged }) => {
+}> = ({
+  slug,
+  fixtures,
+  riskCoverage,
+  warnings,
+  runs,
+  measurements,
+  versions,
+  unverified,
+  runId,
+  onOpenRun,
+  onCloseRun,
+  onChanged,
+}) => {
   const { state } = useWorkspace();
   const providers = state?.config.providers ?? [];
   // Versions arrive newest-first; measurements only count against the
@@ -1286,6 +1302,17 @@ const EvalsTab: FC<{
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {unverified && (
+        <section className="flex items-center gap-2 rounded-md border border-violet-200 bg-violet-50 p-3 dark:border-violet-900 dark:bg-violet-950/40">
+          <span className="w-fit rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+            Unverified
+          </span>
+          <p className="text-xs text-violet-800 dark:text-violet-300">
+            Arrived from outside; we have not yet measured it.
+          </p>
         </section>
       )}
 

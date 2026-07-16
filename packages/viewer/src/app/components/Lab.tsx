@@ -67,6 +67,14 @@ const DRIFT_LABEL: Record<AttentionDrift, string> = {
 const DRIFT_BADGE_CLASS = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
 
 /**
+ * The Unverified badge (issue #93): deliberately NOT amber -- amber already
+ * means "something moved" (drift). This badge means "no proof," an absence,
+ * not an alarm, so it gets its own hue (violet) unused by any other Lab
+ * pill.
+ */
+const UNVERIFIED_BADGE_CLASS = "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300";
+
+/**
  * Coverage's three honest states (#65): never collapse "a fixture exists"
  * into "it passes" (README: coverage and validation don't merge). Raw
  * numbers stay visible whenever there's anything to count.
@@ -105,6 +113,14 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => {
         {driftNeedsAttention(entry.drift) && (
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS}`}>
             {DRIFT_LABEL[entry.drift]}
+          </span>
+        )}
+        {entry.unverified && (
+          <span
+            title="Arrived from outside; we have not yet measured it."
+            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${UNVERIFIED_BADGE_CLASS}`}
+          >
+            Unverified
           </span>
         )}
         {entry.openTodoCount > 0 && (
