@@ -473,20 +473,16 @@ export const routeCrate = Effect.fn("Route.routeCrate")(function* (input: RouteC
   const verdict = deriveIntakeVerdict(computedHash, received.payload.claimedName, registry);
   const offered = VERDICT_DISPOSITIONS[verdict];
 
-  const dispatch = () => {
-    switch (input.disposition) {
-      case "return":
-        return routeReturn(ctx, events);
-      case "new":
-        return routeNew(ctx);
-      case "upgrade":
-        return routeUpgrade(ctx);
-      case "fork":
-        return routeFork(ctx);
-      case "salvage":
-        return routeSalvage(ctx);
-    }
-  };
-  const result = yield* dispatch();
+  // Effect construction is lazy (a generator body doesn't run until yielded),
+  // so building all five here and indexing by disposition costs nothing the
+  // switch it replaces wouldn't have -- and drops a closure just to defer a
+  // switch that has nowhere to `return` mid-generator.
+  const result = yield* {
+    return: routeReturn(ctx, events),
+    new: routeNew(ctx),
+    upgrade: routeUpgrade(ctx),
+    fork: routeFork(ctx),
+    salvage: routeSalvage(ctx),
+  }[input.disposition];
   return { ...result, verdict, offered } satisfies RouteCrateResult;
 });
