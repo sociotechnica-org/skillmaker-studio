@@ -21,14 +21,14 @@ describe("Todo.origin", () => {
       priority: 10,
       created: "2026-07-01",
       source: actor,
-      origin: { kind: "field-report", ref: "evt-123" },
+      origin: { kind: "field-report", eventId: "evt-123" },
     });
 
     const encoded = Schema.encodeSync(Todo)(todo);
-    expect(encoded.origin).toEqual({ kind: "field-report", ref: "evt-123" });
+    expect(encoded.origin).toEqual({ kind: "field-report", eventId: "evt-123" });
 
     const decoded = Schema.decodeUnknownSync(Todo)(encoded);
-    expect(decoded.origin).toEqual({ kind: "field-report", ref: "evt-123" });
+    expect(decoded.origin).toEqual({ kind: "field-report", eventId: "evt-123" });
   });
 
   test("is absent when the todo was opened by hand", () => {
@@ -46,13 +46,47 @@ describe("Todo.origin", () => {
     const encoded = Schema.encodeSync(Todo)(todo);
     expect("origin" in encoded).toBe(false);
   });
+
+  // The read shim (ruling R2): the journal is append-only, so every
+  // `todo.opened` written before the union reshape carries the retired
+  // `{kind, ref}` origin. Those lines are read forever and must decode into
+  // the new per-kind-id union; new writes only ever emit the new keys.
+  test("decodes a legacy {kind, ref} field-report origin into eventId", () => {
+    const decoded = Schema.decodeUnknownSync(Todo)({
+      id: "td-3",
+      kind: "bug",
+      status: "open",
+      title: "From an old journal",
+      priority: 10,
+      created: "2026-07-01",
+      source: { kind: "user", name: "test-user" },
+      origin: { kind: "field-report", ref: "evt-legacy" },
+    });
+    expect(decoded.origin).toEqual({ kind: "field-report", eventId: "evt-legacy" });
+    // and re-encoding produces the new shape, never the retired `ref`
+    expect(Schema.encodeSync(Todo)(decoded).origin).toEqual({ kind: "field-report", eventId: "evt-legacy" });
+  });
+
+  test("decodes a legacy {kind, ref} intake origin into intakeId", () => {
+    const decoded = Schema.decodeUnknownSync(Todo)({
+      id: "td-4",
+      kind: "task",
+      status: "open",
+      title: "From an old crate mint",
+      priority: 30,
+      created: "2026-07-01",
+      source: { kind: "user", name: "test-user" },
+      origin: { kind: "intake", ref: "in-legacy" },
+    });
+    expect(decoded.origin).toEqual({ kind: "intake", intakeId: "in-legacy" });
+  });
 });
 
 describe("TodoPatch strips origin (immutable, reject-by-ignore)", () => {
   test("a patch payload carrying origin decodes with it silently stripped", () => {
     const decoded = Schema.decodeUnknownSync(TodoPatch)({
       title: "New title",
-      origin: { kind: "field-report", ref: "evt-999" },
+      origin: { kind: "field-report", eventId: "evt-999" },
     });
     expect(decoded.title).toBe("New title");
     expect("origin" in decoded).toBe(false);
@@ -64,7 +98,7 @@ describe("TodoPatch strips origin (immutable, reject-by-ignore)", () => {
       kind: "bug",
       created: "2020-01-01",
       source: { kind: "agent", name: "someone-else" },
-      origin: { kind: "field-report", ref: "evt-1" },
+      origin: { kind: "field-report", eventId: "evt-1" },
       priority: 5,
     });
     expect(decoded).toEqual({ priority: 5 });

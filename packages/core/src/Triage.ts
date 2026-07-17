@@ -587,7 +587,7 @@ const mintHurtsTodo = Effect.fn("Triage.mintHurtsTodo")(function* (
     created: todayIsoDate(),
     ...(bundle !== undefined ? { bundle } : {}),
     source: actor,
-    origin: { kind: "intake" as const, ref },
+    origin: { kind: "intake" as const, intakeId: ref },
   } satisfies Todo;
   yield* journal.append({ type: "todo.opened", actor, payload: { todo } });
   return true;

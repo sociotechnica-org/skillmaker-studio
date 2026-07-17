@@ -149,7 +149,7 @@ describe("openTodoFromReport", () => {
         expect(todo.detail).toBe(
           "Broke on a repo with no package.json.\nDestination: acme-agent-fleet",
         );
-        expect(todo.origin).toEqual({ kind: "field-report", ref: outcome.eventId });
+        expect(todo.origin).toEqual({ kind: "field-report", eventId: outcome.eventId });
 
         // Appends exactly one new event -- the report was already there.
         expect(outcome.events.filter((event) => event.type === "todo.opened")).toHaveLength(1);
@@ -235,7 +235,7 @@ describe("openTodoFromIntake (issue #91, salvage's work-order door)", () => {
     );
   });
 
-  test("happy path: kind defaults to task, detail defaults from the crate's notes/source/claim, stamps origin: {kind: 'intake', ref: intake}", async () => {
+  test("happy path: kind defaults to task, detail defaults from the crate's notes/source/claim, stamps origin: {kind: 'intake', intakeId: intake}", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
         const journalPath = `${dir}/.skillmaker/events.jsonl`;
@@ -254,7 +254,7 @@ describe("openTodoFromIntake (issue #91, salvage's work-order door)", () => {
         expect(todo.bundle).toBeUndefined();
         expect(todo.detail).toContain("no notes recorded at intake");
         expect(todo.detail).toContain("Source: test");
-        expect(todo.origin).toEqual({ kind: "intake", ref: outcome.intake });
+        expect(todo.origin).toEqual({ kind: "intake", intakeId: outcome.intake });
       }),
     );
   });
