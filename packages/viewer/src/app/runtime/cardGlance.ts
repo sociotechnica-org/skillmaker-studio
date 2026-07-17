@@ -19,6 +19,21 @@ import type { FixtureRecord, MeasurementRecord, RiskCoverageRecord } from "./sch
  */
 export const SMOKE_K = 5;
 
+/**
+ * The ONE pass-rate display policy for the card (issue #109 review): one
+ * decimal place, e.g. "83.3%" -- shared by the Models table and the
+ * per-fixture measurement chips so precision never drifts between the two.
+ */
+export const formatPassRate = (rate: number): string => `${(rate * 100).toFixed(1)}%`;
+
+/**
+ * The ONE CI display policy, matching `formatPassRate`'s precision: both
+ * bounds to one decimal, comma-separated, e.g. "[43.8%, 100.0%]"; an em
+ * dash when no interval exists (n = 0).
+ */
+export const formatCI = (ci: readonly [number, number] | null): string =>
+  ci === null ? "—" : `[${formatPassRate(ci[0])}, ${formatPassRate(ci[1])}]`;
+
 /** The exact display id for a measurement cell's provider(+model) -- never a marketing alias, always what the run recorded. */
 export const providerModelId = (cell: { readonly provider: string; readonly model: string }): string =>
   cell.model.length > 0 && cell.model !== cell.provider ? `${cell.provider}/${cell.model}` : cell.provider;

@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { coverageTally, nextChips, provenOnProviders, providerModelId, SMOKE_K } from "./cardGlance.ts";
+import {
+  coverageTally,
+  formatCI,
+  formatPassRate,
+  nextChips,
+  provenOnProviders,
+  providerModelId,
+  SMOKE_K,
+} from "./cardGlance.ts";
 import type { FixtureRecord, MeasurementRecord, RiskCoverageRecord } from "./schemas.ts";
 
 const cell = (overrides: Partial<MeasurementRecord>): MeasurementRecord => ({
@@ -30,6 +38,19 @@ const risk = (riskId: string, coverage: RiskCoverageRecord["coverage"]): RiskCov
   riskId,
   family: "IN",
   coverage,
+});
+
+describe("formatPassRate / formatCI (one display policy, chips and table alike)", () => {
+  test("one decimal place on rates", () => {
+    expect(formatPassRate(1)).toBe("100.0%");
+    expect(formatPassRate(5 / 6)).toBe("83.3%");
+    expect(formatPassRate(0)).toBe("0.0%");
+  });
+
+  test("CIs share the rate precision; a null interval is an em dash", () => {
+    expect(formatCI([0.438, 1])).toBe("[43.8%, 100.0%]");
+    expect(formatCI(null)).toBe("—");
+  });
 });
 
 describe("providerModelId", () => {

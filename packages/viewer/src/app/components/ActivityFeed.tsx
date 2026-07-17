@@ -11,6 +11,7 @@
  * needs the full shape.
  */
 import type { FC } from "react";
+import { formatTimestamp } from "../runtime/dates.ts";
 import { bundleHref, Link } from "../runtime/router.tsx";
 import type { EventView } from "../runtime/schemas.ts";
 import { useEvents } from "../runtime/useEvents.ts";
@@ -21,11 +22,6 @@ const payloadBundle = (payload: unknown): string | undefined => {
   }
   const value = (payload as { bundle: unknown }).bundle;
   return typeof value === "string" ? value : undefined;
-};
-
-const formatTimestamp = (at: string): string => {
-  const parsed = new Date(at);
-  return Number.isNaN(parsed.getTime()) ? at : parsed.toLocaleString();
 };
 
 const EventRow: FC<{ event: EventView }> = ({ event }) => {

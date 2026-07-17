@@ -17,19 +17,12 @@
  */
 import type { FC } from "react";
 import { Link, shipBundleHref, trackHref, useRouter } from "../runtime/router.tsx";
-import type { SkillbookBundle } from "../runtime/schemas.ts";
+import { STAGE_BADGE_CLASS, type BundleStage, type SkillbookBundle } from "../runtime/schemas.ts";
 import { useSkillbook } from "../runtime/useSkillbook.ts";
 
-const STAGE_BADGE_CLASS: Record<string, string> = {
-  idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-  researching: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  drafting: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
-  evaluating: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-};
-
+/** The Skillbook payload's `stage` is a plain string on the wire, so unknown values fall back to the idea-gray badge instead of an undefined class. */
 const stageBadgeClass = (stage: string): string =>
-  STAGE_BADGE_CLASS[stage] ?? "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300";
+  STAGE_BADGE_CLASS[stage as BundleStage] ?? "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300";
 
 const shortHash = (hash: string): string => {
   const prefix = "sha256:";
@@ -76,14 +69,10 @@ const ShipRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   );
 };
 
-/** In the outward book: published, or shipped at least once -- curation by facts, never by editing. */
-const inSkillbook = (bundle: SkillbookBundle): boolean =>
-  bundle.stage === "published" || bundle.shipments.length > 0;
-
-/** The `/ship` index page: the Skillbook cover + one card per curated bundle; everything else is counted and pointed at the Catalog. */
+/** The `/ship` index page: the Skillbook cover + one card per curated bundle; everything else is counted and pointed at the Catalog. The population is the server-derived `inBook` (`Skillbook.ts`'s `isInSkillbook`) -- one definition, shared with `book build`'s static index. */
 export const Ship: FC = () => {
   const { bundles, workspaceName, loading, error } = useSkillbook();
-  const inBook = bundles.filter(inSkillbook);
+  const inBook = bundles.filter((bundle) => bundle.inBook);
   const insideCount = bundles.length - inBook.length;
 
   return (

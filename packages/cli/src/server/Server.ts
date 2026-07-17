@@ -14,8 +14,6 @@ import {
   detectBundleLayout,
   didSkillActivate,
   foldBundleStates,
-  foldLastActivityAt,
-  foldLastShipments,
   foldTodos,
   gatherIntakeRegistry,
   guardStatus,
@@ -45,6 +43,7 @@ import {
   type MeasurementRecord,
   type RiskCoverageRecord,
   type RunIndexRecord,
+  type SkillRoutedEvent,
   type Todo,
   type TodoRecord,
   type VersionRecord,
@@ -421,16 +420,24 @@ const handleIntake = async (root: string): Promise<Response> => {
       claimedNameByIntake.set(event.payload.intake, event.payload.claimedName ?? null);
     }
   }
+
+  // The shared shape of one routed-crate row: what the routing fact says
+  // (intake, target bundle, reason, when, who) joined back to the crate's
+  // claimed name. Both `recentlyRouted` and `salvaged` below build on this.
+  const routedRowBase = (event: SkillRoutedEvent) => ({
+    intake: event.payload.intake,
+    claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
+    bundle: event.payload.bundle ?? null,
+    reason: event.payload.reason,
+    at: event.at,
+    actor: event.actor,
+  });
+
   const recentlyRouted = routedRows.map(({ event, bundle, receivedIdentity }) => {
     const measurementCount = bundle !== null ? measurementCountByBundle.get(bundle) ?? 0 : 0;
     return {
-      intake: event.payload.intake,
+      ...routedRowBase(event),
       disposition: event.payload.disposition,
-      bundle,
-      reason: event.payload.reason,
-      claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
-      at: event.at,
-      actor: event.actor,
       // The Unverified badge on the tail (issue #93): holds while the
       // bundle it landed on has zero graded measurements ever, at any
       // version. `salvage` never qualifies (grants no identity, even when
@@ -449,14 +456,7 @@ const handleIntake = async (root: string): Promise<Response> => {
   const salvaged = events
     .filter((event) => event.type === "skill.routed")
     .filter((event) => event.payload.disposition === "salvage")
-    .map((event) => ({
-      intake: event.payload.intake,
-      claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
-      bundle: event.payload.bundle ?? null,
-      reason: event.payload.reason,
-      at: event.at,
-      actor: event.actor,
-    }))
+    .map(routedRowBase)
     .reverse();
 
   return jsonResponse({ crates, recentlyRouted, salvaged });
@@ -494,21 +494,17 @@ const handleIntake = async (root: string): Promise<Response> => {
  * never re-queried) via core's `isUnverified`. No extra journal parse, no
  * new endpoint.
  */
-const handleCatalog = async (root: string): Promise<Response> => {
-  // Whereabouts (issue #109): the two pieces of Track's derived status set
-  // the index rows don't already carry -- last shipment + date (from
-  // `skill.shipped` events) and recency of activity (the bundle's most
-  // recent attributable event, Track's default sort key). Pure folds over
-  // one journal read, recomputed every request, never stored.
-  const journalEvents = await readJournalEvents(root);
-  const lastShipments = foldLastShipments(journalEvents);
-  const lastActivity = foldLastActivityAt(journalEvents);
-
-  return runIndexEffect(
+const handleCatalog = async (root: string): Promise<Response> =>
+  runIndexEffect(
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
-      yield* index.rebuild();
+      // Whereabouts (issue #109): the two pieces of Track's derived status
+      // set the index rows don't already carry -- last shipment + date and
+      // recency of activity (Track's default sort key). Folded by rebuild()
+      // itself off the ONE journal read it already does (no second parse in
+      // this handler), carried on its result, never stored.
+      const { lastShipments, lastActivityAt } = yield* index.rebuild();
       const bundles = yield* index.listBundles();
 
       // Default listTodos() (swept excluded) is exact here: a todo can
@@ -566,13 +562,12 @@ const handleCatalog = async (root: string): Promise<Response> => {
           lastShipment: lastShipments.get(bundle.slug) ?? null,
           // Recency floor: a bundle with no attributable journal events yet
           // still sorts honestly by its own creation timestamp.
-          lastActivityAt: lastActivity.get(bundle.slug) ?? bundle.created,
+          lastActivityAt: lastActivityAt.get(bundle.slug) ?? bundle.created,
         });
       }
       return jsonResponse({ entries });
     }),
   );
-};
 
 type AppendVersionOutcome =
   | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }
@@ -843,6 +838,9 @@ type BundleIndexDetail =
       readonly warnings: ReadonlyArray<WarningRecord>;
       readonly runs: ReadonlyArray<RunIndexRecord>;
       readonly measurements: ReadonlyArray<MeasurementRecord>;
+      /** Fork family (issue #109), off the rebuild's own marker decode -- no per-request directory walk, no second marker parse. */
+      readonly forkOf: string | null;
+      readonly forks: ReadonlyArray<string>;
     };
 
 const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexDetail> =>
@@ -850,7 +848,7 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
-      yield* index.rebuild();
+      const rebuildResult = yield* index.rebuild();
       const bundle = yield* index.getBundle(slug);
       if (bundle === undefined) {
         return { kind: "not_found" as const };
@@ -870,6 +868,8 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
         warnings,
         runs: [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
         measurements,
+        forkOf: rebuildResult.forkOf.get(slug) ?? null,
+        forks: rebuildResult.forkChildren.get(slug) ?? [],
       };
     }),
   );
@@ -891,64 +891,6 @@ const loadDossierSections = (root: string, config: WorkspaceConfig, slug: string
     ),
   );
 
-interface LineageMarkerFacts {
-  readonly forkOf: string | null;
-  readonly upstream: { readonly source: string; readonly ref: string | null } | null;
-}
-
-/**
- * The fork-family/provenance half of Lineage (issue #109): read from the
- * bundle's `.skillmaker-adopt.json` marker (`Adopt.ts`'s `AdoptMarker` --
- * `forkOf` stamped by `route --as fork`, `upstream` by `adopt --source`/the
- * dock). Deliberately lenient like `readCurrentStageStation`: this is
- * display provenance for the card's Lineage tab, not a precondition -- a
- * missing/malformed marker is an honest "no recorded provenance," never a
- * failed response.
- */
-const readLineageMarker = (root: string, config: WorkspaceConfig, slug: string): LineageMarkerFacts => {
-  try {
-    const markerPath = join(root, config.skillsDir, slug, ".skillmaker-adopt.json");
-    if (!existsSync(markerPath)) {
-      return { forkOf: null, upstream: null };
-    }
-    const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as {
-      readonly forkOf?: unknown;
-      readonly upstream?: { readonly source?: unknown; readonly ref?: unknown };
-    };
-    const upstreamSource = parsed.upstream?.source;
-    return {
-      forkOf: typeof parsed.forkOf === "string" ? parsed.forkOf : null,
-      upstream:
-        typeof upstreamSource === "string"
-          ? { source: upstreamSource, ref: typeof parsed.upstream?.ref === "string" ? parsed.upstream.ref : null }
-          : null,
-    };
-  } catch {
-    return { forkOf: null, upstream: null };
-  }
-};
-
-/**
- * The other direction of the fork family: which bundles' markers name THIS
- * slug as `forkOf`. A directory scan over `skillsDir` (bundle counts are
- * small at this scale -- the same tradeoff `findRunLocation` documents),
- * derived fresh per request, never stored.
- */
-const listForkChildren = (root: string, config: WorkspaceConfig, slug: string): ReadonlyArray<string> => {
-  const skillsRoot = join(root, config.skillsDir);
-  if (!existsSync(skillsRoot)) {
-    return [];
-  }
-  try {
-    return readdirSync(skillsRoot)
-      .filter((name) => statSync(join(skillsRoot, name)).isDirectory())
-      .filter((name) => readLineageMarker(root, config, name).forkOf === slug)
-      .sort();
-  } catch {
-    return [];
-  }
-};
-
 const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
   const detail = await loadBundleIndexDetail(root, slug);
   if (detail.kind === "not_found") {
@@ -967,14 +909,18 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
 
   // Lineage (issue #109): chain of custody replayed from the journal (the
   // SAME full `events` read above -- uncapped, unlike `recentEvents`) plus
-  // the fork family/provenance from adopt markers. All derived, recomputed
-  // per request -- the card is a projection, never a store.
-  const marker = readLineageMarker(root, config, slug);
+  // the fork family off the rebuild's own `AdoptMarker` decode
+  // (`loadBundleIndexDetail`) and provenance off the bundle record's own
+  // indexed `upstream` -- no marker is re-read here. All derived,
+  // recomputed per request; the card is a projection, never a store.
   const lineage = {
     custody: custodyEventsFor(events, slug),
-    forkOf: marker.forkOf,
-    forks: listForkChildren(root, config, slug),
-    upstream: marker.upstream,
+    forkOf: detail.forkOf,
+    forks: detail.forks,
+    upstream:
+      bundle.upstream !== undefined
+        ? { source: bundle.upstream.source, ref: bundle.upstream.ref ?? null }
+        : null,
   };
 
   return jsonResponse({

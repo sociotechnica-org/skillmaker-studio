@@ -181,6 +181,24 @@ export const STAGE_LABEL: Record<BundleStage, string> = {
 export const ARCHIVED_LABEL = "Archive";
 
 /**
+ * The stage badge's colors, keyed by wire stage (issue #109): ONE map,
+ * consumed by the skill card header (`SkillCard.tsx`), Track's catalog rows
+ * (`Track.tsx`), the Lab bench (`Lab.tsx`), and Ship (`Ship.tsx`) -- the
+ * same single-source treatment `UNVERIFIED_BADGE_CLASS` below already got,
+ * instead of four hand-copied Tailwind tables.
+ */
+export const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
+  idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+  researching: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  drafting: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
+  evaluating: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+};
+
+/** The Retired badge's colors (issue #109: Retire is the display verb for the reversible `archived` flag) -- muted neutral: shelved, not alarming. */
+export const RETIRED_BADGE_CLASS = "bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400";
+
+/**
  * The Unverified badge's shared style (issue #93): one constant instead of
  * three hand-copied Tailwind strings, consumed by the Lab Bench (`Lab.tsx`),
  * Receive's recently-routed tail (`Receive.tsx`), and the bundle detail Evals
@@ -613,6 +631,8 @@ export class SkillbookBundle extends Schema.Class<SkillbookBundle>("SkillbookBun
   measurements: Schema.Array(MeasurementRecord),
   changelog: Schema.Array(SkillbookChangelogEntry),
   shipments: Schema.Array(SkillbookShipment),
+  /** Derived server-side by `Skillbook.ts`'s `isInSkillbook` (issue #109 Stage 3): the ONE definition of the outward book's population, shared with `book build`'s static index -- the viewer displays it, never recomputes it. */
+  inBook: Schema.Boolean,
 }) {}
 
 export class SkillbookResponse extends Schema.Class<SkillbookResponse>("SkillbookResponse")({

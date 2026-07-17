@@ -53,6 +53,7 @@ import type { BundleLayout, Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
 import { computeMeasurements } from "./Measurements.ts";
 import { foldEverReceivedBundles } from "./Verification.ts";
+import { foldLastActivityAt, foldLastShipments, type LastShipment } from "./Whereabouts.ts";
 import {
   detectNonDiscriminatingChecks,
   formatSelfCritiqueWarning,
@@ -144,6 +145,22 @@ export interface RebuildResult {
   readonly todos: number;
   readonly events: number;
   readonly warnings: ReadonlyArray<string>;
+  /**
+   * Whereabouts folds (issue #109, `Whereabouts.ts`): bundle slug -> latest
+   * `skill.shipped` fact / most recent attributable event's `at`. Computed
+   * from the SAME single journal read this rebuild already does -- returned,
+   * never persisted (views are never stores; the next rebuild recomputes).
+   */
+  readonly lastShipments: ReadonlyMap<string, LastShipment>;
+  readonly lastActivityAt: ReadonlyMap<string, string>;
+  /**
+   * Fork family (issue #109), captured from the SAME `AdoptMarker` decode
+   * `scanBundleIdentities` already runs for `upstream`: child slug -> its
+   * marker's `forkOf` parent, and parent slug -> sorted child slugs. Same
+   * returned-not-persisted treatment as the whereabouts folds above.
+   */
+  readonly forkOf: ReadonlyMap<string, string>;
+  readonly forkChildren: ReadonlyMap<string, ReadonlyArray<string>>;
 }
 
 /** A materialized `evals/fixtures/<case>/case.json` row (data-model.md §2.5, §2.11). */
@@ -292,6 +309,8 @@ interface BundleIdentityLocation {
   readonly dir: string;
   readonly layout: BundleLayout;
   readonly upstream?: BundleUpstream;
+  /** `route --as fork`'s parent link (issue #109), read from the same marker decode as `upstream`. */
+  readonly forkOf?: string;
 }
 
 /**
@@ -920,6 +939,7 @@ export const layer = (
           // still counts as "in-place" (layout, above); it just carries no
           // upstream info.
           let upstream: BundleUpstream | undefined;
+          let forkOf: string | undefined;
           if (markerExists) {
             const markerOutcome = yield* Effect.result(
               fs.readFileString(markerPath).pipe(
@@ -927,8 +947,14 @@ export const layer = (
                 Effect.flatMap((parsed) => Schema.decodeUnknownEffect(AdoptMarker)(parsed)),
               ),
             );
-            if (markerOutcome._tag === "Success" && markerOutcome.success.upstream !== undefined) {
-              upstream = markerOutcome.success.upstream;
+            if (markerOutcome._tag === "Success") {
+              if (markerOutcome.success.upstream !== undefined) {
+                upstream = markerOutcome.success.upstream;
+              }
+              // Fork family (issue #109): the SAME decode carries `forkOf`
+              // (`route --as fork`'s parent stamp) -- captured here so no
+              // other reader ever re-scans markers per request.
+              forkOf = markerOutcome.success.forkOf;
             }
           }
 
@@ -941,7 +967,13 @@ export const layer = (
             });
             continue;
           }
-          identities.set(identity.slug, { identity, dir, layout, ...(upstream !== undefined ? { upstream } : {}) });
+          identities.set(identity.slug, {
+            identity,
+            dir,
+            layout,
+            ...(upstream !== undefined ? { upstream } : {}),
+            ...(forkOf !== undefined ? { forkOf } : {}),
+          });
         }
 
         return { identities, warnings };
@@ -1120,6 +1152,30 @@ export const layer = (
         // other journal fold above -- no second journal parse (`events` is
         // already in hand).
         const everReceivedBundles = foldEverReceivedBundles(events);
+
+        // Whereabouts (issue #109): same treatment -- folded off the one
+        // journal read above, carried on the rebuild result for the catalog
+        // handler, never persisted.
+        const lastShipments = foldLastShipments(events);
+        const lastActivityAt = foldLastActivityAt(events);
+
+        // Fork family (issue #109): from the marker facts the identity scan
+        // above already decoded -- child -> parent, and parent -> sorted
+        // children. No per-request directory walk anywhere else.
+        const forkOfBySlug = new Map<string, string>();
+        const forkChildren = new Map<string, string[]>();
+        for (const [slug, located] of identities) {
+          if (located.forkOf === undefined) {
+            continue;
+          }
+          forkOfBySlug.set(slug, located.forkOf);
+          const children = forkChildren.get(located.forkOf) ?? [];
+          children.push(slug);
+          forkChildren.set(located.forkOf, children);
+        }
+        for (const children of forkChildren.values()) {
+          children.sort();
+        }
 
         // Latest `run.graded` event per run id -- the grading columns
         // joined onto each `runs` row below (data-model.md §2.11's
@@ -1428,6 +1484,10 @@ export const layer = (
           todos: todoRecords.length,
           events: events.length,
           warnings: warnings.map((warning) => warning.message),
+          lastShipments,
+          lastActivityAt,
+          forkOf: forkOfBySlug,
+          forkChildren,
         };
       });
 

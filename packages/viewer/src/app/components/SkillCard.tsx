@@ -45,10 +45,13 @@ import {
   triggerRun,
   triggerStationRun,
 } from "../runtime/api.ts";
-import { coverageTally, nextChips, providerModelId, provenOnProviders } from "../runtime/cardGlance.ts";
+import { coverageTally, formatCI, formatPassRate, nextChips, providerModelId, provenOnProviders } from "../runtime/cardGlance.ts";
+import { formatTimestamp } from "../runtime/dates.ts";
 import { bundleFileHref, bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
 import {
+  RETIRED_BADGE_CLASS,
   STAGES,
+  STAGE_BADGE_CLASS,
   STAGE_LABEL,
   UNVERIFIED_BADGE_CLASS,
   type BundleStage,
@@ -87,11 +90,6 @@ const stringArrayField = (payload: unknown, key: string): ReadonlyArray<string> 
   }
   const value = payload[key];
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
-};
-
-const formatTime = (iso: string): string => {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 };
 
 const earlierStages = (stage: BundleStage): ReadonlyArray<BundleStage> => STAGES.slice(0, STAGES.indexOf(stage));
@@ -145,14 +143,6 @@ const versionLabelFor = (version: VersionRecord | undefined, hash: string): stri
   const prefix = "sha256:";
   const hex = hash.startsWith(prefix) ? hash.slice(prefix.length) : hash;
   return hex.length > 8 ? hex.slice(0, 8) : hex;
-};
-
-const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
-  idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-  researching: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  drafting: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
-  evaluating: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
 };
 
 const DRIFT_LABEL: Record<Drift, string> = {
@@ -384,9 +374,7 @@ const CardHeader: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["d
           {STAGE_LABEL[bundle.stage]}
         </span>
         {bundle.archived && (
-          <span className="rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-            Retired
-          </span>
+          <span className={`rounded-full px-2 py-0.5 font-medium ${RETIRED_BADGE_CLASS}`}>Retired</span>
         )}
         <span className="font-mono" title={latestVersion !== undefined ? latestVersion.hash : undefined}>
           {latestVersion === undefined
@@ -880,7 +868,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
         <ul className="flex flex-col gap-1">
           {detail.events.map((event: EventView) => (
             <li key={event.id} className="text-[11px] text-neutral-600 dark:text-neutral-300">
-              <span className="font-mono">{event.type}</span> <span className="text-neutral-400">{formatTime(event.at)}</span>
+              <span className="font-mono">{event.type}</span> <span className="text-neutral-400">{formatTimestamp(event.at)}</span>
             </li>
           ))}
           {detail.events.length === 0 && <li className="text-[11px] text-neutral-400">No events yet.</li>}
@@ -1239,7 +1227,7 @@ const VersionsSection: FC<{
             <li key={version.hash} className="text-[11px] text-neutral-600 dark:text-neutral-300">
               <span className="font-mono">{shortHash(version.hash)}</span>{" "}
               {version.label !== undefined && <span className="font-medium">{version.label}</span>}{" "}
-              <span className="text-neutral-400">{formatTime(version.recordedAt)}</span>
+              <span className="text-neutral-400">{formatTimestamp(version.recordedAt)}</span>
             </li>
           ))}
           {versions.length === 0 && <li className="text-[11px] text-neutral-400">No versions recorded yet.</li>}
@@ -1362,7 +1350,7 @@ const LineageTab: FC<{
             <li key={event.id} className="flex flex-col text-[11px]">
               <span className="text-neutral-700 dark:text-neutral-200">{custodyLine(event)}</span>
               <span className="text-neutral-400">
-                {formatTime(event.at)} · {event.actor.kind}:{event.actor.name}
+                {formatTimestamp(event.at)} · {event.actor.kind}:{event.actor.name}
                 {" · "}
                 <span className="font-mono">{event.type}</span>
               </span>
@@ -1487,10 +1475,7 @@ const MeasurementChips: FC<{
     <span className="flex flex-wrap gap-1">
       {cells.map((cell) => {
         const providerLabel = providerModelId(cell);
-        const ci =
-          cell.ci === null
-            ? ""
-            : ` · [${Math.round(cell.ci[0] * 100)}–${Math.round(cell.ci[1] * 100)}%]`;
+        const ci = cell.ci === null ? "" : ` · ${formatCI(cell.ci)}`;
         // Fix 3 (F5): PASS% stays pass-only (passes / n); partial/fail are
         // their own counts here so a partial verdict never disappears from
         // the chip, even though it never contributes to the % numerator.
@@ -1502,7 +1487,7 @@ const MeasurementChips: FC<{
             title={`${cell.passes}/${cell.n} pass, ${cell.partial} partial, ${cell.fail} fail on ${providerLabel} at ${versionLabelFor(latestVersion, cell.versionHash)}`}
             className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
           >
-            {providerLabel}: n={cell.n} · {Math.round(cell.passRate * 100)}%{partialFail}
+            {providerLabel}: n={cell.n} · {formatPassRate(cell.passRate)}{partialFail}
             {ci}
           </span>
         );
@@ -1634,7 +1619,7 @@ const FixtureRow: FC<{
                 {run.verdict !== undefined && (
                   <span className="font-medium">{run.verdict}</span>
                 )}
-                <span className="text-neutral-400">{formatTime(run.startedAt)}</span>
+                <span className="text-neutral-400">{formatTimestamp(run.startedAt)}</span>
                 <span className="ml-auto font-mono text-[10px] text-neutral-300 dark:text-neutral-600">
                   {run.id.slice(0, 8)}
                 </span>
@@ -1740,12 +1725,8 @@ const ModelsTab: FC<{
                         ? ` (${cell.partial} partial, ${cell.fail} fail)`
                         : ""}
                     </td>
-                    <td className="py-1 pr-2">{(cell.passRate * 100).toFixed(1)}%</td>
-                    <td className="py-1 pr-2">
-                      {cell.ci === null
-                        ? "—"
-                        : `[${(cell.ci[0] * 100).toFixed(1)}%, ${(cell.ci[1] * 100).toFixed(1)}%]`}
-                    </td>
+                    <td className="py-1 pr-2">{formatPassRate(cell.passRate)}</td>
+                    <td className="py-1 pr-2">{formatCI(cell.ci)}</td>
                   </tr>
                 ))}
               </tbody>

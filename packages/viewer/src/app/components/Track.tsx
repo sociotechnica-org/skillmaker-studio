@@ -25,12 +25,14 @@
  * The Board's old Archive pseudo-column points here now.
  */
 import { useState, type FC } from "react";
-import { driftNeedsAttention, type AttentionDrift } from "../runtime/labOrder.ts";
+import { formatDay } from "../runtime/dates.ts";
+import { DRIFT_BADGE_CLASS, DRIFT_LABEL, driftNeedsAttention } from "../runtime/labOrder.ts";
 import { bundleHref, labHref, Link, trackHref, type TrackView } from "../runtime/router.tsx";
 import {
+  RETIRED_BADGE_CLASS,
+  STAGE_BADGE_CLASS,
   STAGE_LABEL,
   UNVERIFIED_BADGE_CLASS,
-  type BundleStage,
   type CatalogEntry,
   type SalvagedCrateView,
 } from "../runtime/schemas.ts";
@@ -44,22 +46,6 @@ import {
 import { useCatalog } from "../runtime/useCatalog.ts";
 import { useIntake } from "../runtime/useIntake.ts";
 import { Feed } from "./ActivityFeed.tsx";
-
-const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
-  idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-  researching: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  drafting: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
-  evaluating: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-};
-
-const DRIFT_LABEL: Record<AttentionDrift, string> = {
-  "design-changed": "Design changed",
-  "output-hand-edited": "Output hand-edited",
-  both: "Design + output changed",
-};
-
-const DRIFT_BADGE_CLASS = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
 
 const SORT_LABEL: Record<CatalogSort, string> = {
   recent: "Recent activity",
@@ -85,9 +71,7 @@ const CatalogRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
         {STAGE_LABEL[entry.stage]}
       </span>
       {entry.archived && (
-        <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-          Retired
-        </span>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${RETIRED_BADGE_CLASS}`}>Retired</span>
       )}
       {driftNeedsAttention(entry.drift) && (
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS}`}>
@@ -110,7 +94,7 @@ const CatalogRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
       <span>
         {entry.lastShipment === null
           ? "never shipped"
-          : `shipped to "${entry.lastShipment.destination}" ${new Date(entry.lastShipment.at).toLocaleDateString()}`}
+          : `shipped to "${entry.lastShipment.destination}" ${formatDay(entry.lastShipment.at)}`}
       </span>
       {entry.openTodoCount > 0 ? (
         <Link href={labHref("queue", entry.slug)} className="text-sky-700 hover:underline dark:text-sky-300">
@@ -124,9 +108,7 @@ const CatalogRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
           ? "no recorded version"
           : `v: ${entry.latestVersion.label ?? entry.latestVersion.hash.slice(0, 8)}`}
       </span>
-      <span title="Most recent journal activity">
-        active {new Date(entry.lastActivityAt).toLocaleDateString()}
-      </span>
+      <span title="Most recent journal activity">active {formatDay(entry.lastActivityAt)}</span>
     </div>
   </li>
 );
@@ -160,7 +142,7 @@ const SalvagedRow: FC<{ crate: SalvagedCrateView }> = ({ crate }) => (
       >
         receiving/{crate.intake}/
       </code>
-      <span className="text-[11px] text-neutral-400">{new Date(crate.at).toLocaleDateString()}</span>
+      <span className="text-[11px] text-neutral-400">{formatDay(crate.at)}</span>
     </div>
   </li>
 );
