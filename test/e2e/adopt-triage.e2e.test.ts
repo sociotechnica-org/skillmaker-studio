@@ -279,7 +279,7 @@ describe("skillmaker adopt --triage / --from-manifest: the bulk elicitation tree
     );
     expect(intakeTodo).toBeDefined();
     const todo = intakeTodo?.payload.todo as {
-      origin: { kind: string; ref: string };
+      origin: { kind: string; intakeId: string };
       priority: number;
       bundle?: string;
     };

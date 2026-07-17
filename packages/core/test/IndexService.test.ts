@@ -276,7 +276,7 @@ describe("IndexService.rebuild", () => {
                 priority: 10,
                 created: "2026-07-01",
                 source: actor,
-                origin: { kind: "field-report", ref: "evt-abc" },
+                origin: { kind: "field-report", eventId: "evt-abc" },
               },
             },
           });
@@ -308,7 +308,7 @@ describe("IndexService.rebuild", () => {
           expect(done?.origin).toBeUndefined();
 
           const fromReport = all.find((t) => t.id === "td-3");
-          expect(fromReport?.origin).toEqual({ kind: "field-report", ref: "evt-abc" });
+          expect(fromReport?.origin).toEqual({ kind: "field-report", eventId: "evt-abc" });
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );

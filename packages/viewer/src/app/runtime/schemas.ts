@@ -5,7 +5,7 @@
  * response shapes, but the viewer does not depend on `@skillmaker/core`
  * directly -- it decodes what the wire actually sends.
  */
-import { Schema } from "effect";
+import { Schema, SchemaGetter } from "effect";
 
 export const BundleStage = Schema.Literals([
   "idea",
@@ -391,14 +391,55 @@ export class ChecklistItemView extends Schema.Class<ChecklistItemView>("Checklis
 
 /**
  * Mirrors `@skillmaker/core`'s `TodoOrigin`/`TodoOriginRecord` (issue #81,
- * `"intake"` added issues #91/#92): which upstream signal opened this todo
- * automatically, if any -- a field report, or an intake (salvage mining /
- * the triage manifest's "what hurts").
+ * `"intake"` added issues #91/#92; reshaped to a per-kind-id union by the
+ * 2026-07-17 data-model reconciliation, ruling R2): which upstream signal
+ * opened this todo automatically, if any -- a field report (keyed by its
+ * journal event's `eventId`) or an intake (keyed by the crate's
+ * `intakeId`, salvage mining / the triage manifest's "what hurts").
  */
-export class TodoOriginView extends Schema.Class<TodoOriginView>("TodoOriginView")({
-  kind: Schema.Literals(["field-report", "intake"]),
-  ref: Schema.String,
-}) {}
+export const TodoOriginFieldReportView = Schema.Struct({
+  kind: Schema.Literal("field-report"),
+  eventId: Schema.String,
+});
+
+export const TodoOriginIntakeView = Schema.Struct({
+  kind: Schema.Literal("intake"),
+  intakeId: Schema.String,
+});
+
+export const TodoOriginView = Schema.Union([TodoOriginFieldReportView, TodoOriginIntakeView]);
+export type TodoOriginView = typeof TodoOriginView.Type;
+
+/**
+ * READ SHIM, mirrored from core's `TodoOriginFromWire` (the viewer
+ * deliberately never imports `@skillmaker/core` -- it decodes what the wire
+ * actually sends). The journal is append-only, so wire data derived from
+ * old events -- most concretely a `studio.db` built before the reshape,
+ * served through `/api/todos` before its next rebuild -- can still carry
+ * the retired `{kind, ref}` origin overload. When the legacy `ref` key is
+ * present it is mapped to `eventId` (kind `field-report`) or `intakeId`
+ * (kind `intake`); everything past decode sees only the union above. The
+ * viewer writes no origins, so the legacy branch here is read-only by
+ * construction.
+ */
+const TodoOriginViewWire = Schema.Union([
+  TodoOriginFieldReportView,
+  TodoOriginIntakeView,
+  Schema.Struct({ kind: Schema.Literals(["field-report", "intake"]), ref: Schema.String }),
+]);
+
+const TodoOriginViewFromWire = TodoOriginViewWire.pipe(
+  Schema.decodeTo(TodoOriginView, {
+    decode: SchemaGetter.transform((wire) =>
+      "ref" in wire
+        ? wire.kind === "field-report"
+          ? { kind: "field-report" as const, eventId: wire.ref }
+          : { kind: "intake" as const, intakeId: wire.ref }
+        : wire,
+    ),
+    encode: SchemaGetter.passthroughSubtype(),
+  }),
+);
 
 export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
   id: Schema.String,
@@ -414,7 +455,7 @@ export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
   pinned: Schema.optionalKey(Schema.Boolean),
   archived: Schema.Boolean,
   source: ActorView,
-  origin: Schema.optionalKey(TodoOriginView),
+  origin: Schema.optionalKey(TodoOriginViewFromWire),
 }) {}
 
 export class TodosResponse extends Schema.Class<TodosResponse>("TodosResponse")({

@@ -252,7 +252,7 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
  *
  * `todo` (issue #81) is the same read-time join, the other side of the
  * loop: `foldTodos` over the SAME `events` array already read above (no
- * second journal read) finds the todo, if any, whose `origin.ref` equals
+ * second journal read) finds the todo, if any, whose `origin.eventId` equals
  * this report's event id -- `todo add --from-report`'s provenance stamp.
  * `null` means no todo has been opened from this report yet.
  */
@@ -283,7 +283,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
   const todosByReportEventId = new Map<string, Todo>();
   for (const todo of foldTodos(events).values()) {
     if (todo.origin?.kind === "field-report") {
-      todosByReportEventId.set(todo.origin.ref, todo);
+      todosByReportEventId.set(todo.origin.eventId, todo);
     }
   }
   const linkedTodo = (eventId: string): { id: string; title: string; status: string } | null => {

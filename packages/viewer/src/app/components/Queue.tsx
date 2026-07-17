@@ -55,6 +55,10 @@ const ORIGIN_LABEL: Readonly<Record<TodoOriginView["kind"], { readonly label: st
   intake: { label: "from intake", titlePrefix: "from intake" },
 };
 
+/** The origin's id, read from its per-kind field (the union retired the old shared `ref`). */
+const originId = (origin: TodoOriginView): string =>
+  origin.kind === "field-report" ? origin.eventId : origin.intakeId;
+
 const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRecord) => void }> = ({
   todo,
   pending,
@@ -94,7 +98,7 @@ const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRec
           )}
           {todo.origin !== undefined && (
             <span
-              title={`${ORIGIN_LABEL[todo.origin.kind].titlePrefix} ${todo.origin.ref}`}
+              title={`${ORIGIN_LABEL[todo.origin.kind].titlePrefix} ${originId(todo.origin)}`}
               className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300"
             >
               {ORIGIN_LABEL[todo.origin.kind].label}
