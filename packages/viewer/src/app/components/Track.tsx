@@ -32,6 +32,7 @@ import {
   RETIRED_BADGE_CLASS,
   STAGE_BADGE_CLASS,
   STAGE_LABEL,
+  STAKES_BADGE_CLASS,
   UNVERIFIED_BADGE_CLASS,
   type CatalogEntry,
   type SalvagedCrateView,
@@ -113,7 +114,7 @@ const CatalogRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
   </li>
 );
 
-/** One salvaged crate in the drawer: what it claimed to be, why it was refused, and the intake id -- the harvest handle for content still sitting at `receiving/<intake>/`. */
+/** One salvaged crate in the drawer: what it claimed to be, its arrival testimony (stakes badge + hurts line, issue #108 -- "reported load-bearing" is what the harvest decision weighs), why it was refused, and the intake id -- the harvest handle for content still sitting at `receiving/<intake>/`. */
 const SalvagedRow: FC<{ crate: SalvagedCrateView }> = ({ crate }) => (
   <li className="flex flex-col gap-1 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
     <div className="flex flex-wrap items-center gap-2">
@@ -123,6 +124,14 @@ const SalvagedRow: FC<{ crate: SalvagedCrateView }> = ({ crate }) => (
       <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
         salvaged
       </span>
+      {crate.stakes !== null && (
+        <span
+          title="The maker's usage-stakes claim at arrival — recorded, never enforced."
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STAKES_BADGE_CLASS[crate.stakes]}`}
+        >
+          {crate.stakes}
+        </span>
+      )}
       {crate.bundle !== null && (
         <span title="The existing bundle this salvage defended">
           <Link
@@ -134,6 +143,12 @@ const SalvagedRow: FC<{ crate: SalvagedCrateView }> = ({ crate }) => (
         </span>
       )}
     </div>
+    {crate.hurts !== null && (
+      <p className="text-xs text-neutral-700 dark:text-neutral-300">
+        <span className="font-medium text-neutral-500 dark:text-neutral-400">Hurts: </span>
+        {crate.hurts}
+      </p>
+    )}
     <p className="text-xs text-neutral-500 dark:text-neutral-400">{crate.reason}</p>
     <div className="flex flex-wrap items-center gap-2">
       <code

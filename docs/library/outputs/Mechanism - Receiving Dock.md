@@ -127,11 +127,18 @@ discarding):
    ("unclear" is an honest badge), never a gate.
 3. *(keeps)* **Stakes** — occasional aside / load-bearing step. The
    rigor dial: sizes the dossier depth and the eventual eval bar.
-4. *(keeps)* **What hurts** — a note plus urgency, minted as todos with
+   Recorded as a structured `stakes` field on `skill.received` itself
+   (issue #108), never flattened into notes prose.
+4. *(keeps)* **What hurts** — a note plus urgency: a structured `hurts`
+   field on `skill.received` (issue #108), minted as todos with
    `origin: { kind: "intake", ref: <intake-id> }` (the Field Report
    pattern, one origin kind richer).
-5. *(keeps)* **Maturity** — idea / draft / working. Routes Board flow
-   vs. straight to the bench per the stock-and-flow ruling (#80).
+5. *(keeps)* **Entry stage — never asked.** The maturity self-grade is
+   retired (issue #108): entry is derived from what's observably in the
+   directory (`deriveEntryStage`: parses + complete identity → Proof;
+   parses only → Draft; else Frame), recorded via `bundle.stage_changed`
+   with reason `"triage: entry stage derived from runnable output"` and
+   no `override` — the system's own read of observables, not testimony.
 
 Bulk import is the same tree as a **triage manifest**: `adopt --triage`
 sweeps, pre-fills the machine columns (name, mechanical condition —
@@ -275,11 +282,15 @@ row paths always anchor to the whole corpus), `renderManifest`/
 `parseManifest` (a tolerant markdown-table round-trip sharing
 `MarkdownTable.ts` with `RiskMap.ts`), and `executeManifest`/
 `executeManifestRow`, which dispatches each row to
-`adoptDirectoryInPlace` or `receiveCrate`, advances a `keep`+`mine`
-row's stage per its `maturity` (`bundle.stage_changed`, `override:
-true`, reason `"triage: working import"`), and mints an intake-origin
-todo for a non-empty `hurts` (`Todo.ts`'s `TodoOrigin.kind` is
-`"field-report" | "intake"`, shared with salvage's mining doors above).
+`adoptDirectoryInPlace` (seeding the dossier from the row's
+`Job`/`Out-of-scope`/`Basis` card answers, issue #108) or `receiveCrate`
+(the row's `stakes`/`hurts` landing as structured fields on
+`skill.received`), advances a `keep`+`mine` row to its DERIVED entry
+stage (`deriveEntryStage` — never asked; `bundle.stage_changed`, reason
+`"triage: entry stage derived from runnable output"`, no `override`),
+and mints an intake-origin todo for a non-empty `hurts` (`Todo.ts`'s
+`TodoOrigin.kind` is `"field-report" | "intake"`, shared with salvage's
+mining doors above).
 CLI surface: `skillmaker adopt --triage [path]` (writes
 `adopt-manifest.md` at the workspace root, acts on nothing) and
 `skillmaker adopt --from-manifest [file]` (executes it, one act per

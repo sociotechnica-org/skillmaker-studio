@@ -692,6 +692,20 @@ export const IntakeStakes = Schema.Literals(["aside", "load-bearing"]);
 export type IntakeStakes = typeof IntakeStakes.Type;
 
 /**
+ * The stakes badge's colors, keyed by the maker's usage-stakes claim (seam
+ * pass over #108/#109): ONE map, consumed by Receive's crate rows
+ * (`Receive.tsx`) and Track's salvaged rows (`Track.tsx`) -- the same
+ * single-source treatment `UNVERIFIED_BADGE_CLASS` got. `load-bearing` is
+ * visually distinct (rose -- "someone's workflow leans on this" is exactly
+ * what a harvest decision wants to notice) vs the neutral `aside`; neither
+ * amber (Lab's drift pill owns it) nor violet (the Unverified badge's).
+ */
+export const STAKES_BADGE_CLASS: Record<IntakeStakes, string> = {
+  aside: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
+  "load-bearing": "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+};
+
+/**
  * `GET /api/intake` -- the Receive tab's intake queue row (issue #90): one
  * undisposed `skill.received` crate, its claims verbatim, and its dock
  * verdict RECOMPUTED server-side on every request (derive, never store --
@@ -744,6 +758,10 @@ export class RecentlyRoutedView extends Schema.Class<RecentlyRoutedView>("Recent
   bundle: Schema.NullOr(Schema.String),
   reason: Schema.String,
   claimedName: Schema.NullOr(Schema.String),
+  /** The originating crate's structured stakes testimony (issue #108, joined by the server from `skill.received` in the same pass as `claimedName`) -- `null` for pre-#108 crates. */
+  stakes: Schema.NullOr(IntakeStakes),
+  /** The originating crate's structured "what hurt" testimony -- same treatment as `stakes`. */
+  hurts: Schema.NullOr(Schema.String),
   at: Schema.String,
   actor: ActorView,
   /** The Unverified badge (issue #93), while it holds: `false` for every `salvage` row (grants no identity) and for any bundle that already has a graded measurement. */
@@ -763,6 +781,10 @@ export class SalvagedCrateView extends Schema.Class<SalvagedCrateView>("Salvaged
   claimedName: Schema.NullOr(Schema.String),
   bundle: Schema.NullOr(Schema.String),
   reason: Schema.String,
+  /** The refused crate's own arrival testimony (issue #108, seam pass): "reported load-bearing" is exactly what the drawer's harvest decision weighs -- `null` for pre-#108 crates. */
+  stakes: Schema.NullOr(IntakeStakes),
+  /** What hurt, per the crate's `skill.received` -- same treatment as `stakes`. */
+  hurts: Schema.NullOr(Schema.String),
   at: Schema.String,
   actor: ActorView,
 }) {}

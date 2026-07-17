@@ -102,6 +102,9 @@ interface SalvagedRow {
   readonly claimedName: string | null;
   readonly bundle: string | null;
   readonly reason: string;
+  /** Structured arrival testimony (issue #108, seam pass) -- joined from the originating skill.received. */
+  readonly stakes: string | null;
+  readonly hurts: string | null;
   readonly at: string;
 }
 
@@ -267,11 +270,18 @@ describe("issue #109: GET /api/bundles/:slug lineage (custody chain + fork famil
 describe("issue #109: GET /api/intake salvaged (the Archive drawer's second population)", () => {
   let salvagedIntake: string;
 
-  test("a salvage-routed crate leaves the queue and lands in the salvaged fold with its claims and reason", async () => {
+  test("a salvage-routed crate leaves the queue and lands in the salvaged fold with its claims, testimony, and reason", async () => {
     const received = receiveCrate(
       "smells-wrong",
       "---\nname: Smells Wrong Skill\ndescription: a crate destined for salvage.\n---\n\nDo something dubious.\n",
-      ["--claimed-name", "Smells Wrong Skill"],
+      [
+        "--claimed-name",
+        "Smells Wrong Skill",
+        "--stakes",
+        "load-bearing",
+        "--hurts",
+        "the regex table is worth harvesting",
+      ],
     );
     salvagedIntake = received.intake;
 
@@ -292,6 +302,12 @@ describe("issue #109: GET /api/intake salvaged (the Archive drawer's second popu
     expect(salvaged?.claimedName).toBe("Smells Wrong Skill");
     expect(salvaged?.reason).toBe("hypothesis broken");
     expect(salvaged?.bundle).toBeNull();
+    // Seam pass over #108/#109: the crate's structured stakes/hurts testimony
+    // travels from the originating skill.received onto the salvaged row --
+    // "reported load-bearing" is exactly what the Archive drawer's harvest
+    // decision weighs.
+    expect(salvaged?.stakes).toBe("load-bearing");
+    expect(salvaged?.hurts).toBe("the regex table is worth harvesting");
   });
 });
 
@@ -314,5 +330,102 @@ describe("issue #109: the acts land in the Feed while the items land in the draw
       (event) => event.type === "skill.routed" && event.payload["disposition"] === "salvage",
     );
     expect(salvageActs.length).toBeGreaterThan(0);
+  });
+});
+
+describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopted bundle", () => {
+  let inPlaceSlug: string;
+
+  test("a brownfield triage adopt's detail carries the seeded dossier, its reviewable files, and every listed file is servable", async () => {
+    // A brownfield skill living OUTSIDE skills/ -- adopted in place, it
+    // stays exactly where it was discovered (`.skillmaker-adopt.json`,
+    // layout "in-place"), which is the case the detail handler used to go
+    // blind on (it recomputed `<skillsDir>/<slug>` and returned an empty
+    // dossier, null station, and zero files -- defeating the #108→#109 seam
+    // for exactly the imports it targets).
+    const brownfieldDir = join(scratchDir, "brownfield", "complete-skill");
+    mkdirSync(brownfieldDir, { recursive: true });
+    writeFileSync(
+      join(brownfieldDir, "SKILL.md"),
+      "---\nname: Complete Skill\ndescription: a runnable brownfield import for the seam-pass e2e.\n---\n\nDo the brownfield thing.\n",
+    );
+
+    // A hand-written triage manifest: parseManifest resolves columns by
+    // header name (issue #108), so a minimal table with only the columns
+    // this test answers is a legitimate manifest -- omitted columns read
+    // as not-asked.
+    const manifestPath = join(scratchDir, "seam-pass-manifest.md");
+    writeFileSync(
+      manifestPath,
+      [
+        "| Path | Decision | Whose | Job | Basis |",
+        "| --- | --- | --- | --- | --- |",
+        "| brownfield/complete-skill | keep | mine | Do the brownfield thing | the seam-pass field manual |",
+        "",
+      ].join("\n"),
+    );
+    const executed = runCli(["adopt", "--from-manifest", manifestPath, "--json"]);
+    expect(executed.exitCode).toBe(0);
+    const summary = JSON.parse(executed.stdout) as {
+      adopted: number;
+      outcomes: ReadonlyArray<{ kind: string; slug?: string }>;
+    };
+    expect(summary.adopted).toBe(1);
+    const slug = summary.outcomes.find((outcome) => outcome.kind === "adopted")?.slug ?? "";
+    expect(slug.length).toBeGreaterThan(0);
+    inPlaceSlug = slug;
+
+    const response = await fetch(`${baseUrl}/api/bundles/${slug}`);
+    expect(response.status).toBe(200);
+    const detail = (await response.json()) as {
+      dossier: { job?: string; basis?: string };
+      files: ReadonlyArray<string>;
+      versions: ReadonlyArray<{ hash: string; label?: string }>;
+    };
+
+    // The manifest's card answers (issue #108) round-trip: seeded into the
+    // in-place dossier at adopt time, read back from the bundle's ACTUAL
+    // directory by the detail handler.
+    expect(detail.dossier.job).toBe("Do the brownfield thing");
+    expect(detail.dossier.basis).toBe("the seam-pass field manual");
+
+    // Layout-aware reviewable files: the in-place payload's SKILL.md plus
+    // the dossier Adopt scaffolded next to it (no design.md traveled with
+    // this directory, so none is listed).
+    expect(detail.files.length).toBeGreaterThan(0);
+    expect(detail.files).toContain("SKILL.md");
+    expect(detail.files).toContain("dossier.md");
+
+    // No dead links: every listed file must be servable from the bundle's
+    // real directory through the file endpoint.
+    for (const file of detail.files) {
+      const fileResponse = await fetch(`${baseUrl}/api/bundles/${slug}/file?path=${encodeURIComponent(file)}`);
+      expect(fileResponse.status).toBe(200);
+    }
+  });
+
+  test("the card's Record version button hashes the bundle's real in-place tree, not the conventional path", async () => {
+    // The adopt above already recorded a version labeled "adopted" from the
+    // REAL directory. Re-recording the same label through the server must be
+    // idempotent (`already_appended`) with the SAME output hash -- the old
+    // broken path hashed the nonexistent `<skillsDir>/<slug>` tree, whose
+    // (different) hashes could never match the recorded version's.
+    const detailResponse = await fetch(`${baseUrl}/api/bundles/${inPlaceSlug}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = (await detailResponse.json()) as {
+      versions: ReadonlyArray<{ hash: string; label?: string }>;
+    };
+    const adoptedVersion = detail.versions.find((version) => version.label === "adopted");
+    expect(adoptedVersion).toBeDefined();
+
+    const recordResponse = await fetch(`${baseUrl}/api/bundles/${inPlaceSlug}/record-version`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label: "adopted" }),
+    });
+    expect(recordResponse.status).toBe(200);
+    const recorded = (await recordResponse.json()) as { status: string; hash: string };
+    expect(recorded.status).toBe("already_appended");
+    expect(recorded.hash).toBe(adoptedVersion?.hash ?? "");
   });
 });
