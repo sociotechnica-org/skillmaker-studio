@@ -275,7 +275,7 @@ and a `--static` viewer. Total ~11 minutes.
 
 ## 7. Comparison: skill-creator vs Skillmaker Studio
 
-Skillmaker references: `docs/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md` §2.5-2.12.
+Skillmaker references: `docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md` §2.5-2.12.
 
 | Concept | skill-creator | Skillmaker Studio |
 |---|---|---|
