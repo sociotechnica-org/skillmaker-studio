@@ -59,7 +59,28 @@ export interface SkillbookBundle {
   readonly changelog: ReadonlyArray<SkillbookChangelogEntry>;
   /** Every `skill.shipped` event for this bundle, newest first (issue #66: "where is this in the world"). */
   readonly shipments: ReadonlyArray<SkillbookShipment>;
+  /**
+   * Whether this bundle belongs in the OUTWARD book (issue #109 Stage 3):
+   * `isInSkillbook` below, derived here so the static `book build` index
+   * and the viewer's Ship page inherit the ONE definition -- the two doors
+   * can never disagree on the population. Chapter pages/payload entries
+   * still exist for every bundle; curation shapes indexes, it never hides
+   * the paperwork.
+   */
+  readonly inBook: boolean;
 }
+
+/**
+ * The one definition of "in the outward book" (issue #109 Stage 3,
+ * data-model draft "Skillbook": "outside + curated ... only what shipped,
+ * only with receipts"): published, or shipped at least once -- curation by
+ * facts, never by editing. Catalog (inside, complete) and Skillbook
+ * (outside, curated) populations never merge.
+ */
+export const isInSkillbook = (bundle: {
+  readonly stage: string;
+  readonly shipments: ReadonlyArray<unknown>;
+}): boolean => bundle.stage === "published" || bundle.shipments.length > 0;
 
 export interface SkillbookData {
   readonly workspaceName: string;
@@ -157,6 +178,7 @@ export const buildSkillbook = Effect.fn("Skillbook.build")(function* (
       measurements,
       changelog,
       shipments,
+      inBook: isInSkillbook({ stage: bundle.stage, shipments }),
     });
   }
 

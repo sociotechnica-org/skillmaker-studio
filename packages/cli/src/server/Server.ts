@@ -9,6 +9,7 @@ import {
   checkTransition,
   computeBundleHashes,
   computeMeasurements,
+  custodyEventsFor,
   deriveIntakeVerdict,
   detectBundleLayout,
   didSkillActivate,
@@ -42,6 +43,7 @@ import {
   type MeasurementRecord,
   type RiskCoverageRecord,
   type RunIndexRecord,
+  type SkillRoutedEvent,
   type Todo,
   type TodoRecord,
   type VersionRecord,
@@ -418,16 +420,24 @@ const handleIntake = async (root: string): Promise<Response> => {
       claimedNameByIntake.set(event.payload.intake, event.payload.claimedName ?? null);
     }
   }
+
+  // The shared shape of one routed-crate row: what the routing fact says
+  // (intake, target bundle, reason, when, who) joined back to the crate's
+  // claimed name. Both `recentlyRouted` and `salvaged` below build on this.
+  const routedRowBase = (event: SkillRoutedEvent) => ({
+    intake: event.payload.intake,
+    claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
+    bundle: event.payload.bundle ?? null,
+    reason: event.payload.reason,
+    at: event.at,
+    actor: event.actor,
+  });
+
   const recentlyRouted = routedRows.map(({ event, bundle, receivedIdentity }) => {
     const measurementCount = bundle !== null ? measurementCountByBundle.get(bundle) ?? 0 : 0;
     return {
-      intake: event.payload.intake,
+      ...routedRowBase(event),
       disposition: event.payload.disposition,
-      bundle,
-      reason: event.payload.reason,
-      claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
-      at: event.at,
-      actor: event.actor,
       // The Unverified badge on the tail (issue #93): holds while the
       // bundle it landed on has zero graded measurements ever, at any
       // version. `salvage` never qualifies (grants no identity, even when
@@ -436,7 +446,20 @@ const handleIntake = async (root: string): Promise<Response> => {
     };
   });
 
-  return jsonResponse({ crates, recentlyRouted });
+  // The Archive drawer's salvaged population (issue #109): EVERY
+  // salvage-routed crate, newest first -- unlike `recentlyRouted` above
+  // (a capped, all-dispositions tail), this is the drawer's full "out of
+  // commission but kept" fold. Salvage grants no identity and moves no
+  // files: the crate still sits at `receiving/<intake>/`, which is exactly
+  // what the drawer's harvest affordance reaches for. Derived from the SAME
+  // `events` array -- no second journal read, nothing stored.
+  const salvaged = events
+    .filter((event) => event.type === "skill.routed")
+    .filter((event) => event.payload.disposition === "salvage")
+    .map(routedRowBase)
+    .reverse();
+
+  return jsonResponse({ crates, recentlyRouted, salvaged });
 };
 
 /**
@@ -476,7 +499,12 @@ const handleCatalog = async (root: string): Promise<Response> =>
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
-      yield* index.rebuild();
+      // Whereabouts (issue #109): the two pieces of Track's derived status
+      // set the index rows don't already carry -- last shipment + date and
+      // recency of activity (Track's default sort key). Folded by rebuild()
+      // itself off the ONE journal read it already does (no second parse in
+      // this handler), carried on its result, never stored.
+      const { lastShipments, lastActivityAt } = yield* index.rebuild();
       const bundles = yield* index.listBundles();
 
       // Default listTodos() (swept excluded) is exact here: a todo can
@@ -530,6 +558,11 @@ const handleCatalog = async (root: string): Promise<Response> =>
           // version scoping), and `bundle.everReceived` is already on the
           // record from this SAME rebuild() -- no extra journal parse.
           unverified: isUnverified(bundle.everReceived, measurements.length),
+          // Whereabouts (issue #109): never one location -- a status set.
+          lastShipment: lastShipments.get(bundle.slug) ?? null,
+          // Recency floor: a bundle with no attributable journal events yet
+          // still sorts honestly by its own creation timestamp.
+          lastActivityAt: lastActivityAt.get(bundle.slug) ?? bundle.created,
         });
       }
       return jsonResponse({ entries });
@@ -805,6 +838,9 @@ type BundleIndexDetail =
       readonly warnings: ReadonlyArray<WarningRecord>;
       readonly runs: ReadonlyArray<RunIndexRecord>;
       readonly measurements: ReadonlyArray<MeasurementRecord>;
+      /** Fork family (issue #109), off the rebuild's own marker decode -- no per-request directory walk, no second marker parse. */
+      readonly forkOf: string | null;
+      readonly forks: ReadonlyArray<string>;
     };
 
 const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexDetail> =>
@@ -812,7 +848,7 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
-      yield* index.rebuild();
+      const rebuildResult = yield* index.rebuild();
       const bundle = yield* index.getBundle(slug);
       if (bundle === undefined) {
         return { kind: "not_found" as const };
@@ -832,6 +868,8 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
         warnings,
         runs: [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
         measurements,
+        forkOf: rebuildResult.forkOf.get(slug) ?? null,
+        forks: rebuildResult.forkChildren.get(slug) ?? [],
       };
     }),
   );
@@ -869,6 +907,22 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   const station = readCurrentStageStation(root, config, slug, bundle.stage);
   const dossier = await loadDossierSections(root, config, slug);
 
+  // Lineage (issue #109): chain of custody replayed from the journal (the
+  // SAME full `events` read above -- uncapped, unlike `recentEvents`) plus
+  // the fork family off the rebuild's own `AdoptMarker` decode
+  // (`loadBundleIndexDetail`) and provenance off the bundle record's own
+  // indexed `upstream` -- no marker is re-read here. All derived,
+  // recomputed per request; the card is a projection, never a store.
+  const lineage = {
+    custody: custodyEventsFor(events, slug),
+    forkOf: detail.forkOf,
+    forks: detail.forks,
+    upstream:
+      bundle.upstream !== undefined
+        ? { source: bundle.upstream.source, ref: bundle.upstream.ref ?? null }
+        : null,
+  };
+
   return jsonResponse({
     bundle,
     guardStatus: guardStatus(events, slug),
@@ -885,6 +939,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
     dossier,
+    lineage,
     files: listReviewableBundleFiles(root, config, slug),
   });
 };

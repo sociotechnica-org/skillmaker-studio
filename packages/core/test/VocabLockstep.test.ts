@@ -21,6 +21,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { STAGE_LABEL as CLI_STAGE_LABEL } from "../../cli/src/StageVocab.ts";
+import { SMOKE_K as VIEWER_SMOKE_K } from "../../viewer/src/app/runtime/cardGlance.ts";
 import * as viewer from "../../viewer/src/app/runtime/schemas.ts";
 import {
   FieldReportOutcome,
@@ -29,6 +30,7 @@ import {
   RouteDisposition,
   RunVerdict,
 } from "../src/Journal.ts";
+import { SMOKE_K } from "../src/Measurements.ts";
 import { TRIAGE_STAKES_VALUES } from "../src/Triage.ts";
 import { STAGES } from "../src/Machine.ts";
 import { VERDICT_DISPOSITIONS } from "../src/Receive.ts";
@@ -76,6 +78,12 @@ describe("core <-> viewer mirrors", () => {
 
   test("verdict->doors table agrees, entry for entry", () => {
     expect(viewer.VERDICT_DISPOSITIONS).toEqual(VERDICT_DISPOSITIONS);
+  });
+});
+
+describe("core <-> viewer numeric mirrors", () => {
+  test("SMOKE_K: the card's below-smoke chip threshold equals core's guidance constant (issue #109)", () => {
+    expect(VIEWER_SMOKE_K).toBe(SMOKE_K);
   });
 });
 

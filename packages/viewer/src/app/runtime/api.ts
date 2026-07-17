@@ -182,7 +182,7 @@ export type PublishBundleResult =
   | { readonly ok: false; readonly error: string };
 
 /**
- * `POST /api/bundles/:slug/publish` -- the BundlePanel's post-publish
+ * `POST /api/bundles/:slug/publish` -- the skill card's post-publish
  * "Publish to targets" step (Phase 11B). `target` is optional (default:
  * every configured target), mirroring the CLI's `--target` flag.
  */

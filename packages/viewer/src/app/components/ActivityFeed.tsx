@@ -1,12 +1,17 @@
 /**
- * The `/activity` page: a paginated, newest-first feed of the whole journal
- * (`GET /api/events`), not scoped to a single bundle -- the ui-pass-spec's
- * third nav-adjacent route (spec §3.1). Each row shows the event type, actor,
- * timestamp, and a payload's `bundle` field when present (most event types
- * carry one); the raw payload is left collapsed behind a `<details>` for
- * anyone who needs the full shape.
+ * The Feed (issue #109): a paginated, newest-first feed of the whole
+ * journal (`GET /api/events`), not scoped to a single bundle. Formerly the
+ * standalone `/activity` page; now Track's second room (`Track.tsx` renders
+ * `<Feed />`, and old `/activity` deep links alias into `/track?view=feed`
+ * via the router). The acts land here -- retiring, salvaging, shipping --
+ * while the stuff lives in the Archive drawer: a record of decisions, not a
+ * place to dig for parts. Each row shows the event type, actor, timestamp,
+ * and a payload's `bundle` field when present (most event types carry one);
+ * the raw payload is left collapsed behind a `<details>` for anyone who
+ * needs the full shape.
  */
 import type { FC } from "react";
+import { formatTimestamp } from "../runtime/dates.ts";
 import { bundleHref, Link } from "../runtime/router.tsx";
 import type { EventView } from "../runtime/schemas.ts";
 import { useEvents } from "../runtime/useEvents.ts";
@@ -17,11 +22,6 @@ const payloadBundle = (payload: unknown): string | undefined => {
   }
   const value = (payload as { bundle: unknown }).bundle;
   return typeof value === "string" ? value : undefined;
-};
-
-const formatTimestamp = (at: string): string => {
-  const parsed = new Date(at);
-  return Number.isNaN(parsed.getTime()) ? at : parsed.toLocaleString();
 };
 
 const EventRow: FC<{ event: EventView }> = ({ event }) => {
@@ -53,13 +53,11 @@ const EventRow: FC<{ event: EventView }> = ({ event }) => {
   );
 };
 
-export const ActivityFeed: FC = () => {
+export const Feed: FC = () => {
   const { events, loading, loadingMore, error, hasMore, loadMore } = useEvents();
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Activity</h1>
-
       {error !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
           Could not load events: {error.message}

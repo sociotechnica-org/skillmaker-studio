@@ -147,10 +147,10 @@ const ReportRow: FC<{ report: FieldReportView }> = ({ report }) => (
         linked={
           report.fixtureCase !== null ? (
             <Link
-              href={bundleHref(report.bundle, "evals")}
+              href={bundleHref(report.bundle, "models")}
               className="w-fit text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
             >
-              harvested → {report.fixtureCase} (Evals)
+              harvested → {report.fixtureCase} (Models)
             </Link>
           ) : null
         }

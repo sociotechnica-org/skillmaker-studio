@@ -10,15 +10,40 @@
  */
 import { createContext, useCallback, useContext, useEffect, useState, type FC, type ReactNode } from "react";
 
-export type BundleTab = "overview" | "files" | "versions" | "evals";
+/**
+ * The skill card's tabs (issue #109): Overview · Models · Coverage ·
+ * Research · Lineage, plus Files (the panel's read-only source review,
+ * kept as its own tab so `?file=` deep links keep a stable home). The old
+ * panel's `evals` and `versions` tab paths survive as aliases (`evals` ->
+ * `models`, where the measurements + runs now live; `versions` ->
+ * `lineage`, where version records now live in the custody chain) --
+ * display-layer only, old deep links keep working.
+ */
+export type BundleTab = "overview" | "models" | "coverage" | "research" | "lineage" | "files";
 
-const BUNDLE_TABS: ReadonlyArray<BundleTab> = ["overview", "files", "versions", "evals"];
+const BUNDLE_TABS: ReadonlyArray<BundleTab> = [
+  "overview",
+  "models",
+  "coverage",
+  "research",
+  "lineage",
+  "files",
+];
 
 const isBundleTab = (value: string): value is BundleTab =>
   (BUNDLE_TABS as ReadonlyArray<string>).includes(value);
 
+/** The old panel's tab paths, parsed into their card-era homes so bookmarks survive. */
+const BUNDLE_TAB_ALIASES: Readonly<Record<string, BundleTab>> = {
+  evals: "models",
+  versions: "lineage",
+};
+
 /** The Lab's two modes (#83): Bench (default, the triage rows) and Queue (the whole workspace's todos). */
 export type LabView = "bench" | "queue";
+
+/** Track's two rooms (#109): Catalog (default, the complete inside index) and Feed (the journal, chronological). */
+export type TrackView = "catalog" | "feed";
 
 export type Route =
   | { readonly name: "board" }
@@ -30,7 +55,7 @@ export type Route =
       readonly file: string | undefined;
     }
   | { readonly name: "lab"; readonly view: LabView; readonly bundle: string | undefined }
-  | { readonly name: "activity" }
+  | { readonly name: "track"; readonly view: TrackView; readonly archive: boolean }
   | { readonly name: "ship" }
   | { readonly name: "ship-bundle"; readonly slug: string }
   | { readonly name: "receive" }
@@ -71,8 +96,15 @@ export const parseRoute = (pathname: string, search: string): Route => {
     const bundle = params.get("bundle") ?? undefined;
     return { name: "lab", view, bundle };
   }
+  if (head === "track" && segments.length === 1) {
+    const params = new URLSearchParams(search);
+    const view: TrackView = params.get("view") === "feed" ? "feed" : "catalog";
+    return { name: "track", view, archive: params.get("archive") === "1" };
+  }
+  // `/activity` survives as an alias into Track's Feed (#109: "Activity's
+  // nav entry is replaced by Track... old routes keep working").
   if (head === "activity" && segments.length === 1) {
-    return { name: "activity" };
+    return { name: "track", view: "feed", archive: false };
   }
   if (head === "ship" && segments.length === 1) {
     return { name: "ship" };
@@ -85,7 +117,8 @@ export const parseRoute = (pathname: string, search: string): Route => {
   }
   if (segments[0] === "bundles" && segments[1] !== undefined && segments.length <= 3) {
     const slug = decodeURIComponent(segments[1]);
-    const tabSegment = segments[2];
+    const rawTab = segments[2];
+    const tabSegment = rawTab !== undefined ? (BUNDLE_TAB_ALIASES[rawTab] ?? rawTab) : undefined;
     if (tabSegment !== undefined && !isBundleTab(tabSegment)) {
       return { name: "not-found" };
     }
@@ -121,9 +154,27 @@ export const labHref = (view: LabView, bundle?: string): string => {
   return query.length > 0 ? `/lab?${query}` : "/lab";
 };
 
-/** The Evals tab, optionally with a run selected via `?run=`. */
+/**
+ * Track's URL for a room, with the Archive drawer's open state as a query
+ * flag (#109) -- the drawer is a fold of the Catalog, so its open state is a
+ * bookmarkable view, not local state. The default room's bare URL is
+ * exactly `/track`.
+ */
+export const trackHref = (view: TrackView = "catalog", options?: { readonly archive?: boolean }): string => {
+  const params = new URLSearchParams();
+  if (view === "feed") {
+    params.set("view", "feed");
+  }
+  if (options?.archive === true) {
+    params.set("archive", "1");
+  }
+  const query = params.toString();
+  return query.length > 0 ? `/track?${query}` : "/track";
+};
+
+/** The Models tab (the measurements + runs read-out), optionally with a run selected via `?run=`. */
 export const bundleRunHref = (slug: string, runId: string | undefined): string => {
-  const base = bundleHref(slug, "evals");
+  const base = bundleHref(slug, "models");
   return runId === undefined ? base : `${base}?run=${encodeURIComponent(runId)}`;
 };
 

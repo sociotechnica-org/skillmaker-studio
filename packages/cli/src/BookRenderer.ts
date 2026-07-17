@@ -234,27 +234,45 @@ ${changelogList(bundle.changelog)}
   return pageShell(bundle.name, workspaceName, body);
 };
 
+/**
+ * The index lists ONLY the curated population (issue #109 Stage 3): the
+ * bundles `buildSkillbook` stamped `inBook` -- the outward book, "what we
+ * stand behind; what you may take." Works-in-progress are counted, never
+ * listed; their chapter pages still exist (`renderSkillbookSite` renders
+ * one per bundle regardless -- curation shapes the index, it never 404s
+ * the paperwork). The one predicate lives in `Skillbook.ts`'s
+ * `isInSkillbook`, shared with the viewer's Ship page via the payload.
+ */
 const renderIndexPage = (data: SkillbookData): string => {
+  const inBook = data.bundles.filter((bundle) => bundle.inBook);
+  const insideCount = data.bundles.length - inBook.length;
   const cards =
     data.bundles.length === 0
       ? `<p class="muted">No Skill Bundles yet.</p>`
-      : data.bundles
-          .map((bundle) => {
-            const measuredCount = new Set(bundle.measurements.map((m) => m.fixtureCase)).size;
-            const versionText =
-              bundle.latestVersion === null ? "No version" : `Version ${shortHash(bundle.latestVersion.hash, 8)}`;
-            return `<div class="card">
+      : inBook.length === 0
+        ? `<p class="muted">No skills published or shipped yet — the book is honestly empty.</p>`
+        : inBook
+            .map((bundle) => {
+              const measuredCount = new Set(bundle.measurements.map((m) => m.fixtureCase)).size;
+              const versionText =
+                bundle.latestVersion === null ? "No version" : `Version ${shortHash(bundle.latestVersion.hash, 8)}`;
+              return `<div class="card">
   <h3><a href="${bundlePageHref(bundle.slug)}">${escapeHtml(bundle.name)}</a> <span class="badge">${escapeHtml(bundle.stage)}</span></h3>
   <p>${escapeHtml(bundle.oneLiner)}</p>
   <p class="muted">${escapeHtml(versionText)} · ${measuredCount} fixture(s) measured</p>
 </div>`;
-          })
-          .join("\n");
+            })
+            .join("\n");
+
+  const insideLine =
+    insideCount > 0
+      ? `\n<p class="muted">${insideCount} more in progress live in the studio's Catalog — the outward book lists only what published or shipped.</p>`
+      : "";
 
   const body = `
 <h1>${escapeHtml(data.workspaceName)}</h1>
-<p class="muted">Skills leave the studio with receipts. ${data.bundles.length} skill(s) in this Skillbook.</p>
-${cards}
+<p class="muted">What we stand behind; what you may take — skills leave the studio with receipts. ${inBook.length} skill(s) in this Skillbook.</p>
+${cards}${insideLine}
 `;
   return pageShell(`${data.workspaceName} — Skillbook`, data.workspaceName, body);
 };
