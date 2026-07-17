@@ -1,7 +1,8 @@
 /**
  * `skillmaker receive <path> [--source <text>] [--ref <ref>] [--claimed-name
  * <name>] [--claimed-version <label-or-hash>] [--rights
- * ours|licensed|unclear] [--notes <text>] [--json]` -- the Receiving Dock's
+ * ours|licensed|unclear] [--stakes aside|load-bearing] [--hurts <text>]
+ * [--notes <text>] [--json]` -- the Receiving Dock's
  * CLI door (issue #90, `Mechanism - Receiving Dock.md` §HOW): a single
  * directory, required (ruling: "facts are per-crate; no sweep"). Copies
  * `<path>` (never moves it -- the maker's file stays untouched) to
@@ -21,7 +22,9 @@ import {
   receiveCrate,
   JournalLayer,
   Workspace,
+  TRIAGE_STAKES_VALUES,
   type IntakeRights,
+  type IntakeStakes,
   type ReceiveCrateResult,
 } from "@skillmaker/core";
 import { Effect } from "effect";
@@ -34,6 +37,9 @@ const RIGHTS_VALUES: ReadonlyArray<IntakeRights> = ["ours", "licensed", "unclear
 const isRights = (value: string): value is IntakeRights =>
   (RIGHTS_VALUES as ReadonlyArray<string>).includes(value);
 
+const isStakes = (value: string): value is IntakeStakes =>
+  (TRIAGE_STAKES_VALUES as ReadonlyArray<string>).includes(value);
+
 export interface ReceiveOptions {
   readonly json: boolean;
   readonly source?: string;
@@ -41,6 +47,10 @@ export interface ReceiveOptions {
   readonly claimedName?: string;
   readonly claimedVersion?: string;
   readonly rights?: string;
+  /** Structured usage-stakes testimony (issue #108): aside | load-bearing -- recorded, never enforced; never moves a stage, never clears the badge. */
+  readonly stakes?: string;
+  /** Structured "what hurt" testimony (issue #108) -- free text on its own field, never flattened into --notes. */
+  readonly hurts?: string;
   readonly notes?: string;
 }
 
@@ -50,7 +60,7 @@ export const runReceive = Effect.fn("runReceive")(function* (
   options: ReceiveOptions,
 ) {
   const usage =
-    "Usage: skillmaker receive <path> [--source <text>] [--ref <ref>] [--claimed-name <name>] [--claimed-version <label-or-hash>] [--rights ours|licensed|unclear] [--notes <text>]\n";
+    "Usage: skillmaker receive <path> [--source <text>] [--ref <ref>] [--claimed-name <name>] [--claimed-version <label-or-hash>] [--rights ours|licensed|unclear] [--stakes aside|load-bearing] [--hurts <text>] [--notes <text>]\n";
 
   if (targetPath === undefined) {
     return usageError(`skillmaker receive: missing <path>\n\n${usage}`);
@@ -58,6 +68,11 @@ export const runReceive = Effect.fn("runReceive")(function* (
   if (options.rights !== undefined && !isRights(options.rights)) {
     return usageError(
       `skillmaker receive: invalid --rights "${options.rights}" (expected one of ${RIGHTS_VALUES.join(", ")})\n\n${usage}`,
+    );
+  }
+  if (options.stakes !== undefined && !isStakes(options.stakes)) {
+    return usageError(
+      `skillmaker receive: invalid --stakes "${options.stakes}" (expected one of ${TRIAGE_STAKES_VALUES.join(", ")})\n\n${usage}`,
     );
   }
 
@@ -74,8 +89,9 @@ export const runReceive = Effect.fn("runReceive")(function* (
   const sourcePath = path.resolve(cwd, targetPath);
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor: Actor = yield* resolveUserActor();
-  // Already validated above (usageError'd out otherwise) -- a narrow cast, not a re-check.
+  // Already validated above (usageError'd out otherwise) -- narrow casts, not re-checks.
   const rights = options.rights as IntakeRights | undefined;
+  const stakes = options.stakes as IntakeStakes | undefined;
 
   const outcome = yield* receiveCrate({
     workspaceRoot: resolved.root,
@@ -86,6 +102,8 @@ export const runReceive = Effect.fn("runReceive")(function* (
     ...(options.claimedName !== undefined ? { claimedName: options.claimedName } : {}),
     ...(options.claimedVersion !== undefined ? { claimedVersionHash: options.claimedVersion } : {}),
     ...(rights !== undefined ? { rights } : {}),
+    ...(stakes !== undefined ? { stakes } : {}),
+    ...(options.hurts !== undefined ? { hurts: options.hurts } : {}),
     ...(options.notes !== undefined ? { notes: options.notes } : {}),
   }).pipe(
     Effect.provide(JournalLayer(journalPath)),

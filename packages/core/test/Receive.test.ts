@@ -310,6 +310,41 @@ describe("receiveCrate", () => {
       }),
     );
   });
+
+  test("records structured stakes/hurts on their own fields, never flattened into notes (issue #108) -- and appends no stage move", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const sourcePath = join(dir, "incoming", "claimed-skill");
+        yield* writeCrate(sourcePath, "---\nname: claimed-skill\n---\nDo the thing.\n");
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* receiveCrate({
+          workspaceRoot: dir,
+          sourcePath,
+          source: "colleague",
+          stakes: "load-bearing",
+          hurts: "breaks weekly in prod",
+          actor,
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        const rawLines = readFileSync(journalPath, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { readonly type: string; readonly payload: Record<string, unknown> });
+        const received = rawLines.find((event) => event.type === "skill.received");
+        expect(received?.payload).toMatchObject({
+          source: "colleague",
+          stakes: "load-bearing",
+          hurts: "breaks weekly in prod",
+        });
+        // No flattening: `notes` was not given, so it is not fabricated.
+        expect(received?.payload).not.toHaveProperty("notes");
+        // A usage claim is testimony -- it never moves a stage (issue #108
+        // acceptance): receiving writes exactly one journal fact.
+        expect(rawLines.some((event) => event.type === "bundle.stage_changed")).toBe(false);
+      }),
+    );
+  });
 });
 
 describe("hashReceivedCrate", () => {

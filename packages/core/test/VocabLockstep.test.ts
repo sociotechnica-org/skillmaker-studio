@@ -25,9 +25,11 @@ import * as viewer from "../../viewer/src/app/runtime/schemas.ts";
 import {
   FieldReportOutcome,
   IntakeRights,
+  IntakeStakes,
   RouteDisposition,
   RunVerdict,
 } from "../src/Journal.ts";
+import { TRIAGE_STAKES_VALUES } from "../src/Triage.ts";
 import { STAGES } from "../src/Machine.ts";
 import { VERDICT_DISPOSITIONS } from "../src/Receive.ts";
 import { DISPOSITIONS } from "../src/Route.ts";
@@ -57,6 +59,11 @@ describe("core <-> viewer mirrors", () => {
 
   test("intake rights agree", () => {
     expect(literalsOf(viewer.IntakeRights)).toEqual(literalsOf(IntakeRights));
+  });
+
+  test("intake stakes agree (issue #108) -- and Triage's derived list matches the one canonical schema", () => {
+    expect(literalsOf(viewer.IntakeStakes)).toEqual(literalsOf(IntakeStakes));
+    expect([...TRIAGE_STAKES_VALUES] as ReadonlyArray<unknown>).toEqual(literalsOf(IntakeStakes));
   });
 
   test("run verdicts agree", () => {

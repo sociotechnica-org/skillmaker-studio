@@ -36,14 +36,24 @@ export type DossierSectionName = (typeof DOSSIER_SECTIONS)[number];
  * singular, contexts plural" -- any number of named contracts on the one
  * job). `body` is free prose, not parsed into handoff-in/downstream-reads/
  * environment/stakes sub-fields -- those are the maker's own words under a
- * named `### <context>` heading, not another structured record (this issue
- * adds only the field + scanner tolerance, not per-context coverage
- * display -- there is nothing downstream that needs `body` split further
- * yet).
+ * named `### <context>` heading, not another structured record.
+ *
+ * `upstream`/`downstream`/`hands` (issue #108, data-model draft's
+ * "neighborhood claims") are the three structured handoff CLAIMS a context
+ * may carry -- a bundle slug when the neighbor is local, honest free text
+ * otherwise. Claims, not topology: no resolution, no dependency graph, no
+ * resolver anywhere -- a stale claim is one wrong card sentence, not a
+ * corrupt query. Wire format inside the `### <context>` block: labeled
+ * lines `Upstream: <text>` / `Downstream: <text>` / `Hands: <text>`
+ * (case-insensitive, each optional, any order); any line NOT matching one
+ * of those labels stays in `body`. Absent = unclaimed = honest gap.
  */
 export interface DossierContext {
   readonly name: string;
   readonly body: string;
+  readonly upstream?: string;
+  readonly downstream?: string;
+  readonly hands?: string;
 }
 
 /** A heading this scanner doesn't recognize -- preserved (named + its body kept) rather than silently dropped, so a maker-added section survives being scanned even though nothing here knows what to do with it yet. */
@@ -112,10 +122,47 @@ const collectSections = (
 const collectH2Sections = (body: string): ReadonlyArray<RawSection> =>
   collectSections(body, /^##\s+(.+?)\s*$/).sections;
 
+/** The three handoff-claim labels a context block may lead with (issue #108) -- matched case-insensitively, whole label + colon, so free prose like "Downstream reads: ..." (a different label) is untouched. */
+const CONTEXT_CLAIM_PATTERN = /^(upstream|downstream|hands):\s*(.*)$/i;
+
+type ContextClaimKey = "upstream" | "downstream" | "hands";
+
+/**
+ * Pulls the labeled handoff-claim lines (issue #108) out of one context
+ * block's comment-stripped text; every other line stays in `body`
+ * verbatim-order. Tolerant: first occurrence of a label wins (a duplicate
+ * stays in the prose rather than clobbering the claim), an empty-valued
+ * label line claims nothing, and a dossier written before #108 -- no
+ * labeled lines at all -- parses exactly as before, every claim an honest
+ * gap.
+ */
+const splitContextClaims = (
+  text: string,
+): { readonly body: string; readonly claims: { readonly [K in ContextClaimKey]?: string } } => {
+  const claims: { -readonly [K in ContextClaimKey]?: string } = {};
+  const bodyLines: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = CONTEXT_CLAIM_PATTERN.exec(line.trim());
+    if (match !== null && match[1] !== undefined) {
+      const key = match[1].toLowerCase() as ContextClaimKey;
+      const value = (match[2] ?? "").trim();
+      if (claims[key] === undefined && value.length > 0) {
+        claims[key] = value;
+        continue;
+      }
+    }
+    bodyLines.push(line);
+  }
+  return { body: bodyLines.join("\n").trim(), claims };
+};
+
 /** Splits a `## Contexts` section's body into named `### <context>` subsections. Tolerant: text before the first H3, or a body with no H3 at all, produces a warning rather than a dropped/misattributed context. */
 const collectH3Contexts = (body: string, warnings: string[]): ReadonlyArray<DossierContext> => {
   const { preamble, sections } = collectSections(body, /^###\s+(.+?)\s*$/);
-  const contexts = sections.map((section) => ({ name: section.heading, body: stripComments(section.body) }));
+  const contexts = sections.map((section) => {
+    const { body: contextBody, claims } = splitContextClaims(stripComments(section.body));
+    return { name: section.heading, body: contextBody, ...claims };
+  });
 
   if (contexts.length === 0 && stripComments(preamble).length > 0) {
     warnings.push(
@@ -224,23 +271,25 @@ export const parseDossier = Effect.fn("Dossier.parseDossier")(function* (dossier
  * "unanswered fields display as honest gaps" law; the scaffold must produce
  * a true gap (zero contexts) until a maker names one.
  *
- * Deliberately does NOT seed from the triage manifest's `stakes` answer
- * (issue #94 judgment call): `Triage.ts`'s `composeReceiveNotes` already
- * folds `stakes` into the free-text `notes` on the *received* event, mixed
- * with `hurts` in one joined string -- there is no clean, always-present
- * seam to pull a structured "aside"/"load-bearing" value back out of that
- * prose without either mis-parsing it or fabricating structure the ledger
- * never recorded. `dossier.md` is also scaffolded from two OTHER call sites
- * (`skillmaker new`, plain `adopt`'s sweep) that never see a triage row at
- * all, so a manifest-only seed would be inconsistent across the three
- * scaffolders besides. Every scaffold writes the same honest-empty template;
- * stakes stays exactly where it already lives (the received event's notes),
- * never forced into a second, less honest home.
+ * SEEDING (issue #108, superseding issue #94's earlier no-seed judgment
+ * call): the triage manifest is now the card's batch form, and its
+ * `Job`/`Out-of-scope`/`Basis` answers are structured card fields -- not
+ * prose flattened into the received event's `notes` (that flattening, the
+ * old `composeReceiveNotes`, is gone; there is no longer any mis-parseable
+ * seam involved). So a caller that HAS those answers (`Triage.ts`'s
+ * `executeManifestRow`, on its adopt path) passes them as `seed`, and the
+ * skeleton renders each answered section's text in place of its comment
+ * hint. The other scaffolders (`skillmaker new`, plain `adopt`'s sweep,
+ * `Route.ts`'s doors) pass no seed and write the honest-empty template
+ * exactly as before. Seeding NEVER touches an existing file -- the
+ * never-clobber check below runs first, so a seed only ever lands in a
+ * dossier this very call creates.
  */
 export const writeDossierScaffold = Effect.fn("Dossier.writeDossierScaffold")(function* (
   dir: string,
   slug: string,
   name: string,
+  seed?: DossierSeed,
 ) {
   const fs = yield* FileSystem;
   const dossierPath = `${dir}/dossier.md`;
@@ -253,18 +302,29 @@ export const writeDossierScaffold = Effect.fn("Dossier.writeDossierScaffold")(fu
     return;
   }
   yield* fs
-    .writeFileString(dossierPath, dossierSkeleton(slug, name))
+    .writeFileString(dossierPath, dossierSkeleton(slug, name, seed))
     .pipe(Effect.mapError(toIOError(`could not write ${dossierPath}`)));
 });
 
-const dossierSkeleton = (slug: string, name: string): string =>
+/** Card answers to seed into a freshly scaffolded dossier (issue #108): the triage manifest's `Job`/`Out-of-scope`/`Basis` columns. Absent/blank = not asked = the section keeps its comment hint and reads back as an honest gap. */
+export interface DossierSeed {
+  readonly job?: string;
+  readonly outOfScope?: string;
+  readonly basis?: string;
+}
+
+/** One seeded-or-hinted section body: the seed's text when answered, the scaffold comment hint otherwise (which strips back to an honest gap at parse time). */
+const seededSection = (seed: string | undefined, hint: string): string =>
+  seed !== undefined && seed.trim().length > 0 ? seed.trim() : hint;
+
+const dossierSkeleton = (slug: string, name: string, seed: DossierSeed = {}): string =>
   `---
 bundle: ${slug}
 ---
 # Dossier — ${name}
 
 ## Job
-<!-- One line: what does this skill do? -->
+${seededSection(seed.job, "<!-- One line: what does this skill do? -->")}
 
 ## Contexts
 <!-- Any number of named contexts this skill runs in -- a chain position, an
@@ -274,9 +334,15 @@ bundle: ${slug}
      context, name it with a heading and describe its handoff-in (what it
      receives from upstream), what downstream actually reads from its output,
      environment notes (multi-turn? tools alongside? human review before it
-     ships?), and stakes (aside | load-bearing). Example shape:
+     ships?), and stakes (aside | load-bearing). Optional leading labeled
+     lines record handoff CLAIMS (issue #108) -- a bundle slug when the
+     neighbor is local, honest free text otherwise; claims, never a
+     dependency graph. Example shape:
 
      ### <context name>
+     Upstream: <bundle-slug or free text -- what hands work TO this skill>
+     Downstream: <bundle-slug or free text -- what reads this skill's output>
+     Hands: <bundle-slug or free text -- who/what runs it>
      Handoff-in: ...
      Downstream reads: ...
      Environment: ...
@@ -284,12 +350,12 @@ bundle: ${slug}
 -->
 
 ## Out-of-scope
-<!-- Paired with Job (Model Cards): what should this explicitly NOT be used
-     for? -->
+${seededSection(seed.outOfScope, `<!-- Paired with Job (Model Cards): what should this explicitly NOT be used
+     for? -->`)}
 
 ## Basis
-<!-- A named framework, or someone's way of doing it -- record who, so an
-     ambiguous case has a source of truth to ask. -->
+${seededSection(seed.basis, `<!-- A named framework, or someone's way of doing it -- record who, so an
+     ambiguous case has a source of truth to ask. -->`)}
 
 ## Evidence
 <!-- Does performance data exist? Where does it live? Do we have permission to

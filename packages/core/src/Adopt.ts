@@ -25,7 +25,7 @@ import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
-import { writeDossierScaffold } from "./Dossier.ts";
+import { writeDossierScaffold, type DossierSeed } from "./Dossier.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { classifyIntakeEvidence, type IntakeEvidence, type IntakeRegistry } from "./Receive.ts";
 import { ADOPT_EXCLUDED_NAMES, ADOPT_MARKER_FILENAME, hashOutputTree, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
@@ -443,6 +443,8 @@ export interface AdoptDirectoryInput {
   readonly upstream?: AdoptDirectoryUpstream;
   /** `route --as fork`'s parent link (issue #91): the existing bundle this one was forked from, recorded on the marker as `forkOf`. */
   readonly forkOf?: string;
+  /** Card answers for the dossier scaffold (issue #108): the triage manifest's `Job`/`Out-of-scope`/`Basis` columns, passed only by `Triage.ts`'s `executeManifestRow`. Only ever lands in a dossier this adopt itself creates -- `writeDossierScaffold` never clobbers an existing file. */
+  readonly dossierSeed?: DossierSeed;
 }
 
 export interface AdoptDirectoryResult {
@@ -526,7 +528,7 @@ export const adoptDirectoryInPlace = Effect.fn("Adopt.adoptDirectoryInPlace")(fu
   // means all three scaffold it identically, with no separate copy in any
   // of the three callers. Never clobbers an existing `dossier.md` (a
   // foreign arrival, or a re-adopt, may already carry one).
-  yield* writeDossierScaffold(input.dir, slug, identity.name);
+  yield* writeDossierScaffold(input.dir, slug, identity.name, input.dossierSeed);
 
   return {
     slug,

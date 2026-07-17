@@ -157,9 +157,19 @@ export interface OpenTodoFromIntakeResult {
   readonly todo: Todo;
 }
 
-/** `detail`'s default (issue #91): the crate's recorded notes/source/claim, the closest analogue to a field report's prose a `skill.received` event carries. */
+/** `detail`'s default (issue #91): the crate's recorded testimony/source/claim, the closest analogue to a field report's prose a `skill.received` event carries. Structured `stakes`/`hurts` (issue #108) surface first when present; an old crate's flattened `notes` prose still shows verbatim, never re-parsed. */
 const defaultIntakeDetail = (payload: SkillReceivedEvent["payload"]): string => {
-  const lines = [payload.notes ?? "(no notes recorded at intake)"];
+  const testimony: string[] = [];
+  if (payload.hurts !== undefined) {
+    testimony.push(`Hurts: ${payload.hurts}`);
+  }
+  if (payload.stakes !== undefined) {
+    testimony.push(`Stakes: ${payload.stakes}`);
+  }
+  if (payload.notes !== undefined) {
+    testimony.push(payload.notes);
+  }
+  const lines = [testimony.length > 0 ? testimony.join("\n") : "(no notes recorded at intake)"];
   lines.push(`Source: ${payload.source}`);
   if (payload.claimedName !== undefined) {
     lines.push(`Claimed name: ${payload.claimedName}`);

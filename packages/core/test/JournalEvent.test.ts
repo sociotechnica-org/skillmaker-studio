@@ -177,6 +177,54 @@ describe("JournalEvent schema round-trip", () => {
     expect(decoded.type).toBe("skill.received");
   });
 
+  test("skill.received decodes structured stakes/hurts (issue #108) and re-encodes them intact", async () => {
+    const sample = {
+      ...envelope("skill.received"),
+      payload: {
+        intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FB0",
+        source: "colleague",
+        stakes: "load-bearing",
+        hurts: "breaks weekly in prod",
+      },
+    };
+    const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(sample));
+    expect(decoded.type).toBe("skill.received");
+    const encoded = (await Effect.runPromise(Schema.encodeEffect(JournalEvent)(decoded))) as {
+      payload: Record<string, unknown>;
+    };
+    expect(encoded.payload.stakes).toBe("load-bearing");
+    expect(encoded.payload.hurts).toBe("breaks weekly in prod");
+  });
+
+  test("a pre-#108 skill.received with stakes/hurts flattened into notes still decodes unchanged -- additive optional, no read shim, no schemaVersion bump", async () => {
+    const old = {
+      ...envelope("skill.received"),
+      payload: {
+        intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FB1",
+        source: "outside",
+        notes: "stakes: load-bearing — check licensing",
+      },
+    };
+    const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(old));
+    expect(decoded.type).toBe("skill.received");
+    if (decoded.type === "skill.received") {
+      // The prose stays prose (never re-parsed into structure); the
+      // structured fields honestly read as not-asked.
+      expect(decoded.payload.notes).toBe("stakes: load-bearing — check licensing");
+      expect(decoded.payload.stakes).toBeUndefined();
+      expect(decoded.payload.hurts).toBeUndefined();
+    }
+  });
+
+  test("skill.received rejects stakes outside aside/load-bearing (issue #108)", async () => {
+    const bad = {
+      ...envelope("skill.received"),
+      payload: { intake: "in-01ARZ3NDEKTSV4RRFFQ69G5FB2", source: "unknown", stakes: "critical" },
+    };
+    const outcome = await Effect.runPromiseExit(Schema.decodeUnknownEffect(JournalEvent)(bad));
+    expect(outcome._tag).toBe("Failure");
+  });
+
   test("skill.received rejects rights outside ours/licensed/unclear", async () => {
     const bad = {
       ...envelope("skill.received"),
