@@ -77,11 +77,7 @@ const TodoOriginLegacyWire = Schema.Struct({
 });
 
 /** Every origin shape a journal event may carry: the two current shapes, plus the retired `ref` overload. */
-const TodoOriginWire = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("field-report"), eventId: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("intake"), intakeId: Schema.String }),
-  TodoOriginLegacyWire,
-]);
+const TodoOriginWire = Schema.Union([TodoOriginFieldReport, TodoOriginIntake, TodoOriginLegacyWire]);
 
 /**
  * READ SHIM (2026-07-17 data-model reconciliation, ruling R2). The journal

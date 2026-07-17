@@ -423,8 +423,8 @@ export type TodoOriginView = typeof TodoOriginView.Type;
  * construction.
  */
 const TodoOriginViewWire = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("field-report"), eventId: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("intake"), intakeId: Schema.String }),
+  TodoOriginFieldReportView,
+  TodoOriginIntakeView,
   Schema.Struct({ kind: Schema.Literals(["field-report", "intake"]), ref: Schema.String }),
 ]);
 
