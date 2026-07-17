@@ -63,7 +63,7 @@ interface TodoView {
   readonly title: string;
   readonly priority: number;
   readonly bundle?: string;
-  readonly archived: boolean;
+  readonly swept: boolean;
 }
 
 const cliTodoList = (extraArgs: ReadonlyArray<string> = []): ReadonlyArray<TodoView> => {
@@ -171,7 +171,7 @@ describe("skillmaker CLI end-to-end: Phase 5 (baked-in todos)", () => {
     expect(task?.priority).toBe(30);
   });
 
-  test("marking the bug done keeps it visible (not archived yet -- 7-day window)", () => {
+  test("marking the bug done keeps it visible (not swept yet -- 7-day window)", () => {
     const done = runCli(["todo", "done", bugId, "--json"], scratchDir);
     expect(done.exitCode).toBe(0);
     expect((JSON.parse(done.stdout) as { status: string }).status).toBe("changed");
@@ -180,7 +180,7 @@ describe("skillmaker CLI end-to-end: Phase 5 (baked-in todos)", () => {
     const bug = todos.find((t) => t.id === bugId);
     expect(bug).toBeDefined();
     expect(bug?.status).toBe("done");
-    expect(bug?.archived).toBe(false);
+    expect(bug?.swept).toBe(false);
   });
 
   test("reopen then done again round-trips status", () => {

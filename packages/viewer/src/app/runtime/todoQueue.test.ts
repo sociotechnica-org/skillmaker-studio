@@ -8,7 +8,7 @@ const todo = (overrides: Partial<TodoRecord> & { id: string }): TodoRecord => ({
   title: overrides.id,
   priority: 30,
   created: "2026-01-01",
-  archived: false,
+  swept: false,
   source: { kind: "user", name: "viewer" },
   ...overrides,
 });

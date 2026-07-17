@@ -194,25 +194,25 @@ describe("adoptWorkspace: discovery", () => {
 });
 
 describe("adoptWorkspace: lifecycle from pathnames", () => {
-  test("deprecated/ maps to archived lifecycle", async () => {
+  test("deprecated/ maps to the deprecated lifecycle", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
         yield* write(dir, "skills/deprecated/old-thing/SKILL.md", skillMd("old-thing"));
 
         const report = yield* adoptWorkspace(dir);
-        expect(report.adopted[0]?.lifecycle).toBe("archived");
+        expect(report.adopted[0]?.lifecycle).toBe("deprecated");
       }),
     );
   });
 
-  test("in-progress/ maps to idea lifecycle with a warning note", async () => {
+  test("in-progress/ maps to the in-progress lifecycle with a warning note", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
         yield* write(dir, "skills/in-progress/half-baked/SKILL.md", skillMd("half-baked"));
 
         const report = yield* adoptWorkspace(dir);
         const skill = report.adopted[0];
-        expect(skill?.lifecycle).toBe("idea");
+        expect(skill?.lifecycle).toBe("in-progress");
         expect(skill?.warnings.some((w) => w.includes("in-progress"))).toBe(true);
       }),
     );

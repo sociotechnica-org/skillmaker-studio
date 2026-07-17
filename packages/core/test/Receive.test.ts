@@ -11,7 +11,7 @@ import {
   classifyIntakeEvidence,
   deriveIntakeVerdict,
   hashReceivedCrate,
-  listUndisposedIntake,
+  listUndisposedCrates,
   newIntakeId,
   receiveCrate,
   type IntakeRegistry,
@@ -132,13 +132,13 @@ describe("classifyIntakeEvidence: the adopt tripwire / triage manifest's registr
   });
 });
 
-describe("listUndisposedIntake", () => {
+describe("listUndisposedCrates", () => {
   test("every received crate with no skill.routed pointing at it is undisposed", () => {
     const events = [
       receivedEvent("in-1", "2026-07-01T00:00:00.000Z"),
       receivedEvent("in-2", "2026-07-02T00:00:00.000Z"),
     ];
-    const undisposed = listUndisposedIntake(events);
+    const undisposed = listUndisposedCrates(events);
     expect(undisposed.map((event) => event.payload.intake)).toEqual(["in-1", "in-2"]);
   });
 
@@ -148,7 +148,7 @@ describe("listUndisposedIntake", () => {
       receivedEvent("in-2", "2026-07-02T00:00:00.000Z"),
       routedEvent("in-1", "2026-07-03T00:00:00.000Z"),
     ];
-    const undisposed = listUndisposedIntake(events);
+    const undisposed = listUndisposedCrates(events);
     expect(undisposed.map((event) => event.payload.intake)).toEqual(["in-2"]);
   });
 
@@ -157,7 +157,7 @@ describe("listUndisposedIntake", () => {
       receivedEvent("in-1", "2026-07-01T00:00:00.000Z"),
       routedEvent("in-1", "2026-07-02T00:00:00.000Z", "salvage"),
     ];
-    expect(listUndisposedIntake(events)).toEqual([]);
+    expect(listUndisposedCrates(events)).toEqual([]);
   });
 
   test("ignores non-skill.received events entirely", () => {
@@ -172,7 +172,7 @@ describe("listUndisposedIntake", () => {
       } as unknown as JournalEvent,
       receivedEvent("in-1", "2026-07-02T00:00:00.000Z"),
     ];
-    expect(listUndisposedIntake(events).map((event) => event.payload.intake)).toEqual(["in-1"]);
+    expect(listUndisposedCrates(events).map((event) => event.payload.intake)).toEqual(["in-1"]);
   });
 });
 

@@ -246,13 +246,13 @@ export const VERDICT_DISPOSITIONS: Readonly<Record<IntakeVerdict, ReadonlyArray<
  * `Journal.ts`'s union yet, so this read `event.type` as a plain string
  * against a hard-coded `"skill.routed"` literal the union didn't carry --
  * now that `SkillRoutedEvent` is a real member, the filter below narrows on
- * it directly, no cast required. An intake routed `salvage` counts as
+ * it directly, no cast required. A crate routed `salvage` counts as
  * disposed exactly like every other disposition: "In Receiving" is the
  * place (undisposed, until a human routes it), not a judgment about which
  * way it was routed -- salvage's crate stays physically at
  * `receiving/<intake-id>/` as evidence, but it leaves THIS list.
  */
-export const listUndisposedIntake = (
+export const listUndisposedCrates = (
   events: ReadonlyArray<JournalEvent>,
 ): ReadonlyArray<SkillReceivedEvent> => {
   const routedIntakeIds = new Set<string>();

@@ -3,7 +3,7 @@
  * #91, `Mechanism - Receiving Dock.md` §HOW): "the review.requested/
  * review.resolved pairing applied to cargo." An undisposed crate is a
  * `skill.received` with no `skill.routed` pointing at it (`Receive.ts`'s
- * `listUndisposedIntake`); `routeCrate` is the routing engine that closes
+ * `listUndisposedCrates`); `routeCrate` is the routing engine that closes
  * that loop -- one function per disposition below, each mapping to existing
  * primitives rather than reimplementing them:
  *
@@ -24,7 +24,7 @@
  *    the dock, un-accessioned, retained as evidence. Only the routing fact
  *    is appended.
  *
- * Idempotency (issue #91): re-routing an already-routed intake with the
+ * Idempotency (issue #91): re-routing an already-routed crate with the
  * IDENTICAL disposition is a no-op (`alreadyRouted: true`, no new event);
  * a different disposition is `RouteAlreadyRoutedError`. This guard reads the
  * fold (a `find` over `events`), the same "guard reads the journal, not a
@@ -113,7 +113,7 @@ export interface RouteCrateResult {
   readonly intake: string;
   readonly disposition: RouteDisposition;
   readonly bundle?: string;
-  /** `true` when this call was a no-op repeat of an already-routed intake with the identical disposition. */
+  /** `true` when this call was a no-op repeat of an already-routed crate with the identical disposition. */
   readonly alreadyRouted: boolean;
   /** `new`/`fork`: the newly minted slug (equal to `bundle` above -- restated for callers that only care about this branch). */
   readonly slug?: string;

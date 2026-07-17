@@ -4,8 +4,8 @@
  * bundles -- no I/O, never rejects an event, unrelated event types are
  * ignored.
  *
- * `archived` is deliberately NOT computed here: it depends on wall-clock
- * "now", which would make this fold impure. `isArchived` is exported
+ * `swept` is deliberately NOT computed here: it depends on wall-clock
+ * "now", which would make this fold impure. `isSwept` is exported
  * separately and takes `now` as an explicit parameter -- callers (the index
  * rebuild, the CLI, the server) decide when to evaluate it.
  */
@@ -25,8 +25,8 @@ export const DEFAULT_PRIORITY_BY_KIND: Readonly<Record<TodoKind, number>> = {
   task: 30,
 };
 
-/** [inherited window]: terminal + archived once `terminalAt` is this many days old. */
-export const ARCHIVE_WINDOW_DAYS = 7;
+/** [inherited window]: terminal + swept once `terminalAt` is this many days old. */
+export const SWEEP_WINDOW_DAYS = 7;
 
 /** The `YYYY-MM-DD` portion of an ISO timestamp, for `terminalAt` stamping. */
 export const isoDateOnly = (isoTimestamp: string): string => isoTimestamp.slice(0, 10);
@@ -119,11 +119,11 @@ export const foldTodos = (events: ReadonlyArray<JournalEvent>): ReadonlyMap<stri
 };
 
 /**
- * `archived` (data-model.md §2.10): derived, never stored in the journal.
+ * `swept` (data-model.md §2.10): derived, never stored in the journal.
  * True when the todo is terminal, has a `terminalAt` at least
- * `ARCHIVE_WINDOW_DAYS` days before `now`, and is not pinned.
+ * `SWEEP_WINDOW_DAYS` days before `now`, and is not pinned.
  */
-export const isArchived = (todo: Todo, now: Date): boolean => {
+export const isSwept = (todo: Todo, now: Date): boolean => {
   if (!isTerminalStatus(todo.status)) {
     return false;
   }
@@ -138,7 +138,7 @@ export const isArchived = (todo: Todo, now: Date): boolean => {
     return false;
   }
   const ageDays = (now.getTime() - terminalAtMs) / (24 * 60 * 60 * 1000);
-  return ageDays >= ARCHIVE_WINDOW_DAYS;
+  return ageDays >= SWEEP_WINDOW_DAYS;
 };
 
 /**

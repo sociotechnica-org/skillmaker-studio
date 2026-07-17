@@ -124,11 +124,11 @@ export const runRoute = Effect.fn("runRoute")(function* (
   );
 
   if (outcome.kind === "intake_not_found") {
-    return expectedFailure(`skillmaker route: no such intake "${outcome.intake}"\n`);
+    return expectedFailure(`skillmaker route: no crate with intake id "${outcome.intake}"\n`);
   }
   if (outcome.kind === "already_routed") {
     return expectedFailure(
-      `skillmaker route: intake "${intake}" was already routed as "${outcome.existingDisposition}" -- cannot also route it as "${outcome.attemptedDisposition}"\n`,
+      `skillmaker route: crate "${intake}" was already routed as "${outcome.existingDisposition}" -- cannot also route it as "${outcome.attemptedDisposition}"\n`,
     );
   }
   if (outcome.kind === "bundle_not_found") {
@@ -136,7 +136,7 @@ export const runRoute = Effect.fn("runRoute")(function* (
   }
   if (outcome.kind === "no_hash_match") {
     return expectedFailure(
-      `skillmaker route: intake "${intake}"'s content does not match any recorded version of "${outcome.bundle}" -- "return" requires a hash match\n`,
+      `skillmaker route: crate "${intake}"'s content does not match any recorded version of "${outcome.bundle}" -- "return" requires a hash match\n`,
     );
   }
   if (outcome.kind === "slug_collision") {
@@ -175,7 +175,7 @@ const summarize = (intake: string, result: RouteCrateResult, json: boolean): Cli
   }
 
   if (result.alreadyRouted) {
-    return ok(`skillmaker: intake ${intake} was already routed as "${result.disposition}" (no-op)\n`);
+    return ok(`skillmaker: crate ${intake} was already routed as "${result.disposition}" (no-op)\n`);
   }
 
   const bundleText = result.bundle !== undefined ? ` -- bundle: ${result.bundle}` : "";
@@ -183,5 +183,5 @@ const summarize = (intake: string, result: RouteCrateResult, json: boolean): Cli
   const advisory = outsideOfferedDoors(result)
     ? `note: the crate's verdict is "${result.verdict}" and its offered doors are ${(result.offered ?? []).join(", ")} -- routed as "${result.disposition}" anyway; your reason is on the record\n`
     : "";
-  return ok(`skillmaker: routed intake ${intake} as "${result.disposition}"${bundleText}${parentText}\n${advisory}`);
+  return ok(`skillmaker: routed crate ${intake} as "${result.disposition}"${bundleText}${parentText}\n${advisory}`);
 };

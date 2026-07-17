@@ -269,7 +269,7 @@ export const runTodoList = Effect.fn("runTodoList")(function* (
       yield* index.rebuild();
       return yield* index.listTodos({
         ...(options.bundle !== undefined ? { bundle: options.bundle } : {}),
-        includeArchived: options.all,
+        includeSwept: options.all,
       });
     }).pipe(Effect.provide(IndexServiceLayer(resolved.root))),
   );

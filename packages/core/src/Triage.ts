@@ -689,7 +689,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
     // enters archived. `row.path` is stored forward-slash; rejoin with the
     // platform separator before the segment check.
     const { lifecycle } = lifecycleFromPath(row.path.split("/").join(sep));
-    const isArchived = row.decision === "archive" || lifecycle === "archived";
+    const isArchived = row.decision === "archive" || lifecycle === "deprecated";
     if (isArchived) {
       yield* journal.append({
         type: "bundle.archived",

@@ -110,8 +110,8 @@ Options:
                     (route) --as return/upgrade: the existing bundle routed against (required); --as new/fork: optional slug override for the minted bundle; --as salvage: optional bundle being defended
   --detail <text>   (todo add) free-text detail
   --priority <n>    (todo add) lower = more urgent; defaults by kind
-  --pin             (todo add) pin the todo (exempt from auto-archive)
-  --all             (todo list) include archived todos
+  --pin             (todo add) pin the todo (exempt from the sweep)
+  --all             (todo list) include swept todos
   --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
                     (fixture harvest) same enum; defaults to hard-case
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
