@@ -24,6 +24,7 @@
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { WorkspaceIOError } from "./Errors.ts";
+import { normalizeLabel } from "./MarkdownTable.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
@@ -127,6 +128,8 @@ const CONTEXT_CLAIM_PATTERN = /^(upstream|downstream|hands):\s*(.*)$/i;
 
 type ContextClaimKey = "upstream" | "downstream" | "hands";
 
+type ContextClaims = Partial<Record<ContextClaimKey, string>>;
+
 /**
  * Pulls the labeled handoff-claim lines (issue #108) out of one context
  * block's comment-stripped text; every other line stays in `body`
@@ -136,10 +139,8 @@ type ContextClaimKey = "upstream" | "downstream" | "hands";
  * labeled lines at all -- parses exactly as before, every claim an honest
  * gap.
  */
-const splitContextClaims = (
-  text: string,
-): { readonly body: string; readonly claims: { readonly [K in ContextClaimKey]?: string } } => {
-  const claims: { -readonly [K in ContextClaimKey]?: string } = {};
+const splitContextClaims = (text: string): { readonly body: string; readonly claims: ContextClaims } => {
+  const claims: ContextClaims = {};
   const bodyLines: string[] = [];
   for (const line of text.split(/\r?\n/)) {
     const match = CONTEXT_CLAIM_PATTERN.exec(line.trim());
@@ -173,7 +174,8 @@ const collectH3Contexts = (body: string, warnings: string[]): ReadonlyArray<Doss
   return contexts;
 };
 
-const normalizeHeading = (heading: string): string => heading.trim().toLowerCase();
+/** The same trim+lowercase fold `MarkdownTable.ts` uses for column names -- one normalizer, shared (dossier section headings and table column labels want identical loose matching). */
+const normalizeHeading = normalizeLabel;
 
 /** The `DossierSections` keys for the five free-prose sections -- everything but `contexts`, whose H3 sub-structure needs its own collector. */
 type ProseSectionKey = Exclude<keyof DossierSections, "contexts">;

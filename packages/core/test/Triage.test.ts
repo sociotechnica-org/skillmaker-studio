@@ -236,17 +236,18 @@ describe("parseManifest: old manifests with the retired Maturity column (issue #
 
 describe("deriveEntryStage: the system's own placement, from observables (issue #108)", () => {
   test("parses + complete -> evaluating (runnable output present; the remaining work is proving it)", () => {
-    expect(deriveEntryStage({ parses: true, complete: true, hasEvals: false })).toBe("evaluating");
-    // hasEvals plays no part -- evals are Proof-column work, not a further rung.
-    expect(deriveEntryStage({ parses: true, complete: true, hasEvals: true })).toBe("evaluating");
+    expect(deriveEntryStage({ parses: true, complete: true })).toBe("evaluating");
+    // hasEvals plays no part -- the parameter type omits it entirely, and a
+    // full MechanicalCondition (extra field and all) is still accepted.
+    expect(deriveEntryStage(fullCondition)).toBe("evaluating");
   });
 
   test("parses but incomplete -> drafting (skill text exists, identity doesn't)", () => {
-    expect(deriveEntryStage({ parses: true, complete: false, hasEvals: false })).toBe("drafting");
+    expect(deriveEntryStage({ parses: true, complete: false })).toBe("drafting");
   });
 
   test("does not parse -> idea", () => {
-    expect(deriveEntryStage({ parses: false, complete: false, hasEvals: false })).toBe("idea");
+    expect(deriveEntryStage({ parses: false, complete: false })).toBe("idea");
     expect(deriveEntryStage(bareCondition)).toBe("idea");
   });
 });

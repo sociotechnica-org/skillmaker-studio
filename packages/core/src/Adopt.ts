@@ -451,6 +451,8 @@ export interface AdoptDirectoryResult {
   readonly slug: string;
   readonly name: string;
   readonly generated: boolean;
+  /** The parsed frontmatter this adopt read identity from -- returned so a caller deriving further facts from the same `SKILL.md` (issue #108: `Triage.ts`'s entry-stage derivation needs name/description presence) reuses this parse instead of re-parsing the same string. */
+  readonly frontmatter: Frontmatter;
   /** Frontmatter-parse warnings only (nonstandard keys, missing block) -- lifecycle/generated-marker prose is the caller's own concern, same split `adoptWorkspace`'s loop already made before this was factored out. */
   readonly warnings: ReadonlyArray<string>;
 }
@@ -534,6 +536,7 @@ export const adoptDirectoryInPlace = Effect.fn("Adopt.adoptDirectoryInPlace")(fu
     slug,
     name: identity.name,
     generated,
+    frontmatter,
     warnings: frontmatterWarnings,
   } satisfies AdoptDirectoryResult;
 });

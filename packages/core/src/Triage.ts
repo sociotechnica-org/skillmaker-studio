@@ -37,7 +37,7 @@ import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import { IntakeStakes, type IntakeRights } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
-import { collectTableLines, splitTableCells } from "./MarkdownTable.ts";
+import { cellByName, collectTableLines, knownColumnLookup, resolveColumns, splitTableCells } from "./MarkdownTable.ts";
 import {
   classifyIntakeEvidence,
   gatherIntakeRegistry,
@@ -111,11 +111,13 @@ export const isTriageStakes = (value: string): value is TriageStakes =>
  *   a complete identity yet -- a draft, observably.
  * - otherwise -> `"idea"`: nothing runnable to point at.
  *
- * `hasEvals` deliberately plays no part: evals present is Proof-column
- * WORK already staged, not a further rung -- the entry column question is
- * only "is there runnable output" (draft L202).
+ * `hasEvals` deliberately plays no part -- the parameter type says so:
+ * evals present is Proof-column WORK already staged, not a further rung --
+ * the entry column question is only "is there runnable output" (draft
+ * L202). Narrowing to the two consulted facts also spares the caller
+ * `scanFixtures`' directory walk, which only ever answered `hasEvals`.
  */
-export const deriveEntryStage = (condition: MechanicalCondition): BundleStage => {
+export const deriveEntryStage = (condition: Pick<MechanicalCondition, "parses" | "complete">): BundleStage => {
   if (condition.parses && condition.complete) {
     return "evaluating";
   }
@@ -362,7 +364,24 @@ export const triageWorkspace = Effect.fn("Triage.triageWorkspace")(function* (
 // and the wording of what to tell the human are specific to this manifest).
 // ---------------------------------------------------------------------------
 
-const MANIFEST_HEADER = [
+type CardFieldKey = "job" | "outOfScope" | "basis";
+
+/**
+ * The card's free-text batch-form fields (issue #108): manifest column
+ * label -> `TriageRow` key. ONE declaration drives all four sites that
+ * know these fields -- the header, `renderManifest`'s row cells,
+ * `parseManifest`'s lookups, and the receive path's stranded-answer
+ * warning -- so a future card field is a one-place edit. The keys
+ * deliberately match `DossierSeed`'s: these answers are exactly what seeds
+ * the freshly adopted dossier.
+ */
+const CARD_FIELDS: ReadonlyArray<readonly [label: string, key: CardFieldKey]> = [
+  ["Job", "job"],
+  ["Out-of-scope", "outOfScope"],
+  ["Basis", "basis"],
+];
+
+const MANIFEST_HEADER: ReadonlyArray<string> = [
   "Name",
   "Path",
   "Mechanical Condition",
@@ -373,10 +392,11 @@ const MANIFEST_HEADER = [
   "Stakes",
   "Hurts",
   "Priority",
-  "Job",
-  "Out-of-scope",
-  "Basis",
-] as const;
+  ...CARD_FIELDS.map(([label]) => label),
+];
+
+/** The normalized-known-columns lookup for `resolveColumns` -- built once here at module scope, never per parse (the schema is static; only a file's header varies). */
+const KNOWN_MANIFEST_COLUMNS = knownColumnLookup(MANIFEST_HEADER);
 
 const escapeCell = (value: string): string => value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 
@@ -414,9 +434,7 @@ export const renderManifest = (rows: ReadonlyArray<TriageRow>): string => {
         row.stakes ?? "",
         row.hurts ?? "",
         row.priority !== undefined ? String(row.priority) : "",
-        row.job ?? "",
-        row.outOfScope ?? "",
-        row.basis ?? "",
+        ...CARD_FIELDS.map(([, key]) => row[key] ?? ""),
       ]
         .map(escapeCell)
         .join(" | ")} |`,
@@ -468,8 +486,6 @@ const parseEnumCell = <T extends string>(
   return fallback;
 };
 
-const normalizeColumnName = (name: string): string => name.trim().toLowerCase();
-
 /**
  * Tolerant round-trip parse of `adopt-manifest.md` (house pattern:
  * `RiskMap.ts`'s markdown-table parser). Deferral defaults, never a false
@@ -480,10 +496,10 @@ const normalizeColumnName = (name: string): string => name.trim().toLowerCase();
  * `undefined` when blank -- blank is a legitimate answer (not asked = honest
  * gap, issue #108), not a defect to paper over.
  *
- * Columns are resolved BY HEADER NAME, not position (issue #108): the
- * shared `MarkdownTable.ts` machinery hands back the header line verbatim,
- * and this parser maps each known column name to its index in THAT file's
- * own header. That is what makes an old manifest still read after the
+ * Columns are resolved BY HEADER NAME, not position (issue #108,
+ * `MarkdownTable.ts`'s `resolveColumns` against `KNOWN_MANIFEST_COLUMNS`):
+ * each known column name is mapped to its index in THAT file's own header.
+ * That is what makes an old manifest still read after the
  * column set changed: a pre-#108 manifest's retired `Maturity` column is
  * warned about ONCE ("ignoring unrecognized column") and its cells are
  * never read -- never preserved into execution, never a parse failure --
@@ -505,25 +521,12 @@ export const parseManifest = (content: string): ParseManifestResult => {
   const { header, dataLines } = collected;
 
   const headerCells = splitTableCells(header);
-  const knownColumns = new Map<string, string>(
-    MANIFEST_HEADER.map((column) => [normalizeColumnName(column), column]),
-  );
-  const columnIndex = new Map<string, number>();
-  for (let i = 0; i < headerCells.length; i++) {
-    const normalized = normalizeColumnName(headerCells[i] ?? "");
-    const known = knownColumns.get(normalized);
-    if (known === undefined) {
-      // Warn once per unknown column (e.g. the retired pre-#108 `Maturity`
-      // column), then ignore its cells entirely -- never read into
-      // execution, never a failure.
-      warnings.push(
-        `adopt-manifest.md: ignoring unrecognized column "${(headerCells[i] ?? "").trim()}" (its cells are not read)`,
-      );
-      continue;
-    }
-    if (!columnIndex.has(known)) {
-      columnIndex.set(known, i);
-    }
+  const { columnIndex, unknownColumns } = resolveColumns(headerCells, KNOWN_MANIFEST_COLUMNS);
+  for (const column of unknownColumns) {
+    // Warn once per unknown column (e.g. the retired pre-#108 `Maturity`
+    // column), then ignore its cells entirely -- never read into
+    // execution, never a failure.
+    warnings.push(`adopt-manifest.md: ignoring unrecognized column "${column}" (its cells are not read)`);
   }
 
   if (!columnIndex.has("Path")) {
@@ -541,10 +544,7 @@ export const parseManifest = (content: string): ParseManifestResult => {
       continue;
     }
     // A column absent from THIS file's header reads as blank (not asked).
-    const cell = (column: (typeof MANIFEST_HEADER)[number]): string => {
-      const index = columnIndex.get(column);
-      return index === undefined ? "" : cells[index] ?? "";
-    };
+    const cell = (column: string): string => cellByName(cells, columnIndex, column);
 
     const path = cell("Path").trim();
     if (path.length === 0) {
@@ -562,9 +562,13 @@ export const parseManifest = (content: string): ParseManifestResult => {
       return trimmed.length > 0 ? trimmed : undefined;
     };
     const hurts = freeText(cell("Hurts"));
-    const job = freeText(cell("Job"));
-    const outOfScope = freeText(cell("Out-of-scope"));
-    const basis = freeText(cell("Basis"));
+    const card: Partial<Record<CardFieldKey, string>> = {};
+    for (const [label, key] of CARD_FIELDS) {
+      const value = freeText(cell(label));
+      if (value !== undefined) {
+        card[key] = value;
+      }
+    }
 
     const priorityRaw = cell("Priority").trim();
     let priority: number | undefined;
@@ -588,9 +592,7 @@ export const parseManifest = (content: string): ParseManifestResult => {
       ...(stakes !== undefined ? { stakes } : {}),
       ...(hurts !== undefined ? { hurts } : {}),
       ...(priority !== undefined ? { priority } : {}),
-      ...(job !== undefined ? { job } : {}),
-      ...(outOfScope !== undefined ? { outOfScope } : {}),
-      ...(basis !== undefined ? { basis } : {}),
+      ...card,
     });
   }
 
@@ -658,26 +660,31 @@ const mintHurtsTodo = Effect.fn("Triage.mintHurtsTodo")(function* (
 
 /**
  * One `bundle.stage_changed` from `"idea"` to the DERIVED entry stage, when
- * past idea (issue #108, `deriveEntryStage`). The condition is recomputed
- * here from the directory as it observably stands at execution time --
+ * past idea (issue #108, `deriveEntryStage`). `parses`/`complete` come from
+ * the frontmatter parse `adoptDirectoryInPlace` just performed on the
+ * `SKILL.md` this very row read off disk -- observables at execution time,
  * never read back from the manifest's hand-editable Mechanical Condition
  * cell (machine columns are for a human's reference, not load-bearing for
  * execution; an entry stage must come from observables, not from a cell a
- * maker could have edited into testimony). NO `override` on the event: this
- * is not a human overriding the guard, it is the system's own placement at
- * birth -- the guard (`Machine.ts`'s `checkTransition`) is enforced at the
- * interactive write paths (`advance`, the server's POST allowlist), not
- * here.
+ * maker could have edited into testimony). No `scanFixtures` walk here:
+ * `deriveEntryStage` consults only these two facts (`hasEvals` plays no
+ * part), so the fixture scan would be wasted I/O over a tree
+ * `computeBundleHashes` is about to walk anyway. NO `override` on the
+ * event: this is not a human overriding the guard, it is the system's own
+ * placement at birth -- the guard (`Machine.ts`'s `checkTransition`) is
+ * enforced at the interactive write paths (`advance`, the server's POST
+ * allowlist), not here.
  */
 const advanceToDerivedEntryStage = Effect.fn("Triage.advanceToDerivedEntryStage")(function* (
   slug: string,
-  dir: string,
-  skillMdContent: string,
+  frontmatter: Frontmatter,
+  frontmatterWarnings: ReadonlyArray<string>,
   actor: Actor,
 ) {
-  const { data: frontmatter, warnings: frontmatterWarnings } = parseFrontmatter(skillMdContent);
-  const condition = yield* computeMechanicalCondition(dir, frontmatter, frontmatterWarnings);
-  const to = deriveEntryStage(condition);
+  const parses = !frontmatterWarnings.some((warning) => warning.includes(NO_FRONTMATTER_MARKER));
+  const complete =
+    stringField(frontmatter, "name") !== undefined && stringField(frontmatter, "description") !== undefined;
+  const to = deriveEntryStage({ parses, complete });
   if (to === "idea") {
     return;
   }
@@ -787,7 +794,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
         payload: { bundle: wrapped.slug },
       });
     } else {
-      yield* advanceToDerivedEntryStage(wrapped.slug, dir, skillMdContent, actor);
+      yield* advanceToDerivedEntryStage(wrapped.slug, wrapped.frontmatter, wrapped.warnings, actor);
     }
 
     const { designHash, outputHash } = yield* computeBundleHashes(dir, "in-place");
@@ -815,15 +822,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
   // nowhere to land until one of the five doors grants identity. Warn, never
   // fail (issue #108): the row still executes; the answers are just not
   // silently recorded anywhere.
-  const strandedCardAnswers = (
-    [
-      ["Job", row.job],
-      ["Out-of-scope", row.outOfScope],
-      ["Basis", row.basis],
-    ] as const
-  )
-    .filter(([, value]) => value !== undefined)
-    .map(([label]) => label);
+  const strandedCardAnswers = CARD_FIELDS.filter(([, key]) => row[key] !== undefined).map(([label]) => label);
   if (strandedCardAnswers.length > 0) {
     warnings.push(
       `adopt-manifest.md: row "${row.path}" answered ${strandedCardAnswers.join("/")} but routes to the dock -- a crate has no dossier, so these answers land nowhere until a door grants identity`,

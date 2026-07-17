@@ -19,6 +19,7 @@
  */
 import {
   Actor,
+  isTriageStakes,
   receiveCrate,
   JournalLayer,
   Workspace,
@@ -36,9 +37,6 @@ const RIGHTS_VALUES: ReadonlyArray<IntakeRights> = ["ours", "licensed", "unclear
 
 const isRights = (value: string): value is IntakeRights =>
   (RIGHTS_VALUES as ReadonlyArray<string>).includes(value);
-
-const isStakes = (value: string): value is IntakeStakes =>
-  (TRIAGE_STAKES_VALUES as ReadonlyArray<string>).includes(value);
 
 export interface ReceiveOptions {
   readonly json: boolean;
@@ -70,7 +68,7 @@ export const runReceive = Effect.fn("runReceive")(function* (
       `skillmaker receive: invalid --rights "${options.rights}" (expected one of ${RIGHTS_VALUES.join(", ")})\n\n${usage}`,
     );
   }
-  if (options.stakes !== undefined && !isStakes(options.stakes)) {
+  if (options.stakes !== undefined && !isTriageStakes(options.stakes)) {
     return usageError(
       `skillmaker receive: invalid --stakes "${options.stakes}" (expected one of ${TRIAGE_STAKES_VALUES.join(", ")})\n\n${usage}`,
     );
