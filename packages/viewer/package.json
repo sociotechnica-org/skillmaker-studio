@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
+    "sync:brand": "bun ../../scripts/sync-brand-assets.ts",
+    "dev": "bun run sync:brand && astro dev",
+    "build": "bun run sync:brand && astro build",
     "preview": "astro preview",
     "check": "astro check"
   },
