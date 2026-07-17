@@ -82,7 +82,7 @@ interface TodoJsonOutput {
     readonly detail?: string;
     readonly priority: number;
     readonly bundle?: string;
-    readonly origin?: { readonly kind: string; readonly ref: string };
+    readonly origin?: { readonly kind: string; readonly eventId: string };
   };
 }
 
@@ -229,7 +229,7 @@ describe("skillmaker todo add --from-report: happy path", () => {
     expect(json.todo.kind).toBe("bug");
     expect(json.todo.priority).toBe(10);
     expect(json.todo.detail).toBe("Broke on a repo with no package.json.\nDestination: acme-agent-fleet");
-    expect(json.todo.origin).toEqual({ kind: "field-report", ref: failedReportId });
+    expect(json.todo.origin).toEqual({ kind: "field-report", eventId: failedReportId });
   });
 
   test("every default is overridable via --kind/--bundle/--detail/--priority", () => {
@@ -254,7 +254,7 @@ describe("skillmaker todo add --from-report: happy path", () => {
     expect(json.todo.kind).toBe("improvement");
     expect(json.todo.priority).toBe(99);
     expect(json.todo.detail).toBe("Custom detail overriding the report text.");
-    expect(json.todo.origin).toEqual({ kind: "field-report", ref: surpriseReportId });
+    expect(json.todo.origin).toEqual({ kind: "field-report", eventId: surpriseReportId });
   });
 });
 
@@ -268,10 +268,10 @@ describe("skillmaker todo add --from-report: reindex + server surfaces the work 
     const listResult = runCli(["todo", "list", "--json"]);
     expect(listResult.exitCode).toBe(0);
     const listJson = JSON.parse(listResult.stdout) as {
-      todos: ReadonlyArray<{ readonly id: string; readonly origin?: { readonly kind: string; readonly ref: string } }>;
+      todos: ReadonlyArray<{ readonly id: string; readonly origin?: { readonly kind: string; readonly eventId: string } }>;
     };
-    const fromFailedReport = listJson.todos.find((todo) => todo.origin?.ref === failedReportId);
-    expect(fromFailedReport?.origin).toEqual({ kind: "field-report", ref: failedReportId });
+    const fromFailedReport = listJson.todos.find((todo) => todo.origin?.eventId === failedReportId);
+    expect(fromFailedReport?.origin).toEqual({ kind: "field-report", eventId: failedReportId });
   });
 
   beforeAll(async () => {
@@ -311,9 +311,9 @@ describe("skillmaker todo add --from-report: reindex + server surfaces the work 
     const response = await fetch(`${baseUrl}/api/todos`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      todos: ReadonlyArray<{ readonly title: string; readonly origin?: { readonly kind: string; readonly ref: string } }>;
+      todos: ReadonlyArray<{ readonly title: string; readonly origin?: { readonly kind: string; readonly eventId: string } }>;
     };
     const fromFailedReport = body.todos.find((todo) => todo.title === "Fix the missing package.json crash");
-    expect(fromFailedReport?.origin).toEqual({ kind: "field-report", ref: failedReportId });
+    expect(fromFailedReport?.origin).toEqual({ kind: "field-report", eventId: failedReportId });
   });
 });

@@ -345,8 +345,8 @@ describe("skillmaker route: route salvage -> fixture harvested from the crate ca
       "--json",
     ]);
     expect(result.exitCode).toBe(0);
-    const json = JSON.parse(result.stdout) as { todo: { origin?: { kind: string; ref: string } } };
-    expect(json.todo.origin).toEqual({ kind: "intake", ref: intake });
+    const json = JSON.parse(result.stdout) as { todo: { origin?: { kind: string; intakeId: string } } };
+    expect(json.todo.origin).toEqual({ kind: "intake", intakeId: intake });
   });
 });
 
