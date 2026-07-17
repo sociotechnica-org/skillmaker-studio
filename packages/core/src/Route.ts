@@ -49,7 +49,15 @@ import {
 import { layer as IndexServiceLayer } from "./IndexService.ts";
 import type { JournalEvent, RouteDisposition, SkillReceivedEvent, SkillRoutedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
-import { findReceivedEvent, gatherIntakeRegistry, hashReceivedCrate, type IntakeRegistry } from "./Receive.ts";
+import {
+  deriveIntakeVerdict,
+  findReceivedEvent,
+  gatherIntakeRegistry,
+  hashReceivedCrate,
+  VERDICT_DISPOSITIONS,
+  type IntakeRegistry,
+  type IntakeVerdict,
+} from "./Receive.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
   computeBundleHashes,
@@ -113,6 +121,10 @@ export interface RouteCrateResult {
   readonly parent?: string;
   /** `new`/`fork`/`upgrade`: the newly recorded version's output-tree hash. */
   readonly versionHash?: string;
+  /** The crate's dock verdict, recomputed at routing time. Absent on an `alreadyRouted` no-op (the early return skips the derivation). */
+  readonly verdict?: IntakeVerdict;
+  /** `VERDICT_DISPOSITIONS[verdict]` -- the doors the verdict offered. Callers print an advisory when `disposition` fell outside it; the routing is recorded either way. */
+  readonly offered?: ReadonlyArray<RouteDisposition>;
 }
 
 interface RouteContext {
@@ -452,16 +464,29 @@ export const routeCrate = Effect.fn("Route.routeCrate")(function* (input: RouteC
   const crateDir = join(input.workspaceRoot, "receiving", input.intake);
   const ctx: RouteContext = { input, crateDir, registry, received };
 
-  switch (input.disposition) {
-    case "return":
-      return yield* routeReturn(ctx, events);
-    case "new":
-      return yield* routeNew(ctx);
-    case "upgrade":
-      return yield* routeUpgrade(ctx);
-    case "fork":
-      return yield* routeFork(ctx);
-    case "salvage":
-      return yield* routeSalvage(ctx);
-  }
+  // The crate's verdict at routing time, and the doors that verdict offers
+  // (`VERDICT_DISPOSITIONS`, Receive.ts) -- carried on the result so callers
+  // can surface an advisory when the ruling went outside the offered doors.
+  // Advisory, never a gate: the routing above already happened regardless
+  // (the verdict constrains suggestions, not the human's ruling).
+  const computedHash = yield* hashReceivedCrate(crateDir);
+  const verdict = deriveIntakeVerdict(computedHash, received.payload.claimedName, registry);
+  const offered = VERDICT_DISPOSITIONS[verdict];
+
+  const dispatch = () => {
+    switch (input.disposition) {
+      case "return":
+        return routeReturn(ctx, events);
+      case "new":
+        return routeNew(ctx);
+      case "upgrade":
+        return routeUpgrade(ctx);
+      case "fork":
+        return routeFork(ctx);
+      case "salvage":
+        return routeSalvage(ctx);
+    }
+  };
+  const result = yield* dispatch();
+  return { ...result, verdict, offered } satisfies RouteCrateResult;
 });

@@ -35,7 +35,8 @@
  *
  * The five exit doors (issue #91) follow the exact same CLI-first pattern
  * as harvest/todo above: no write buttons, each undisposed crate row shows
- * all five `skillmaker route` commands as copyable text, pre-filled with the
+ * the doors its verdict offers (`VERDICT_DISPOSITIONS`) as copyable
+ * `skillmaker route` commands, pre-filled with the
  * intake id and (where the disposition needs one) a `<bundle>`/`<parent>`
  * placeholder for the human to fill in -- resolving WHICH bundle a
  * `return`/`conflict` verdict specifically points at would need per-bundle
@@ -56,6 +57,7 @@ import { postEvent } from "../runtime/api.ts";
 import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
 import {
   UNVERIFIED_BADGE_CLASS,
+  VERDICT_DISPOSITIONS,
   type FieldReportOutcome,
   type FieldReportView,
   type IntakeCrateView,
@@ -263,9 +265,7 @@ const VERDICT_BADGE_CLASS: Readonly<Record<IntakeVerdict, string>> = {
   new: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
 };
 
-const DISPOSITIONS: ReadonlyArray<RouteDisposition> = ["return", "new", "upgrade", "fork", "salvage"];
-
-/** The dock verdict's suggested door(s) (issue #91): `return`/`new` each point at exactly one door; `conflict` (the identically-labeled stranger) is precisely the case the dock CANNOT resolve on its own, so it suggests the three human judgment calls instead. */
+/** The dock verdict's suggested door(s) (issue #91): `return`/`new` each point at exactly one door; `conflict` (the identically-labeled stranger) is precisely the case the dock CANNOT resolve on its own, so it suggests the three human judgment calls instead. A strict subset of `VERDICT_DISPOSITIONS` (schemas.ts), which additionally offers `salvage` -- the universal refusal door -- under every verdict. */
 const SUGGESTED_DISPOSITIONS: Readonly<Record<IntakeVerdict, ReadonlyArray<RouteDisposition>>> = {
   return: ["return"],
   new: ["new"],
@@ -288,7 +288,14 @@ const routeCommand = (intake: string, disposition: RouteDisposition): string => 
   }
 };
 
-/** The five exit doors, each a copyable `skillmaker route` command; the door(s) matching the crate's own verdict are visually distinguished as "the verdict's suggestion." */
+/**
+ * The doors the crate's verdict offers (`VERDICT_DISPOSITIONS`), each a
+ * copyable `skillmaker route` command; the door(s) matching the verdict's
+ * own suggestion are visually distinguished. Off-menu rulings stay possible
+ * through the CLI (which prints an advisory, never a gate) -- the registry
+ * can't see everything a human can, e.g. a heavily rewritten fork shares no
+ * hash or name with its parent.
+ */
 const RouteDoors: FC<{ crate: IntakeCrateView }> = ({ crate }) => {
   const suggested = new Set(SUGGESTED_DISPOSITIONS[crate.verdict]);
   return (
@@ -297,7 +304,7 @@ const RouteDoors: FC<{ crate: IntakeCrateView }> = ({ crate }) => {
         Route this crate
       </span>
       <ul className="flex flex-col gap-1">
-        {DISPOSITIONS.map((disposition) => (
+        {VERDICT_DISPOSITIONS[crate.verdict].map((disposition) => (
           <li key={disposition} className="flex items-center gap-2">
             <code
               className={`w-fit select-all rounded-md px-2 py-1 text-[11px] ${

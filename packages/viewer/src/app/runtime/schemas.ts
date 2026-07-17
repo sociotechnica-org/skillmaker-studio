@@ -611,6 +611,19 @@ export const RouteDisposition = Schema.Literals(["return", "new", "upgrade", "fo
 export type RouteDisposition = typeof RouteDisposition.Type;
 
 /**
+ * Mirrors `@skillmaker/core`'s `VERDICT_DISPOSITIONS` (Receive.ts): the
+ * doors each verdict offers. `salvage` under every verdict is the point --
+ * the universal refusal door; a verdict constrains what the machine
+ * suggests, never the human's right to refuse. Hand-mirrored because the
+ * viewer never imports core; the vocab lockstep test holds the two equal.
+ */
+export const VERDICT_DISPOSITIONS: Readonly<Record<IntakeVerdict, ReadonlyArray<RouteDisposition>>> = {
+  return: ["return", "salvage"],
+  new: ["new", "salvage"],
+  conflict: ["upgrade", "fork", "salvage"],
+};
+
+/**
  * `GET /api/intake`'s "recently routed" tail (issue #91): a disposed crate
  * leaves `crates` above for good, but a handful of the most recent
  * `skill.routed` facts still show here -- disposition + reason + the bundle

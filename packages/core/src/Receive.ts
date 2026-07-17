@@ -27,7 +27,7 @@ import {
   WorkspaceIOError,
 } from "./Errors.ts";
 import { IndexService, layer as IndexServiceLayer } from "./IndexService.ts";
-import type { IntakeRights, JournalEvent, SkillReceivedEvent } from "./Journal.ts";
+import type { IntakeRights, JournalEvent, RouteDisposition, SkillReceivedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
 import { ADOPT_EXCLUDED_NAMES, foldSkillVersions, hashOutputTree } from "./Versions.ts";
 
@@ -213,6 +213,30 @@ export const deriveIntakeVerdict = (
     return "conflict";
   }
   return "new";
+};
+
+/**
+ * The doors each verdict offers (`Mechanism - Receiving Dock.md` §HOW). This
+ * fan-out used to live only in doc comments (`Journal.ts:250-258`,
+ * `Receive.ts`'s module header) with each surface re-implying it by hand --
+ * one table, exported, so the Receive UI's door list, the route CLI's
+ * advisory, and the card all read the same fact and a new verdict or
+ * disposition desyncs loudly (the vocab lockstep test) instead of silently.
+ *
+ * `salvage` appears under EVERY verdict on purpose: it is the universal
+ * refusal door. A verdict is the machine's derived read; it constrains what
+ * the machine *suggests*, never the human's right to refuse -- the same
+ * house law as the triage evidence tripwire (flags, never blocks). The
+ * converse also holds: routing OUTSIDE this table is advisory-flagged, not
+ * gated (`routeCrate` returns `verdict`/`offered` for callers to surface),
+ * because the registry can't see everything a human can -- e.g. a heavily
+ * rewritten fork shares no hash or name with its parent, so a `new` verdict
+ * may still honestly route `fork`.
+ */
+export const VERDICT_DISPOSITIONS: Readonly<Record<IntakeVerdict, ReadonlyArray<RouteDisposition>>> = {
+  return: ["return", "salvage"],
+  new: ["new", "salvage"],
+  conflict: ["upgrade", "fork", "salvage"],
 };
 
 /**
