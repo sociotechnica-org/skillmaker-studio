@@ -25,7 +25,7 @@ import {
   Journal,
   JournalLayer,
   JournalEvent,
-  listUndisposedIntake,
+  listUndisposedCrates,
   parseDossier,
   publishBundle,
   runFixture,
@@ -159,13 +159,13 @@ const getBundleRecord = (root: string, slug: string): Promise<BundleRecord | und
     }),
   );
 
-const listTodoRecords = (root: string, includeArchived: boolean): Promise<ReadonlyArray<TodoRecord>> =>
+const listTodoRecords = (root: string, includeSwept: boolean): Promise<ReadonlyArray<TodoRecord>> =>
   runIndexEffect(
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
       yield* index.rebuild();
-      return yield* index.listTodos({ includeArchived });
+      return yield* index.listTodos({ includeSwept });
     }),
   );
 
@@ -313,7 +313,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  * `Mechanism - Receiving Dock.md` §HOW): undisposed crates, oldest first --
  * "the dock must not become a shelf: oldest-first IS the attention
  * ordering." `readJournalEvents` already returns append order (oldest
- * first), so `listUndisposedIntake`'s output needs no re-sort.
+ * first), so `listUndisposedCrates`'s output needs no re-sort.
  *
  * Each crate's dock verdict is recomputed HERE, fresh, every request (house
  * law: derive, never store) -- re-hashes `receiving/<intake-id>/` as it
@@ -324,7 +324,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  * still resolves cleanly (`hashOutputTree`'s well-defined empty-tree hash
  * for a missing dir, `Versions.ts`), never a 500.
  *
- * `listUndisposedIntake` reads the real `skill.routed` event type (issue
+ * `listUndisposedCrates` reads the real `skill.routed` event type (issue
  * #91): a routed crate (any disposition, including `salvage` -- disposed is
  * disposed) leaves this list for good.
  *
@@ -347,7 +347,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  */
 const handleIntake = async (root: string): Promise<Response> => {
   const events = await readJournalEvents(root);
-  const undisposed = listUndisposedIntake(events);
+  const undisposed = listUndisposedCrates(events);
 
   const routedTail = events.filter((event) => event.type === "skill.routed").slice(-RECENTLY_ROUTED_LIMIT).reverse();
 
@@ -474,8 +474,8 @@ const handleCatalog = async (root: string): Promise<Response> =>
       yield* index.rebuild();
       const bundles = yield* index.listBundles();
 
-      // Default listTodos() (archived excluded) is exact here: a todo can
-      // only be archived once terminal (FoldTodos.ts's isArchived), and the
+      // Default listTodos() (swept excluded) is exact here: a todo can
+      // only be swept once terminal (FoldTodos.ts's isSwept), and the
       // loop below skips terminal todos anyway.
       const allTodos = yield* index.listTodos();
       const openTodoCountByBundle = new Map<string, number>();
@@ -1689,8 +1689,8 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
       if (pathname === "/api/todos") {
         try {
-          const includeArchived = url.searchParams.get("all") === "1";
-          const todos = await listTodoRecords(root, includeArchived);
+          const includeSwept = url.searchParams.get("all") === "1";
+          const todos = await listTodoRecords(root, includeSwept);
           return jsonResponse({ todos });
         } catch (cause) {
           return jsonResponse({ error: `could not list todos: ${String(cause)}` }, 500);

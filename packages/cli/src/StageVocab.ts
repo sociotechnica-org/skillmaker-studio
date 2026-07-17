@@ -15,7 +15,7 @@ export const STAGE_LABEL: Record<BundleStage, string> = {
   idea: "Frame",
   researching: "Research",
   drafting: "Draft",
-  evaluating: "Evaluate",
+  evaluating: "Proof",
   published: "Publish",
 };
 

@@ -241,7 +241,7 @@ export const BundlePanel: FC<{
           href="/"
           className="text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
         >
-          ← Board
+          ← Make
         </Link>
       </div>
 

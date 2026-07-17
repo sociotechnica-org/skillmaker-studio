@@ -33,7 +33,7 @@ import { parseDossier } from "./Dossier.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
-import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
+import { compareTodos, foldTodos, isSwept } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
 import type { Actor } from "./Actor.ts";
 import type { JournalEvent, RunVerdict } from "./Journal.ts";
@@ -114,7 +114,7 @@ export interface VersionRecord {
   readonly recordedAt: string;
 }
 
-/** A materialized todo row (data-model.md §2.11), with `archived` derived at rebuild time. */
+/** A materialized todo row (data-model.md §2.11), with `swept` derived at rebuild time. */
 export interface TodoRecord {
   readonly id: string;
   readonly kind: TodoKind;
@@ -127,7 +127,7 @@ export interface TodoRecord {
   readonly created: string;
   readonly terminalAt?: string;
   readonly pinned?: boolean;
-  readonly archived: boolean;
+  readonly swept: boolean;
   readonly source: Actor;
   /** Present only for a todo opened via `todo add --from-report` (issue #81); absent for every hand-opened todo. */
   readonly origin?: TodoOriginRecord;
@@ -135,8 +135,8 @@ export interface TodoRecord {
 
 export interface ListTodosOptions {
   readonly bundle?: string;
-  /** Include archived todos. Default false (archived todos are hidden). */
-  readonly includeArchived?: boolean;
+  /** Include swept todos. Default false (swept todos are hidden). */
+  readonly includeSwept?: boolean;
 }
 
 export interface RebuildResult {
@@ -239,7 +239,7 @@ interface TodoRow {
   readonly created: string;
   readonly terminal_at: string | null;
   readonly pinned: number;
-  readonly archived: number;
+  readonly swept: number;
   readonly source_json: string;
   readonly origin_json: string | null;
 }
@@ -456,7 +456,7 @@ const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
       created: row.created,
       ...(row.terminal_at !== null ? { terminalAt: row.terminal_at } : {}),
       ...(row.pinned !== 0 ? { pinned: true } : {}),
-      archived: row.archived !== 0,
+      swept: row.swept !== 0,
       source,
       ...(origin !== undefined ? { origin } : {}),
     };
@@ -611,7 +611,7 @@ const createSchema = (db: Database): void => {
       created TEXT NOT NULL,
       terminal_at TEXT,
       pinned INTEGER NOT NULL,
-      archived INTEGER NOT NULL,
+      swept INTEGER NOT NULL,
       source_json TEXT NOT NULL,
       origin_json TEXT
     )
@@ -960,7 +960,7 @@ export const layer = (
           created: todo.created,
           ...(todo.terminalAt !== undefined ? { terminalAt: todo.terminalAt } : {}),
           ...(todo.pinned !== undefined ? { pinned: todo.pinned } : {}),
-          archived: isArchived(todo, now),
+          swept: isSwept(todo, now),
           source: todo.source,
           ...(todo.origin !== undefined ? { origin: todo.origin } : {}),
         }));
@@ -1013,7 +1013,7 @@ export const layer = (
           }
 
           const insertTodo = db.query(
-            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, archived, source_json, origin_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $archived, $source, $origin)",
+            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, swept, source_json, origin_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $swept, $source, $origin)",
           );
           for (const todo of todoRecords) {
             insertTodo.run({
@@ -1028,7 +1028,7 @@ export const layer = (
               $created: todo.created,
               $terminalAt: todo.terminalAt ?? null,
               $pinned: todo.pinned === true ? 1 : 0,
-              $archived: todo.archived ? 1 : 0,
+              $swept: todo.swept ? 1 : 0,
               $source: JSON.stringify(todo.source),
               $origin: todo.origin !== undefined ? JSON.stringify(todo.origin) : null,
             });
@@ -1474,8 +1474,8 @@ export const layer = (
           conditions.push("bundle = $bundle");
           bindings["$bundle"] = options.bundle;
         }
-        if (options?.includeArchived !== true) {
-          conditions.push("archived = 0");
+        if (options?.includeSwept !== true) {
+          conditions.push("swept = 0");
         }
         const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
 

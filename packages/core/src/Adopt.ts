@@ -188,26 +188,28 @@ const stringField = (data: Frontmatter, key: string): string | undefined => {
 // Discovery
 // ---------------------------------------------------------------------------
 
-export type SkillLifecycle = "archived" | "idea";
+/** Named after the path segments they are derived from: a `deprecated/` import lands archived (`bundle.archived`), an `in-progress/` (or unmarked) import enters at the `idea` stage. */
+export type SkillLifecycle = "deprecated" | "in-progress";
 
 const pathSegments = (relativePath: string): ReadonlyArray<string> => relativePath.split(sep);
 
 /**
- * `deprecated/` -> archived, `in-progress/` -> idea (with a note) (§3B.4).
- * Checked over every path segment, not just the immediate parent. Exported
- * (issue #92): `Triage.ts`'s `--from-manifest` execution applies the same
- * pathname rule per row -- a kept row under `deprecated/` still enters
- * archived, exactly as the sweep would have ruled.
+ * `deprecated/` -> deprecated, `in-progress/` -> in-progress (with a note)
+ * (§3B.4). Checked over every path segment, not just the immediate parent.
+ * Exported (issue #92): `Triage.ts`'s `--from-manifest` execution applies
+ * the same pathname rule per row -- a kept row under `deprecated/` is still
+ * imported deprecated (and thus archived), exactly as the sweep would have
+ * ruled.
  */
 export const lifecycleFromPath = (relativePath: string): { readonly lifecycle: SkillLifecycle; readonly note?: string } => {
   const segments = pathSegments(relativePath).map((segment) => segment.toLowerCase());
   if (segments.includes("deprecated")) {
-    return { lifecycle: "archived", note: "adopted from a \"deprecated/\" directory" };
+    return { lifecycle: "deprecated", note: "adopted from a \"deprecated/\" directory" };
   }
   if (segments.includes("in-progress")) {
-    return { lifecycle: "idea", note: "adopted from an \"in-progress/\" directory — likely unfinished" };
+    return { lifecycle: "in-progress", note: "adopted from an \"in-progress/\" directory — likely unfinished" };
   }
-  return { lifecycle: "idea" };
+  return { lifecycle: "in-progress" };
 };
 
 export interface ManifestDetection {

@@ -173,7 +173,7 @@ export const STAGE_LABEL: Record<BundleStage, string> = {
   idea: "Frame",
   researching: "Research",
   drafting: "Draft",
-  evaluating: "Evaluate",
+  evaluating: "Proof",
   published: "Publish",
 };
 
@@ -453,7 +453,7 @@ export class TodoRecord extends Schema.Class<TodoRecord>("TodoRecord")({
   created: Schema.String,
   terminalAt: Schema.optionalKey(Schema.String),
   pinned: Schema.optionalKey(Schema.Boolean),
-  archived: Schema.Boolean,
+  swept: Schema.Boolean,
   source: ActorView,
   origin: Schema.optionalKey(TodoOriginViewFromWire),
 }) {}

@@ -132,7 +132,7 @@ export class Todo extends Schema.Class<Todo>("Todo")({
   terminalAt: Schema.optionalKey(Schema.String),
   pinned: Schema.optionalKey(Schema.Boolean),
   /** Derived: terminal + >= 7 days + not pinned. */
-  archived: Schema.optionalKey(Schema.Boolean),
+  swept: Schema.optionalKey(Schema.Boolean),
   source: Actor,
   /** Immutable; stamped only at `todo.opened` (issue #81). See `TodoOrigin` and `TodoOriginFromWire`'s read shim. */
   origin: Schema.optionalKey(TodoOriginFromWire),

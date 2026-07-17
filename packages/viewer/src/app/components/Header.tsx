@@ -6,8 +6,8 @@ const NAV_ITEMS: ReadonlyArray<{
   readonly label: string;
   readonly match: (name: Route["name"]) => boolean;
 }> = [
-  { href: "/", label: "Board", match: (name) => name === "board" || name === "bundle" },
-  { href: "/lab", label: "Lab", match: (name) => name === "lab" },
+  { href: "/", label: "Make", match: (name) => name === "board" || name === "bundle" },
+  { href: "/lab", label: "Improve", match: (name) => name === "lab" },
   {
     href: "/ship",
     label: "Ship",

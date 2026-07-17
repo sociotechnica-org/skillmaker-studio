@@ -20,11 +20,11 @@ export { foldBundleStates, bundleForEvent } from "./Fold.ts";
 export {
   foldTodos,
   isTerminalStatus,
-  isArchived,
+  isSwept,
   compareTodos,
   isoDateOnly,
   DEFAULT_PRIORITY_BY_KIND,
-  ARCHIVE_WINDOW_DAYS,
+  SWEEP_WINDOW_DAYS,
 } from "./FoldTodos.ts";
 export {
   STAGES,
@@ -254,7 +254,7 @@ export {
   gatherIntakeRegistry,
   deriveIntakeVerdict,
   classifyIntakeEvidence,
-  listUndisposedIntake,
+  listUndisposedCrates,
   VERDICT_DISPOSITIONS,
   type IntakeVerdict,
   type IntakeEvidence,

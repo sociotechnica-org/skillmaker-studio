@@ -167,7 +167,7 @@ describe("skillmaker route: validation", () => {
   test("an unknown intake id is an honest error, not a crash", () => {
     const result = runCli(["route", "in-does-not-exist", "--as", "salvage", "--reason", "x"]);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("no such intake");
+    expect(result.stderr).toContain("no crate with intake id");
   });
 });
 

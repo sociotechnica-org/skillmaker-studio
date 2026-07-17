@@ -236,8 +236,8 @@ describe("skillmaker CLI end-to-end: Phase 16 (adopt -- brownfield import)", () 
           .get("diagnosing-bugs")
           ?.warnings.some((w) => w.includes("disable-model-invocation")),
       ).toBe(true);
-      expect(bySlug.get("old-review-flow")?.lifecycle).toBe("archived");
-      expect(bySlug.get("half-baked-idea")?.lifecycle).toBe("idea");
+      expect(bySlug.get("old-review-flow")?.lifecycle).toBe("deprecated");
+      expect(bySlug.get("half-baked-idea")?.lifecycle).toBe("in-progress");
       expect(bySlug.get("half-baked-idea")?.warnings.some((w) => w.includes("in-progress"))).toBe(true);
 
       // EveryInc: manifest detected report-only.

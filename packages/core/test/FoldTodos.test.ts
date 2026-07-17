@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { Actor } from "../src/Actor.ts";
 import {
-  ARCHIVE_WINDOW_DAYS,
   compareTodos,
   DEFAULT_PRIORITY_BY_KIND,
   foldTodos,
-  isArchived,
   isoDateOnly,
+  isSwept,
   isTerminalStatus,
+  SWEEP_WINDOW_DAYS,
 } from "../src/FoldTodos.ts";
 import type { JournalEvent } from "../src/Journal.ts";
 import { Todo } from "../src/Todo.ts";
@@ -238,39 +238,39 @@ describe("DEFAULT_PRIORITY_BY_KIND", () => {
   });
 });
 
-describe("isArchived", () => {
+describe("isSwept", () => {
   const now = new Date("2026-07-10T00:00:00.000Z");
 
-  test("non-terminal todos are never archived", () => {
+  test("non-terminal todos are never swept", () => {
     const todo = baseTodo({ status: "open" });
-    expect(isArchived(todo, now)).toBe(false);
+    expect(isSwept(todo, now)).toBe(false);
   });
 
-  test("terminal todos without terminalAt are not archived", () => {
+  test("terminal todos without terminalAt are not swept", () => {
     const todo = baseTodo({ status: "done" });
-    expect(isArchived(todo, now)).toBe(false);
+    expect(isSwept(todo, now)).toBe(false);
   });
 
-  test("terminal todos younger than the archive window are not archived", () => {
+  test("terminal todos younger than the sweep window are not swept", () => {
     const todo = baseTodo({ status: "done", terminalAt: "2026-07-05" });
-    expect(isArchived(todo, now)).toBe(false);
+    expect(isSwept(todo, now)).toBe(false);
   });
 
-  test("terminal todos at/older than the archive window are archived", () => {
+  test("terminal todos at/older than the sweep window are swept", () => {
     const exactlyAtWindow = baseTodo({ status: "done", terminalAt: "2026-07-03" });
-    expect(isArchived(exactlyAtWindow, now)).toBe(true);
+    expect(isSwept(exactlyAtWindow, now)).toBe(true);
 
     const older = baseTodo({ status: "wont-do", terminalAt: "2026-01-01" });
-    expect(isArchived(older, now)).toBe(true);
+    expect(isSwept(older, now)).toBe(true);
   });
 
-  test("pinned todos are exempt from archiving regardless of age", () => {
+  test("pinned todos are exempt from the sweep regardless of age", () => {
     const todo = baseTodo({ status: "done", terminalAt: "2026-01-01", pinned: true });
-    expect(isArchived(todo, now)).toBe(false);
+    expect(isSwept(todo, now)).toBe(false);
   });
 
-  test("ARCHIVE_WINDOW_DAYS is 7", () => {
-    expect(ARCHIVE_WINDOW_DAYS).toBe(7);
+  test("SWEEP_WINDOW_DAYS is 7", () => {
+    expect(SWEEP_WINDOW_DAYS).toBe(7);
   });
 });
 

@@ -263,7 +263,7 @@ export type RouteDisposition = typeof RouteDisposition.Type;
  * `skill.routed` (issue #91): the `review.requested`/`review.resolved`
  * pairing applied to cargo -- an undisposed crate is a `skill.received` with
  * no `skill.routed` referencing its `intake` (`Receive.ts`'s
- * `listUndisposedIntake`). `reason` is required on every disposition, no
+ * `listUndisposedCrates`). `reason` is required on every disposition, no
  * exceptions: the hypothesis (broken? evolved? forked?) IS the point, the
  * same house law backward stage moves already demand
  * (`BundleStageChangedEvent`). `bundle` is set for every disposition except

@@ -113,7 +113,7 @@ export const runAdopt = Effect.fn("runAdopt")(function* (
         payload: { bundle: skill.slug },
       });
 
-      if (skill.lifecycle === "archived") {
+      if (skill.lifecycle === "deprecated") {
         yield* journal.append({
           type: "bundle.archived",
           actor,
@@ -169,7 +169,7 @@ const summarize = (
 
   const printSkill = (skill: AdoptedSkill): void => {
     const flags = [
-      skill.lifecycle === "archived" ? "archived" : undefined,
+      skill.lifecycle === "deprecated" ? "deprecated" : undefined,
       skill.generated ? "generated" : undefined,
     ].filter((flag): flag is string => flag !== undefined);
     const suffix = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
