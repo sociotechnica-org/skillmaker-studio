@@ -325,7 +325,7 @@ const RouteDoors: FC<{ crate: IntakeCrateView }> = ({ crate }) => {
   );
 };
 
-/** One undisposed crate at the dock: claims verbatim, the verdict recomputed server-side, an "unclear rights" flag when present -- recorded, never a gate. */
+/** One undisposed crate at the dock: claims verbatim, the verdict recomputed server-side, an "unclear rights" flag when present -- recorded, never a gate. Structured stakes/hurts testimony (issue #108) surfaces here too; old crates' flattened `notes` prose stays displayed as-is, never re-parsed. */
 const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
   <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
     <div className="flex flex-wrap items-center gap-2">
@@ -340,6 +340,11 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
           unclear rights
         </span>
       )}
+      {crate.stakes !== null && (
+        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+          {crate.stakes}
+        </span>
+      )}
     </div>
     <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
       <span>from &quot;{crate.source}&quot;</span>
@@ -347,6 +352,12 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
       {crate.claimedVersionHash !== null && <span className="font-mono">claims {crate.claimedVersionHash}</span>}
       <span>{new Date(crate.at).toLocaleString()}</span>
     </div>
+    {crate.hurts !== null && (
+      <p className="text-sm text-neutral-700 dark:text-neutral-300">
+        <span className="font-medium text-neutral-500 dark:text-neutral-400">Hurts: </span>
+        {crate.hurts}
+      </p>
+    )}
     {crate.notes !== null && <p className="text-sm text-neutral-700 dark:text-neutral-300">{crate.notes}</p>}
     <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
       {crate.intake}

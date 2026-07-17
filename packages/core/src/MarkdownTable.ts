@@ -51,6 +51,64 @@ export const splitTableCells = (line: string): string[] => {
   return cells;
 };
 
+/** trim+lowercase fold for loose label comparison -- table column names here; `Dossier.ts`'s section-heading matching reuses the same normalizer. */
+export const normalizeLabel = (label: string): string => label.trim().toLowerCase();
+
+/**
+ * Builds the normalized-name -> canonical-name lookup `resolveColumns`
+ * consumes. Build it ONCE per table schema (module scope), not per parse --
+ * the schema's column set is static; only the file's header varies.
+ */
+export const knownColumnLookup = (columns: ReadonlyArray<string>): ReadonlyMap<string, string> =>
+  new Map(columns.map((column) => [normalizeLabel(column), column]));
+
+export interface ResolveColumnsResult {
+  /** Canonical column name -> index in THIS file's own header (first occurrence wins on a duplicate). A known column absent from the header simply has no entry -- `cellByName` reads it as blank. */
+  readonly columnIndex: ReadonlyMap<string, number>;
+  /** Header cells (verbatim, trimmed) that matched no known column -- e.g. a column a newer schema retired. The caller words the human-facing warning (this module never does, same rule as `collectTableLines`) and simply never reads those cells. */
+  readonly unknownColumns: ReadonlyArray<string>;
+}
+
+/**
+ * Resolves a hand-edited table's columns BY HEADER NAME, not position
+ * (issue #108): the header line the file actually carries is matched
+ * (normalized) against the schema's known columns, so a file written under
+ * an older column set still reads -- a retired column surfaces in
+ * `unknownColumns` (warn once, ignore its cells), a not-yet-existing column
+ * reads as blank. `RiskMap.ts` still parses positionally today and could
+ * adopt this same helper for the identical survive-a-column-change benefit
+ * (out of scope for issue #108's pass; noted here as the opportunity).
+ */
+export const resolveColumns = (
+  headerCells: ReadonlyArray<string>,
+  knownColumns: ReadonlyMap<string, string>,
+): ResolveColumnsResult => {
+  const columnIndex = new Map<string, number>();
+  const unknownColumns: string[] = [];
+  for (let i = 0; i < headerCells.length; i++) {
+    const cell = headerCells[i] ?? "";
+    const known = knownColumns.get(normalizeLabel(cell));
+    if (known === undefined) {
+      unknownColumns.push(cell.trim());
+      continue;
+    }
+    if (!columnIndex.has(known)) {
+      columnIndex.set(known, i);
+    }
+  }
+  return { columnIndex, unknownColumns };
+};
+
+/** One row cell, looked up by canonical column name. A column absent from the file's header (no `columnIndex` entry) reads as blank -- for a hand-edited table that is "not asked", never an error. */
+export const cellByName = (
+  cells: ReadonlyArray<string>,
+  columnIndex: ReadonlyMap<string, number>,
+  column: string,
+): string => {
+  const index = columnIndex.get(column);
+  return index === undefined ? "" : cells[index] ?? "";
+};
+
 export type CollectTableLinesResult =
   | { readonly kind: "found"; readonly header: string; readonly separator: string; readonly dataLines: ReadonlyArray<string> }
   | { readonly kind: "no-table" }

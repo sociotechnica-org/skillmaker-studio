@@ -377,12 +377,29 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
               DOSSIER_GAP
             ) : (
               <ul className="flex flex-col gap-1">
-                {dossier.contexts.map((context) => (
-                  <li key={context.name}>
-                    <span className="font-medium text-neutral-800 dark:text-neutral-100">{context.name}</span>
-                    {context.body.length > 0 ? `: ${context.body}` : ""}
-                  </li>
-                ))}
+                {dossier.contexts.map((context) => {
+                  // Handoff CLAIMS (issue #108): rendered only when present
+                  // (absent = unclaimed = honest gap, no placeholder row) --
+                  // free text, never a link, never resolved to a bundle.
+                  const claims: ReadonlyArray<readonly [string, string | undefined]> = [
+                    ["Upstream", context.upstream],
+                    ["Downstream", context.downstream],
+                    ["Hands", context.hands],
+                  ];
+                  return (
+                    <li key={context.name}>
+                      <span className="font-medium text-neutral-800 dark:text-neutral-100">{context.name}</span>
+                      {context.body.length > 0 ? `: ${context.body}` : ""}
+                      {claims
+                        .filter((claim): claim is readonly [string, string] => claim[1] !== undefined)
+                        .map(([label, value]) => (
+                          <div key={label} className="text-neutral-500 dark:text-neutral-400">
+                            {label}: <span className="text-neutral-700 dark:text-neutral-300">{value}</span>
+                          </div>
+                        ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </dd>

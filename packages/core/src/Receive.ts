@@ -27,7 +27,7 @@ import {
   WorkspaceIOError,
 } from "./Errors.ts";
 import { IndexService, layer as IndexServiceLayer } from "./IndexService.ts";
-import type { IntakeRights, JournalEvent, RouteDisposition, SkillReceivedEvent } from "./Journal.ts";
+import type { IntakeRights, IntakeStakes, JournalEvent, RouteDisposition, SkillReceivedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
 import { ADOPT_EXCLUDED_NAMES, foldSkillVersions, hashOutputTree } from "./Versions.ts";
 
@@ -276,6 +276,11 @@ export interface ReceiveCrateInput {
   readonly claimedName?: string;
   readonly claimedVersionHash?: string;
   readonly rights?: IntakeRights;
+  /** Structured usage-stakes testimony (issue #108) -- recorded on the event's own `stakes` field, never flattened into `notes`. */
+  readonly stakes?: IntakeStakes;
+  /** Structured "what hurt" testimony (issue #108) -- recorded on the event's own `hurts` field, never flattened into `notes`. */
+  readonly hurts?: string;
+  /** Genuinely free-text notes only (issue #108): stakes/hurts have their own structured fields above. */
   readonly notes?: string;
   readonly actor: Actor;
 }
@@ -353,6 +358,8 @@ export const receiveCrate = Effect.fn("Receive.receiveCrate")(function* (input: 
       ...(input.claimedName !== undefined ? { claimedName: input.claimedName } : {}),
       ...(input.claimedVersionHash !== undefined ? { claimedVersionHash: input.claimedVersionHash } : {}),
       ...(input.rights !== undefined ? { rights: input.rights } : {}),
+      ...(input.stakes !== undefined ? { stakes: input.stakes } : {}),
+      ...(input.hurts !== undefined ? { hurts: input.hurts } : {}),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
     },
   });

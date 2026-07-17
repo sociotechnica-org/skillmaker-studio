@@ -399,6 +399,11 @@ const handleIntake = async (root: string): Promise<Response> => {
         claimedName: event.payload.claimedName ?? null,
         claimedVersionHash: event.payload.claimedVersionHash ?? null,
         rights: event.payload.rights ?? null,
+        // Structured stakes/hurts testimony (issue #108) -- surfaced
+        // alongside `notes`, which stays as-written for old flattened
+        // events (never re-parsed into structure).
+        stakes: event.payload.stakes ?? null,
+        hurts: event.payload.hurts ?? null,
         notes: event.payload.notes ?? null,
         at: event.at,
         actor: event.actor,

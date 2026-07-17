@@ -94,6 +94,8 @@ Options:
   --claimed-name <name>      (receive) The maker's claimed name for the arriving skill; optional
   --claimed-version <v>      (receive) A label or hash the maker claims this version is; optional
   --rights <r>      (receive) ours | licensed | unclear; optional, recorded never enforced
+  --stakes <s>      (receive) aside | load-bearing; optional usage-stakes testimony -- recorded, never moves a stage, never clears the Unverified badge (issue #108)
+  --hurts <text>    (receive) What hurt, free text; optional -- structured testimony on its own field (issue #108)
   --as <d>          (route) return | new | upgrade | fork | salvage (required)
   --parent <slug>   (route) the parent bundle slug (required for --as fork)
   --from-intake <id>   (fixture harvest) the skill.received intake id to harvest, alternative to --from-report (issue #91)
@@ -179,6 +181,8 @@ const VALUE_FLAGS = new Set([
   "--claimed-name",
   "--claimed-version",
   "--rights",
+  "--stakes",
+  "--hurts",
   "--as",
   "--parent",
   "--stage",
@@ -403,6 +407,8 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const claimedName = flagValue(argv, "--claimed-name");
       const claimedVersion = flagValue(argv, "--claimed-version");
       const rights = flagValue(argv, "--rights");
+      const stakes = flagValue(argv, "--stakes");
+      const hurts = flagValue(argv, "--hurts");
       const notes = flagValue(argv, "--notes");
       return yield* runReceive(cwd, targetPath, {
         json,
@@ -411,6 +417,8 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         claimedName,
         claimedVersion,
         rights,
+        stakes,
+        hurts,
         notes,
       });
     }

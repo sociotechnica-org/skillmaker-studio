@@ -381,6 +381,10 @@ const summarizeExecution = (
   parseWarnings: ReadonlyArray<string>,
   json: boolean,
 ): CliResult => {
+  // Parse-time warnings (unrecognized columns/cells) and execution-time
+  // advisories (issue #108: card answers on a receive row that land
+  // nowhere) surface together -- warn, never fail, either way.
+  const warnings = [...parseWarnings, ...summary.warnings];
   if (json) {
     return ok(
       `${JSON.stringify({
@@ -393,7 +397,7 @@ const summarizeExecution = (
         errored: summary.errored,
         todosMinted: summary.todosMinted,
         outcomes: summary.outcomes,
-        warnings: parseWarnings,
+        warnings,
       })}\n`,
     );
   }
@@ -421,9 +425,9 @@ const summarizeExecution = (
         break;
     }
   }
-  if (parseWarnings.length > 0) {
+  if (warnings.length > 0) {
     lines.push("manifest warnings:");
-    for (const warning of parseWarnings) {
+    for (const warning of warnings) {
       lines.push(`  ! ${warning}`);
     }
   }

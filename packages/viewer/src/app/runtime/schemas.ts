@@ -258,6 +258,12 @@ export class StationAvailability extends Schema.Class<StationAvailability>("Stat
 export class DossierContext extends Schema.Class<DossierContext>("DossierContext")({
   name: Schema.String,
   body: Schema.String,
+  /** Handoff CLAIM (issue #108): what hands work to this skill -- a bundle slug when local, honest free text otherwise. Never resolved, never a graph edge; absent = unclaimed = honest gap. */
+  upstream: Schema.optionalKey(Schema.String),
+  /** Handoff CLAIM (issue #108): what reads this skill's output. Same rules as `upstream`. */
+  downstream: Schema.optionalKey(Schema.String),
+  /** Handoff CLAIM (issue #108): who/what runs it. Same rules as `upstream`. */
+  hands: Schema.optionalKey(Schema.String),
 }) {}
 
 /**
@@ -627,6 +633,10 @@ export type IntakeRights = typeof IntakeRights.Type;
 export const IntakeVerdict = Schema.Literals(["return", "new", "conflict"]);
 export type IntakeVerdict = typeof IntakeVerdict.Type;
 
+/** Mirrors `@skillmaker/core`'s `IntakeStakes` (issue #108) -- the maker's usage-stakes claim, recorded never enforced; held equal to core by the vocab lockstep test. */
+export const IntakeStakes = Schema.Literals(["aside", "load-bearing"]);
+export type IntakeStakes = typeof IntakeStakes.Type;
+
 /**
  * `GET /api/intake` -- the Receive tab's intake queue row (issue #90): one
  * undisposed `skill.received` crate, its claims verbatim, and its dock
@@ -641,6 +651,10 @@ export class IntakeCrateView extends Schema.Class<IntakeCrateView>("IntakeCrateV
   claimedName: Schema.NullOr(Schema.String),
   claimedVersionHash: Schema.NullOr(Schema.String),
   rights: Schema.NullOr(IntakeRights),
+  /** Structured usage-stakes testimony (issue #108) -- `null` for pre-#108 events, whose stakes (if any) live flattened in `notes` prose, displayed as-is and never re-parsed. */
+  stakes: Schema.NullOr(IntakeStakes),
+  /** Structured "what hurt" testimony (issue #108) -- same additive-optional treatment as `stakes`. */
+  hurts: Schema.NullOr(Schema.String),
   notes: Schema.NullOr(Schema.String),
   at: Schema.String,
   actor: ActorView,
