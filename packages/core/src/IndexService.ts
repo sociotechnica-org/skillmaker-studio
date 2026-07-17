@@ -161,6 +161,26 @@ export interface RebuildResult {
    */
   readonly forkOf: ReadonlyMap<string, string>;
   readonly forkChildren: ReadonlyMap<string, ReadonlyArray<string>>;
+  /**
+   * Where each discovered bundle actually lives (seam pass over #108/#109):
+   * slug -> its `bundle.json`'s own directory + layout, off the SAME
+   * `scanBundleIdentities` walk this rebuild already ran. An in-place
+   * bundle (brownfield adopt, the triage manifest's `keep`+`mine` rows,
+   * `route --as fork`/`new`) does NOT necessarily live at
+   * `<skillsDir>/<slug>` and has no `output/` subtree -- readers that
+   * recompute that conventional path go blind on exactly the imports the
+   * #108→#109 seam exists for. Same returned-not-persisted treatment as
+   * the whereabouts folds above. A journal-only bundle (state but no
+   * `bundle.json` found) has no entry; callers fall back to the
+   * `<skillsDir>/<slug>` convention.
+   */
+  readonly locations: ReadonlyMap<string, BundleLocation>;
+}
+
+/** One rebuild-discovered bundle's actual directory (absolute) and layout (`Versions.ts`'s `BundleLayout`). */
+export interface BundleLocation {
+  readonly dir: string;
+  readonly layout: BundleLayout;
 }
 
 /** A materialized `evals/fixtures/<case>/case.json` row (data-model.md §2.5, §2.11). */
@@ -1479,6 +1499,14 @@ export const layer = (
           },
         });
 
+        // Bundle locations (seam pass over #108/#109): from the marker facts
+        // the identity scan above already decoded -- no per-request directory
+        // walk anywhere else, same discipline as the fork family.
+        const locations = new Map<string, BundleLocation>();
+        for (const [slug, located] of identities) {
+          locations.set(slug, { dir: located.dir, layout: located.layout });
+        }
+
         return {
           bundles: records.length,
           todos: todoRecords.length,
@@ -1488,6 +1516,7 @@ export const layer = (
           lastActivityAt,
           forkOf: forkOfBySlug,
           forkChildren,
+          locations,
         };
       });
 

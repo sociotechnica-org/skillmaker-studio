@@ -106,6 +106,35 @@ const statusLineFor = (stage: BundleStage, substate: string, forwardReady: boole
   return `${STAGE_LABEL[stage]} — in progress.`;
 };
 
+/**
+ * A `bundle.stage_changed` event's from→to + reason, for the Overview's
+ * recent-events rows (seam pass over #108/#109): without this, a recorded
+ * reason -- most notably triage's "entry stage derived from runnable
+ * output" (issue #108) -- was journaled but rendered nowhere on the card.
+ * Generic on purpose: EVERY stage-change reason benefits (a review
+ * move-back's required reason, a derived entry), no special-casing of any
+ * one string. Read defensively off the untyped `payload`
+ * (`EventView.payload` is deliberately unknown on the wire), display
+ * labels via `STAGE_LABEL` when the value is a known stage, the raw wire
+ * word otherwise. `null` when the event carries nothing renderable.
+ */
+const stageChangeAnnotation = (event: EventView): string | null => {
+  if (event.type !== "bundle.stage_changed" || typeof event.payload !== "object" || event.payload === null) {
+    return null;
+  }
+  const payload = event.payload as { readonly from?: unknown; readonly to?: unknown; readonly reason?: unknown };
+  const stageWord = (value: unknown): string | null =>
+    typeof value === "string" && value.length > 0 ? STAGE_LABEL[value as BundleStage] ?? value : null;
+  const from = stageWord(payload.from);
+  const to = stageWord(payload.to);
+  const move = from !== null && to !== null ? `${from} → ${to}` : null;
+  const reason = typeof payload.reason === "string" && payload.reason.length > 0 ? payload.reason : null;
+  if (move === null && reason === null) {
+    return null;
+  }
+  return [move, reason].filter((part): part is string => part !== null).join(" — ");
+};
+
 /** Turn the machine's precise-but-internal guard rejections into a sentence a director can read. Anything unrecognized passes through. */
 const humanizeError = (message: string): string => {
   if (message.includes("requires an approved review")) {
@@ -866,11 +895,16 @@ const OverviewTab: FC<OverviewTabProps> = ({
       <section className="flex flex-col gap-1">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Recent events</h4>
         <ul className="flex flex-col gap-1">
-          {detail.events.map((event: EventView) => (
-            <li key={event.id} className="text-[11px] text-neutral-600 dark:text-neutral-300">
-              <span className="font-mono">{event.type}</span> <span className="text-neutral-400">{formatTimestamp(event.at)}</span>
-            </li>
-          ))}
+          {detail.events.map((event: EventView) => {
+            const annotation = stageChangeAnnotation(event);
+            return (
+              <li key={event.id} className="text-[11px] text-neutral-600 dark:text-neutral-300">
+                <span className="font-mono">{event.type}</span>
+                {annotation !== null && <span className="text-neutral-500 dark:text-neutral-400"> {annotation}</span>}{" "}
+                <span className="text-neutral-400">{formatTimestamp(event.at)}</span>
+              </li>
+            );
+          })}
           {detail.events.length === 0 && <li className="text-[11px] text-neutral-400">No events yet.</li>}
         </ul>
       </section>
@@ -1327,12 +1361,18 @@ const LineageTab: FC<{
             </>
           )}
         </span>
+        {/* "Provenance", not "Upstream" (seam pass over #108/#109): the
+            Research tab's dossier contexts already render "Upstream" for the
+            handoff CLAIM (what hands work TO this skill); this line is the
+            adopt marker's import provenance (where the files came from) --
+            two different facts, so two different words, "Upstream" kept
+            exclusively for the dossier's claim. */}
         <span>
           {lineage.upstream === null ? (
-            <span className="text-neutral-400">Upstream: unrecorded.</span>
+            <span className="text-neutral-400">Provenance: unrecorded.</span>
           ) : (
             <>
-              Upstream: <span className="font-mono">{lineage.upstream.source}</span>
+              Provenance: <span className="font-mono">{lineage.upstream.source}</span>
               {lineage.upstream.ref !== null && <span className="font-mono"> @ {lineage.upstream.ref}</span>}
             </>
           )}

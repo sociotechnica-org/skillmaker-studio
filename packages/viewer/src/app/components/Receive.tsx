@@ -56,6 +56,7 @@ import { type FC, type FormEvent, type ReactNode, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
 import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
 import {
+  STAKES_BADGE_CLASS,
   UNVERIFIED_BADGE_CLASS,
   VERDICT_DISPOSITIONS,
   type FieldReportOutcome,
@@ -341,7 +342,7 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
         </span>
       )}
       {crate.stakes !== null && (
-        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STAKES_BADGE_CLASS[crate.stakes]}`}>
           {crate.stakes}
         </span>
       )}

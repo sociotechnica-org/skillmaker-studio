@@ -73,14 +73,19 @@ discovery sweep (`Adopt.ts`'s `walk`, shared rather than duplicated) plus
 the tripwire above, and writes `adopt-manifest.md` at the workspace root —
 a markdown table (`Triage.ts`'s `renderManifest`/`parseManifest`, a house
 pattern mirrored from `RiskMap.ts`'s tolerant table round-trip), one row
-per not-yet-adopted candidate. Machine columns are automated: name, path,
-mechanical condition (SKILL.md parses / frontmatter complete / has evals —
-the OS&D clipboard) and registry evidence. Human columns default per the
-ruling — deferral, never a false fact: `decision` (keep), `whose` (`mine`
-for a bare candidate; `receive` for an evidence-bearing one — the tripwire
-applied to defaults too), `rights`/`stakes`/`hurts`/`priority` blank,
-`maturity` idea. The maker edits the human columns by hand, in their own
-editor, on purpose (no agentic pre-fill).
+per not-yet-adopted candidate — thirteen columns since issue #108 retired
+the maturity self-grade and made the manifest the card's batch form.
+Machine columns are automated: name, path, mechanical condition (SKILL.md
+parses / frontmatter complete / has evals — the OS&D clipboard) and
+registry evidence. Human columns default per the ruling — deferral, never
+a false fact: `decision` (keep), `whose` (`mine` for a bare candidate;
+`receive` for an evidence-bearing one — the tripwire applied to defaults
+too), `rights`/`stakes`/`hurts`/`priority` blank, and the card fields
+`Job`/`Out-of-scope`/`Basis` blank (free text; blank = not asked = an
+honest gap in the dossier these answers seed). There is no Maturity
+column and no entry-stage question anywhere in the table. The maker edits
+the human columns by hand, in their own editor, on purpose (no agentic
+pre-fill).
 
 `adopt --from-manifest [file]` (default `adopt-manifest.md` at the
 workspace root) executes every row as an **individual act**
@@ -88,10 +93,15 @@ workspace root) executes every row as an **individual act**
 tripwire — a human has already seen the evidence and decided): `keep` +
 `mine` adopts exactly like plain adopt (`adoptDirectoryInPlace` — the one
 per-directory write path `adoptWorkspace`'s sweep and `Route.ts`'s
-`new`/`fork` dispositions also use, issues #91/#92), entering at
-the stage `maturity` maps to (`idea`→`idea`, `draft`→`drafting`,
-`working`→`evaluating`, recorded honestly via `bundle.stage_changed` with
-`override: true` and reason `"triage: working import"` when past idea);
+`new`/`fork` dispositions also use, issues #91/#92), entering at the
+stage the directory's observable condition derives — never a stage the
+human was asked for (`deriveEntryStage`, issue #108: a `SKILL.md` that
+parses with a complete identity → `evaluating`; parses but incomplete →
+`drafting`; otherwise `idea`), recorded when past idea via
+`bundle.stage_changed` with reason `"triage: entry stage derived from
+runnable output"` and NO `override` — the system's own placement at
+birth, not a human overriding the guard; the row's `Job`/`Out-of-scope`/
+`Basis` answers seed the freshly scaffolded dossier;
 `keep` + anything else (`outside`/`came-back`/`unknown`/`receive`) routes
 through `skillmaker receive`'s exact engine for that one directory
 (`receiveCrate`); `archive` adopts then appends `bundle.archived`

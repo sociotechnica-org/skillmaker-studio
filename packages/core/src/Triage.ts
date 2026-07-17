@@ -33,6 +33,7 @@ import {
   type Frontmatter,
   type ManifestDetection,
 } from "./Adopt.ts";
+import type { DossierSectionName, DossierSeed } from "./Dossier.ts";
 import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import { IntakeStakes, type IntakeRights } from "./Journal.ts";
@@ -241,7 +242,15 @@ export const defaultWhoseFor = (evidence: IntakeEvidence): TriageWhose =>
 // The manifest row
 // ---------------------------------------------------------------------------
 
-export interface TriageRow {
+/**
+ * The card fields (`job`/`outOfScope`/`basis`, issue #108) are `DossierSeed`
+ * ITSELF, not a hand-copied triple: the manifest's answers are exactly what
+ * seeds the freshly adopted dossier (`executeManifestRow` passes the row
+ * straight through as the seed), so the row IS a seed by type -- the two
+ * shapes cannot drift apart. Blank = not asked = honest gap, per
+ * `DossierSeed`'s own field docs.
+ */
+export interface TriageRow extends DossierSeed {
   readonly name: string;
   /** Relative to the workspace root, forward-slash always (portable, matches `IndexService.ts`'s own convention). */
   readonly path: string;
@@ -253,12 +262,6 @@ export interface TriageRow {
   readonly stakes?: TriageStakes;
   readonly hurts?: string;
   readonly priority?: number;
-  /** Card field (issue #108): one line, what the skill does -- seeds the freshly adopted dossier's `## Job`. Blank = not asked = honest gap. */
-  readonly job?: string;
-  /** Card field (issue #108): what this skill explicitly is NOT for -- seeds the dossier's `## Out-of-scope`. Blank = not asked = honest gap. */
-  readonly outOfScope?: string;
-  /** Card field (issue #108): the named framework / whose way of doing it -- seeds the dossier's `## Basis`. Blank = not asked = honest gap. */
-  readonly basis?: string;
 }
 
 export interface TriageSkippedRow {
@@ -364,18 +367,22 @@ export const triageWorkspace = Effect.fn("Triage.triageWorkspace")(function* (
 // and the wording of what to tell the human are specific to this manifest).
 // ---------------------------------------------------------------------------
 
-type CardFieldKey = "job" | "outOfScope" | "basis";
+type CardFieldKey = keyof DossierSeed;
 
 /**
  * The card's free-text batch-form fields (issue #108): manifest column
  * label -> `TriageRow` key. ONE declaration drives all four sites that
  * know these fields -- the header, `renderManifest`'s row cells,
  * `parseManifest`'s lookups, and the receive path's stranded-answer
- * warning -- so a future card field is a one-place edit. The keys
- * deliberately match `DossierSeed`'s: these answers are exactly what seeds
- * the freshly adopted dossier.
+ * warning -- so a future card field is a one-place edit. Typed, not just
+ * documented, against the shared shape: keys are `keyof DossierSeed`
+ * (these answers ARE the dossier seed) and labels are `DossierSectionName`
+ * (the sections they land in, `Dossier.ts`'s `DOSSIER_SECTIONS`) -- a
+ * label or key that drifts from the dossier's own vocabulary is a compile
+ * error, and the VocabLockstep suite asserts the membership at runtime
+ * too. Exported for that test only.
  */
-const CARD_FIELDS: ReadonlyArray<readonly [label: string, key: CardFieldKey]> = [
+export const CARD_FIELDS: ReadonlyArray<readonly [label: DossierSectionName, key: CardFieldKey]> = [
   ["Job", "job"],
   ["Out-of-scope", "outOfScope"],
   ["Basis", "basis"],
@@ -756,9 +763,10 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
     // tripwire here: the human already saw this row's evidence in the
     // manifest and decided anyway. The row's card answers
     // (Job/Out-of-scope/Basis, issue #108) seed the dossier this adopt
-    // creates -- `writeDossierScaffold` never clobbers an existing file, so
-    // a dossier that already traveled with the directory wins over the
-    // manifest's answers.
+    // creates -- `TriageRow extends DossierSeed`, so the row IS the seed,
+    // no field-by-field copy to drift. `writeDossierScaffold` never
+    // clobbers an existing file, so a dossier that already traveled with
+    // the directory wins over the manifest's answers.
     const skillMdPath = join(dir, "SKILL.md");
     const skillMdContent = yield* fs
       .readFileString(skillMdPath)
@@ -768,7 +776,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
       skillMdContent,
       slugBase: basename(dir),
       usedSlugs,
-      dossierSeed: { job: row.job, outOfScope: row.outOfScope, basis: row.basis },
+      dossierSeed: row,
     });
     usedSlugs.add(wrapped.slug);
 

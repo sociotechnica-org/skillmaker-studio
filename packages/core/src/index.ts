@@ -47,6 +47,7 @@ export {
 export {
   IndexService,
   layer as IndexServiceLayer,
+  type BundleLocation,
   type BundleRecord,
   type BundleUpstream,
   type TodoRecord,

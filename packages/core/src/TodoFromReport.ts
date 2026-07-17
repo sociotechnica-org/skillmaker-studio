@@ -159,12 +159,15 @@ export interface OpenTodoFromIntakeResult {
 
 /** `detail`'s default (issue #91): the crate's recorded testimony/source/claim, the closest analogue to a field report's prose a `skill.received` event carries. Structured `stakes`/`hurts` (issue #108) surface first when present; an old crate's flattened `notes` prose still shows verbatim, never re-parsed. */
 const defaultIntakeDetail = (payload: SkillReceivedEvent["payload"]): string => {
+  // Stakes before hurts -- the same order the dock's elicitation tree asks
+  // them in and every other surface renders them (the manifest columns,
+  // Receive's crate rows, Track's salvaged rows).
   const testimony: string[] = [];
-  if (payload.hurts !== undefined) {
-    testimony.push(`Hurts: ${payload.hurts}`);
-  }
   if (payload.stakes !== undefined) {
     testimony.push(`Stakes: ${payload.stakes}`);
+  }
+  if (payload.hurts !== undefined) {
+    testimony.push(`Hurts: ${payload.hurts}`);
   }
   if (payload.notes !== undefined) {
     testimony.push(payload.notes);
