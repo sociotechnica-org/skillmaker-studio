@@ -13,6 +13,8 @@ import { useEventStream } from "./useEventStream.ts";
 
 export interface UseSkillbookResult {
   readonly bundles: ReadonlyArray<SkillbookBundle>;
+  /** The workspace's display name -- the Skillbook cover's byline (issue #109 Stage 3). */
+  readonly workspaceName: string | undefined;
   readonly loading: boolean;
   readonly error: RuntimeError | undefined;
   readonly refetch: () => void;
@@ -20,6 +22,7 @@ export interface UseSkillbookResult {
 
 export const useSkillbook = (): UseSkillbookResult => {
   const [bundles, setBundles] = useState<ReadonlyArray<SkillbookBundle>>([]);
+  const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<RuntimeError | undefined>(undefined);
 
@@ -28,6 +31,7 @@ export const useSkillbook = (): UseSkillbookResult => {
     getSkillbook()
       .then((response) => {
         setBundles(response.bundles);
+        setWorkspaceName(response.workspaceName);
         setError(undefined);
       })
       .catch((cause: RuntimeError) => {
@@ -44,5 +48,5 @@ export const useSkillbook = (): UseSkillbookResult => {
 
   useEventStream("/api/events-stream", refetch);
 
-  return { bundles, loading, error, refetch };
+  return { bundles, workspaceName, loading, error, refetch };
 };

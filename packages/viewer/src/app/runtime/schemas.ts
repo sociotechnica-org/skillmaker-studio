@@ -134,7 +134,7 @@ export class ConfigSummary extends Schema.Class<ConfigSummary>("ConfigSummary")(
   viewerPort: Schema.Number,
   /** Configured provider names -- the run-trigger provider select (Phase 9) shows a picker only when >1. */
   providers: Schema.Array(Schema.String),
-  /** `skillmaker.config.json`'s `publishTargets` (data-model.md §2.14) -- the BundlePanel's post-publish "Publish to targets" step shows only when this is non-empty. */
+  /** `skillmaker.config.json`'s `publishTargets` (data-model.md §2.14) -- the skill card's post-publish "Publish to targets" step shows only when this is non-empty. */
   publishTargets: Schema.Array(Schema.Struct({ id: Schema.String, kind: Schema.String })),
 }) {}
 
@@ -184,7 +184,7 @@ export const ARCHIVED_LABEL = "Archive";
  * The Unverified badge's shared style (issue #93): one constant instead of
  * three hand-copied Tailwind strings, consumed by the Lab Bench (`Lab.tsx`),
  * Receive's recently-routed tail (`Receive.tsx`), and the bundle detail Evals
- * tab (`BundlePanel.tsx`). Deliberately violet, not amber -- Lab's drift pill
+ * tab (`SkillCard.tsx`). Deliberately violet, not amber -- Lab's drift pill
  * already owns amber for "something moved"; this badge means "no proof," an
  * absence, not an alarm.
  */
@@ -281,6 +281,22 @@ export class DossierRecord extends Schema.Class<DossierRecord>("DossierRecord")(
   fitCriterion: Schema.optionalKey(Schema.String),
 }) {}
 
+/**
+ * Lineage (issue #109, the card's Lineage tab): chain of custody replayed
+ * from the journal server-side (`handleBundleDetail` -- creation/receipt
+ * origin, version records, ship/receive acts, retire/restore, uncapped and
+ * chronological, unlike the recent-events tail) plus the fork family from
+ * adopt markers (`forkOf` stamped by `route --as fork`; `forks` the
+ * bundles whose markers point back here; `upstream` from `adopt --source`/
+ * the dock). All derived, recomputed per request -- never a store.
+ */
+export class LineageRecord extends Schema.Class<LineageRecord>("LineageRecord")({
+  custody: Schema.Array(EventView),
+  forkOf: Schema.NullOr(Schema.String),
+  forks: Schema.Array(Schema.String),
+  upstream: Schema.NullOr(Schema.Struct({ source: Schema.String, ref: Schema.NullOr(Schema.String) })),
+}) {}
+
 export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   "BundleDetailResponse",
 )({
@@ -295,6 +311,8 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   measurements: Schema.Array(MeasurementRecord),
   station: Schema.NullOr(StationAvailability),
   dossier: DossierRecord,
+  /** The card's Lineage tab data (issue #109) -- custody chain + fork family, derived server-side. */
+  lineage: LineageRecord,
   /** The bundle's reviewable source files (design.md, research/*, output/*) for the Files tab, pipeline-ordered. */
   files: Schema.Array(Schema.String),
   /** The Unverified badge (issue #93): same derivation as `CatalogEntry.unverified`, computed from this same response's `measurements`. */
@@ -520,6 +538,22 @@ export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
    * exists on the other side of this boolean, its absence is silence.
    */
   unverified: Schema.Boolean,
+  /**
+   * Whereabouts (issue #109): the last `skill.shipped` fact for this bundle
+   * -- where it last went, which version left, when. `null` = never shipped,
+   * an honest absence. One piece of the derived status set, never "the
+   * location": a skill can be published, shipped, and back on the bench at
+   * once.
+   */
+  lastShipment: Schema.NullOr(
+    Schema.Struct({
+      destination: Schema.String,
+      versionHash: Schema.String,
+      at: Schema.String,
+    }),
+  ),
+  /** The `at` of this bundle's most recent attributable journal event (falls back to its creation timestamp) -- Track's recency sort key. Derived server-side, never stored. */
+  lastActivityAt: Schema.String,
 }) {}
 
 export class CatalogResponse extends Schema.Class<CatalogResponse>("CatalogResponse")({
@@ -696,10 +730,28 @@ export class RecentlyRoutedView extends Schema.Class<RecentlyRoutedView>("Recent
   unverified: Schema.Boolean,
 }) {}
 
-/** `GET /api/intake` response -- `crates` oldest first, unpaginated (issue #90: "the dock must not become a shelf"); `recentlyRouted` newest first, capped (issue #91). */
+/**
+ * One salvaged crate for the Archive drawer (issue #109): "everything out of
+ * commission but kept," the drawer's second population beside retired
+ * bundles. Unlike `recentlyRouted` (capped, all dispositions), this is the
+ * FULL salvage fold, newest first. `bundle` is the existing bundle the
+ * salvage defended, when one was named. The crate's content still sits at
+ * `receiving/<intake>/` -- the intake id is the harvest handle.
+ */
+export class SalvagedCrateView extends Schema.Class<SalvagedCrateView>("SalvagedCrateView")({
+  intake: Schema.String,
+  claimedName: Schema.NullOr(Schema.String),
+  bundle: Schema.NullOr(Schema.String),
+  reason: Schema.String,
+  at: Schema.String,
+  actor: ActorView,
+}) {}
+
+/** `GET /api/intake` response -- `crates` oldest first, unpaginated (issue #90: "the dock must not become a shelf"); `recentlyRouted` newest first, capped (issue #91); `salvaged` the Archive drawer's full salvage fold, newest first (issue #109). */
 export class IntakeResponse extends Schema.Class<IntakeResponse>("IntakeResponse")({
   crates: Schema.Array(IntakeCrateView),
   recentlyRouted: Schema.Array(RecentlyRoutedView),
+  salvaged: Schema.Array(SalvagedCrateView),
 }) {}
 
 /** One `publishTargets` entry (skillmaker.config.json) -- what the viewer's Publish step offers. */

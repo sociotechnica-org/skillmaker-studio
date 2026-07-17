@@ -1,31 +1,39 @@
 /**
- * The bundle-detail page (`/bundles/:slug` + its sub-routes, ui-pass-spec.md
- * §3.1/§3.3): promoted from a 24rem side panel to a full page so Overview /
- * Files / Versions / Evals have room to breathe, and so a bundle is
- * linkable/bookmarkable. Four tabs, now real sub-routes instead of
- * `useState<PanelTab>` -- deep-linkable, refresh-safe, back/forward-safe by
- * construction (ui-pass-spec.md §3.4#2):
- *   - Overview: guard hints, the review pair (request/approve/revise), the
- *     publish flow, forward "advance", "move back", recent events. All
- *     writes go through `POST /api/events` (data-model.md §2.9/§2.13) via
- *     `runtime/api.ts`'s `postEvent`.
- *   - Files: read-only view of the bundle's reviewable sources (design.md +
- *     research/* + output/*, enumerated in the detail payload's `files`) via
- *     `GET /api/bundles/:slug/file` (a strict allowlist -- see Server.ts);
- *     `?file=` deep-links a specific one (the review panel's artifact links).
- *   - Versions: the drift badge (data-model.md §2.7), "Record version", and
- *     version history, via `GET /api/bundles/:slug` (versions + drift are
- *     already in the detail payload) and `POST /api/bundles/:slug/record-version`.
- *   - Evals: risk coverage + fixtures + runs; the run-detail modal's
- *     open/close state is synced to `?run=:runId` on this route (fixing the
- *     old Studio's worst focus-management flaw, ui-pass-spec.md §3.4#5).
+ * The skill card (issue #109, data-model draft "The Card"): the per-skill
+ * projection that replaces the old bundle panel (`BundlePanel.tsx`), wired
+ * to the SAME `GET /api/bundles/<slug>` payload. One noun, rendered at
+ * home: derived, never stale, never stored. Card charter, non-negotiable:
+ * **display before derivation, derivation before automation** -- v1 shows
+ * only what the data already backs.
  *
- * Reachable-409 choice (see task report): the "Advance" button stays
- * clickable even when `guardStatus` predicts a rejection -- it is only
- * styled as "not ready" and grows a one-line explanation -- rather than
- * being `disabled`. That keeps the guarded-transition 409 path reachable
- * from the UI itself (click when unapproved -> server rejects -> reason
- * shown inline), instead of requiring a separate dev-only affordance.
+ * Layout: an always-visible header + glance (identity · stage · version ·
+ * drift · coverage tally · proven-on providers · Unverified), then tabs:
+ *  - **Overview**: the glance expanded -- a plain-language status line,
+ *    "Next" chips (derivable-today gaps only, `runtime/cardGlance.ts`), and
+ *    every action affordance the old panel had (review pair, publish gate,
+ *    stage advance/back, station run, publish-to-targets, recent events).
+ *    The card replaces the panel's layout, not its capabilities.
+ *  - **Models**: the measurements table -- one row per (fixture × provider ×
+ *    model × version), NEVER pooled (data-model.md §1.1 laws 5-6), exact
+ *    pinned model ids as recorded, n · pass · rate · 95% CI (computed in
+ *    core: Wilson / rule-of-three on the real n), every row pinned to the
+ *    version it measured. The fixtures/runs read-out (Run buttons, run
+ *    detail modal, `?run=` deep link) lives here too.
+ *  - **Coverage**: the risk map in its authored words (covered / partial /
+ *    gap) -- authored judgment kept visually separate from pass rates,
+ *    which live in Models. Never blended.
+ *  - **Research**: the dossier, honest gaps shown explicitly ("Job:
+ *    unrecorded", "Contexts: none named") -- never hidden.
+ *  - **Lineage**: chain of custody replayed from the journal (server-derived
+ *    `lineage.custody`) + fork family (marker-derived `forkOf`/`forks`/
+ *    `upstream`) + version records (drift, "Record version", history --
+ *    versions ARE custody, so the old Versions tab lives here; its old path
+ *    aliases in via the router).
+ *  - **Files**: the read-only source review, unchanged (`?file=` deep links).
+ *
+ * Filed for vN, deliberately NOT built: risk heat map, world-watch,
+ * neighborhood scoring, card.json interchange. Unverified stays a badge,
+ * never a band.
  */
 import { type FC, useEffect, useState } from "react";
 import {
@@ -37,6 +45,7 @@ import {
   triggerRun,
   triggerStationRun,
 } from "../runtime/api.ts";
+import { coverageTally, nextChips, providerModelId, provenOnProviders } from "../runtime/cardGlance.ts";
 import { bundleFileHref, bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
 import {
   STAGES,
@@ -48,6 +57,7 @@ import {
   type Drift,
   type EventView,
   type FixtureRecord,
+  type LineageRecord,
   type MeasurementRecord,
   type PublishTargetResult,
   type RiskCoverageRecord,
@@ -137,6 +147,14 @@ const versionLabelFor = (version: VersionRecord | undefined, hash: string): stri
   return hex.length > 8 ? hex.slice(0, 8) : hex;
 };
 
+const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
+  idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+  researching: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  drafting: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
+  evaluating: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+};
+
 const DRIFT_LABEL: Record<Drift, string> = {
   "no-version": "No version recorded",
   "in-sync": "In sync",
@@ -163,9 +181,11 @@ const DRIFT_BADGE_CLASS: Record<Drift, string> = {
 
 const TABS: ReadonlyArray<{ readonly key: BundleTab; readonly label: string }> = [
   { key: "overview", label: "Overview" },
+  { key: "models", label: "Models" },
+  { key: "coverage", label: "Coverage" },
+  { key: "research", label: "Research" },
+  { key: "lineage", label: "Lineage" },
   { key: "files", label: "Files" },
-  { key: "versions", label: "Versions" },
-  { key: "evals", label: "Evals" },
 ];
 
 /** IN Input / RE Reasoning / OUT Output / ADV Adversarial / CHN Chain (data-model.md §2.6). */
@@ -193,7 +213,7 @@ const COVERAGE_LABEL: Record<CoverageValue, string> = {
   "n/a": "n/a",
 };
 
-export const BundlePanel: FC<{
+export const SkillCard: FC<{
   slug: string;
   tab: BundleTab;
   runId: string | undefined;
@@ -212,7 +232,7 @@ export const BundlePanel: FC<{
   // Post a sequence of events in order, stopping at the first failure -- the
   // same collapse `PublishSection` uses for gate+advance, generalized so one
   // guided click can e.g. approve-then-advance. A partial failure leaves a
-  // legal intermediate state the panel re-renders the next step from.
+  // legal intermediate state the card re-renders the next step from.
   const submitMany = (events: ReadonlyArray<PostEventInput>): void => {
     setPending(true);
     setActionError(undefined);
@@ -252,10 +272,7 @@ export const BundlePanel: FC<{
 
       {detail !== undefined && (
         <>
-          <div>
-            <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{detail.bundle.name}</h3>
-            <p className="font-mono text-xs text-neutral-500 dark:text-neutral-400">{detail.bundle.slug}</p>
-          </div>
+          <CardHeader detail={detail} />
 
           <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
             {TABS.map((candidate) => (
@@ -294,29 +311,109 @@ export const BundlePanel: FC<{
               onChanged={refetch}
             />
           )}
-          {tab === "files" && <FilesTab slug={slug} files={detail.files} initialFile={file} />}
-          {tab === "versions" && (
-            <VersionsTab slug={slug} drift={detail.bundle.drift} versions={detail.versions} onRecorded={refetch} />
-          )}
-          {tab === "evals" && (
-            <EvalsTab
+          {tab === "models" && (
+            <ModelsTab
               slug={slug}
               fixtures={detail.fixtures}
-              riskCoverage={detail.riskCoverage}
-              warnings={detail.warnings}
               runs={detail.runs}
               measurements={detail.measurements}
               versions={detail.versions}
-              unverified={detail.unverified}
               runId={runId}
               onOpenRun={(id) => navigate(bundleRunHref(slug, id))}
-              onCloseRun={() => navigate(bundleHref(slug, "evals"))}
+              onCloseRun={() => navigate(bundleHref(slug, "models"))}
               onChanged={refetch}
             />
           )}
+          {tab === "coverage" && (
+            <CoverageTab riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
+          )}
+          {tab === "research" && <DossierSection dossier={detail.dossier} />}
+          {tab === "lineage" && (
+            <LineageTab
+              slug={slug}
+              lineage={detail.lineage}
+              drift={detail.bundle.drift}
+              versions={detail.versions}
+              onRecorded={refetch}
+            />
+          )}
+          {tab === "files" && <FilesTab slug={slug} files={detail.files} initialFile={file} />}
         </>
       )}
     </div>
+  );
+};
+
+/**
+ * The always-visible header + glance: identity, then the derived status
+ * facts -- stage (display label) · latest version · drift · coverage tally
+ * (authored words, a count of judgments, never a rate) · proven-on
+ * providers (exact ids, >=1 passing measurement at the latest version) ·
+ * the Unverified badge. Every empty state is an honest gap, dossier-style.
+ */
+const CardHeader: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]> }> = ({ detail }) => {
+  const { bundle } = detail;
+  const latestVersion = detail.versions[0];
+  const tally = coverageTally(detail.riskCoverage);
+  const proven = provenOnProviders(detail.measurements, latestVersion?.hash);
+
+  return (
+    <header className="flex flex-col gap-2">
+      <div>
+        <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{bundle.name}</h3>
+        <p className="font-mono text-xs text-neutral-500 dark:text-neutral-400">{bundle.slug}</p>
+        {bundle.oneLiner.length > 0 && (
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">{bundle.oneLiner}</p>
+        )}
+        {bundle.tags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {bundle.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-300">
+        <span className={`rounded-full px-2 py-0.5 font-medium ${STAGE_BADGE_CLASS[bundle.stage]}`}>
+          {STAGE_LABEL[bundle.stage]}
+        </span>
+        {bundle.archived && (
+          <span className="rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+            Retired
+          </span>
+        )}
+        <span className="font-mono" title={latestVersion !== undefined ? latestVersion.hash : undefined}>
+          {latestVersion === undefined
+            ? "no version recorded"
+            : `v: ${versionLabelFor(latestVersion, latestVersion.hash)}`}
+        </span>
+        <span className={`rounded-full px-2 py-0.5 font-medium ${DRIFT_BADGE_CLASS[bundle.drift]}`}>
+          {DRIFT_LABEL[bundle.drift]}
+        </span>
+        <span title="The risk map's authored judgments -- coverage is never a pass rate.">
+          {tally.total === 0
+            ? "risks: none authored"
+            : `risks: ${tally.covered} covered · ${tally.partial} partial · ${tally.gap} gap`}
+        </span>
+        <span title="Providers with at least one passing measurement at the latest recorded version -- exact recorded ids.">
+          {proven.length === 0 ? "proven on: none yet" : `proven on ${proven.join(", ")}`}
+        </span>
+        {detail.unverified && (
+          <span
+            title="Arrived from outside; we have not yet measured it."
+            className={`rounded-full px-2 py-0.5 font-medium ${UNVERIFIED_BADGE_CLASS}`}
+          >
+            Unverified
+          </span>
+        )}
+      </div>
+    </header>
   );
 };
 
@@ -343,12 +440,10 @@ interface OverviewTabProps {
 /**
  * `dossier.md`'s sections, rendered as recorded content or an honest gap
  * (issue #94, `Mechanism - Receiving Dock.md`'s "unanswered fields display
- * as honest gaps ... never block anything") -- lives on the Overview tab,
- * the bundle-detail surface a maker is already looking at when working the
- * skill. Deliberately NOT on the Lab Bench (`Lab.tsx`'s `LabRow`, built from
- * the separate `/api/catalog` response, never sees this field at all): the
- * bench is for drift/proof/work signals, not authoring honesty -- no nag
- * inflation.
+ * as honest gaps ... never block anything") -- the card's Research tab
+ * (issue #109: the dossier IS the card's authored core). Handoff CLAIMS
+ * (issue #108) render per context when present; absent = unclaimed =
+ * honest gap, no placeholder row.
  */
 const DOSSIER_GAP = <span className="text-neutral-400">unrecorded</span>;
 
@@ -374,7 +469,7 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
           <dt className="w-24 shrink-0 text-neutral-500 dark:text-neutral-400">Contexts</dt>
           <dd className="text-neutral-700 dark:text-neutral-300">
             {dossier.contexts.length === 0 ? (
-              DOSSIER_GAP
+              <span className="text-neutral-400">none named</span>
             ) : (
               <ul className="flex flex-col gap-1">
                 {dossier.contexts.map((context) => {
@@ -405,6 +500,41 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
           </dd>
         </div>
       </dl>
+    </section>
+  );
+};
+
+/**
+ * The Overview's "Next" chips (issue #109): derivable-today gaps only --
+ * uncovered risks, fixtures below the smoke threshold, unmeasured
+ * providers. No speculative plays, no scoring, no heat. An empty list is a
+ * quiet, honest "nothing derivable to suggest," not a congratulation.
+ */
+const NextChips: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]> }> = ({ detail }) => {
+  const { state } = useWorkspace();
+  const chips = nextChips({
+    riskCoverage: detail.riskCoverage,
+    fixtures: detail.fixtures,
+    measurements: detail.measurements,
+    latestHash: detail.versions[0]?.hash,
+    providers: state?.config.providers ?? [],
+  });
+  if (chips.length === 0) {
+    return null;
+  }
+  return (
+    <section className="flex flex-col gap-1">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Next</h4>
+      <div className="flex flex-wrap gap-1">
+        {chips.map((chip) => (
+          <span
+            key={chip.key}
+            className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+          >
+            {chip.label}
+          </span>
+        ))}
+      </div>
     </section>
   );
 };
@@ -455,7 +585,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
           return;
         }
         // The station run proceeds server-side; the SSE journal stream
-        // refreshes the panel as station.started/review.requested land. One
+        // refreshes the card as station.started/review.requested land. One
         // eager refetch so the change shows up promptly, same as FixtureRow.
         onChanged();
       })
@@ -478,7 +608,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
         </details>
       </div>
 
-      <DossierSection dossier={detail.dossier} />
+      <NextChips detail={detail} />
 
       {actionError !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
@@ -1040,7 +1170,12 @@ const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: st
   );
 };
 
-const VersionsTab: FC<{
+/**
+ * The version records section (drift badge + "Record version" + history) --
+ * the old Versions tab, now housed on Lineage (issue #109: version records
+ * ARE custody; the old `/versions` path aliases here via the router).
+ */
+const VersionsSection: FC<{
   slug: string;
   drift: Drift;
   versions: ReadonlyArray<VersionRecord>;
@@ -1068,6 +1203,7 @@ const VersionsTab: FC<{
 
   return (
     <section className="flex flex-col gap-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Versions</h4>
       <div className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${DRIFT_BADGE_CLASS[drift]}`}>
         {DRIFT_LABEL[drift]}
       </div>
@@ -1097,7 +1233,7 @@ const VersionsTab: FC<{
       </div>
 
       <section className="flex flex-col gap-1">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Version history</h4>
+        <h5 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Version history</h5>
         <ul className="flex flex-col gap-1">
           {versions.map((version) => (
             <li key={version.hash} className="text-[11px] text-neutral-600 dark:text-neutral-300">
@@ -1114,10 +1250,211 @@ const VersionsTab: FC<{
 };
 
 /**
+ * One custody event, humanized defensively from its payload (the payload is
+ * `Unknown` on the wire; anything unrecognized falls back to the raw event
+ * type -- display what the journal says, invent nothing).
+ */
+const custodyLine = (event: EventView): string => {
+  const versionHash = stringField(event.payload, "versionHash");
+  switch (event.type) {
+    case "bundle.created":
+      return "Created here";
+    case "skill.routed": {
+      const disposition = stringField(event.payload, "disposition") ?? "?";
+      const reason = stringField(event.payload, "reason");
+      return `Arrived via the dock — routed "${disposition}"${reason !== undefined ? `: ${reason}` : ""}`;
+    }
+    case "skill.version_recorded": {
+      const hash = stringField(event.payload, "hash");
+      const label = stringField(event.payload, "label");
+      return `Version recorded${hash !== undefined ? ` ${shortHash(hash)}` : ""}${label !== undefined ? ` ("${label}")` : ""}`;
+    }
+    case "skill.published": {
+      const target = stringField(event.payload, "target");
+      return `Published${versionHash !== undefined ? ` ${shortHash(versionHash)}` : ""}${target !== undefined ? ` to "${target}"` : ""}`;
+    }
+    case "skill.shipped": {
+      const destination = stringField(event.payload, "destination");
+      const purpose = stringField(event.payload, "purpose");
+      return `Shipped${versionHash !== undefined ? ` ${shortHash(versionHash)}` : ""}${destination !== undefined ? ` to "${destination}"` : ""}${purpose !== undefined ? ` for "${purpose}"` : ""}`;
+    }
+    case "skill.field_report": {
+      const outcome = stringField(event.payload, "outcome");
+      return `Field report received${outcome !== undefined ? `: ${outcome}` : ""}`;
+    }
+    case "bundle.archived":
+      return "Retired";
+    case "bundle.restored":
+      return "Restored";
+    default:
+      return event.type;
+  }
+};
+
+/**
+ * The Lineage tab (issue #109): fork family + provenance (from adopt
+ * markers -- `forkOf`/`forks` link within the deck, `upstream` is where the
+ * content came from before it had identity here), the chain of custody
+ * replayed from the journal (oldest first -- the chain reads forward), and
+ * the version records section. Display only what existing data supports:
+ * no marker, no upstream, no custody events all render as honest absences.
+ */
+const LineageTab: FC<{
+  slug: string;
+  lineage: LineageRecord;
+  drift: Drift;
+  versions: ReadonlyArray<VersionRecord>;
+  onRecorded: () => void;
+}> = ({ slug, lineage, drift, versions, onRecorded }) => (
+  <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-1">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Fork family</h4>
+      <div className="flex flex-col gap-1 text-[11px] text-neutral-600 dark:text-neutral-300">
+        <span>
+          {lineage.forkOf === null ? (
+            <span className="text-neutral-400">Not a fork of anything recorded.</span>
+          ) : (
+            <>
+              Forked from{" "}
+              <Link href={bundleHref(lineage.forkOf)} className="font-medium text-sky-700 hover:underline dark:text-sky-300">
+                {lineage.forkOf}
+              </Link>
+            </>
+          )}
+        </span>
+        <span>
+          {lineage.forks.length === 0 ? (
+            <span className="text-neutral-400">No forks recorded.</span>
+          ) : (
+            <>
+              Forks:{" "}
+              {lineage.forks.map((fork, index) => (
+                <span key={fork}>
+                  {index > 0 ? ", " : ""}
+                  <Link href={bundleHref(fork)} className="font-medium text-sky-700 hover:underline dark:text-sky-300">
+                    {fork}
+                  </Link>
+                </span>
+              ))}
+            </>
+          )}
+        </span>
+        <span>
+          {lineage.upstream === null ? (
+            <span className="text-neutral-400">Upstream: unrecorded.</span>
+          ) : (
+            <>
+              Upstream: <span className="font-mono">{lineage.upstream.source}</span>
+              {lineage.upstream.ref !== null && <span className="font-mono"> @ {lineage.upstream.ref}</span>}
+            </>
+          )}
+        </span>
+      </div>
+    </section>
+
+    <section className="flex flex-col gap-1">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Chain of custody</h4>
+      {lineage.custody.length === 0 ? (
+        <p className="text-[11px] text-neutral-400">No custody events journaled yet.</p>
+      ) : (
+        <ol className="flex flex-col gap-1 border-l border-neutral-200 pl-3 dark:border-neutral-800">
+          {lineage.custody.map((event) => (
+            <li key={event.id} className="flex flex-col text-[11px]">
+              <span className="text-neutral-700 dark:text-neutral-200">{custodyLine(event)}</span>
+              <span className="text-neutral-400">
+                {formatTime(event.at)} · {event.actor.kind}:{event.actor.name}
+                {" · "}
+                <span className="font-mono">{event.type}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+
+    <VersionsSection slug={slug} drift={drift} versions={versions} onRecorded={onRecorded} />
+  </section>
+);
+
+/**
+ * The Coverage tab (issue #109): the risk map in its AUTHORED words only --
+ * covered / partial / gap, exactly as `risk-map.md` says. Deliberately no
+ * measurement chips and no pass rates here (unlike the old Evals tab):
+ * coverage is authored judgment, pass rates are measurements, and the two
+ * never blend. The rates live one tab over, in Models.
+ */
+const CoverageTab: FC<{
+  riskCoverage: ReadonlyArray<RiskCoverageRecord>;
+  warnings: ReadonlyArray<WarningRecord>;
+}> = ({ riskCoverage, warnings }) => {
+  const families = RISK_FAMILY_ORDER.filter((family) => riskCoverage.some((row) => row.family === family));
+  const otherFamilies = Array.from(
+    new Set(riskCoverage.map((row) => row.family).filter((family) => !(RISK_FAMILY_ORDER as ReadonlyArray<string>).includes(family))),
+  ).sort();
+  const orderedFamilies = [...families, ...otherFamilies];
+
+  return (
+    <section className="flex flex-col gap-4">
+      {warnings.length > 0 && (
+        <section className="flex flex-col gap-1 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+            Warnings
+          </h4>
+          <ul className="flex flex-col gap-1">
+            {warnings.map((warning, index) => (
+              <li key={index} className="text-[11px] text-amber-800 dark:text-amber-300">
+                <span className="font-mono">[{warning.source}]</span> {warning.message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="flex flex-col gap-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Risk coverage</h4>
+        <p className="text-[11px] text-neutral-400">
+          Authored judgment only — pass rates are measurements and live under Models.
+        </p>
+        {orderedFamilies.length === 0 && (
+          <p className="text-[11px] text-neutral-400">No risk-map.md authored yet.</p>
+        )}
+        {orderedFamilies.map((family) => (
+          <div key={family} className="flex flex-col gap-1">
+            <h5 className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-300">
+              {RISK_FAMILY_LABEL[family] ?? family}
+            </h5>
+            <table className="w-full text-left text-[11px]">
+              <thead>
+                <tr className="text-neutral-400">
+                  <th className="pr-2 font-normal">Risk</th>
+                  <th className="pr-2 font-normal">Coverage</th>
+                  <th className="pr-2 font-normal">Fixture</th>
+                </tr>
+              </thead>
+              <tbody>
+                {riskCoverage
+                  .filter((row) => row.family === family)
+                  .map((row) => (
+                    <tr key={row.riskId} className="border-t border-neutral-100 dark:border-neutral-800">
+                      <td className="py-1 pr-2 font-mono">{row.riskId}</td>
+                      <td className="py-1 pr-2">
+                        {COVERAGE_GLYPH[row.coverage]} {COVERAGE_LABEL[row.coverage]}
+                      </td>
+                      <td className="py-1 pr-2 font-mono">{row.fixtureCase ?? "—"}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </section>
+    </section>
+  );
+};
+
+/**
  * Per-fixture last-run status chip (plan.md Phase 8): completed green /
- * failed red / infra-error gray / running pulse. This is intentionally the
- * whole of Phase 8's viewer surface -- the full graded read-out (verdicts,
- * transcripts, artifacts) is Phase 9's Evals tab work, not this one's.
+ * failed red / infra-error gray / running pulse.
  */
 const RUN_CHIP_STYLE: Record<RunRecord["status"], string> = {
   completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
@@ -1149,10 +1486,7 @@ const MeasurementChips: FC<{
   return (
     <span className="flex flex-wrap gap-1">
       {cells.map((cell) => {
-        const providerLabel =
-          cell.model.length > 0 && cell.model !== cell.provider
-            ? `${cell.provider}/${cell.model}`
-            : cell.provider;
+        const providerLabel = providerModelId(cell);
         const ci =
           cell.ci === null
             ? ""
@@ -1213,7 +1547,7 @@ const FixtureRow: FC<{
           return;
         }
         // The run proceeds server-side; the SSE journal stream refreshes the
-        // panel as run.started/run.completed land. One eager refetch so the
+        // card as run.started/run.completed land. One eager refetch so the
         // "running" chip shows up promptly.
         onChanged();
       })
@@ -1313,133 +1647,115 @@ const FixtureRow: FC<{
   );
 };
 
+/** One measurement row's stable identity for React keys -- the full never-pooled grouping key. */
+const measurementRowKey = (cell: MeasurementRecord): string =>
+  `${cell.fixtureCase}|${cell.versionHash}|${cell.provider}|${cell.model}`;
+
 /**
- * Evals tab: Phase 7's authored coverage axis JOINED with Phase 9's
- * measured validation axis (data-model.md §2.12 -- the read-out). The
- * Validation column shows real measurement chips for the current latest
- * version; the Fixtures section lists runs (newest first) with a Run button
- * per fixture and a run-detail modal (transcript, artifacts, grading).
+ * The Models tab (issue #109): the measurements table -- one row per
+ * (fixture × provider × model), each row pinned to the version it measured
+ * (a version column, never a merge). NEVER pooled across fixtures,
+ * versions, or models; model ids are the exact recorded strings; the CI is
+ * core's Wilson/rule-of-three on the real n. The fixtures/runs read-out
+ * (Run buttons + run-detail modal, `?run=` deep link) lives below the
+ * table -- runs are the samples the table aggregates, so they share a tab.
  */
-const EvalsTab: FC<{
+const ModelsTab: FC<{
   slug: string;
   fixtures: ReadonlyArray<FixtureRecord>;
-  riskCoverage: ReadonlyArray<RiskCoverageRecord>;
-  warnings: ReadonlyArray<WarningRecord>;
   runs: ReadonlyArray<RunRecord>;
   measurements: ReadonlyArray<MeasurementRecord>;
   versions: ReadonlyArray<VersionRecord>;
-  /** The Unverified badge (issue #93): received + zero graded measurements ever, at any version. Rendered here, right next to the coverage/validation display it's the honest counterpart to. */
-  unverified: boolean;
-  /** The open run, sourced from the route's `?run=` query param (ui-pass-spec.md §3.1/§3.4#5) -- not local state, so it survives reload/back-forward. */
+  /** The open run, sourced from the route's `?run=` query param -- not local state, so it survives reload/back-forward. */
   runId: string | undefined;
   onOpenRun: (runId: string) => void;
   onCloseRun: () => void;
   onChanged: () => void;
-}> = ({
-  slug,
-  fixtures,
-  riskCoverage,
-  warnings,
-  runs,
-  measurements,
-  versions,
-  unverified,
-  runId,
-  onOpenRun,
-  onCloseRun,
-  onChanged,
-}) => {
+}> = ({ slug, fixtures, runs, measurements, versions, runId, onOpenRun, onCloseRun, onChanged }) => {
   const { state } = useWorkspace();
   const providers = state?.config.providers ?? [];
-  // Versions arrive newest-first; measurements only count against the
-  // CURRENT latest recorded version (data-model.md §1.6's honest reset).
+  // Versions arrive newest-first; the fixture chips below only count against
+  // the CURRENT latest recorded version (data-model.md §1.6's honest reset).
   const latestVersion = versions[0];
   const latestHash = latestVersion?.hash;
-  const families = RISK_FAMILY_ORDER.filter((family) => riskCoverage.some((row) => row.family === family));
-  const otherFamilies = Array.from(
-    new Set(riskCoverage.map((row) => row.family).filter((family) => !(RISK_FAMILY_ORDER as ReadonlyArray<string>).includes(family))),
-  ).sort();
-  const orderedFamilies = [...families, ...otherFamilies];
+
+  const versionByHash = new Map(versions.map((version) => [version.hash, version]));
+  const versionRank = new Map(versions.map((version, index) => [version.hash, index]));
+  const rows = [...measurements].sort(
+    (a, b) =>
+      a.fixtureCase.localeCompare(b.fixtureCase) ||
+      (versionRank.get(a.versionHash) ?? Number.MAX_SAFE_INTEGER) -
+        (versionRank.get(b.versionHash) ?? Number.MAX_SAFE_INTEGER) ||
+      providerModelId(a).localeCompare(providerModelId(b)),
+  );
 
   return (
     <section className="flex flex-col gap-4">
-      {warnings.length > 0 && (
-        <section className="flex flex-col gap-1 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-            Warnings
-          </h4>
-          <ul className="flex flex-col gap-1">
-            {warnings.map((warning, index) => (
-              <li key={index} className="text-[11px] text-amber-800 dark:text-amber-300">
-                <span className="font-mono">[{warning.source}]</span> {warning.message}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {unverified && (
-        <section className="flex items-center gap-2 rounded-md border border-violet-200 bg-violet-50 p-3 dark:border-violet-900 dark:bg-violet-950/40">
-          <span className={`w-fit rounded-full px-2 py-0.5 text-[11px] font-medium ${UNVERIFIED_BADGE_CLASS}`}>
-            Unverified
-          </span>
-          <p className="text-xs text-violet-800 dark:text-violet-300">
-            Arrived from outside; we have not yet measured it.
-          </p>
-        </section>
-      )}
-
       <section className="flex flex-col gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Risk coverage</h4>
-        {orderedFamilies.length === 0 && (
-          <p className="text-[11px] text-neutral-400">No risk-map.md authored yet.</p>
-        )}
-        {orderedFamilies.map((family) => (
-          <div key={family} className="flex flex-col gap-1">
-            <h5 className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-300">
-              {RISK_FAMILY_LABEL[family] ?? family}
-            </h5>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Measurements</h4>
+        <p className="text-[11px] text-neutral-400">
+          One row per fixture × provider × model, pinned to the version it measured — never pooled.
+        </p>
+        {rows.length === 0 ? (
+          <p className="text-[11px] text-neutral-400">
+            No measurements yet — a measurement is a set of graded runs at a recorded version.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
             <table className="w-full text-left text-[11px]">
               <thead>
                 <tr className="text-neutral-400">
-                  <th className="pr-2 font-normal">Risk</th>
-                  <th className="pr-2 font-normal">Coverage</th>
                   <th className="pr-2 font-normal">Fixture</th>
-                  <th className="pr-2 font-normal">Validation</th>
+                  <th className="pr-2 font-normal">Provider</th>
+                  <th className="pr-2 font-normal">Model</th>
+                  <th className="pr-2 font-normal">Version</th>
+                  <th className="pr-2 font-normal">n</th>
+                  <th className="pr-2 font-normal">Pass</th>
+                  <th className="pr-2 font-normal">Rate</th>
+                  <th className="pr-2 font-normal">95% CI</th>
                 </tr>
               </thead>
               <tbody>
-                {riskCoverage
-                  .filter((row) => row.family === family)
-                  .map((row) => (
-                    <tr key={row.riskId} className="border-t border-neutral-100 dark:border-neutral-800">
-                      <td className="py-1 pr-2 font-mono">{row.riskId}</td>
-                      <td className="py-1 pr-2">
-                        {COVERAGE_GLYPH[row.coverage]} {COVERAGE_LABEL[row.coverage]}
-                      </td>
-                      <td className="py-1 pr-2 font-mono">{row.fixtureCase ?? "—"}</td>
-                      <td className="py-1 pr-2">
-                        {row.fixtureCase !== undefined ? (
-                          <MeasurementChips
-                            measurements={measurements}
-                            fixtureCase={row.fixtureCase}
-                            latestHash={latestHash}
-                            latestVersion={latestVersion}
-                          />
-                        ) : (
-                          <span className="text-neutral-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                {rows.map((cell) => (
+                  <tr key={measurementRowKey(cell)} className="border-t border-neutral-100 dark:border-neutral-800">
+                    <td className="py-1 pr-2 font-mono">{cell.fixtureCase}</td>
+                    <td className="py-1 pr-2 font-mono">{cell.provider}</td>
+                    <td className="py-1 pr-2 font-mono">
+                      {cell.model.length > 0 ? (
+                        cell.model
+                      ) : (
+                        <span className="text-neutral-400" title="The run recorded no model id.">
+                          (unrecorded)
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-2 font-mono" title={cell.versionHash}>
+                      {versionLabelFor(versionByHash.get(cell.versionHash), cell.versionHash)}
+                      {cell.versionHash === latestHash ? "" : " (older)"}
+                    </td>
+                    <td className="py-1 pr-2">{cell.n}</td>
+                    <td className="py-1 pr-2">
+                      {cell.passes}/{cell.n}
+                      {cell.partial > 0 || cell.fail > 0
+                        ? ` (${cell.partial} partial, ${cell.fail} fail)`
+                        : ""}
+                    </td>
+                    <td className="py-1 pr-2">{(cell.passRate * 100).toFixed(1)}%</td>
+                    <td className="py-1 pr-2">
+                      {cell.ci === null
+                        ? "—"
+                        : `[${(cell.ci[0] * 100).toFixed(1)}%, ${(cell.ci[1] * 100).toFixed(1)}%]`}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-        ))}
+        )}
       </section>
 
       <section className="flex flex-col gap-1">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Fixtures</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Fixtures &amp; runs</h4>
         <ul className="flex flex-col gap-2">
           {fixtures.map((fixture) => (
             <FixtureRow

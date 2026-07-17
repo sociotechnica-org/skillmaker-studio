@@ -17,6 +17,8 @@ export * from "./Journal.ts";
 export * from "./Workspace.ts";
 export * from "./Errors.ts";
 export { foldBundleStates, bundleForEvent } from "./Fold.ts";
+export { CUSTODY_EVENT_TYPES, custodyEventsFor } from "./Lineage.ts";
+export { foldLastShipments, foldLastActivityAt, type LastShipment } from "./Whereabouts.ts";
 export {
   foldTodos,
   isTerminalStatus,

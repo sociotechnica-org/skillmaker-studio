@@ -9,10 +9,13 @@ import {
   checkTransition,
   computeBundleHashes,
   computeMeasurements,
+  custodyEventsFor,
   deriveIntakeVerdict,
   detectBundleLayout,
   didSkillActivate,
   foldBundleStates,
+  foldLastActivityAt,
+  foldLastShipments,
   foldTodos,
   gatherIntakeRegistry,
   guardStatus,
@@ -436,7 +439,27 @@ const handleIntake = async (root: string): Promise<Response> => {
     };
   });
 
-  return jsonResponse({ crates, recentlyRouted });
+  // The Archive drawer's salvaged population (issue #109): EVERY
+  // salvage-routed crate, newest first -- unlike `recentlyRouted` above
+  // (a capped, all-dispositions tail), this is the drawer's full "out of
+  // commission but kept" fold. Salvage grants no identity and moves no
+  // files: the crate still sits at `receiving/<intake>/`, which is exactly
+  // what the drawer's harvest affordance reaches for. Derived from the SAME
+  // `events` array -- no second journal read, nothing stored.
+  const salvaged = events
+    .filter((event) => event.type === "skill.routed")
+    .filter((event) => event.payload.disposition === "salvage")
+    .map((event) => ({
+      intake: event.payload.intake,
+      claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
+      bundle: event.payload.bundle ?? null,
+      reason: event.payload.reason,
+      at: event.at,
+      actor: event.actor,
+    }))
+    .reverse();
+
+  return jsonResponse({ crates, recentlyRouted, salvaged });
 };
 
 /**
@@ -471,8 +494,17 @@ const handleIntake = async (root: string): Promise<Response> => {
  * never re-queried) via core's `isUnverified`. No extra journal parse, no
  * new endpoint.
  */
-const handleCatalog = async (root: string): Promise<Response> =>
-  runIndexEffect(
+const handleCatalog = async (root: string): Promise<Response> => {
+  // Whereabouts (issue #109): the two pieces of Track's derived status set
+  // the index rows don't already carry -- last shipment + date (from
+  // `skill.shipped` events) and recency of activity (the bundle's most
+  // recent attributable event, Track's default sort key). Pure folds over
+  // one journal read, recomputed every request, never stored.
+  const journalEvents = await readJournalEvents(root);
+  const lastShipments = foldLastShipments(journalEvents);
+  const lastActivity = foldLastActivityAt(journalEvents);
+
+  return runIndexEffect(
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
@@ -530,11 +562,17 @@ const handleCatalog = async (root: string): Promise<Response> =>
           // version scoping), and `bundle.everReceived` is already on the
           // record from this SAME rebuild() -- no extra journal parse.
           unverified: isUnverified(bundle.everReceived, measurements.length),
+          // Whereabouts (issue #109): never one location -- a status set.
+          lastShipment: lastShipments.get(bundle.slug) ?? null,
+          // Recency floor: a bundle with no attributable journal events yet
+          // still sorts honestly by its own creation timestamp.
+          lastActivityAt: lastActivity.get(bundle.slug) ?? bundle.created,
         });
       }
       return jsonResponse({ entries });
     }),
   );
+};
 
 type AppendVersionOutcome =
   | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }
@@ -853,6 +891,64 @@ const loadDossierSections = (root: string, config: WorkspaceConfig, slug: string
     ),
   );
 
+interface LineageMarkerFacts {
+  readonly forkOf: string | null;
+  readonly upstream: { readonly source: string; readonly ref: string | null } | null;
+}
+
+/**
+ * The fork-family/provenance half of Lineage (issue #109): read from the
+ * bundle's `.skillmaker-adopt.json` marker (`Adopt.ts`'s `AdoptMarker` --
+ * `forkOf` stamped by `route --as fork`, `upstream` by `adopt --source`/the
+ * dock). Deliberately lenient like `readCurrentStageStation`: this is
+ * display provenance for the card's Lineage tab, not a precondition -- a
+ * missing/malformed marker is an honest "no recorded provenance," never a
+ * failed response.
+ */
+const readLineageMarker = (root: string, config: WorkspaceConfig, slug: string): LineageMarkerFacts => {
+  try {
+    const markerPath = join(root, config.skillsDir, slug, ".skillmaker-adopt.json");
+    if (!existsSync(markerPath)) {
+      return { forkOf: null, upstream: null };
+    }
+    const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as {
+      readonly forkOf?: unknown;
+      readonly upstream?: { readonly source?: unknown; readonly ref?: unknown };
+    };
+    const upstreamSource = parsed.upstream?.source;
+    return {
+      forkOf: typeof parsed.forkOf === "string" ? parsed.forkOf : null,
+      upstream:
+        typeof upstreamSource === "string"
+          ? { source: upstreamSource, ref: typeof parsed.upstream?.ref === "string" ? parsed.upstream.ref : null }
+          : null,
+    };
+  } catch {
+    return { forkOf: null, upstream: null };
+  }
+};
+
+/**
+ * The other direction of the fork family: which bundles' markers name THIS
+ * slug as `forkOf`. A directory scan over `skillsDir` (bundle counts are
+ * small at this scale -- the same tradeoff `findRunLocation` documents),
+ * derived fresh per request, never stored.
+ */
+const listForkChildren = (root: string, config: WorkspaceConfig, slug: string): ReadonlyArray<string> => {
+  const skillsRoot = join(root, config.skillsDir);
+  if (!existsSync(skillsRoot)) {
+    return [];
+  }
+  try {
+    return readdirSync(skillsRoot)
+      .filter((name) => statSync(join(skillsRoot, name)).isDirectory())
+      .filter((name) => readLineageMarker(root, config, name).forkOf === slug)
+      .sort();
+  } catch {
+    return [];
+  }
+};
+
 const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
   const detail = await loadBundleIndexDetail(root, slug);
   if (detail.kind === "not_found") {
@@ -868,6 +964,18 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
 
   const station = readCurrentStageStation(root, config, slug, bundle.stage);
   const dossier = await loadDossierSections(root, config, slug);
+
+  // Lineage (issue #109): chain of custody replayed from the journal (the
+  // SAME full `events` read above -- uncapped, unlike `recentEvents`) plus
+  // the fork family/provenance from adopt markers. All derived, recomputed
+  // per request -- the card is a projection, never a store.
+  const marker = readLineageMarker(root, config, slug);
+  const lineage = {
+    custody: custodyEventsFor(events, slug),
+    forkOf: marker.forkOf,
+    forks: listForkChildren(root, config, slug),
+    upstream: marker.upstream,
+  };
 
   return jsonResponse({
     bundle,
@@ -885,6 +993,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
     dossier,
+    lineage,
     files: listReviewableBundleFiles(root, config, slug),
   });
 };
