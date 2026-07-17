@@ -146,6 +146,17 @@ export const runRoute = Effect.fn("runRoute")(function* (
   return summarize(intake, outcome.result, options.json);
 });
 
+/**
+ * `true` when the ruling went outside the doors the crate's verdict offered
+ * (`VERDICT_DISPOSITIONS`, core Receive.ts). Advisory only -- the routing is
+ * already recorded by the time this is computed: the verdict constrains what
+ * the machine suggests, never the human's ruling (the registry can't see
+ * everything a human can -- a heavily rewritten fork shares no hash or name
+ * with its parent).
+ */
+const outsideOfferedDoors = (result: RouteCrateResult): boolean =>
+  result.offered !== undefined && !result.offered.includes(result.disposition);
+
 const summarize = (intake: string, result: RouteCrateResult, json: boolean): CliResult => {
   if (json) {
     return ok(
@@ -157,6 +168,8 @@ const summarize = (intake: string, result: RouteCrateResult, json: boolean): Cli
         slug: result.slug ?? null,
         parent: result.parent ?? null,
         versionHash: result.versionHash ?? null,
+        verdict: result.verdict ?? null,
+        offered: result.offered ?? null,
       })}\n`,
     );
   }
@@ -167,5 +180,8 @@ const summarize = (intake: string, result: RouteCrateResult, json: boolean): Cli
 
   const bundleText = result.bundle !== undefined ? ` -- bundle: ${result.bundle}` : "";
   const parentText = result.parent !== undefined ? ` (forked from ${result.parent})` : "";
-  return ok(`skillmaker: routed intake ${intake} as "${result.disposition}"${bundleText}${parentText}\n`);
+  const advisory = outsideOfferedDoors(result)
+    ? `note: the crate's verdict is "${result.verdict}" and its offered doors are ${(result.offered ?? []).join(", ")} -- routed as "${result.disposition}" anyway; your reason is on the record\n`
+    : "";
+  return ok(`skillmaker: routed intake ${intake} as "${result.disposition}"${bundleText}${parentText}\n${advisory}`);
 };

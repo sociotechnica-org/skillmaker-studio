@@ -255,6 +255,7 @@ export {
   deriveIntakeVerdict,
   classifyIntakeEvidence,
   listUndisposedIntake,
+  VERDICT_DISPOSITIONS,
   type IntakeVerdict,
   type IntakeEvidence,
   type IntakeRegistry,
