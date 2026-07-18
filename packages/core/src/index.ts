@@ -1,7 +1,7 @@
 /**
  * @skillmaker/core — v1 domain model + services.
  *
- * Translated from docs/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md.
+ * Translated from docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md.
  * The canonical-store split: content lives in files (`skills/<slug>/`), state
  * and decisions live in the append-only journal (`.skillmaker/events.jsonl`),
  * and SQLite is a rebuildable index (`studio.db`, rebuilt via the journal
@@ -17,14 +17,16 @@ export * from "./Journal.ts";
 export * from "./Workspace.ts";
 export * from "./Errors.ts";
 export { foldBundleStates, bundleForEvent } from "./Fold.ts";
+export { CUSTODY_EVENT_TYPES, custodyEventsFor } from "./Lineage.ts";
+export { foldLastShipments, foldLastActivityAt, type LastShipment } from "./Whereabouts.ts";
 export {
   foldTodos,
   isTerminalStatus,
-  isArchived,
+  isSwept,
   compareTodos,
   isoDateOnly,
   DEFAULT_PRIORITY_BY_KIND,
-  ARCHIVE_WINDOW_DAYS,
+  SWEEP_WINDOW_DAYS,
 } from "./FoldTodos.ts";
 export {
   STAGES,
@@ -45,6 +47,7 @@ export {
 export {
   IndexService,
   layer as IndexServiceLayer,
+  type BundleLocation,
   type BundleRecord,
   type BundleUpstream,
   type TodoRecord,
@@ -105,6 +108,7 @@ export {
   DOSSIER_SECTIONS,
   type DossierSectionName,
   type DossierContext,
+  type DossierSeed,
   type DossierUnknownSection,
   type DossierSections,
   type ParseDossierResult,
@@ -254,7 +258,8 @@ export {
   gatherIntakeRegistry,
   deriveIntakeVerdict,
   classifyIntakeEvidence,
-  listUndisposedIntake,
+  listUndisposedCrates,
+  VERDICT_DISPOSITIONS,
   type IntakeVerdict,
   type IntakeEvidence,
   type IntakeRegistry,
@@ -279,17 +284,14 @@ export {
   isTriageDecision,
   isTriageWhose,
   isTriageStakes,
-  isTriageMaturity,
+  deriveEntryStage,
   TRIAGE_DECISIONS,
   TRIAGE_WHOSE_VALUES,
   TRIAGE_STAKES_VALUES,
-  TRIAGE_MATURITY_VALUES,
-  MATURITY_ENTRY_STAGE,
-  TRIAGE_STAGE_MOVE_REASON,
+  TRIAGE_ENTRY_STAGE_REASON,
   type TriageDecision,
   type TriageWhose,
   type TriageStakes,
-  type TriageMaturity,
   type TriageRow,
   type TriageSkippedRow,
   type TriageWorkspaceResult,

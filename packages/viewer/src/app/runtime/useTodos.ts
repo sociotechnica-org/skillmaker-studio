@@ -15,13 +15,13 @@ export interface UseTodosResult {
   readonly refetch: () => void;
 }
 
-export const useTodos = (includeArchived: boolean): UseTodosResult => {
+export const useTodos = (includeSwept: boolean): UseTodosResult => {
   const [todos, setTodos] = useState<ReadonlyArray<TodoRecord>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<RuntimeError | undefined>(undefined);
 
   const refetch = useCallback(() => {
-    getTodos(includeArchived)
+    getTodos(includeSwept)
       .then((response) => {
         setTodos(response.todos);
         setError(undefined);
@@ -32,7 +32,7 @@ export const useTodos = (includeArchived: boolean): UseTodosResult => {
       .finally(() => {
         setLoading(false);
       });
-  }, [includeArchived]);
+  }, [includeSwept]);
 
   useEffect(() => {
     refetch();

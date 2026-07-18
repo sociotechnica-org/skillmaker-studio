@@ -4,7 +4,7 @@
  * powers moved here wholesale, per the issue -- the row/form/toggle pieces
  * below are the SAME logic that used to live in the retired persistent
  * right-rail panel (kind chips, the origin chip #86 added, the checkbox
- * status control, the add form, the show-archived toggle), just rendered
+ * status control, the add form, the show-swept toggle), just rendered
  * full-page instead of in a collapsible `<aside>`, since there is no
  * sibling route content to share the row with anymore.
  *
@@ -55,6 +55,10 @@ const ORIGIN_LABEL: Readonly<Record<TodoOriginView["kind"], { readonly label: st
   intake: { label: "from intake", titlePrefix: "from intake" },
 };
 
+/** The origin's id, read from its per-kind field (the union retired the old shared `ref`). */
+const originId = (origin: TodoOriginView): string =>
+  origin.kind === "field-report" ? origin.eventId : origin.intakeId;
+
 const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRecord) => void }> = ({
   todo,
   pending,
@@ -74,7 +78,7 @@ const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRec
           {todo.kind}
         </span>
         <span className="text-[10px] text-neutral-400">p{todo.priority}</span>
-        {todo.archived && <span className="text-[10px] text-neutral-400">(archived)</span>}
+        {todo.swept && <span className="text-[10px] text-neutral-400">(swept)</span>}
       </div>
       <p
         className={
@@ -94,7 +98,7 @@ const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRec
           )}
           {todo.origin !== undefined && (
             <span
-              title={`${ORIGIN_LABEL[todo.origin.kind].titlePrefix} ${todo.origin.ref}`}
+              title={`${ORIGIN_LABEL[todo.origin.kind].titlePrefix} ${originId(todo.origin)}`}
               className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300"
             >
               {ORIGIN_LABEL[todo.origin.kind].label}
@@ -107,8 +111,8 @@ const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRec
 );
 
 export const Queue: FC<{ bundleFilter: string | undefined }> = ({ bundleFilter }) => {
-  const [showArchived, setShowArchived] = useState(false);
-  const { todos, loading, error, refetch } = useTodos(showArchived);
+  const [showSwept, setShowSwept] = useState(false);
+  const { todos, loading, error, refetch } = useTodos(showSwept);
   const { bundles } = useBundles();
   const [pending, setPending] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<string | undefined>(undefined);
@@ -239,10 +243,10 @@ export const Queue: FC<{ bundleFilter: string | undefined }> = ({ bundleFilter }
       <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
         <input
           type="checkbox"
-          checked={showArchived}
-          onChange={(event) => setShowArchived(event.target.checked)}
+          checked={showSwept}
+          onChange={(event) => setShowSwept(event.target.checked)}
         />
-        Show archived
+        Show swept
       </label>
 
       {loading && todos.length === 0 && error === undefined && (

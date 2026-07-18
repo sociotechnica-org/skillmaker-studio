@@ -3,7 +3,7 @@
  * #91, `Mechanism - Receiving Dock.md` §HOW): "the review.requested/
  * review.resolved pairing applied to cargo." An undisposed crate is a
  * `skill.received` with no `skill.routed` pointing at it (`Receive.ts`'s
- * `listUndisposedIntake`); `routeCrate` is the routing engine that closes
+ * `listUndisposedCrates`); `routeCrate` is the routing engine that closes
  * that loop -- one function per disposition below, each mapping to existing
  * primitives rather than reimplementing them:
  *
@@ -24,7 +24,7 @@
  *    the dock, un-accessioned, retained as evidence. Only the routing fact
  *    is appended.
  *
- * Idempotency (issue #91): re-routing an already-routed intake with the
+ * Idempotency (issue #91): re-routing an already-routed crate with the
  * IDENTICAL disposition is a no-op (`alreadyRouted: true`, no new event);
  * a different disposition is `RouteAlreadyRoutedError`. This guard reads the
  * fold (a `find` over `events`), the same "guard reads the journal, not a
@@ -49,7 +49,15 @@ import {
 import { layer as IndexServiceLayer } from "./IndexService.ts";
 import type { JournalEvent, RouteDisposition, SkillReceivedEvent, SkillRoutedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
-import { findReceivedEvent, gatherIntakeRegistry, hashReceivedCrate, type IntakeRegistry } from "./Receive.ts";
+import {
+  deriveIntakeVerdict,
+  findReceivedEvent,
+  gatherIntakeRegistry,
+  hashReceivedCrate,
+  VERDICT_DISPOSITIONS,
+  type IntakeRegistry,
+  type IntakeVerdict,
+} from "./Receive.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
   computeBundleHashes,
@@ -105,7 +113,7 @@ export interface RouteCrateResult {
   readonly intake: string;
   readonly disposition: RouteDisposition;
   readonly bundle?: string;
-  /** `true` when this call was a no-op repeat of an already-routed intake with the identical disposition. */
+  /** `true` when this call was a no-op repeat of an already-routed crate with the identical disposition. */
   readonly alreadyRouted: boolean;
   /** `new`/`fork`: the newly minted slug (equal to `bundle` above -- restated for callers that only care about this branch). */
   readonly slug?: string;
@@ -113,6 +121,10 @@ export interface RouteCrateResult {
   readonly parent?: string;
   /** `new`/`fork`/`upgrade`: the newly recorded version's output-tree hash. */
   readonly versionHash?: string;
+  /** The crate's dock verdict, recomputed at routing time. Absent on an `alreadyRouted` no-op (the early return skips the derivation). */
+  readonly verdict?: IntakeVerdict;
+  /** `VERDICT_DISPOSITIONS[verdict]` -- the doors the verdict offered. Callers print an advisory when `disposition` fell outside it; the routing is recorded either way. */
+  readonly offered?: ReadonlyArray<RouteDisposition>;
 }
 
 interface RouteContext {
@@ -452,16 +464,25 @@ export const routeCrate = Effect.fn("Route.routeCrate")(function* (input: RouteC
   const crateDir = join(input.workspaceRoot, "receiving", input.intake);
   const ctx: RouteContext = { input, crateDir, registry, received };
 
-  switch (input.disposition) {
-    case "return":
-      return yield* routeReturn(ctx, events);
-    case "new":
-      return yield* routeNew(ctx);
-    case "upgrade":
-      return yield* routeUpgrade(ctx);
-    case "fork":
-      return yield* routeFork(ctx);
-    case "salvage":
-      return yield* routeSalvage(ctx);
-  }
+  // The crate's verdict at routing time, and the doors that verdict offers
+  // (`VERDICT_DISPOSITIONS`, Receive.ts) -- carried on the result so callers
+  // can surface an advisory when the ruling went outside the offered doors.
+  // Advisory, never a gate: the routing above already happened regardless
+  // (the verdict constrains suggestions, not the human's ruling).
+  const computedHash = yield* hashReceivedCrate(crateDir);
+  const verdict = deriveIntakeVerdict(computedHash, received.payload.claimedName, registry);
+  const offered = VERDICT_DISPOSITIONS[verdict];
+
+  // Effect construction is lazy (a generator body doesn't run until yielded),
+  // so building all five here and indexing by disposition costs nothing the
+  // switch it replaces wouldn't have -- and drops a closure just to defer a
+  // switch that has nowhere to `return` mid-generator.
+  const result = yield* {
+    return: routeReturn(ctx, events),
+    new: routeNew(ctx),
+    upgrade: routeUpgrade(ctx),
+    fork: routeFork(ctx),
+    salvage: routeSalvage(ctx),
+  }[input.disposition];
+  return { ...result, verdict, offered } satisfies RouteCrateResult;
 });

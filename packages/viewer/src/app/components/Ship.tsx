@@ -1,31 +1,28 @@
 /**
- * The `/ship` page (#72, Board · Lab · Ship · Receive · Activity): the
- * shipping bay -- "skills leave with receipts." An index of every bundle
- * (name, one-liner, stage, latest version, measurements summary) plus
- * per-bundle chapters (`/ship/:slug`) rendering the same data `skillmaker
- * book build` renders to a static site -- design.md, measurement receipts,
- * and a journal changelog. That per-bundle chapter is still the
- * *Skillbook* -- the paperwork that ships with a skill, not the surface it
- * left through (`SkillbookBundlePage` below keeps its name for exactly
- * that reason). Split out of the old two-job `Port` (#64); Receive
- * (`Receive.tsx`) now owns the inbound half. Reuses `Lab.tsx`'s
- * stage-badge patterns.
+ * The `/ship` page (#72; reframed by #109 Stage 3): the shipping bay, and
+ * the **Skillbook** it publishes -- the deck's OUTWARD book. "What we stand
+ * behind; what you may take." The book's population is curated by facts,
+ * not editing: a skill appears once it is published or has shipped at
+ * least once -- distinct from Track's Catalog, the complete inside
+ * registry (everything that exists, including the unshipped). The two
+ * populations never merge; works-in-progress are counted and pointed at
+ * the Catalog, never mixed into the book.
+ *
+ * Same `GET /api/skillbook` data as always (`skillmaker book build`'s one
+ * generator over existing facts, untouched -- #109 Stage 3 is framing/
+ * layout only): per-bundle chapters (`/ship/:slug`) render design.md,
+ * measurement receipts, shipments, and the journal changelog. A chapter
+ * stays reachable for ANY slug via deep link -- curation shapes the index,
+ * it never 404s the paperwork.
  */
 import type { FC } from "react";
-import { Link, shipBundleHref, useRouter } from "../runtime/router.tsx";
-import type { SkillbookBundle } from "../runtime/schemas.ts";
+import { Link, shipBundleHref, trackHref, useRouter } from "../runtime/router.tsx";
+import { STAGE_BADGE_CLASS, type BundleStage, type SkillbookBundle } from "../runtime/schemas.ts";
 import { useSkillbook } from "../runtime/useSkillbook.ts";
 
-const STAGE_BADGE_CLASS: Record<string, string> = {
-  idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-  researching: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  drafting: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
-  evaluating: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-};
-
+/** The Skillbook payload's `stage` is a plain string on the wire, so unknown values fall back to the idea-gray badge instead of an undefined class. */
 const stageBadgeClass = (stage: string): string =>
-  STAGE_BADGE_CLASS[stage] ?? "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300";
+  STAGE_BADGE_CLASS[stage as BundleStage] ?? "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300";
 
 const shortHash = (hash: string): string => {
   const prefix = "sha256:";
@@ -72,9 +69,11 @@ const ShipRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   );
 };
 
-/** The `/ship` index page: one card per bundle. */
+/** The `/ship` index page: the Skillbook cover + one card per curated bundle; everything else is counted and pointed at the Catalog. The population is the server-derived `inBook` (`Skillbook.ts`'s `isInSkillbook`) -- one definition, shared with `book build`'s static index. */
 export const Ship: FC = () => {
-  const { bundles, loading, error } = useSkillbook();
+  const { bundles, workspaceName, loading, error } = useSkillbook();
+  const inBook = bundles.filter((bundle) => bundle.inBook);
+  const insideCount = bundles.length - inBook.length;
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
@@ -95,13 +94,34 @@ export const Ship: FC = () => {
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
       )}
 
+      {/* The cover page (#109 Stage 3): the outward book's framing. */}
+      <section className="flex flex-col gap-1 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
+        <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-neutral-900 dark:text-neutral-100">
+          The Skillbook{workspaceName !== undefined ? ` — ${workspaceName}` : ""}
+        </h2>
+        <p className="text-xs text-neutral-600 dark:text-neutral-300">
+          The outward book: what we stand behind; what you may take. Every entry carries its receipts —
+          measurements at a pinned version, shipments, and the journal trail.
+        </p>
+        <p className="text-[11px] text-neutral-400">
+          {inBook.length === 0
+            ? "Nothing published or shipped yet — the book is honestly empty."
+            : `${inBook.length} skill${inBook.length === 1 ? "" : "s"} in the book.`}
+          {insideCount > 0 && (
+            <>
+              {" "}
+              <Link href={trackHref()} className="text-sky-700 hover:underline dark:text-sky-300">
+                {insideCount} more in progress live in the Catalog →
+              </Link>
+            </>
+          )}
+        </p>
+      </section>
+
       <ul className="flex flex-col gap-3">
-        {bundles.map((bundle) => (
+        {inBook.map((bundle) => (
           <ShipRow key={bundle.slug} bundle={bundle} />
         ))}
-        {bundles.length === 0 && !loading && (
-          <li className="text-sm text-neutral-400">No Skill Bundles yet.</li>
-        )}
       </ul>
     </div>
   );

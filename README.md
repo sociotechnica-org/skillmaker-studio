@@ -84,7 +84,7 @@ rebuildable index (`skillmaker reindex` reconstructs it from scratch).
 - **Desktop app** — a Tauri shell (macOS, built from source) that wraps the
   compiled `skillmaker` binary as a sidecar: the same board, no terminal.
 
-**Coming next** (see [the build plan](docs/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md)):
+**Coming next** (see [the build plan](docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md)):
 William's skills fully self-hosted through the studio's own board — every
 William skill measured on both providers and published through the same
 gated loop any bundle uses — plus a cross-platform, signed desktop build.
@@ -101,8 +101,8 @@ gated loop any bundle uses — plus a cross-platform, signed desktop build.
   git-diff; decisions and state transitions are journal events; the DB is
   disposable.
 
-Full model: [data-model.md](docs/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md) ·
-Build log: [build-log.md](docs/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md)
+Full model: [data-model.md](docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md) ·
+Build log: [build-log.md](docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md)
 
 ## Repo layout
 

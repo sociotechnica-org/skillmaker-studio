@@ -8,7 +8,7 @@
  * column's cards).
  *
  * Pure, unit-tested without React -- same shape as `labOrder.ts`, and the
- * explicit-`now` parameter mirrors `FoldTodos.ts`'s `isArchived`: time-
+ * explicit-`now` parameter mirrors `FoldTodos.ts`'s `isSwept`: time-
  * dependent logic never reads the wall clock itself, so callers (here,
  * `Board.tsx`, evaluated fresh on every render) decide when "now" is.
  */

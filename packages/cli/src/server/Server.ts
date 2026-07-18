@@ -9,6 +9,7 @@ import {
   checkTransition,
   computeBundleHashes,
   computeMeasurements,
+  custodyEventsFor,
   deriveIntakeVerdict,
   detectBundleLayout,
   didSkillActivate,
@@ -25,7 +26,7 @@ import {
   Journal,
   JournalLayer,
   JournalEvent,
-  listUndisposedIntake,
+  listUndisposedCrates,
   parseDossier,
   publishBundle,
   runFixture,
@@ -34,14 +35,18 @@ import {
   Workspace,
   WorkspaceLayer,
   type Actor,
+  type BundleLayout,
+  type BundleLocation,
   type BundleStage,
   type BundleRecord,
   type DossierSections,
+  type IntakeStakes,
   type FixtureCaseRecord,
   type FixtureRecord,
   type MeasurementRecord,
   type RiskCoverageRecord,
   type RunIndexRecord,
+  type SkillRoutedEvent,
   type Todo,
   type TodoRecord,
   type VersionRecord,
@@ -159,13 +164,63 @@ const getBundleRecord = (root: string, slug: string): Promise<BundleRecord | und
     }),
   );
 
-const listTodoRecords = (root: string, includeArchived: boolean): Promise<ReadonlyArray<TodoRecord>> =>
+/** Every discovered bundle's actual directory + layout (seam pass over #108/#109): the rebuild's own identity scan (`RebuildResult.locations`), the one source that knows where an in-place-adopted bundle really lives. */
+const fetchBundleLocations = (root: string): Promise<ReadonlyMap<string, BundleLocation>> =>
+  runIndexEffect(
+    root,
+    Effect.gen(function* () {
+      const index = yield* IndexService;
+      const rebuildResult = yield* index.rebuild();
+      return rebuildResult.locations;
+    }),
+  );
+
+/**
+ * The given bundles' actual directories (seam pass over #108/#109): the
+ * `<skillsDir>/<slug>` convention when a `bundle.json` actually sits there
+ * (the normal case, checked first -- no index work), otherwise ONE
+ * `fetchBundleLocations` rebuild shared by every slug that needs the scan.
+ * Falls back to the conventional path when the scan knows nothing either
+ * (a journal-only bundle has no directory), which then fails naturally on
+ * whatever file the caller reads next.
+ */
+const resolveBundleDirs = async (
+  root: string,
+  config: WorkspaceConfig,
+  slugs: ReadonlyArray<string>,
+): Promise<ReadonlyMap<string, string>> => {
+  const dirs = new Map<string, string>();
+  const unresolved: string[] = [];
+  for (const slug of slugs) {
+    const conventionalDir = join(root, config.skillsDir, slug);
+    if (existsSync(join(conventionalDir, "bundle.json"))) {
+      dirs.set(slug, conventionalDir);
+    } else {
+      unresolved.push(slug);
+    }
+  }
+  if (unresolved.length > 0) {
+    const locations = await fetchBundleLocations(root);
+    for (const slug of unresolved) {
+      dirs.set(slug, locations.get(slug)?.dir ?? join(root, config.skillsDir, slug));
+    }
+  }
+  return dirs;
+};
+
+/** One bundle's actual directory -- `resolveBundleDirs` for a single slug. */
+const resolveBundleDir = async (root: string, config: WorkspaceConfig, slug: string): Promise<string> => {
+  const dirs = await resolveBundleDirs(root, config, [slug]);
+  return dirs.get(slug) ?? join(root, config.skillsDir, slug);
+};
+
+const listTodoRecords = (root: string, includeSwept: boolean): Promise<ReadonlyArray<TodoRecord>> =>
   runIndexEffect(
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
       yield* index.rebuild();
-      return yield* index.listTodos({ includeArchived });
+      return yield* index.listTodos({ includeSwept });
     }),
   );
 
@@ -252,7 +307,7 @@ const handleListEvents = async (root: string, url: URL): Promise<Response> => {
  *
  * `todo` (issue #81) is the same read-time join, the other side of the
  * loop: `foldTodos` over the SAME `events` array already read above (no
- * second journal read) finds the todo, if any, whose `origin.ref` equals
+ * second journal read) finds the todo, if any, whose `origin.eventId` equals
  * this report's event id -- `todo add --from-report`'s provenance stamp.
  * `null` means no todo has been opened from this report yet.
  */
@@ -261,11 +316,15 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
   const reportEvents = events.filter((event) => event.type === "skill.field_report");
 
   const reportedBundles = [...new Set(reportEvents.map((event) => event.payload.bundle))];
+  // Actual directories, not the `<skillsDir>/<slug>` convention (seam pass
+  // over #108/#109): a field report on an in-place-adopted bundle must still
+  // find its harvested fixture -- one shared lookup for every reported slug.
+  const bundleDirs = await resolveBundleDirs(root, config, reportedBundles);
   const fixturesByBundle = await Effect.runPromise(
     Effect.gen(function* () {
       const byBundle = new Map<string, ReadonlyArray<FixtureCaseRecord>>();
       for (const bundle of reportedBundles) {
-        const scanned = yield* scanFixtures(join(root, config.skillsDir, bundle));
+        const scanned = yield* scanFixtures(bundleDirs.get(bundle) ?? join(root, config.skillsDir, bundle));
         byBundle.set(bundle, scanned.cases);
       }
       return byBundle;
@@ -283,7 +342,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
   const todosByReportEventId = new Map<string, Todo>();
   for (const todo of foldTodos(events).values()) {
     if (todo.origin?.kind === "field-report") {
-      todosByReportEventId.set(todo.origin.ref, todo);
+      todosByReportEventId.set(todo.origin.eventId, todo);
     }
   }
   const linkedTodo = (eventId: string): { id: string; title: string; status: string } | null => {
@@ -313,7 +372,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  * `Mechanism - Receiving Dock.md` §HOW): undisposed crates, oldest first --
  * "the dock must not become a shelf: oldest-first IS the attention
  * ordering." `readJournalEvents` already returns append order (oldest
- * first), so `listUndisposedIntake`'s output needs no re-sort.
+ * first), so `listUndisposedCrates`'s output needs no re-sort.
  *
  * Each crate's dock verdict is recomputed HERE, fresh, every request (house
  * law: derive, never store) -- re-hashes `receiving/<intake-id>/` as it
@@ -324,7 +383,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  * still resolves cleanly (`hashOutputTree`'s well-defined empty-tree hash
  * for a missing dir, `Versions.ts`), never a 500.
  *
- * `listUndisposedIntake` reads the real `skill.routed` event type (issue
+ * `listUndisposedCrates` reads the real `skill.routed` event type (issue
  * #91): a routed crate (any disposition, including `salvage` -- disposed is
  * disposed) leaves this list for good.
  *
@@ -347,7 +406,7 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
  */
 const handleIntake = async (root: string): Promise<Response> => {
   const events = await readJournalEvents(root);
-  const undisposed = listUndisposedIntake(events);
+  const undisposed = listUndisposedCrates(events);
 
   const routedTail = events.filter((event) => event.type === "skill.routed").slice(-RECENTLY_ROUTED_LIMIT).reverse();
 
@@ -399,6 +458,11 @@ const handleIntake = async (root: string): Promise<Response> => {
         claimedName: event.payload.claimedName ?? null,
         claimedVersionHash: event.payload.claimedVersionHash ?? null,
         rights: event.payload.rights ?? null,
+        // Structured stakes/hurts testimony (issue #108) -- surfaced
+        // alongside `notes`, which stays as-written for old flattened
+        // events (never re-parsed into structure).
+        stakes: event.payload.stakes ?? null,
+        hurts: event.payload.hurts ?? null,
         notes: event.payload.notes ?? null,
         at: event.at,
         actor: event.actor,
@@ -407,22 +471,54 @@ const handleIntake = async (root: string): Promise<Response> => {
     }),
   );
 
-  const claimedNameByIntake = new Map<string, string | null>();
+  // One pass over the SAME `events` array (no second journal read): each
+  // intake's originating `skill.received` claims -- the name it arrived
+  // under, plus its structured stakes/hurts testimony (issue #108). The
+  // testimony matters most on `salvaged` rows below: "reported
+  // load-bearing" is exactly what the Archive drawer's harvest decision
+  // wants in view. `null` when the event didn't carry the field (pre-#108
+  // crates keep their flattened `notes` prose, never re-parsed).
+  const receivedByIntake = new Map<
+    string,
+    {
+      readonly claimedName: string | null;
+      readonly stakes: IntakeStakes | null;
+      readonly hurts: string | null;
+    }
+  >();
   for (const event of events) {
     if (event.type === "skill.received") {
-      claimedNameByIntake.set(event.payload.intake, event.payload.claimedName ?? null);
+      receivedByIntake.set(event.payload.intake, {
+        claimedName: event.payload.claimedName ?? null,
+        stakes: event.payload.stakes ?? null,
+        hurts: event.payload.hurts ?? null,
+      });
     }
   }
+
+  // The shared shape of one routed-crate row: what the routing fact says
+  // (intake, target bundle, reason, when, who) joined back to the crate's
+  // claimed name and stakes/hurts testimony. Both `recentlyRouted` and
+  // `salvaged` below build on this.
+  const routedRowBase = (event: SkillRoutedEvent) => {
+    const received = receivedByIntake.get(event.payload.intake);
+    return {
+      intake: event.payload.intake,
+      claimedName: received?.claimedName ?? null,
+      stakes: received?.stakes ?? null,
+      hurts: received?.hurts ?? null,
+      bundle: event.payload.bundle ?? null,
+      reason: event.payload.reason,
+      at: event.at,
+      actor: event.actor,
+    };
+  };
+
   const recentlyRouted = routedRows.map(({ event, bundle, receivedIdentity }) => {
     const measurementCount = bundle !== null ? measurementCountByBundle.get(bundle) ?? 0 : 0;
     return {
-      intake: event.payload.intake,
+      ...routedRowBase(event),
       disposition: event.payload.disposition,
-      bundle,
-      reason: event.payload.reason,
-      claimedName: claimedNameByIntake.get(event.payload.intake) ?? null,
-      at: event.at,
-      actor: event.actor,
       // The Unverified badge on the tail (issue #93): holds while the
       // bundle it landed on has zero graded measurements ever, at any
       // version. `salvage` never qualifies (grants no identity, even when
@@ -431,7 +527,20 @@ const handleIntake = async (root: string): Promise<Response> => {
     };
   });
 
-  return jsonResponse({ crates, recentlyRouted });
+  // The Archive drawer's salvaged population (issue #109): EVERY
+  // salvage-routed crate, newest first -- unlike `recentlyRouted` above
+  // (a capped, all-dispositions tail), this is the drawer's full "out of
+  // commission but kept" fold. Salvage grants no identity and moves no
+  // files: the crate still sits at `receiving/<intake>/`, which is exactly
+  // what the drawer's harvest affordance reaches for. Derived from the SAME
+  // `events` array -- no second journal read, nothing stored.
+  const salvaged = events
+    .filter((event) => event.type === "skill.routed")
+    .filter((event) => event.payload.disposition === "salvage")
+    .map(routedRowBase)
+    .reverse();
+
+  return jsonResponse({ crates, recentlyRouted, salvaged });
 };
 
 /**
@@ -471,11 +580,16 @@ const handleCatalog = async (root: string): Promise<Response> =>
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
-      yield* index.rebuild();
+      // Whereabouts (issue #109): the two pieces of Track's derived status
+      // set the index rows don't already carry -- last shipment + date and
+      // recency of activity (Track's default sort key). Folded by rebuild()
+      // itself off the ONE journal read it already does (no second parse in
+      // this handler), carried on its result, never stored.
+      const { lastShipments, lastActivityAt } = yield* index.rebuild();
       const bundles = yield* index.listBundles();
 
-      // Default listTodos() (archived excluded) is exact here: a todo can
-      // only be archived once terminal (FoldTodos.ts's isArchived), and the
+      // Default listTodos() (swept excluded) is exact here: a todo can
+      // only be swept once terminal (FoldTodos.ts's isSwept), and the
       // loop below skips terminal todos anyway.
       const allTodos = yield* index.listTodos();
       const openTodoCountByBundle = new Map<string, number>();
@@ -525,6 +639,11 @@ const handleCatalog = async (root: string): Promise<Response> =>
           // version scoping), and `bundle.everReceived` is already on the
           // record from this SAME rebuild() -- no extra journal parse.
           unverified: isUnverified(bundle.everReceived, measurements.length),
+          // Whereabouts (issue #109): never one location -- a status set.
+          lastShipment: lastShipments.get(bundle.slug) ?? null,
+          // Recency floor: a bundle with no attributable journal events yet
+          // still sorts honestly by its own creation timestamp.
+          lastActivityAt: lastActivityAt.get(bundle.slug) ?? bundle.created,
         });
       }
       return jsonResponse({ entries });
@@ -586,23 +705,26 @@ interface PostEventRequestBody {
  * id belongs to -- `run.graded` payloads carry only `{id, ...}`, no bundle,
  * so the server (unlike the client, which already knows its slug) has to
  * search for it. Bundle counts are small at this scale (studio.db's own
- * doc comments make the same tradeoff for `rebuild()`).
+ * doc comments make the same tradeoff for `rebuild()`). Walks the
+ * rebuild's own discovered bundle directories (`fetchBundleLocations`,
+ * seam pass over #108/#109) rather than `readdir(<skillsDir>)` -- an
+ * in-place-adopted bundle's runs live wherever the bundle does, and a
+ * `readdir` of the conventional root would refuse to grade them. Still
+ * tolerant: any lookup failure reads as "no such run" (the caller's 409),
+ * never a 500.
  */
-const findRunLocation = (
+const findRunLocation = async (
   root: string,
-  config: WorkspaceConfig,
   runId: string,
-): { readonly bundle: string; readonly runDir: string; readonly status: string } | undefined => {
-  const skillsRoot = join(root, config.skillsDir);
-  if (!existsSync(skillsRoot)) return undefined;
-  let bundleSlugs: ReadonlyArray<string>;
+): Promise<{ readonly bundle: string; readonly runDir: string; readonly status: string } | undefined> => {
+  let locations: ReadonlyMap<string, BundleLocation>;
   try {
-    bundleSlugs = readdirSync(skillsRoot).filter((name) => statSync(join(skillsRoot, name)).isDirectory());
+    locations = await fetchBundleLocations(root);
   } catch {
     return undefined;
   }
-  for (const slug of bundleSlugs) {
-    const runDir = join(skillsRoot, slug, "runs", runId);
+  for (const [slug, location] of locations) {
+    const runDir = join(location.dir, "runs", runId);
     const runJsonPath = join(runDir, "run.json");
     if (!existsSync(runJsonPath)) continue;
     try {
@@ -616,11 +738,7 @@ const findRunLocation = (
   return undefined;
 };
 
-const handlePostEvent = async (
-  root: string,
-  config: WorkspaceConfig,
-  request: Request,
-): Promise<Response> => {
+const handlePostEvent = async (root: string, request: Request): Promise<Response> => {
   let body: unknown;
   try {
     body = await request.json();
@@ -703,7 +821,7 @@ const handlePostEvent = async (
   }
 
   if (eventInput.type === "run.graded") {
-    const location = findRunLocation(root, config, eventInput.payload.id);
+    const location = await findRunLocation(root, eventInput.payload.id);
     if (location === undefined) {
       return jsonResponse({ error: `no such run "${eventInput.payload.id}"` }, 409);
     }
@@ -755,16 +873,16 @@ const handlePostEvent = async (
  * `null` on any missing/malformed input rather than failing the whole bundle
  * detail response): this is availability info for a button, not a
  * precondition check -- `StationEngine.runStation` re-validates for real
- * when the button is actually pressed.
+ * when the button is actually pressed. Takes the bundle's ACTUAL directory
+ * (seam pass over #108/#109): `stations.json` is per-bundle-dir, and an
+ * in-place-adopted bundle does not live at `<skillsDir>/<slug>`.
  */
 const readCurrentStageStation = (
-  root: string,
-  config: WorkspaceConfig,
-  slug: string,
+  bundleDir: string,
   stage: string,
 ): { readonly state: string; readonly skill: string } | null => {
   try {
-    const stationsJsonPath = join(root, config.skillsDir, slug, "stations.json");
+    const stationsJsonPath = join(bundleDir, "stations.json");
     if (!existsSync(stationsJsonPath)) {
       return null;
     }
@@ -800,6 +918,11 @@ type BundleIndexDetail =
       readonly warnings: ReadonlyArray<WarningRecord>;
       readonly runs: ReadonlyArray<RunIndexRecord>;
       readonly measurements: ReadonlyArray<MeasurementRecord>;
+      /** Fork family (issue #109), off the rebuild's own marker decode -- no per-request directory walk, no second marker parse. */
+      readonly forkOf: string | null;
+      readonly forks: ReadonlyArray<string>;
+      /** Where the bundle actually lives + its layout (seam pass over #108/#109), off the SAME rebuild's identity scan: an in-place bundle (brownfield adopt, `route`'s `new`/`fork` doors) does not live at `<skillsDir>/<slug>` and has no `output/` subtree. `null` for a journal-only bundle (no `bundle.json` found); callers fall back to the skillsDir convention. */
+      readonly location: BundleLocation | null;
     };
 
 const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexDetail> =>
@@ -807,7 +930,7 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
     root,
     Effect.gen(function* () {
       const index = yield* IndexService;
-      yield* index.rebuild();
+      const rebuildResult = yield* index.rebuild();
       const bundle = yield* index.getBundle(slug);
       if (bundle === undefined) {
         return { kind: "not_found" as const };
@@ -827,6 +950,9 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
         warnings,
         runs: [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
         measurements,
+        forkOf: rebuildResult.forkOf.get(slug) ?? null,
+        forks: rebuildResult.forkChildren.get(slug) ?? [],
+        location: rebuildResult.locations.get(slug) ?? null,
       };
     }),
   );
@@ -838,11 +964,15 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
  * `rebuild()` above already ran the dossier scanner too, but only for its
  * WARNINGS (joined into `warnings` alongside fixtures/risk-map, same as
  * `IndexService.rebuild`); the sections+gaps the detail page actually
- * renders are a second, cheap, targeted read, never persisted.
+ * renders are a second, cheap, targeted read, never persisted. Takes the
+ * bundle's ACTUAL directory (seam pass over #108/#109): an in-place bundle's
+ * `dossier.md` -- including the one the triage manifest's card answers
+ * seeded (issue #108) -- lives wherever the bundle was discovered, not at
+ * `<skillsDir>/<slug>`.
  */
-const loadDossierSections = (root: string, config: WorkspaceConfig, slug: string): Promise<DossierSections> =>
+const loadDossierSections = (bundleDir: string): Promise<DossierSections> =>
   Effect.runPromise(
-    parseDossier(join(root, config.skillsDir, slug, "dossier.md")).pipe(
+    parseDossier(join(bundleDir, "dossier.md")).pipe(
       Effect.provide(BunServices.layer),
       Effect.map((result) => result.sections),
     ),
@@ -861,8 +991,34 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   // list, not a full history (that's `skillmaker status --json`).
   const recentEvents = bundleEvents.slice(-MAX_BUNDLE_DETAIL_EVENTS).reverse();
 
-  const station = readCurrentStageStation(root, config, slug, bundle.stage);
-  const dossier = await loadDossierSections(root, config, slug);
+  // The bundle's ACTUAL directory and layout (seam pass over #108/#109),
+  // off the rebuild's own identity scan (`loadBundleIndexDetail`): an
+  // in-place bundle -- brownfield adopt via triage, `route`'s `new`/`fork`
+  // doors -- lives wherever it was discovered, and hardcoding
+  // `<skillsDir>/<slug>` + the `design.md`/`output/` layout here silently
+  // returned an empty dossier, a null station, and zero files for exactly
+  // the imports the #108→#109 seam (seeded Job/Basis on the card) targets.
+  const bundleDir = detail.location?.dir ?? join(root, config.skillsDir, slug);
+  const layout: BundleLayout = detail.location?.layout ?? "output-dir";
+
+  const station = readCurrentStageStation(bundleDir, bundle.stage);
+  const dossier = await loadDossierSections(bundleDir);
+
+  // Lineage (issue #109): chain of custody replayed from the journal (the
+  // SAME full `events` read above -- uncapped, unlike `recentEvents`) plus
+  // the fork family off the rebuild's own `AdoptMarker` decode
+  // (`loadBundleIndexDetail`) and provenance off the bundle record's own
+  // indexed `upstream` -- no marker is re-read here. All derived,
+  // recomputed per request; the card is a projection, never a store.
+  const lineage = {
+    custody: custodyEventsFor(events, slug),
+    forkOf: detail.forkOf,
+    forks: detail.forks,
+    upstream:
+      bundle.upstream !== undefined
+        ? { source: bundle.upstream.source, ref: bundle.upstream.ref ?? null }
+        : null,
+  };
 
   return jsonResponse({
     bundle,
@@ -880,7 +1036,8 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
     dossier,
-    files: listReviewableBundleFiles(root, config, slug),
+    lineage,
+    files: listReviewableBundleFiles(bundleDir, layout),
   });
 };
 
@@ -926,7 +1083,13 @@ const handleRecordVersion = async (
   const label = rawLabel;
 
   try {
-    const bundleDir = join(root, config.skillsDir, slug);
+    // The bundle's ACTUAL directory (seam pass over #108/#109): an
+    // in-place-adopted bundle's card exposes this very button, and hashing
+    // the conventional `<skillsDir>/<slug>` path would record hashes of a
+    // nonexistent tree. `detectBundleLayout` on the real directory then
+    // hands `computeBundleHashes` the right layout, exactly as the CLI's
+    // `version record` does.
+    const bundleDir = await resolveBundleDir(root, config, slug);
     const { designHash, outputHash } = await Effect.runPromise(
       detectBundleLayout(bundleDir).pipe(
         Effect.flatMap((layout) => computeBundleHashes(bundleDir, layout)),
@@ -1042,8 +1205,18 @@ const RUN_RESPONSE_PATH = /^runs\/[^/]+\/response\.md$/;
 const REVIEWABLE_SUBDIRS = ["research", "output"] as const;
 
 /**
- * Only `design.md`, a non-empty path under `research/` or `output/`, a run's
- * `artifacts/` contents, or a run's `response.md` may be read back over HTTP
+ * An in-place bundle's reviewable top-level files (seam pass over #108/
+ * #109), in review order: the skill payload itself first, then the authored
+ * siblings. Shared by `listReviewableBundleFiles`'s enumeration and the
+ * file-read allowlist below -- the same in-sync-by-construction treatment
+ * `REVIEWABLE_SUBDIRS` already has.
+ */
+const IN_PLACE_REVIEWABLE_FILES = ["SKILL.md", "design.md", "dossier.md"] as const;
+
+/**
+ * Only `design.md`, an in-place bundle's top-level `SKILL.md`/`dossier.md`,
+ * a non-empty path under `research/` or `output/`, a run's `artifacts/`
+ * contents, or a run's `response.md` may be read back over HTTP
  * (data-model.md §2.12 -- artifacts listed/viewable on the run-detail
  * panel). `research/` is included so the researching-station review gate can
  * actually show the reviewer the `research/notes.md` it asks them to approve.
@@ -1055,7 +1228,7 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
   if (relativePath.split("/").includes("..")) {
     return false;
   }
-  if (relativePath === "design.md") {
+  if ((IN_PLACE_REVIEWABLE_FILES as ReadonlyArray<string>).includes(relativePath)) {
     return true;
   }
   if (REVIEWABLE_SUBDIRS.some((sub) => relativePath.startsWith(`${sub}/`) && relativePath.length > sub.length + 1)) {
@@ -1066,12 +1239,15 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
 
 /**
  * `GET /api/bundles/:slug/file?path=design.md|research/...|output/...` -- the
- * viewer's read-only Files tab. A strict allowlist (design.md, or under
- * research/ or output/) plus
+ * viewer's read-only Files tab. A strict allowlist (design.md, an in-place
+ * bundle's top-level SKILL.md/dossier.md, or under research/ or output/) plus
  * a resolved-path containment check guards against traversal (`../..`,
  * absolute paths, symlink escapes); anything outside the allowlist or off
  * the bundle directory 404s rather than erroring, so it never leaks whether
- * a path exists elsewhere on disk.
+ * a path exists elsewhere on disk. Serves from the bundle's ACTUAL directory
+ * (`resolveBundleDir`, seam pass over #108/#109) so the files
+ * `listReviewableBundleFiles` lists for an in-place bundle stay servable --
+ * the two must cover the same subtree or the Files tab lists dead links.
  */
 const handleBundleFile = async (
   root: string,
@@ -1083,7 +1259,7 @@ const handleBundleFile = async (
     return new Response("Not Found", { status: 404 });
   }
 
-  const bundleDir = resolvePath(join(root, config.skillsDir, slug));
+  const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
   const filePath = resolvePath(join(bundleDir, relPath));
   if (filePath !== bundleDir && !filePath.startsWith(bundleDir + sep)) {
     return new Response("Not Found", { status: 404 });
@@ -1116,16 +1292,30 @@ const listFilesRecursive = (dir: string, relPrefix = ""): ReadonlyArray<string> 
 
 /**
  * The bundle's reviewable source files for the viewer's Files tab -- exactly
- * the file-endpoint-servable subtree a reviewer should read: `design.md`, then
- * everything under `research/` and `output/`. Scaffolding dotfiles (`.gitkeep`)
- * are dropped; run transcripts/artifacts are deliberately excluded (those
- * belong to the run-detail panel). Ordered design → research → output so the
- * dropdown reads like the production pipeline.
+ * the file-endpoint-servable subtree a reviewer should read. Layout-aware
+ * (seam pass over #108/#109): an `"output-dir"` bundle offers `design.md`,
+ * then everything under `research/` and `output/` (ordered design → research
+ * → output so the dropdown reads like the production pipeline); an
+ * `"in-place"` bundle has no `output/` subtree -- its skill payload IS the
+ * bundle directory (`Versions.ts`'s `BundleLayout`), so its reviewable set
+ * is the top-level `SKILL.md` plus the `design.md`/`dossier.md` siblings
+ * when present (Adopt scaffolds `dossier.md`; `design.md` only exists if it
+ * traveled with the directory). Scaffolding dotfiles (`.gitkeep`) are
+ * dropped; run transcripts/artifacts are deliberately excluded (those belong
+ * to the run-detail panel).
  */
-const listReviewableBundleFiles = (root: string, config: WorkspaceConfig, slug: string): ReadonlyArray<string> => {
-  const bundleDir = resolvePath(join(root, config.skillsDir, slug));
-  const noDotSegment = (rel: string): boolean => !rel.split("/").some((segment) => segment.startsWith("."));
+const listReviewableBundleFiles = (dir: string, layout: BundleLayout): ReadonlyArray<string> => {
+  const bundleDir = resolvePath(dir);
   const out: string[] = [];
+  if (layout === "in-place") {
+    for (const name of IN_PLACE_REVIEWABLE_FILES) {
+      if (existsSync(join(bundleDir, name))) {
+        out.push(name);
+      }
+    }
+    return out;
+  }
+  const noDotSegment = (rel: string): boolean => !rel.split("/").some((segment) => segment.startsWith("."));
   if (existsSync(join(bundleDir, "design.md"))) {
     out.push("design.md");
   }
@@ -1148,7 +1338,10 @@ const handleRunDetail = async (
   slug: string,
   runId: string,
 ): Promise<Response> => {
-  const bundleDir = join(root, config.skillsDir, slug);
+  // The bundle's ACTUAL directory (seam pass over #108/#109): an in-place
+  // bundle's runs live under its own discovered directory, not under
+  // `<skillsDir>/<slug>`.
+  const bundleDir = await resolveBundleDir(root, config, slug);
   const runDir = join(bundleDir, "runs", runId);
   const runJsonPath = join(runDir, "run.json");
   if (!existsSync(runJsonPath)) {
@@ -1261,6 +1454,14 @@ const handleTriggerRun = async (
   caseName: string,
   request: Request,
 ): Promise<Response> => {
+  // NOTE (seam pass over #108/#109, deliberately NOT `resolveBundleDir`):
+  // `RunEngine.runFixture` below resolves `<skillsDir>/<slug>` itself, so
+  // an out-of-tree in-place bundle can't run until the ENGINE learns
+  // locations (a core change shared with the CLI's `skillmaker run`, out
+  // of this pass's scope). Widening only this precheck would turn today's
+  // honest 404 into a 200 whose forked run then dies unobserved
+  // (`Effect.ignore`) -- a silent no-op, strictly worse. The two prechecks
+  // must move together with the engine.
   const bundleDir = join(root, config.skillsDir, slug);
   if (!existsSync(join(bundleDir, "bundle.json"))) {
     return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
@@ -1348,6 +1549,9 @@ const handleTriggerStationRun = async (
   slug: string,
   request: Request,
 ): Promise<Response> => {
+  // NOTE: deliberately conventional-path, same reason as `handleTriggerRun`
+  // above -- `StationEngine.runStation` resolves `<skillsDir>/<slug>`
+  // itself; this precheck moves when the engine does.
   const bundleDir = join(root, config.skillsDir, slug);
   if (!existsSync(join(bundleDir, "bundle.json"))) {
     return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
@@ -1470,7 +1674,11 @@ const handlePublish = async (
     }
   }
 
-  const bundleDir = join(root, config.skillsDir, slug);
+  // The bundle's ACTUAL directory (seam pass over #108/#109):
+  // `publishBundle` takes the directory explicitly and is itself
+  // layout-aware (`detectBundleLayout` inside), so resolving here fixes
+  // publish for in-place bundles end-to-end.
+  const bundleDir = await resolveBundleDir(root, config, slug);
   const journalPath = join(root, ".skillmaker", "events.jsonl");
   const actor = await Effect.runPromise(resolveUserActor());
 
@@ -1648,7 +1856,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       }
 
       if (pathname === "/api/events" && request.method === "POST") {
-        return handlePostEvent(root, config, request);
+        return handlePostEvent(root, request);
       }
 
       if (pathname === "/api/events" && request.method === "GET") {
@@ -1689,8 +1897,8 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
       if (pathname === "/api/todos") {
         try {
-          const includeArchived = url.searchParams.get("all") === "1";
-          const todos = await listTodoRecords(root, includeArchived);
+          const includeSwept = url.searchParams.get("all") === "1";
+          const todos = await listTodoRecords(root, includeSwept);
           return jsonResponse({ todos });
         } catch (cause) {
           return jsonResponse({ error: `could not list todos: ${String(cause)}` }, 500);

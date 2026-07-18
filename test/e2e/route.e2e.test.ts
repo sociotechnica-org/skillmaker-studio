@@ -167,7 +167,7 @@ describe("skillmaker route: validation", () => {
   test("an unknown intake id is an honest error, not a crash", () => {
     const result = runCli(["route", "in-does-not-exist", "--as", "salvage", "--reason", "x"]);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("no such intake");
+    expect(result.stderr).toContain("no crate with intake id");
   });
 });
 
@@ -345,8 +345,8 @@ describe("skillmaker route: route salvage -> fixture harvested from the crate ca
       "--json",
     ]);
     expect(result.exitCode).toBe(0);
-    const json = JSON.parse(result.stdout) as { todo: { origin?: { kind: string; ref: string } } };
-    expect(json.todo.origin).toEqual({ kind: "intake", ref: intake });
+    const json = JSON.parse(result.stdout) as { todo: { origin?: { kind: string; intakeId: string } } };
+    expect(json.todo.origin).toEqual({ kind: "intake", intakeId: intake });
   });
 });
 

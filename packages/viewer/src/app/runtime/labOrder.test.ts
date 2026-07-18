@@ -14,6 +14,8 @@ const entry = (overrides: Partial<CatalogEntry> & { slug: string }): CatalogEntr
   measuredFixtureCount: 0,
   openTodoCount: 0,
   unverified: false,
+  lastShipment: null,
+  lastActivityAt: "2026-07-01T00:00:00.000Z",
   ...overrides,
 });
 

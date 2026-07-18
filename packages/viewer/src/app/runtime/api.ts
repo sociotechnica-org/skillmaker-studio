@@ -52,8 +52,8 @@ export const getRunDetail = (slug: string, runId: string): Promise<RunDetailResp
   );
 
 /** `GET /api/todos[?all=1]` -- the todos panel's data (data-model.md §2.10/§2.11). */
-export const getTodos = (includeArchived: boolean): Promise<TodosResponse> =>
-  fetchJson(includeArchived ? "/api/todos?all=1" : "/api/todos", TodosResponse);
+export const getTodos = (includeSwept: boolean): Promise<TodosResponse> =>
+  fetchJson(includeSwept ? "/api/todos?all=1" : "/api/todos", TodosResponse);
 
 /** `GET /api/events[?limit=&before=]` -- the Activity page's paginated journal feed. */
 export const getEvents = (options: { limit?: number; before?: string } = {}): Promise<EventsResponse> => {
@@ -182,7 +182,7 @@ export type PublishBundleResult =
   | { readonly ok: false; readonly error: string };
 
 /**
- * `POST /api/bundles/:slug/publish` -- the BundlePanel's post-publish
+ * `POST /api/bundles/:slug/publish` -- the skill card's post-publish
  * "Publish to targets" step (Phase 11B). `target` is optional (default:
  * every configured target), mirroring the CLI's `--target` flag.
  */

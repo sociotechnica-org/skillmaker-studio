@@ -6,15 +6,17 @@ const NAV_ITEMS: ReadonlyArray<{
   readonly label: string;
   readonly match: (name: Route["name"]) => boolean;
 }> = [
-  { href: "/", label: "Board", match: (name) => name === "board" || name === "bundle" },
-  { href: "/lab", label: "Lab", match: (name) => name === "lab" },
+  { href: "/", label: "Make", match: (name) => name === "board" || name === "bundle" },
+  { href: "/lab", label: "Improve", match: (name) => name === "lab" },
   {
     href: "/ship",
     label: "Ship",
     match: (name) => name === "ship" || name === "ship-bundle",
   },
   { href: "/receive", label: "Receive", match: (name) => name === "receive" },
-  { href: "/activity", label: "Activity", match: (name) => name === "activity" },
+  // #109: Activity's nav slot becomes Track (Catalog + Feed + Archive
+  // drawer); the old /activity path still aliases into Track's Feed.
+  { href: "/track", label: "Track", match: (name) => name === "track" },
 ];
 
 const NAV_LINK_ACTIVE =

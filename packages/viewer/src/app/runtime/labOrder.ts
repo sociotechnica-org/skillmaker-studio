@@ -42,6 +42,16 @@ export type AttentionDrift = "design-changed" | "output-hand-edited" | "both";
 export const driftNeedsAttention = (drift: Drift): drift is AttentionDrift =>
   drift === "design-changed" || drift === "output-hand-edited" || drift === "both";
 
+/** The attention pill's words, one per `AttentionDrift` -- shared by the Lab bench and Track's catalog rows (issue #109), so the two surfaces never diverge on what a drift pill says. */
+export const DRIFT_LABEL: Record<AttentionDrift, string> = {
+  "design-changed": "Design changed",
+  "output-hand-edited": "Output hand-edited",
+  both: "Design + output changed",
+};
+
+/** The attention pill's colors -- amber, "something moved" (the Unverified badge deliberately owns violet instead, `schemas.ts`). */
+export const DRIFT_BADGE_CLASS = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
+
 export type CoverageState = "no-fixtures" | "under-measured" | "fully-measured";
 
 /** Which of the three honest coverage states a catalog entry is in. */

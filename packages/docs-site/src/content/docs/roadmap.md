@@ -10,10 +10,10 @@ collected here once, pointing at the actual planning document.
 
 The full, current build plan (phase scope, ordering, and verify recipes)
 lives in the product repo at
-[`docs/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md`](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md).
+[`docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md`](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md).
 A running narrative of what's actually shipped, phase by phase, is in the
 build log at
-[`docs/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md`](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md).
+[`docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md`](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md).
 
 ## Recently shipped (see the concept/CLI pages, not this list)
 
@@ -50,7 +50,7 @@ where the rest of this site documents merged, runnable features, not here:
   storefront receipts, `response.md`, honest confidence intervals, `run
   repair`, `adopt --source` provenance, and — the story's sharpest
   finding — a credential-leak P0 in sandboxed auth, fixed structurally in
-  v0.2.1. See the [build log](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md)
+  v0.2.1. See the [build log](https://github.com/sociotechnica-org/skillmaker-studio/blob/main/docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md)
   for the full phase entry and
   [Provider auth & troubleshooting](/getting-started/provider-auth/) for
   what shipped.

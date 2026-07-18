@@ -35,7 +35,8 @@
  *
  * The five exit doors (issue #91) follow the exact same CLI-first pattern
  * as harvest/todo above: no write buttons, each undisposed crate row shows
- * all five `skillmaker route` commands as copyable text, pre-filled with the
+ * the doors its verdict offers (`VERDICT_DISPOSITIONS`) as copyable
+ * `skillmaker route` commands, pre-filled with the
  * intake id and (where the disposition needs one) a `<bundle>`/`<parent>`
  * placeholder for the human to fill in -- resolving WHICH bundle a
  * `return`/`conflict` verdict specifically points at would need per-bundle
@@ -55,7 +56,9 @@ import { type FC, type FormEvent, type ReactNode, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
 import { bundleHref, shipBundleHref, Link } from "../runtime/router.tsx";
 import {
+  STAKES_BADGE_CLASS,
   UNVERIFIED_BADGE_CLASS,
+  VERDICT_DISPOSITIONS,
   type FieldReportOutcome,
   type FieldReportView,
   type IntakeCrateView,
@@ -145,10 +148,10 @@ const ReportRow: FC<{ report: FieldReportView }> = ({ report }) => (
         linked={
           report.fixtureCase !== null ? (
             <Link
-              href={bundleHref(report.bundle, "evals")}
+              href={bundleHref(report.bundle, "models")}
               className="w-fit text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
             >
-              harvested → {report.fixtureCase} (Evals)
+              harvested → {report.fixtureCase} (Models)
             </Link>
           ) : null
         }
@@ -263,9 +266,7 @@ const VERDICT_BADGE_CLASS: Readonly<Record<IntakeVerdict, string>> = {
   new: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
 };
 
-const DISPOSITIONS: ReadonlyArray<RouteDisposition> = ["return", "new", "upgrade", "fork", "salvage"];
-
-/** The dock verdict's suggested door(s) (issue #91): `return`/`new` each point at exactly one door; `conflict` (the identically-labeled stranger) is precisely the case the dock CANNOT resolve on its own, so it suggests the three human judgment calls instead. */
+/** The dock verdict's suggested door(s) (issue #91): `return`/`new` each point at exactly one door; `conflict` (the identically-labeled stranger) is precisely the case the dock CANNOT resolve on its own, so it suggests the three human judgment calls instead. A strict subset of `VERDICT_DISPOSITIONS` (schemas.ts), which additionally offers `salvage` -- the universal refusal door -- under every verdict. */
 const SUGGESTED_DISPOSITIONS: Readonly<Record<IntakeVerdict, ReadonlyArray<RouteDisposition>>> = {
   return: ["return"],
   new: ["new"],
@@ -288,7 +289,14 @@ const routeCommand = (intake: string, disposition: RouteDisposition): string => 
   }
 };
 
-/** The five exit doors, each a copyable `skillmaker route` command; the door(s) matching the crate's own verdict are visually distinguished as "the verdict's suggestion." */
+/**
+ * The doors the crate's verdict offers (`VERDICT_DISPOSITIONS`), each a
+ * copyable `skillmaker route` command; the door(s) matching the verdict's
+ * own suggestion are visually distinguished. Off-menu rulings stay possible
+ * through the CLI (which prints an advisory, never a gate) -- the registry
+ * can't see everything a human can, e.g. a heavily rewritten fork shares no
+ * hash or name with its parent.
+ */
 const RouteDoors: FC<{ crate: IntakeCrateView }> = ({ crate }) => {
   const suggested = new Set(SUGGESTED_DISPOSITIONS[crate.verdict]);
   return (
@@ -297,7 +305,7 @@ const RouteDoors: FC<{ crate: IntakeCrateView }> = ({ crate }) => {
         Route this crate
       </span>
       <ul className="flex flex-col gap-1">
-        {DISPOSITIONS.map((disposition) => (
+        {VERDICT_DISPOSITIONS[crate.verdict].map((disposition) => (
           <li key={disposition} className="flex items-center gap-2">
             <code
               className={`w-fit select-all rounded-md px-2 py-1 text-[11px] ${
@@ -318,7 +326,7 @@ const RouteDoors: FC<{ crate: IntakeCrateView }> = ({ crate }) => {
   );
 };
 
-/** One undisposed crate at the dock: claims verbatim, the verdict recomputed server-side, an "unclear rights" flag when present -- recorded, never a gate. */
+/** One undisposed crate at the dock: claims verbatim, the verdict recomputed server-side, an "unclear rights" flag when present -- recorded, never a gate. Structured stakes/hurts testimony (issue #108) surfaces here too; old crates' flattened `notes` prose stays displayed as-is, never re-parsed. */
 const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
   <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
     <div className="flex flex-wrap items-center gap-2">
@@ -333,6 +341,11 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
           unclear rights
         </span>
       )}
+      {crate.stakes !== null && (
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STAKES_BADGE_CLASS[crate.stakes]}`}>
+          {crate.stakes}
+        </span>
+      )}
     </div>
     <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
       <span>from &quot;{crate.source}&quot;</span>
@@ -340,6 +353,12 @@ const CrateRow: FC<{ crate: IntakeCrateView }> = ({ crate }) => (
       {crate.claimedVersionHash !== null && <span className="font-mono">claims {crate.claimedVersionHash}</span>}
       <span>{new Date(crate.at).toLocaleString()}</span>
     </div>
+    {crate.hurts !== null && (
+      <p className="text-sm text-neutral-700 dark:text-neutral-300">
+        <span className="font-medium text-neutral-500 dark:text-neutral-400">Hurts: </span>
+        {crate.hurts}
+      </p>
+    )}
     {crate.notes !== null && <p className="text-sm text-neutral-700 dark:text-neutral-300">{crate.notes}</p>}
     <code className="w-fit select-all rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
       {crate.intake}

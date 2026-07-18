@@ -9,8 +9,14 @@
  * Order is load-bearing, mirrored from the dock's own single-crate
  * elicitation tree (§HOW, "the cheap, pruning question comes first"):
  * decision (keep/archive/skip) before whose, whose before rights, stakes
- * before hurts, hurts before maturity -- the manifest's column order is
- * the same tree, laid flat.
+ * before hurts -- the manifest's column order is the same tree, laid flat.
+ *
+ * Issue #108 ("triage fills the card; the system grades the entry")
+ * reshaped the tail of that tree: the maturity self-grade column is retired
+ * (entry stage is now DERIVED from the directory's observable condition,
+ * `deriveEntryStage` below -- never asked), and the manifest becomes the
+ * card's batch form: `Job`/`Out-of-scope`/`Basis` are free-text card fields
+ * whose answers land in the freshly adopted skill's dossier.
  */
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
@@ -27,11 +33,12 @@ import {
   type Frontmatter,
   type ManifestDetection,
 } from "./Adopt.ts";
+import type { DossierSectionName, DossierSeed } from "./Dossier.ts";
 import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
 import { scanFixtures } from "./Fixtures.ts";
-import type { IntakeRights } from "./Journal.ts";
+import { IntakeStakes, type IntakeRights } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
-import { collectTableLines, splitTableCells } from "./MarkdownTable.ts";
+import { cellByName, collectTableLines, knownColumnLookup, resolveColumns, splitTableCells } from "./MarkdownTable.ts";
 import {
   classifyIntakeEvidence,
   gatherIntakeRegistry,
@@ -77,39 +84,61 @@ export type TriageWhose = (typeof TRIAGE_WHOSE_VALUES)[number];
 export const isTriageWhose = (value: string): value is TriageWhose =>
   (TRIAGE_WHOSE_VALUES as ReadonlyArray<string>).includes(value);
 
-export const TRIAGE_STAKES_VALUES = ["aside", "load-bearing"] as const;
-export type TriageStakes = (typeof TRIAGE_STAKES_VALUES)[number];
+/**
+ * Derived from `Journal.ts`'s `IntakeStakes` schema (issue #108) -- ONE
+ * source of truth for the stakes vocabulary in core, now that the manifest's
+ * `Stakes` answer lands on `skill.received`'s own structured `stakes` field
+ * rather than being flattened into `notes` prose.
+ */
+export const TRIAGE_STAKES_VALUES: ReadonlyArray<IntakeStakes> = IntakeStakes.literals;
+export type TriageStakes = IntakeStakes;
 export const isTriageStakes = (value: string): value is TriageStakes =>
   (TRIAGE_STAKES_VALUES as ReadonlyArray<string>).includes(value);
 
-export const TRIAGE_MATURITY_VALUES = ["idea", "draft", "working"] as const;
-export type TriageMaturity = (typeof TRIAGE_MATURITY_VALUES)[number];
-export const isTriageMaturity = (value: string): value is TriageMaturity =>
-  (TRIAGE_MATURITY_VALUES as ReadonlyArray<string>).includes(value);
-
 /**
- * Maturity's entry-stage mapping (judgment call, issue #92: the dock's
- * elicitation tree names three maturities but `BundleStage` has five
- * rungs; the mapping stated here is what "entry stage from maturity" in
- * the issue resolves to). `idea` needs no move -- `bundle.created` already
- * lands a bundle at `"idea"`. `draft` skips straight to `"drafting"`
- * (a draft already exists; there is nothing "researching" to redo).
- * `working` lands at `"evaluating"` -- far enough along that its Lab work
- * is writing fixtures against real behavior, never `"published"`: this
- * studio has performed zero evaluation or gate review of an import, and
- * `"published"` would overclaim that (house law: never a false fact).
- * Recorded as a single `bundle.stage_changed` with `override: true` (the
- * guard's escape hatch for station-less bundles, `Machine.ts`) and reason
- * `"triage: working import"` -- override bypasses the "one stage at a
- * time" rule too, so one honest event captures the whole jump.
+ * The system's own placement of a brownfield import (issue #108, replacing
+ * the retired maturity self-grade; data-model draft §Receive "Triage":
+ * "Entry column is derived from what's observably there (no runnable output
+ * → early columns; runnable output → Proof)"). A MACHINE DERIVATION from
+ * observables, never testimony -- no human is asked anything:
+ *
+ * - `parses && complete` -> `"evaluating"` (Proof): a runnable `SKILL.md`
+ *   with a full identity (name + description) is observably present; the
+ *   remaining work is proving it, and the Lab's Proof column is where
+ *   fixtures get written against real behavior. Never `"published"` -- this
+ *   studio has performed zero evaluation of an import, and `"published"`
+ *   would overclaim (house law: never a false fact).
+ * - `parses` (but incomplete) -> `"drafting"`: skill text exists but isn't
+ *   a complete identity yet -- a draft, observably.
+ * - otherwise -> `"idea"`: nothing runnable to point at.
+ *
+ * `hasEvals` deliberately plays no part -- the parameter type says so:
+ * evals present is Proof-column WORK already staged, not a further rung --
+ * the entry column question is only "is there runnable output" (draft
+ * L202). Narrowing to the two consulted facts also spares the caller
+ * `scanFixtures`' directory walk, which only ever answered `hasEvals`.
  */
-export const MATURITY_ENTRY_STAGE: Readonly<Record<TriageMaturity, BundleStage>> = {
-  idea: "idea",
-  draft: "drafting",
-  working: "evaluating",
+export const deriveEntryStage = (condition: Pick<MechanicalCondition, "parses" | "complete">): BundleStage => {
+  if (condition.parses && condition.complete) {
+    return "evaluating";
+  }
+  if (condition.parses) {
+    return "drafting";
+  }
+  return "idea";
 };
 
-export const TRIAGE_STAGE_MOVE_REASON = "triage: working import";
+/**
+ * The reason recorded on the single `bundle.stage_changed` the adopt path
+ * appends when `deriveEntryStage` lands past `"idea"` (issue #108). "Derived"
+ * is load-bearing wording: this is the system's own read of observables, not
+ * a human's claim. The event carries NO `override` field -- override marks a
+ * human overriding the guard, and nothing of the kind happened here: this is
+ * the system's own placement at birth, and the stage-move guard
+ * (`Machine.ts`'s `checkTransition`) is enforced at the interactive write
+ * paths (`advance`, the server's POST allowlist), not at triage's append.
+ */
+export const TRIAGE_ENTRY_STAGE_REASON = "triage: entry stage derived from runnable output";
 
 // ---------------------------------------------------------------------------
 // Mechanical condition (the OS&D clipboard -- automated, never human-edited)
@@ -213,7 +242,15 @@ export const defaultWhoseFor = (evidence: IntakeEvidence): TriageWhose =>
 // The manifest row
 // ---------------------------------------------------------------------------
 
-export interface TriageRow {
+/**
+ * The card fields (`job`/`outOfScope`/`basis`, issue #108) are `DossierSeed`
+ * ITSELF, not a hand-copied triple: the manifest's answers are exactly what
+ * seeds the freshly adopted dossier (`executeManifestRow` passes the row
+ * straight through as the seed), so the row IS a seed by type -- the two
+ * shapes cannot drift apart. Blank = not asked = honest gap, per
+ * `DossierSeed`'s own field docs.
+ */
+export interface TriageRow extends DossierSeed {
   readonly name: string;
   /** Relative to the workspace root, forward-slash always (portable, matches `IndexService.ts`'s own convention). */
   readonly path: string;
@@ -225,7 +262,6 @@ export interface TriageRow {
   readonly stakes?: TriageStakes;
   readonly hurts?: string;
   readonly priority?: number;
-  readonly maturity: TriageMaturity;
 }
 
 export interface TriageSkippedRow {
@@ -318,7 +354,6 @@ export const triageWorkspace = Effect.fn("Triage.triageWorkspace")(function* (
       evidence,
       decision: "keep",
       whose: defaultWhoseFor(evidence),
-      maturity: "idea",
     });
   }
 
@@ -332,7 +367,28 @@ export const triageWorkspace = Effect.fn("Triage.triageWorkspace")(function* (
 // and the wording of what to tell the human are specific to this manifest).
 // ---------------------------------------------------------------------------
 
-const MANIFEST_HEADER = [
+type CardFieldKey = keyof DossierSeed;
+
+/**
+ * The card's free-text batch-form fields (issue #108): manifest column
+ * label -> `TriageRow` key. ONE declaration drives all four sites that
+ * know these fields -- the header, `renderManifest`'s row cells,
+ * `parseManifest`'s lookups, and the receive path's stranded-answer
+ * warning -- so a future card field is a one-place edit. Typed, not just
+ * documented, against the shared shape: keys are `keyof DossierSeed`
+ * (these answers ARE the dossier seed) and labels are `DossierSectionName`
+ * (the sections they land in, `Dossier.ts`'s `DOSSIER_SECTIONS`) -- a
+ * label or key that drifts from the dossier's own vocabulary is a compile
+ * error, and the VocabLockstep suite asserts the membership at runtime
+ * too. Exported for that test only.
+ */
+export const CARD_FIELDS: ReadonlyArray<readonly [label: DossierSectionName, key: CardFieldKey]> = [
+  ["Job", "job"],
+  ["Out-of-scope", "outOfScope"],
+  ["Basis", "basis"],
+];
+
+const MANIFEST_HEADER: ReadonlyArray<string> = [
   "Name",
   "Path",
   "Mechanical Condition",
@@ -343,8 +399,11 @@ const MANIFEST_HEADER = [
   "Stakes",
   "Hurts",
   "Priority",
-  "Maturity",
-] as const;
+  ...CARD_FIELDS.map(([label]) => label),
+];
+
+/** The normalized-known-columns lookup for `resolveColumns` -- built once here at module scope, never per parse (the schema is static; only a file's header varies). */
+const KNOWN_MANIFEST_COLUMNS = knownColumnLookup(MANIFEST_HEADER);
 
 const escapeCell = (value: string): string => value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 
@@ -362,9 +421,11 @@ export const renderManifest = (rows: ReadonlyArray<TriageRow>): string => {
   const lines: string[] = [
     "# Adopt Triage Manifest",
     "",
-    "Edit the human columns -- Decision, Whose, Rights, Stakes, Hurts, Priority, Maturity -- then run `skillmaker adopt --from-manifest` to execute each row as an individual act (keep+mine -> adopt, keep+outside/came-back/unknown/receive -> receive, archive -> adopt + archive, skip -> untouched).",
+    "Edit the human columns -- Decision, Whose, Rights, Stakes, Hurts, Priority, Job, Out-of-scope, Basis -- then run `skillmaker adopt --from-manifest` to execute each row as an individual act (keep+mine -> adopt, keep+outside/came-back/unknown/receive -> receive, archive -> adopt + archive, skip -> untouched).",
     "",
-    "Decision: keep | archive | skip. Whose: mine | outside | came-back | unknown | receive. Rights: ours | licensed | unclear (blank unless outside). Stakes: aside | load-bearing (blank ok). Hurts: free text (blank ok). Priority: a number, lower = more urgent (blank ok). Maturity: idea | draft | working (blank = idea).",
+    "Decision: keep | archive | skip. Whose: mine | outside | came-back | unknown | receive. Rights: ours | licensed | unclear (blank unless outside). Stakes: aside | load-bearing (blank ok). Hurts: free text (blank ok). Priority: a number, lower = more urgent (blank ok).",
+    "",
+    "Job / Out-of-scope / Basis are card fields (free text, blank ok = not asked): these answers land in the adopted skill's dossier. Entry stage is never asked -- it is derived from what's observably in the directory (runnable, complete SKILL.md -> Proof).",
     "",
     `| ${MANIFEST_HEADER.join(" | ")} |`,
     `|${MANIFEST_HEADER.map(() => " --- ").join("|")}|`,
@@ -380,7 +441,7 @@ export const renderManifest = (rows: ReadonlyArray<TriageRow>): string => {
         row.stakes ?? "",
         row.hurts ?? "",
         row.priority !== undefined ? String(row.priority) : "",
-        row.maturity,
+        ...CARD_FIELDS.map(([, key]) => row[key] ?? ""),
       ]
         .map(escapeCell)
         .join(" | ")} |`,
@@ -401,14 +462,14 @@ const isIntakeRights = (value: string): value is IntakeRights =>
 
 /**
  * One tolerant enum-cell parse, shared by every closed-vocabulary column
- * below (`Decision`/`Whose`/`Rights`/`Stakes`/`Maturity` -- five columns
- * that used to hand-copy this same trim/validate/warn shape five times).
+ * below (`Decision`/`Whose`/`Rights`/`Stakes` -- columns that used to
+ * hand-copy this same trim/validate/warn shape).
  * `fallback` doubles as both the blank-cell default AND the unrecognized-
  * cell default (the deferral ruling treats them the same: never a false
  * fact, always a named default) -- `undefined` for a column where blank is
  * itself a legitimate answer (`Rights`/`Stakes`, warned as "left blank"),
  * a concrete value for a column that always resolves to something
- * (`Decision`/`Whose`/`Maturity`, warned as "defaulted to ...").
+ * (`Decision`/`Whose`, warned as "defaulted to ...").
  */
 const parseEnumCell = <T extends string>(
   raw: string,
@@ -437,11 +498,20 @@ const parseEnumCell = <T extends string>(
  * `RiskMap.ts`'s markdown-table parser). Deferral defaults, never a false
  * fact (issue #92's ruling, applied at parse time too): a blank/unparseable
  * `decision` defaults to `"keep"`; a blank/unparseable `whose` defaults to
- * `"unknown"` -- a first-class recorded answer, never silently `"mine"`;
- * a blank/unparseable `maturity` defaults to `"idea"` per the ruling's own
- * words ("blank = idea"). `rights`/`stakes`/`hurts`/`priority` stay
- * `undefined` when blank -- blank is a legitimate answer for all four, not
- * a defect to paper over.
+ * `"unknown"` -- a first-class recorded answer, never silently `"mine"`.
+ * `rights`/`stakes`/`hurts`/`priority`/`job`/`outOfScope`/`basis` stay
+ * `undefined` when blank -- blank is a legitimate answer (not asked = honest
+ * gap, issue #108), not a defect to paper over.
+ *
+ * Columns are resolved BY HEADER NAME, not position (issue #108,
+ * `MarkdownTable.ts`'s `resolveColumns` against `KNOWN_MANIFEST_COLUMNS`):
+ * each known column name is mapped to its index in THAT file's own header.
+ * That is what makes an old manifest still read after the
+ * column set changed: a pre-#108 manifest's retired `Maturity` column is
+ * warned about ONCE ("ignoring unrecognized column") and its cells are
+ * never read -- never preserved into execution, never a parse failure --
+ * and its missing `Job`/`Out-of-scope`/`Basis` columns simply read as
+ * not-asked. Warn, never fail, throughout.
  */
 export const parseManifest = (content: string): ParseManifestResult => {
   const warnings: string[] = [];
@@ -455,46 +525,59 @@ export const parseManifest = (content: string): ParseManifestResult => {
     warnings.push("adopt-manifest.md: could not find a valid table header/separator; no rows parsed");
     return { rows: [], warnings };
   }
-  const { dataLines } = collected;
+  const { header, dataLines } = collected;
+
+  const headerCells = splitTableCells(header);
+  const { columnIndex, unknownColumns } = resolveColumns(headerCells, KNOWN_MANIFEST_COLUMNS);
+  for (const column of unknownColumns) {
+    // Warn once per unknown column (e.g. the retired pre-#108 `Maturity`
+    // column), then ignore its cells entirely -- never read into
+    // execution, never a failure.
+    warnings.push(`adopt-manifest.md: ignoring unrecognized column "${column}" (its cells are not read)`);
+  }
+
+  if (!columnIndex.has("Path")) {
+    warnings.push('adopt-manifest.md: table header has no "Path" column; no rows parsed');
+    return { rows: [], warnings };
+  }
 
   const rows: TriageRow[] = [];
   for (const line of dataLines) {
     const cells = splitTableCells(line);
-    if (cells.length < MANIFEST_HEADER.length) {
-      warnings.push(`adopt-manifest.md: could not parse row "${line.trim()}" (expected ${MANIFEST_HEADER.length} columns)`);
+    if (cells.length < headerCells.length) {
+      warnings.push(
+        `adopt-manifest.md: could not parse row "${line.trim()}" (expected ${headerCells.length} columns)`,
+      );
       continue;
     }
-    const [
-      nameCell,
-      pathCell,
-      mechCell,
-      evidenceCell,
-      decisionCell,
-      whoseCell,
-      rightsCell,
-      stakesCell,
-      hurtsCell,
-      priorityCell,
-      maturityCell,
-    ] = cells;
+    // A column absent from THIS file's header reads as blank (not asked).
+    const cell = (column: string): string => cellByName(cells, columnIndex, column);
 
-    const path = (pathCell ?? "").trim();
+    const path = cell("Path").trim();
     if (path.length === 0) {
       warnings.push(`adopt-manifest.md: could not parse row "${line.trim()}" (empty Path cell)`);
       continue;
     }
 
-    const decision =
-      parseEnumCell(decisionCell ?? "", isTriageDecision, "keep", "Decision", path, warnings) ?? "keep";
-    const whose =
-      parseEnumCell(whoseCell ?? "", isTriageWhose, "unknown", "Whose", path, warnings) ?? "unknown";
-    const rights = parseEnumCell(rightsCell ?? "", isIntakeRights, undefined, "Rights", path, warnings);
-    const stakes = parseEnumCell(stakesCell ?? "", isTriageStakes, undefined, "Stakes", path, warnings);
+    const decision = parseEnumCell(cell("Decision"), isTriageDecision, "keep", "Decision", path, warnings) ?? "keep";
+    const whose = parseEnumCell(cell("Whose"), isTriageWhose, "unknown", "Whose", path, warnings) ?? "unknown";
+    const rights = parseEnumCell(cell("Rights"), isIntakeRights, undefined, "Rights", path, warnings);
+    const stakes = parseEnumCell(cell("Stakes"), isTriageStakes, undefined, "Stakes", path, warnings);
 
-    const hurtsRaw = (hurtsCell ?? "").trim();
-    const hurts = hurtsRaw.length > 0 ? hurtsRaw : undefined;
+    const freeText = (raw: string): string | undefined => {
+      const trimmed = raw.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    };
+    const hurts = freeText(cell("Hurts"));
+    const card: Partial<Record<CardFieldKey, string>> = {};
+    for (const [label, key] of CARD_FIELDS) {
+      const value = freeText(cell(label));
+      if (value !== undefined) {
+        card[key] = value;
+      }
+    }
 
-    const priorityRaw = (priorityCell ?? "").trim();
+    const priorityRaw = cell("Priority").trim();
     let priority: number | undefined;
     if (priorityRaw.length > 0) {
       const parsed = Number.parseInt(priorityRaw, 10);
@@ -505,21 +588,18 @@ export const parseManifest = (content: string): ParseManifestResult => {
       }
     }
 
-    const maturity =
-      parseEnumCell(maturityCell ?? "", isTriageMaturity, "idea", "Maturity", path, warnings) ?? "idea";
-
     rows.push({
-      name: (nameCell ?? "").trim(),
+      name: cell("Name").trim(),
       path,
-      mechanicalCondition: parseMechanicalCondition(mechCell ?? ""),
-      evidence: parseEvidence(evidenceCell ?? ""),
+      mechanicalCondition: parseMechanicalCondition(cell("Mechanical Condition")),
+      evidence: parseEvidence(cell("Registry Evidence")),
       decision,
       whose,
       ...(rights !== undefined ? { rights } : {}),
       ...(stakes !== undefined ? { stakes } : {}),
       ...(hurts !== undefined ? { hurts } : {}),
       ...(priority !== undefined ? { priority } : {}),
-      maturity,
+      ...card,
     });
   }
 
@@ -540,6 +620,8 @@ export type ExecuteRowOutcome =
 export interface ExecuteManifestRowResult {
   readonly outcome: ExecuteRowOutcome;
   readonly todoMinted: boolean;
+  /** Row-level advisories (issue #108, warn-never-fail): e.g. card answers on a receive row that land nowhere until a door grants identity. Never blocks the row's own outcome. */
+  readonly warnings: ReadonlyArray<string>;
 }
 
 export interface ExecuteManifestSummary {
@@ -550,22 +632,12 @@ export interface ExecuteManifestSummary {
   readonly errored: number;
   readonly todosMinted: number;
   readonly outcomes: ReadonlyArray<ExecuteRowOutcome>;
+  /** Every row's advisories, collected in row order (issue #108, warn-never-fail). */
+  readonly warnings: ReadonlyArray<string>;
 }
 
 const newTodoId = (): string => `td-${crypto.randomUUID()}`;
 const todayIsoDate = (): string => new Date().toISOString().slice(0, 10);
-
-/** `notes` on the received event (issue #92 judgment call): stakes and hurts both fold in here so the crate's own testimony is self-descriptive, in addition to the todo hurts mints separately. */
-const composeReceiveNotes = (row: TriageRow): string | undefined => {
-  const parts: string[] = [];
-  if (row.stakes !== undefined) {
-    parts.push(`stakes: ${row.stakes}`);
-  }
-  if (row.hurts !== undefined) {
-    parts.push(row.hurts);
-  }
-  return parts.length > 0 ? parts.join(" — ") : undefined;
-};
 
 const mintHurtsTodo = Effect.fn("Triage.mintHurtsTodo")(function* (
   row: TriageRow,
@@ -587,19 +659,39 @@ const mintHurtsTodo = Effect.fn("Triage.mintHurtsTodo")(function* (
     created: todayIsoDate(),
     ...(bundle !== undefined ? { bundle } : {}),
     source: actor,
-    origin: { kind: "intake" as const, ref },
+    origin: { kind: "intake" as const, intakeId: ref },
   } satisfies Todo;
   yield* journal.append({ type: "todo.opened", actor, payload: { todo } });
   return true;
 });
 
-/** One `bundle.stage_changed` from `"idea"` to the maturity's entry stage, when past idea (issue #92, `MATURITY_ENTRY_STAGE`). */
-const advanceForMaturity = Effect.fn("Triage.advanceForMaturity")(function* (
+/**
+ * One `bundle.stage_changed` from `"idea"` to the DERIVED entry stage, when
+ * past idea (issue #108, `deriveEntryStage`). `parses`/`complete` come from
+ * the frontmatter parse `adoptDirectoryInPlace` just performed on the
+ * `SKILL.md` this very row read off disk -- observables at execution time,
+ * never read back from the manifest's hand-editable Mechanical Condition
+ * cell (machine columns are for a human's reference, not load-bearing for
+ * execution; an entry stage must come from observables, not from a cell a
+ * maker could have edited into testimony). No `scanFixtures` walk here:
+ * `deriveEntryStage` consults only these two facts (`hasEvals` plays no
+ * part), so the fixture scan would be wasted I/O over a tree
+ * `computeBundleHashes` is about to walk anyway. NO `override` on the
+ * event: this is not a human overriding the guard, it is the system's own
+ * placement at birth -- the guard (`Machine.ts`'s `checkTransition`) is
+ * enforced at the interactive write paths (`advance`, the server's POST
+ * allowlist), not here.
+ */
+const advanceToDerivedEntryStage = Effect.fn("Triage.advanceToDerivedEntryStage")(function* (
   slug: string,
-  maturity: TriageMaturity,
+  frontmatter: Frontmatter,
+  frontmatterWarnings: ReadonlyArray<string>,
   actor: Actor,
 ) {
-  const to = MATURITY_ENTRY_STAGE[maturity];
+  const parses = !frontmatterWarnings.some((warning) => warning.includes(NO_FRONTMATTER_MARKER));
+  const complete =
+    stringField(frontmatter, "name") !== undefined && stringField(frontmatter, "description") !== undefined;
+  const to = deriveEntryStage({ parses, complete });
   if (to === "idea") {
     return;
   }
@@ -607,7 +699,7 @@ const advanceForMaturity = Effect.fn("Triage.advanceForMaturity")(function* (
   yield* journal.append({
     type: "bundle.stage_changed",
     actor,
-    payload: { bundle: slug, from: "idea", to, reason: TRIAGE_STAGE_MOVE_REASON, override: true },
+    payload: { bundle: slug, from: "idea", to, reason: TRIAGE_ENTRY_STAGE_REASON },
   });
 });
 
@@ -636,7 +728,11 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
   const dir = join(root, ...row.path.split("/"));
 
   if (row.decision === "skip") {
-    return { outcome: { kind: "skipped", path: row.path, reason: "skip" }, todoMinted: false } satisfies ExecuteManifestRowResult;
+    return {
+      outcome: { kind: "skipped", path: row.path, reason: "skip" },
+      todoMinted: false,
+      warnings: [],
+    } satisfies ExecuteManifestRowResult;
   }
 
   const dirExists = yield* fs.exists(dir).pipe(Effect.mapError(toIOError(`could not check ${dir}`)));
@@ -644,6 +740,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
     return {
       outcome: { kind: "errored", path: row.path, message: `directory "${row.path}" no longer exists` },
       todoMinted: false,
+      warnings: [],
     } satisfies ExecuteManifestRowResult;
   }
 
@@ -657,13 +754,19 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
       return {
         outcome: { kind: "skipped", path: row.path, reason: "already-adopted" },
         todoMinted: false,
+        warnings: [],
       } satisfies ExecuteManifestRowResult;
     }
 
     // The same single write path plain adopt's sweep and Route.ts's
     // `new`/`fork` use (`Adopt.ts`'s `adoptDirectoryInPlace`) -- no
     // tripwire here: the human already saw this row's evidence in the
-    // manifest and decided anyway.
+    // manifest and decided anyway. The row's card answers
+    // (Job/Out-of-scope/Basis, issue #108) seed the dossier this adopt
+    // creates -- `TriageRow extends DossierSeed`, so the row IS the seed,
+    // no field-by-field copy to drift. `writeDossierScaffold` never
+    // clobbers an existing file, so a dossier that already traveled with
+    // the directory wins over the manifest's answers.
     const skillMdPath = join(dir, "SKILL.md");
     const skillMdContent = yield* fs
       .readFileString(skillMdPath)
@@ -673,6 +776,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
       skillMdContent,
       slugBase: basename(dir),
       usedSlugs,
+      dossierSeed: row,
     });
     usedSlugs.add(wrapped.slug);
 
@@ -689,7 +793,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
     // enters archived. `row.path` is stored forward-slash; rejoin with the
     // platform separator before the segment check.
     const { lifecycle } = lifecycleFromPath(row.path.split("/").join(sep));
-    const isArchived = row.decision === "archive" || lifecycle === "archived";
+    const isArchived = row.decision === "archive" || lifecycle === "deprecated";
     if (isArchived) {
       yield* journal.append({
         type: "bundle.archived",
@@ -698,7 +802,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
         payload: { bundle: wrapped.slug },
       });
     } else {
-      yield* advanceForMaturity(wrapped.slug, row.maturity, actor);
+      yield* advanceToDerivedEntryStage(wrapped.slug, wrapped.frontmatter, wrapped.warnings, actor);
     }
 
     const { designHash, outputHash } = yield* computeBundleHashes(dir, "in-place");
@@ -711,19 +815,36 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
         ? { kind: "archived", path: row.path, slug: wrapped.slug }
         : { kind: "adopted", path: row.path, slug: wrapped.slug },
       todoMinted,
+      warnings: [],
     } satisfies ExecuteManifestRowResult;
   }
 
   // keep + (outside | came-back | unknown | receive): the dock's door, one
-  // directory at a time (`receiveCrate`, `Receive.ts`).
-  const notes = composeReceiveNotes(row);
+  // directory at a time (`receiveCrate`, `Receive.ts`). The row's
+  // stakes/hurts land as the event's own STRUCTURED testimony fields
+  // (issue #108) -- never flattened into `notes` prose (the old
+  // `composeReceiveNotes` is gone; `notes` is for genuinely free-text notes
+  // only, and no writer here has one).
+  const warnings: string[] = [];
+  // A crate has no dossier -- the card's Job/Out-of-scope/Basis answers have
+  // nowhere to land until one of the five doors grants identity. Warn, never
+  // fail (issue #108): the row still executes; the answers are just not
+  // silently recorded anywhere.
+  const strandedCardAnswers = CARD_FIELDS.filter(([, key]) => row[key] !== undefined).map(([label]) => label);
+  if (strandedCardAnswers.length > 0) {
+    warnings.push(
+      `adopt-manifest.md: row "${row.path}" answered ${strandedCardAnswers.join("/")} but routes to the dock -- a crate has no dossier, so these answers land nowhere until a door grants identity`,
+    );
+  }
+
   const received = yield* receiveCrate({
     workspaceRoot: root,
     sourcePath: dir,
     source: row.whose,
     claimedName: row.name,
     ...(row.rights !== undefined ? { rights: row.rights } : {}),
-    ...(notes !== undefined ? { notes } : {}),
+    ...(row.stakes !== undefined ? { stakes: row.stakes } : {}),
+    ...(row.hurts !== undefined ? { hurts: row.hurts } : {}),
     actor,
   });
 
@@ -732,6 +853,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
   return {
     outcome: { kind: "received", path: row.path, intake: received.intake, verdict: received.verdict },
     todoMinted,
+    warnings,
   } satisfies ExecuteManifestRowResult;
 });
 
@@ -752,6 +874,7 @@ export const executeManifest = Effect.fn("Triage.executeManifest")(function* (
   const usedSlugs = new Set(registry.bundles.map((bundle) => bundle.slug));
 
   const outcomes: ExecuteRowOutcome[] = [];
+  const warnings: string[] = [];
   let adopted = 0;
   let received = 0;
   let archived = 0;
@@ -762,6 +885,7 @@ export const executeManifest = Effect.fn("Triage.executeManifest")(function* (
   for (const row of rows) {
     const result = yield* executeManifestRow(row, { root, actor, usedSlugs });
     outcomes.push(result.outcome);
+    warnings.push(...result.warnings);
     if (result.todoMinted) {
       todosMinted++;
     }
@@ -792,5 +916,6 @@ export const executeManifest = Effect.fn("Triage.executeManifest")(function* (
     errored,
     todosMinted,
     outcomes,
+    warnings,
   } satisfies ExecuteManifestSummary;
 });

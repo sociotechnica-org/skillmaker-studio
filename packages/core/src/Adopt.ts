@@ -25,7 +25,7 @@ import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
-import { writeDossierScaffold } from "./Dossier.ts";
+import { writeDossierScaffold, type DossierSeed } from "./Dossier.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { classifyIntakeEvidence, type IntakeEvidence, type IntakeRegistry } from "./Receive.ts";
 import { ADOPT_EXCLUDED_NAMES, ADOPT_MARKER_FILENAME, hashOutputTree, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
@@ -188,26 +188,28 @@ const stringField = (data: Frontmatter, key: string): string | undefined => {
 // Discovery
 // ---------------------------------------------------------------------------
 
-export type SkillLifecycle = "archived" | "idea";
+/** Named after the path segments they are derived from: a `deprecated/` import lands archived (`bundle.archived`), an `in-progress/` (or unmarked) import enters at the `idea` stage. */
+export type SkillLifecycle = "deprecated" | "in-progress";
 
 const pathSegments = (relativePath: string): ReadonlyArray<string> => relativePath.split(sep);
 
 /**
- * `deprecated/` -> archived, `in-progress/` -> idea (with a note) (§3B.4).
- * Checked over every path segment, not just the immediate parent. Exported
- * (issue #92): `Triage.ts`'s `--from-manifest` execution applies the same
- * pathname rule per row -- a kept row under `deprecated/` still enters
- * archived, exactly as the sweep would have ruled.
+ * `deprecated/` -> deprecated, `in-progress/` -> in-progress (with a note)
+ * (§3B.4). Checked over every path segment, not just the immediate parent.
+ * Exported (issue #92): `Triage.ts`'s `--from-manifest` execution applies
+ * the same pathname rule per row -- a kept row under `deprecated/` is still
+ * imported deprecated (and thus archived), exactly as the sweep would have
+ * ruled.
  */
 export const lifecycleFromPath = (relativePath: string): { readonly lifecycle: SkillLifecycle; readonly note?: string } => {
   const segments = pathSegments(relativePath).map((segment) => segment.toLowerCase());
   if (segments.includes("deprecated")) {
-    return { lifecycle: "archived", note: "adopted from a \"deprecated/\" directory" };
+    return { lifecycle: "deprecated", note: "adopted from a \"deprecated/\" directory" };
   }
   if (segments.includes("in-progress")) {
-    return { lifecycle: "idea", note: "adopted from an \"in-progress/\" directory — likely unfinished" };
+    return { lifecycle: "in-progress", note: "adopted from an \"in-progress/\" directory — likely unfinished" };
   }
-  return { lifecycle: "idea" };
+  return { lifecycle: "in-progress" };
 };
 
 export interface ManifestDetection {
@@ -441,12 +443,16 @@ export interface AdoptDirectoryInput {
   readonly upstream?: AdoptDirectoryUpstream;
   /** `route --as fork`'s parent link (issue #91): the existing bundle this one was forked from, recorded on the marker as `forkOf`. */
   readonly forkOf?: string;
+  /** Card answers for the dossier scaffold (issue #108): the triage manifest's `Job`/`Out-of-scope`/`Basis` columns, passed only by `Triage.ts`'s `executeManifestRow`. Only ever lands in a dossier this adopt itself creates -- `writeDossierScaffold` never clobbers an existing file. */
+  readonly dossierSeed?: DossierSeed;
 }
 
 export interface AdoptDirectoryResult {
   readonly slug: string;
   readonly name: string;
   readonly generated: boolean;
+  /** The parsed frontmatter this adopt read identity from -- returned so a caller deriving further facts from the same `SKILL.md` (issue #108: `Triage.ts`'s entry-stage derivation needs name/description presence) reuses this parse instead of re-parsing the same string. */
+  readonly frontmatter: Frontmatter;
   /** Frontmatter-parse warnings only (nonstandard keys, missing block) -- lifecycle/generated-marker prose is the caller's own concern, same split `adoptWorkspace`'s loop already made before this was factored out. */
   readonly warnings: ReadonlyArray<string>;
 }
@@ -524,12 +530,13 @@ export const adoptDirectoryInPlace = Effect.fn("Adopt.adoptDirectoryInPlace")(fu
   // means all three scaffold it identically, with no separate copy in any
   // of the three callers. Never clobbers an existing `dossier.md` (a
   // foreign arrival, or a re-adopt, may already carry one).
-  yield* writeDossierScaffold(input.dir, slug, identity.name);
+  yield* writeDossierScaffold(input.dir, slug, identity.name, input.dossierSeed);
 
   return {
     slug,
     name: identity.name,
     generated,
+    frontmatter,
     warnings: frontmatterWarnings,
   } satisfies AdoptDirectoryResult;
 });

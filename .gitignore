@@ -24,6 +24,11 @@ dist/*
 # scratch needed to `skillmaker start` locally, not release history.
 packages/viewer/dist/
 
+# Brand assets synced into app public/ dirs by scripts/sync-brand-assets.ts.
+# The tracked source of truth lives in assets/brand/ -- these are generated
+# copies, regenerated on each app's dev/build. Don't edit or commit them.
+packages/viewer/public/skillmaker-logo.png
+
 # Tauri desktop shell build output: cargo target dir, and the staged
 # sidecar binary + viewer-dist (scripts/prepare-desktop-sidecar.sh's
 # output -- target-triple- and machine-specific, derived from dist/).

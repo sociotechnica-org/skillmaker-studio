@@ -33,38 +33,22 @@
 import type { FC } from "react";
 import {
   coverageState,
+  DRIFT_BADGE_CLASS,
+  DRIFT_LABEL,
   driftNeedsAttention,
   orderForAttention,
-  type AttentionDrift,
   type CoverageState,
 } from "../runtime/labOrder.ts";
 import { bundleHref, labHref, Link, type LabView } from "../runtime/router.tsx";
-import { STAGE_LABEL, UNVERIFIED_BADGE_CLASS, type BundleStage, type CatalogEntry } from "../runtime/schemas.ts";
+import {
+  RETIRED_BADGE_CLASS,
+  STAGE_BADGE_CLASS,
+  STAGE_LABEL,
+  UNVERIFIED_BADGE_CLASS,
+  type CatalogEntry,
+} from "../runtime/schemas.ts";
 import { useCatalog } from "../runtime/useCatalog.ts";
 import { Queue } from "./Queue.tsx";
-
-const STAGE_BADGE_CLASS: Record<BundleStage, string> = {
-  idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-  researching: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  drafting: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
-  evaluating: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  published: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-};
-
-/**
- * #65: a Lab pill means attention needed, so it only exists for the three
- * `Drift` values where something actually changed -- `in-sync` and
- * `no-version` never reach this map (see `driftNeedsAttention`). `in-sync`
- * still gets a mention, just as plain metadata ("No recorded version" in
- * the line below), not a loud pill.
- */
-const DRIFT_LABEL: Record<AttentionDrift, string> = {
-  "design-changed": "Design changed",
-  "output-hand-edited": "Output hand-edited",
-  both: "Design + output changed",
-};
-
-const DRIFT_BADGE_CLASS = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
 
 /**
  * Coverage's three honest states (#65): never collapse "a fixture exists"
@@ -98,7 +82,7 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => {
           {STAGE_LABEL[entry.stage]}
         </span>
         {entry.archived && (
-          <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${RETIRED_BADGE_CLASS}`}>
             Archived
           </span>
         )}

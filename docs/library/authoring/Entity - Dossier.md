@@ -86,15 +86,19 @@ manifest's per-row `keep`+`mine` execution. None of the three ever clobber
 an existing `dossier.md` — files are canonical for content, so a foreign
 arrival's or a re-adopted skill's own dossier survives untouched.
 
-The triage manifest's `stakes` answer (aside | load-bearing) does **not**
-seed the dossier (a judgment call, issue #94): `Triage.ts`'s
-`composeReceiveNotes` already folds `stakes` into the free-text `notes` on
-the *received* event, joined with `hurts` in one prose string — there is no
-clean, always-present seam to pull a structured value back out of that
-without either mis-parsing deliberately unstructured testimony or
-fabricating structure the ledger never recorded. Every scaffold writes the
-same honest-empty template regardless of how the bundle arrived; stakes
-stays exactly where it was recorded.
+The triage manifest **does** seed the dossier now (issue #108,
+superseding #94's earlier no-seed judgment call): the manifest is the
+card's batch form, and a `keep`+`mine` row's `Job`/`Out-of-scope`/`Basis`
+answers pass through `adoptDirectoryInPlace` as a `DossierSeed`
+(`TriageRow` extends it — the row *is* the seed), each answered section
+rendered in place of its comment hint. Seeding only ever lands in a
+dossier that very adopt creates — the never-clobber law above still
+holds. What made #94's call right at the time is gone: the old
+`composeReceiveNotes` flattening (stakes/hurts folded into one `notes`
+prose string, no clean seam to parse back) is deleted, and `stakes`/
+`hurts` are structured fields on `skill.received` itself. Old events'
+flattened `notes` remain readable testimony — displayed as-is, never
+parsed back into structure.
 
 `Dossier.ts` (`packages/core`) follows the house tolerant-parsing pattern
 (`RiskMap.ts`'s doc comment: "parse permissively, warn never fail"), but for

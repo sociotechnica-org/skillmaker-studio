@@ -3,7 +3,7 @@
  * - Board Lab Ship Receive.md`: "Receive produces signal -> signal becomes
  * Lab work"). Opens a todo whose defaults -- `bundle`, `kind`, `detail` --
  * are read off a `skill.field_report` event, with `origin: {kind:
- * "field-report", ref: eventId}` stamped so the provenance survives forever
+ * "field-report", eventId}` stamped so the provenance survives forever
  * (immutable, same house rule as `source` -- `Todo.ts`'s `TodoOrigin`).
  *
  * Mirrors `Harvest.ts`'s core-function-plus-thin-CLI layering and its
@@ -81,7 +81,7 @@ const defaultDetail = (payload: {
  * `TodoFromReportNotFieldReportError`; an explicit `bundle` that disagrees
  * with the report's own -> `TodoFromReportBundleMismatchError`), computes
  * `bundle`/`kind`/`detail` defaults (all overridable), stamps
- * `origin: {kind: "field-report", ref: eventId}`, and appends `todo.opened`
+ * `origin: {kind: "field-report", eventId}`, and appends `todo.opened`
  * -- the same event a plain `todo add` appends, just with these defaults
  * and the provenance stamp.
  */
@@ -125,7 +125,7 @@ export const openTodoFromReport = Effect.fn("TodoFromReport.openTodoFromReport")
     created: input.created,
     ...(input.pinned === true ? { pinned: true } : {}),
     source: input.actor,
-    origin: { kind: "field-report" as const, ref: input.eventId },
+    origin: { kind: "field-report" as const, eventId: input.eventId },
   };
 
   yield* journal.append({ type: "todo.opened", actor: input.actor, payload: { todo } });
@@ -157,9 +157,22 @@ export interface OpenTodoFromIntakeResult {
   readonly todo: Todo;
 }
 
-/** `detail`'s default (issue #91): the crate's recorded notes/source/claim, the closest analogue to a field report's prose a `skill.received` event carries. */
+/** `detail`'s default (issue #91): the crate's recorded testimony/source/claim, the closest analogue to a field report's prose a `skill.received` event carries. Structured `stakes`/`hurts` (issue #108) surface first when present; an old crate's flattened `notes` prose still shows verbatim, never re-parsed. */
 const defaultIntakeDetail = (payload: SkillReceivedEvent["payload"]): string => {
-  const lines = [payload.notes ?? "(no notes recorded at intake)"];
+  // Stakes before hurts -- the same order the dock's elicitation tree asks
+  // them in and every other surface renders them (the manifest columns,
+  // Receive's crate rows, Track's salvaged rows).
+  const testimony: string[] = [];
+  if (payload.stakes !== undefined) {
+    testimony.push(`Stakes: ${payload.stakes}`);
+  }
+  if (payload.hurts !== undefined) {
+    testimony.push(`Hurts: ${payload.hurts}`);
+  }
+  if (payload.notes !== undefined) {
+    testimony.push(payload.notes);
+  }
+  const lines = [testimony.length > 0 ? testimony.join("\n") : "(no notes recorded at intake)"];
   lines.push(`Source: ${payload.source}`);
   if (payload.claimedName !== undefined) {
     lines.push(`Claimed name: ${payload.claimedName}`);
@@ -171,7 +184,7 @@ const defaultIntakeDetail = (payload: SkillReceivedEvent["payload"]): string => 
  * Resolves `intake` against the full journal (unknown id ->
  * `TodoFromIntakeNotFoundError`), computes `kind`/`detail`/`priority`
  * defaults (all overridable, mirroring `openTodoFromReport`), stamps
- * `origin: {kind: "intake", ref: intake}`, and appends `todo.opened` --
+ * `origin: {kind: "intake", intakeId: intake}`, and appends `todo.opened` --
  * salvage's "work order into todos" door (`Mechanism - Receiving Dock.md`
  * §HOW). `kind` defaults to `"task"` (a crate carries no `outcome` signal
  * like a field report's `worked`/`failed`/`surprise` to key off of) --
@@ -202,7 +215,7 @@ export const openTodoFromIntake = Effect.fn("TodoFromReport.openTodoFromIntake")
     created: input.created,
     ...(input.pinned === true ? { pinned: true } : {}),
     source: input.actor,
-    origin: { kind: "intake" as const, ref: input.intake },
+    origin: { kind: "intake" as const, intakeId: input.intake },
   };
 
   yield* journal.append({ type: "todo.opened", actor: input.actor, payload: { todo } });

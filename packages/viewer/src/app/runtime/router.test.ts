@@ -1,14 +1,49 @@
 import { describe, expect, test } from "bun:test";
-import { bundleHref, labHref, parseRoute, shipBundleHref } from "./router.tsx";
+import { bundleHref, bundleRunHref, labHref, parseRoute, shipBundleHref, trackHref } from "./router.tsx";
 
 describe("parseRoute", () => {
-  test("canonical Board · Lab · Ship · Receive · Activity routes (#72)", () => {
+  test("canonical Board · Lab · Ship · Receive · Track routes (#72, #109)", () => {
     expect(parseRoute("/", "")).toEqual({ name: "board" });
     expect(parseRoute("/lab", "")).toEqual({ name: "lab", view: "bench", bundle: undefined });
-    expect(parseRoute("/activity", "")).toEqual({ name: "activity" });
+    expect(parseRoute("/track", "")).toEqual({ name: "track", view: "catalog", archive: false });
     expect(parseRoute("/ship", "")).toEqual({ name: "ship" });
     expect(parseRoute("/ship/my-skill", "")).toEqual({ name: "ship-bundle", slug: "my-skill" });
     expect(parseRoute("/receive", "")).toEqual({ name: "receive" });
+  });
+
+  test("Track's room is a URL query; the Archive drawer's open state round-trips too (#109)", () => {
+    expect(parseRoute("/track", "?view=feed")).toEqual({ name: "track", view: "feed", archive: false });
+    expect(parseRoute("/track", "?view=bogus")).toEqual({ name: "track", view: "catalog", archive: false });
+    expect(parseRoute("/track", "?archive=1")).toEqual({ name: "track", view: "catalog", archive: true });
+  });
+
+  test("old /activity deep links alias into Track's Feed (#109: display-layer only, old routes keep working)", () => {
+    expect(parseRoute("/activity", "")).toEqual({ name: "track", view: "feed", archive: false });
+  });
+
+  test("old bundle tab paths alias into their card-era homes (#109: evals -> models, versions -> lineage)", () => {
+    expect(parseRoute("/bundles/my-skill/evals", "")).toEqual({
+      name: "bundle",
+      slug: "my-skill",
+      tab: "models",
+      runId: undefined,
+      file: undefined,
+    });
+    expect(parseRoute("/bundles/my-skill/versions", "")).toEqual({
+      name: "bundle",
+      slug: "my-skill",
+      tab: "lineage",
+      runId: undefined,
+      file: undefined,
+    });
+    expect(parseRoute("/bundles/my-skill/coverage", "")).toEqual({
+      name: "bundle",
+      slug: "my-skill",
+      tab: "coverage",
+      runId: undefined,
+      file: undefined,
+    });
+    expect(parseRoute("/bundles/my-skill/bogus", "")).toEqual({ name: "not-found" });
   });
 
   test("old /catalog, /port(/:slug), and /skillbook(/:slug) paths still parse to the same routes (bookmarks/deep links survive)", () => {
@@ -75,5 +110,27 @@ describe("labHref", () => {
 describe("bundleHref (unaffected by #72)", () => {
   test("still builds /bundles/:slug", () => {
     expect(bundleHref("my-skill")).toBe("/bundles/my-skill");
+  });
+});
+
+describe("trackHref (#109)", () => {
+  test("Catalog is the bare /track URL; Feed and the drawer are queries", () => {
+    expect(trackHref()).toBe("/track");
+    expect(trackHref("catalog")).toBe("/track");
+    expect(trackHref("feed")).toBe("/track?view=feed");
+    expect(trackHref("catalog", { archive: true })).toBe("/track?archive=1");
+  });
+
+  test("the drawer flag round-trips through parseRoute", () => {
+    const href = trackHref("catalog", { archive: true });
+    const [pathname, search] = href.split("?");
+    expect(parseRoute(pathname ?? "", `?${search}`)).toEqual({ name: "track", view: "catalog", archive: true });
+  });
+});
+
+describe("bundleRunHref (#109: runs live under Models now)", () => {
+  test("points at the models tab", () => {
+    expect(bundleRunHref("my-skill", undefined)).toBe("/bundles/my-skill/models");
+    expect(bundleRunHref("my-skill", "run-1")).toBe("/bundles/my-skill/models?run=run-1");
   });
 });

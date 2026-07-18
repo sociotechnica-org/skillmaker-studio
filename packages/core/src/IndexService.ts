@@ -33,7 +33,7 @@ import { parseDossier } from "./Dossier.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
-import { compareTodos, foldTodos, isArchived } from "./FoldTodos.ts";
+import { compareTodos, foldTodos, isSwept } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
 import type { Actor } from "./Actor.ts";
 import type { JournalEvent, RunVerdict } from "./Journal.ts";
@@ -53,6 +53,7 @@ import type { BundleLayout, Drift } from "./Versions.ts";
 import { DEFAULT_CONFIG_FILENAME, WorkspaceConfig } from "./Workspace.ts";
 import { computeMeasurements } from "./Measurements.ts";
 import { foldEverReceivedBundles } from "./Verification.ts";
+import { foldLastActivityAt, foldLastShipments, type LastShipment } from "./Whereabouts.ts";
 import {
   detectNonDiscriminatingChecks,
   formatSelfCritiqueWarning,
@@ -114,7 +115,7 @@ export interface VersionRecord {
   readonly recordedAt: string;
 }
 
-/** A materialized todo row (data-model.md §2.11), with `archived` derived at rebuild time. */
+/** A materialized todo row (data-model.md §2.11), with `swept` derived at rebuild time. */
 export interface TodoRecord {
   readonly id: string;
   readonly kind: TodoKind;
@@ -127,7 +128,7 @@ export interface TodoRecord {
   readonly created: string;
   readonly terminalAt?: string;
   readonly pinned?: boolean;
-  readonly archived: boolean;
+  readonly swept: boolean;
   readonly source: Actor;
   /** Present only for a todo opened via `todo add --from-report` (issue #81); absent for every hand-opened todo. */
   readonly origin?: TodoOriginRecord;
@@ -135,8 +136,8 @@ export interface TodoRecord {
 
 export interface ListTodosOptions {
   readonly bundle?: string;
-  /** Include archived todos. Default false (archived todos are hidden). */
-  readonly includeArchived?: boolean;
+  /** Include swept todos. Default false (swept todos are hidden). */
+  readonly includeSwept?: boolean;
 }
 
 export interface RebuildResult {
@@ -144,6 +145,42 @@ export interface RebuildResult {
   readonly todos: number;
   readonly events: number;
   readonly warnings: ReadonlyArray<string>;
+  /**
+   * Whereabouts folds (issue #109, `Whereabouts.ts`): bundle slug -> latest
+   * `skill.shipped` fact / most recent attributable event's `at`. Computed
+   * from the SAME single journal read this rebuild already does -- returned,
+   * never persisted (views are never stores; the next rebuild recomputes).
+   */
+  readonly lastShipments: ReadonlyMap<string, LastShipment>;
+  readonly lastActivityAt: ReadonlyMap<string, string>;
+  /**
+   * Fork family (issue #109), captured from the SAME `AdoptMarker` decode
+   * `scanBundleIdentities` already runs for `upstream`: child slug -> its
+   * marker's `forkOf` parent, and parent slug -> sorted child slugs. Same
+   * returned-not-persisted treatment as the whereabouts folds above.
+   */
+  readonly forkOf: ReadonlyMap<string, string>;
+  readonly forkChildren: ReadonlyMap<string, ReadonlyArray<string>>;
+  /**
+   * Where each discovered bundle actually lives (seam pass over #108/#109):
+   * slug -> its `bundle.json`'s own directory + layout, off the SAME
+   * `scanBundleIdentities` walk this rebuild already ran. An in-place
+   * bundle (brownfield adopt, the triage manifest's `keep`+`mine` rows,
+   * `route --as fork`/`new`) does NOT necessarily live at
+   * `<skillsDir>/<slug>` and has no `output/` subtree -- readers that
+   * recompute that conventional path go blind on exactly the imports the
+   * #108→#109 seam exists for. Same returned-not-persisted treatment as
+   * the whereabouts folds above. A journal-only bundle (state but no
+   * `bundle.json` found) has no entry; callers fall back to the
+   * `<skillsDir>/<slug>` convention.
+   */
+  readonly locations: ReadonlyMap<string, BundleLocation>;
+}
+
+/** One rebuild-discovered bundle's actual directory (absolute) and layout (`Versions.ts`'s `BundleLayout`). */
+export interface BundleLocation {
+  readonly dir: string;
+  readonly layout: BundleLayout;
 }
 
 /** A materialized `evals/fixtures/<case>/case.json` row (data-model.md §2.5, §2.11). */
@@ -239,7 +276,7 @@ interface TodoRow {
   readonly created: string;
   readonly terminal_at: string | null;
   readonly pinned: number;
-  readonly archived: number;
+  readonly swept: number;
   readonly source_json: string;
   readonly origin_json: string | null;
 }
@@ -292,6 +329,8 @@ interface BundleIdentityLocation {
   readonly dir: string;
   readonly layout: BundleLayout;
   readonly upstream?: BundleUpstream;
+  /** `route --as fork`'s parent link (issue #109), read from the same marker decode as `upstream`. */
+  readonly forkOf?: string;
 }
 
 /**
@@ -456,7 +495,7 @@ const rowToTodoRecord = (row: TodoRow): Effect.Effect<TodoRecord, IndexError> =>
       created: row.created,
       ...(row.terminal_at !== null ? { terminalAt: row.terminal_at } : {}),
       ...(row.pinned !== 0 ? { pinned: true } : {}),
-      archived: row.archived !== 0,
+      swept: row.swept !== 0,
       source,
       ...(origin !== undefined ? { origin } : {}),
     };
@@ -611,7 +650,7 @@ const createSchema = (db: Database): void => {
       created TEXT NOT NULL,
       terminal_at TEXT,
       pinned INTEGER NOT NULL,
-      archived INTEGER NOT NULL,
+      swept INTEGER NOT NULL,
       source_json TEXT NOT NULL,
       origin_json TEXT
     )
@@ -920,6 +959,7 @@ export const layer = (
           // still counts as "in-place" (layout, above); it just carries no
           // upstream info.
           let upstream: BundleUpstream | undefined;
+          let forkOf: string | undefined;
           if (markerExists) {
             const markerOutcome = yield* Effect.result(
               fs.readFileString(markerPath).pipe(
@@ -927,8 +967,14 @@ export const layer = (
                 Effect.flatMap((parsed) => Schema.decodeUnknownEffect(AdoptMarker)(parsed)),
               ),
             );
-            if (markerOutcome._tag === "Success" && markerOutcome.success.upstream !== undefined) {
-              upstream = markerOutcome.success.upstream;
+            if (markerOutcome._tag === "Success") {
+              if (markerOutcome.success.upstream !== undefined) {
+                upstream = markerOutcome.success.upstream;
+              }
+              // Fork family (issue #109): the SAME decode carries `forkOf`
+              // (`route --as fork`'s parent stamp) -- captured here so no
+              // other reader ever re-scans markers per request.
+              forkOf = markerOutcome.success.forkOf;
             }
           }
 
@@ -941,7 +987,13 @@ export const layer = (
             });
             continue;
           }
-          identities.set(identity.slug, { identity, dir, layout, ...(upstream !== undefined ? { upstream } : {}) });
+          identities.set(identity.slug, {
+            identity,
+            dir,
+            layout,
+            ...(upstream !== undefined ? { upstream } : {}),
+            ...(forkOf !== undefined ? { forkOf } : {}),
+          });
         }
 
         return { identities, warnings };
@@ -960,7 +1012,7 @@ export const layer = (
           created: todo.created,
           ...(todo.terminalAt !== undefined ? { terminalAt: todo.terminalAt } : {}),
           ...(todo.pinned !== undefined ? { pinned: todo.pinned } : {}),
-          archived: isArchived(todo, now),
+          swept: isSwept(todo, now),
           source: todo.source,
           ...(todo.origin !== undefined ? { origin: todo.origin } : {}),
         }));
@@ -1013,7 +1065,7 @@ export const layer = (
           }
 
           const insertTodo = db.query(
-            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, archived, source_json, origin_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $archived, $source, $origin)",
+            "INSERT INTO todos (id, kind, status, title, detail, checklist_json, priority, bundle, created, terminal_at, pinned, swept, source_json, origin_json) VALUES ($id, $kind, $status, $title, $detail, $checklist, $priority, $bundle, $created, $terminalAt, $pinned, $swept, $source, $origin)",
           );
           for (const todo of todoRecords) {
             insertTodo.run({
@@ -1028,7 +1080,7 @@ export const layer = (
               $created: todo.created,
               $terminalAt: todo.terminalAt ?? null,
               $pinned: todo.pinned === true ? 1 : 0,
-              $archived: todo.archived ? 1 : 0,
+              $swept: todo.swept ? 1 : 0,
               $source: JSON.stringify(todo.source),
               $origin: todo.origin !== undefined ? JSON.stringify(todo.origin) : null,
             });
@@ -1120,6 +1172,30 @@ export const layer = (
         // other journal fold above -- no second journal parse (`events` is
         // already in hand).
         const everReceivedBundles = foldEverReceivedBundles(events);
+
+        // Whereabouts (issue #109): same treatment -- folded off the one
+        // journal read above, carried on the rebuild result for the catalog
+        // handler, never persisted.
+        const lastShipments = foldLastShipments(events);
+        const lastActivityAt = foldLastActivityAt(events);
+
+        // Fork family (issue #109): from the marker facts the identity scan
+        // above already decoded -- child -> parent, and parent -> sorted
+        // children. No per-request directory walk anywhere else.
+        const forkOfBySlug = new Map<string, string>();
+        const forkChildren = new Map<string, string[]>();
+        for (const [slug, located] of identities) {
+          if (located.forkOf === undefined) {
+            continue;
+          }
+          forkOfBySlug.set(slug, located.forkOf);
+          const children = forkChildren.get(located.forkOf) ?? [];
+          children.push(slug);
+          forkChildren.set(located.forkOf, children);
+        }
+        for (const children of forkChildren.values()) {
+          children.sort();
+        }
 
         // Latest `run.graded` event per run id -- the grading columns
         // joined onto each `runs` row below (data-model.md §2.11's
@@ -1423,11 +1499,24 @@ export const layer = (
           },
         });
 
+        // Bundle locations (seam pass over #108/#109): from the marker facts
+        // the identity scan above already decoded -- no per-request directory
+        // walk anywhere else, same discipline as the fork family.
+        const locations = new Map<string, BundleLocation>();
+        for (const [slug, located] of identities) {
+          locations.set(slug, { dir: located.dir, layout: located.layout });
+        }
+
         return {
           bundles: records.length,
           todos: todoRecords.length,
           events: events.length,
           warnings: warnings.map((warning) => warning.message),
+          lastShipments,
+          lastActivityAt,
+          forkOf: forkOfBySlug,
+          forkChildren,
+          locations,
         };
       });
 
@@ -1474,8 +1563,8 @@ export const layer = (
           conditions.push("bundle = $bundle");
           bindings["$bundle"] = options.bundle;
         }
-        if (options?.includeArchived !== true) {
-          conditions.push("archived = 0");
+        if (options?.includeSwept !== true) {
+          conditions.push("swept = 0");
         }
         const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
 

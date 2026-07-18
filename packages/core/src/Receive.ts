@@ -27,7 +27,7 @@ import {
   WorkspaceIOError,
 } from "./Errors.ts";
 import { IndexService, layer as IndexServiceLayer } from "./IndexService.ts";
-import type { IntakeRights, JournalEvent, SkillReceivedEvent } from "./Journal.ts";
+import type { IntakeRights, IntakeStakes, JournalEvent, RouteDisposition, SkillReceivedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
 import { ADOPT_EXCLUDED_NAMES, foldSkillVersions, hashOutputTree } from "./Versions.ts";
 
@@ -216,19 +216,43 @@ export const deriveIntakeVerdict = (
 };
 
 /**
+ * The doors each verdict offers (`Mechanism - Receiving Dock.md` §HOW). This
+ * fan-out used to live only in doc comments (`Journal.ts:250-258`,
+ * `Receive.ts`'s module header) with each surface re-implying it by hand --
+ * one table, exported, so the Receive UI's door list, the route CLI's
+ * advisory, and the card all read the same fact and a new verdict or
+ * disposition desyncs loudly (the vocab lockstep test) instead of silently.
+ *
+ * `salvage` appears under EVERY verdict on purpose: it is the universal
+ * refusal door. A verdict is the machine's derived read; it constrains what
+ * the machine *suggests*, never the human's right to refuse -- the same
+ * house law as the triage evidence tripwire (flags, never blocks). The
+ * converse also holds: routing OUTSIDE this table is advisory-flagged, not
+ * gated (`routeCrate` returns `verdict`/`offered` for callers to surface),
+ * because the registry can't see everything a human can -- e.g. a heavily
+ * rewritten fork shares no hash or name with its parent, so a `new` verdict
+ * may still honestly route `fork`.
+ */
+export const VERDICT_DISPOSITIONS: Readonly<Record<IntakeVerdict, ReadonlyArray<RouteDisposition>>> = {
+  return: ["return", "salvage"],
+  new: ["new", "salvage"],
+  conflict: ["upgrade", "fork", "salvage"],
+};
+
+/**
  * Undisposed derivation (issue #90's design note, made real by issue #91's
  * `skill.routed`): "received events with no routing event referencing their
  * intake id." Before #91 shipped, `skill.routed` didn't exist in
  * `Journal.ts`'s union yet, so this read `event.type` as a plain string
  * against a hard-coded `"skill.routed"` literal the union didn't carry --
  * now that `SkillRoutedEvent` is a real member, the filter below narrows on
- * it directly, no cast required. An intake routed `salvage` counts as
+ * it directly, no cast required. A crate routed `salvage` counts as
  * disposed exactly like every other disposition: "In Receiving" is the
  * place (undisposed, until a human routes it), not a judgment about which
  * way it was routed -- salvage's crate stays physically at
  * `receiving/<intake-id>/` as evidence, but it leaves THIS list.
  */
-export const listUndisposedIntake = (
+export const listUndisposedCrates = (
   events: ReadonlyArray<JournalEvent>,
 ): ReadonlyArray<SkillReceivedEvent> => {
   const routedIntakeIds = new Set<string>();
@@ -252,6 +276,11 @@ export interface ReceiveCrateInput {
   readonly claimedName?: string;
   readonly claimedVersionHash?: string;
   readonly rights?: IntakeRights;
+  /** Structured usage-stakes testimony (issue #108) -- recorded on the event's own `stakes` field, never flattened into `notes`. */
+  readonly stakes?: IntakeStakes;
+  /** Structured "what hurt" testimony (issue #108) -- recorded on the event's own `hurts` field, never flattened into `notes`. */
+  readonly hurts?: string;
+  /** Genuinely free-text notes only (issue #108): stakes/hurts have their own structured fields above. */
   readonly notes?: string;
   readonly actor: Actor;
 }
@@ -329,6 +358,8 @@ export const receiveCrate = Effect.fn("Receive.receiveCrate")(function* (input: 
       ...(input.claimedName !== undefined ? { claimedName: input.claimedName } : {}),
       ...(input.claimedVersionHash !== undefined ? { claimedVersionHash: input.claimedVersionHash } : {}),
       ...(input.rights !== undefined ? { rights: input.rights } : {}),
+      ...(input.stakes !== undefined ? { stakes: input.stakes } : {}),
+      ...(input.hurts !== undefined ? { hurts: input.hurts } : {}),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
     },
   });

@@ -217,7 +217,7 @@ describe("IndexService.rebuild", () => {
     );
   });
 
-  test("folds todo.* events into the todos table with defaults, ordering, and derived archived", async () => {
+  test("folds todo.* events into the todos table with defaults, ordering, and derived swept", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
         const workspace = yield* Workspace;
@@ -226,7 +226,7 @@ describe("IndexService.rebuild", () => {
         const journalPath = join(dir, ".skillmaker", "events.jsonl");
         // `Journal.append` always stamps `at` with the real wall clock (by
         // design -- `JournalEventInput` omits `at`), so to exercise the
-        // 7-day archive window deterministically we write the
+        // 7-day sweep window deterministically we write the
         // `todo.status_changed` line directly as raw JSONL with a
         // long-past `at`, bypassing `append`.
         yield* Effect.gen(function* () {
@@ -276,7 +276,7 @@ describe("IndexService.rebuild", () => {
                 priority: 10,
                 created: "2026-07-01",
                 source: actor,
-                origin: { kind: "field-report", ref: "evt-abc" },
+                origin: { kind: "field-report", eventId: "evt-abc" },
               },
             },
           });
@@ -300,15 +300,15 @@ describe("IndexService.rebuild", () => {
           const openOnly = yield* index.listTodos();
           expect(openOnly.map((t) => t.id)).toEqual(["td-1", "td-3"]);
 
-          const all = yield* index.listTodos({ includeArchived: true });
+          const all = yield* index.listTodos({ includeSwept: true });
           expect(all.map((t) => t.id)).toEqual(["td-1", "td-3", "td-2"]);
           const done = all.find((t) => t.id === "td-2");
-          expect(done?.archived).toBe(true);
+          expect(done?.swept).toBe(true);
           expect(done?.status).toBe("done");
           expect(done?.origin).toBeUndefined();
 
           const fromReport = all.find((t) => t.id === "td-3");
-          expect(fromReport?.origin).toEqual({ kind: "field-report", ref: "evt-abc" });
+          expect(fromReport?.origin).toEqual({ kind: "field-report", eventId: "evt-abc" });
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );

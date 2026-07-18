@@ -11,7 +11,7 @@ import {
   classifyIntakeEvidence,
   deriveIntakeVerdict,
   hashReceivedCrate,
-  listUndisposedIntake,
+  listUndisposedCrates,
   newIntakeId,
   receiveCrate,
   type IntakeRegistry,
@@ -132,13 +132,13 @@ describe("classifyIntakeEvidence: the adopt tripwire / triage manifest's registr
   });
 });
 
-describe("listUndisposedIntake", () => {
+describe("listUndisposedCrates", () => {
   test("every received crate with no skill.routed pointing at it is undisposed", () => {
     const events = [
       receivedEvent("in-1", "2026-07-01T00:00:00.000Z"),
       receivedEvent("in-2", "2026-07-02T00:00:00.000Z"),
     ];
-    const undisposed = listUndisposedIntake(events);
+    const undisposed = listUndisposedCrates(events);
     expect(undisposed.map((event) => event.payload.intake)).toEqual(["in-1", "in-2"]);
   });
 
@@ -148,7 +148,7 @@ describe("listUndisposedIntake", () => {
       receivedEvent("in-2", "2026-07-02T00:00:00.000Z"),
       routedEvent("in-1", "2026-07-03T00:00:00.000Z"),
     ];
-    const undisposed = listUndisposedIntake(events);
+    const undisposed = listUndisposedCrates(events);
     expect(undisposed.map((event) => event.payload.intake)).toEqual(["in-2"]);
   });
 
@@ -157,7 +157,7 @@ describe("listUndisposedIntake", () => {
       receivedEvent("in-1", "2026-07-01T00:00:00.000Z"),
       routedEvent("in-1", "2026-07-02T00:00:00.000Z", "salvage"),
     ];
-    expect(listUndisposedIntake(events)).toEqual([]);
+    expect(listUndisposedCrates(events)).toEqual([]);
   });
 
   test("ignores non-skill.received events entirely", () => {
@@ -172,7 +172,7 @@ describe("listUndisposedIntake", () => {
       } as unknown as JournalEvent,
       receivedEvent("in-1", "2026-07-02T00:00:00.000Z"),
     ];
-    expect(listUndisposedIntake(events).map((event) => event.payload.intake)).toEqual(["in-1"]);
+    expect(listUndisposedCrates(events).map((event) => event.payload.intake)).toEqual(["in-1"]);
   });
 });
 
@@ -307,6 +307,41 @@ describe("receiveCrate", () => {
           rights: "unclear",
           notes: "arrived via shared drive",
         });
+      }),
+    );
+  });
+
+  test("records structured stakes/hurts on their own fields, never flattened into notes (issue #108) -- and appends no stage move", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const sourcePath = join(dir, "incoming", "claimed-skill");
+        yield* writeCrate(sourcePath, "---\nname: claimed-skill\n---\nDo the thing.\n");
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* receiveCrate({
+          workspaceRoot: dir,
+          sourcePath,
+          source: "colleague",
+          stakes: "load-bearing",
+          hurts: "breaks weekly in prod",
+          actor,
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        const rawLines = readFileSync(journalPath, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { readonly type: string; readonly payload: Record<string, unknown> });
+        const received = rawLines.find((event) => event.type === "skill.received");
+        expect(received?.payload).toMatchObject({
+          source: "colleague",
+          stakes: "load-bearing",
+          hurts: "breaks weekly in prod",
+        });
+        // No flattening: `notes` was not given, so it is not fabricated.
+        expect(received?.payload).not.toHaveProperty("notes");
+        // A usage claim is testimony -- it never moves a stage (issue #108
+        // acceptance): receiving writes exactly one journal fact.
+        expect(rawLines.some((event) => event.type === "bundle.stage_changed")).toBe(false);
       }),
     );
   });

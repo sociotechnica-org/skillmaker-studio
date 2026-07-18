@@ -6,7 +6,7 @@ that wraps the Phase-12a compiled `skillmaker` binary
 viewer-plus-server product ships as a double-clickable `.app` with no CLI,
 no terminal, and no Node/Bun runtime required on the target machine.
 
-See `docs/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md`
+See `docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md`
 Phase 15 for the ruled scope this implements, and
 `docs/sources/2026-07-11-desktop-app-thesis.md` for the product thinking
 behind it (this phase is the "technical-but-app-preferring" persona only

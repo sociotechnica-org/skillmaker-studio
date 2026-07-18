@@ -214,15 +214,28 @@ export const IntakeRights = Schema.Literals(["ours", "licensed", "unclear"]);
 export type IntakeRights = typeof IntakeRights.Type;
 
 /**
+ * `aside` | `load-bearing` -- the maker's usage-stakes claim (issue #108,
+ * data-model draft §Receive "Testimony": "stakes (aside · load-bearing)").
+ * The one canonical home of the stakes vocabulary in core: `Triage.ts`'s
+ * `TRIAGE_STAKES_VALUES` derives from this schema's literals, and the
+ * viewer's hand-mirrored copy is held equal by the vocab lockstep test.
+ * Testimony like everything else at the dock -- recorded and flagged, never
+ * enforced; a stakes claim never moves a stage and never clears the
+ * Unverified badge (issue #108 acceptance criteria).
+ */
+export const IntakeStakes = Schema.Literals(["aside", "load-bearing"]);
+export type IntakeStakes = typeof IntakeStakes.Type;
+
+/**
  * The dock's arrival fact (issue #90, `Mechanism - Receiving Dock.md` §HOW):
  * "everything may enter; nothing may pretend." `intake` is `in-<ulid>` (the
  * `Todo.ts` `td-<ulid>` id pattern) -- deliberately NOT `bundle`: a crate has
  * no identity yet, that is the whole point of the dock existing before
  * adoption. No `bundleForEvent` effect follows from that (`Fold.ts`): the
  * Activity feed renders this event workspace-level, like nothing else does
- * today. `claimedName`/`claimedVersionHash`/`rights`/`notes` are all
- * optional testimony -- the maker's word, recorded and flagged, never
- * enforced (house law, no gate anywhere). The dock verdict this event's
+ * today. `claimedName`/`claimedVersionHash`/`rights`/`stakes`/`hurts`/
+ * `notes` are all optional testimony -- the maker's word, recorded and
+ * flagged, never enforced (house law, no gate anywhere). The dock verdict this event's
  * comparison produces (`return`/`new`/`conflict`, `Receive.ts`) is
  * deliberately NOT carried in this payload: it is derived at read time from
  * the crate's live content hash and the registry as it stands *right now*,
@@ -243,6 +256,20 @@ export class SkillReceivedEvent extends Schema.Class<SkillReceivedEvent>(
     /** A label or hash the maker claims this version is -- testimony, recorded verbatim, never resolved/validated against a recorded version by this event itself. */
     claimedVersionHash: Schema.optionalKey(Schema.String),
     rights: Schema.optionalKey(IntakeRights),
+    /**
+     * Structured usage-stakes testimony (issue #108, additive-optional --
+     * absence = not-asked = honest gap, so events written before this field
+     * existed decode unchanged with no read shim and no schemaVersion
+     * bump). Before #108 this claim was flattened into `notes` as
+     * `"stakes: <value>"` prose; those old events stay readable as-is and
+     * are NEVER re-parsed back into structure (house law: never write a
+     * notes parser -- structure the ledger didn't record can't honestly be
+     * fabricated later).
+     */
+    stakes: Schema.optionalKey(IntakeStakes),
+    /** Structured "what hurt" testimony (issue #108, additive-optional) -- the maker's free-text pain report, previously folded into `notes`. May seed a todo (`Triage.ts`'s `mintHurtsTodo`); never moves a stage, never clears the Unverified badge. */
+    hurts: Schema.optionalKey(Schema.String),
+    /** Genuinely free-text notes only (issue #108): stakes/hurts no longer flatten in here on new writes -- they have their own structured fields above. */
     notes: Schema.optionalKey(Schema.String),
   }),
 }) {}
@@ -263,7 +290,7 @@ export type RouteDisposition = typeof RouteDisposition.Type;
  * `skill.routed` (issue #91): the `review.requested`/`review.resolved`
  * pairing applied to cargo -- an undisposed crate is a `skill.received` with
  * no `skill.routed` referencing its `intake` (`Receive.ts`'s
- * `listUndisposedIntake`). `reason` is required on every disposition, no
+ * `listUndisposedCrates`). `reason` is required on every disposition, no
  * exceptions: the hypothesis (broken? evolved? forked?) IS the point, the
  * same house law backward stage moves already demand
  * (`BundleStageChangedEvent`). `bundle` is set for every disposition except

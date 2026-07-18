@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Authority → Evidence — Skillmaker Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root{
+    --canvas:#f1e6d3; --surface:#fff9f0; --border:#d9cbb2; --paper:#e8dcc8;
+    --ink:#2c2416; --dim:#5b5143; --accent:#b8863a; --accent-dim:#8f6526; --amber:#d4a052;
+    --ok:#3f6b2e; --okbg:#e7efe0; --gap:#a2451a; --gapbg:#f3ded4;
+    --mono:"Special Elite",ui-monospace,Menlo,monospace; --serif:"Source Serif 4",Georgia,serif;
+  }
+  html,body,#root{height:100%;width:100%}
+  body{background:var(--canvas);color:var(--ink);font-family:var(--serif);overflow:hidden}
+  #root{display:flex;flex-direction:column}
+  .stage{flex:1;display:flex;align-items:center;justify-content:center;padding:44px 26px;position:relative;overflow:hidden;cursor:pointer}
+  .slide{width:100%;max-width:920px;animation:fade .4s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .section-label{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+  h1{font-family:var(--mono);font-size:clamp(42px,7.5vw,78px);line-height:1.0;letter-spacing:-.01em;margin-bottom:20px}
+  h2{font-family:var(--mono);font-size:clamp(26px,4.3vw,44px);line-height:1.06;margin-bottom:22px}
+  .subtitle{font-size:clamp(17px,2.3vw,22px);color:var(--dim);line-height:1.5;max-width:640px}
+  p.lede{font-size:clamp(16px,2vw,20px);line-height:1.5;color:var(--dim);max-width:660px;margin-bottom:20px}
+  strong{color:var(--ink);font-weight:600}
+  .big-line{font-family:var(--mono);font-size:clamp(28px,5vw,52px);line-height:1.05;margin:10px 0}
+  .big-line .a{color:var(--accent)}
+  /* title */
+  .badge{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--surface);background:var(--ink);padding:6px 14px;border-radius:6px;margin-bottom:26px}
+  .start-hint{margin-top:38px;font-family:var(--mono);font-size:13px;color:var(--accent-dim);cursor:pointer;border:1px dashed var(--accent);display:inline-block;padding:9px 16px;border-radius:8px}
+  .start-hint:hover{background:var(--surface)}
+  /* callout */
+  .insight{margin-top:26px;display:flex;gap:14px;align-items:flex-start;background:var(--surface);border:1.5px solid var(--border);border-left:4px solid var(--accent);border-radius:10px;padding:15px 20px;max-width:740px}
+  .insight .ic{font-size:20px}
+  .insight p{font-size:clamp(15px,1.95vw,18px);line-height:1.45}
+  /* two-column contrast */
+  .cols{display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:stretch;margin:6px 0}
+  @media(max-width:680px){.cols{grid-template-columns:1fr;gap:12px}.cols .vs{display:none}}
+  .col{background:var(--surface);border:2px solid var(--ink);border-radius:12px;padding:20px;box-shadow:6px 6px 0 var(--paper)}
+  .col h3{font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  .col .big{font-family:var(--mono);font-size:clamp(22px,2.8vw,28px);margin-bottom:12px}
+  .col ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+  .col li{font-size:15px;line-height:1.35;padding-left:18px;position:relative;color:var(--dim)}
+  .col li:before{content:"—";position:absolute;left:0;color:var(--accent)}
+  .col.old{opacity:.82}
+  .col.new{border-color:var(--accent)}
+  .col.new h3{color:var(--accent)}
+  .vs{display:flex;align-items:center;font-family:var(--mono);color:var(--accent);font-size:26px}
+  /* nav tabs visual */
+  .navrow{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 8px}
+  .ntab{font-family:var(--mono);font-size:14px;text-transform:uppercase;letter-spacing:.05em;padding:10px 16px;border:1.5px solid var(--ink);border-radius:9px;background:var(--surface);box-shadow:3px 3px 0 var(--paper);position:relative}
+  .ntab.old{opacity:.55;border-style:dashed;box-shadow:none}
+  .ntab.newone{border-color:var(--accent);color:var(--accent-dim)}
+  .ntab .tag{position:absolute;top:-9px;right:-6px;font-family:var(--mono);font-size:8px;letter-spacing:.05em;text-transform:uppercase;background:var(--accent);color:var(--surface);padding:1px 5px;border-radius:4px}
+  .ntab .sub{display:block;font-family:var(--serif);text-transform:none;letter-spacing:0;font-size:11.5px;color:var(--dim);margin-top:3px}
+  /* readout */
+  .readout{background:var(--surface);border:2px solid var(--ink);border-radius:12px;padding:16px 22px;box-shadow:6px 6px 0 var(--paper);max-width:560px}
+  .rline{display:flex;justify-content:space-between;font-family:var(--mono);font-size:14px;padding:8px 0;border-bottom:1px solid var(--border)}
+  .rline:last-child{border-bottom:none}
+  .rline .k{color:var(--dim)} .pin{color:var(--accent-dim)}
+  .cov{font-family:var(--mono);font-size:12px;text-transform:uppercase;padding:2px 8px;border-radius:5px}
+  .cov-gap{background:var(--gapbg);color:var(--gap)}
+  /* mini card */
+  .minicard{background:var(--surface);border:2px solid var(--ink);border-radius:10px;box-shadow:6px 6px 0 var(--paper);overflow:hidden;max-width:400px}
+  .minicard .cap{height:7px;background:var(--amber)}
+  .minicard .bd{padding:15px 17px}
+  .minicard .slug{font-family:var(--mono);font-size:16px}
+  .minicard .one{font-size:13px;color:var(--dim);margin:3px 0 10px}
+  .minicard .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:7px;overflow:hidden}
+  .minicard .cell{background:var(--surface);padding:8px 10px}
+  .minicard .cl{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+  .minicard .cv{font-family:var(--mono);font-size:14px}
+  .badge-unv{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gap);border:1px solid var(--gap);border-radius:999px;padding:2px 8px}
+  /* three modes */
+  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:6px 0}
+  @media(max-width:680px){.modes{grid-template-columns:1fr}}
+  .mode{background:var(--surface);border:1.5px solid var(--border);border-radius:11px;padding:16px}
+  .mode .mh{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent)}
+  .mode .mw{font-family:var(--mono);font-size:19px;margin:2px 0 7px}
+  .mode p{font-size:13.5px;line-height:1.4;color:var(--dim)}
+  /* lifecycle strip */
+  .life{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+  .step{flex:1;min-width:118px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:12px 13px}
+  .step .n{font-family:var(--mono);font-size:11px;color:var(--accent)}
+  .step .t{font-family:var(--mono);font-size:15px;margin:2px 0 4px}
+  .step p{font-size:12px;line-height:1.35;color:var(--dim)}
+  .step.wild{border-color:var(--accent);background:#fdf5e7}
+  /* plain list */
+  .plainlist{display:flex;flex-direction:column;gap:11px;max-width:720px;list-style:none}
+  .plainlist li{display:flex;gap:12px;align-items:flex-start;font-size:16px;line-height:1.4}
+  .plainlist .b{font-family:var(--mono);color:var(--accent);font-size:13px;padding-top:2px;white-space:nowrap}
+  /* nav bar */
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:13px 24px;border-top:1px solid var(--border);background:var(--surface)}
+  .dots{display:flex;gap:7px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--border);cursor:pointer;transition:.2s}
+  .dot.on{background:var(--accent);transform:scale(1.3)}
+  .navbtn{font-family:var(--mono);font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);background:none;border:1px solid var(--border);border-radius:7px;padding:7px 14px;cursor:pointer}
+  .navbtn:hover:not(:disabled){color:var(--ink);border-color:var(--accent)}
+  .navbtn:disabled{opacity:.3;cursor:default}
+  .count{font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .shapes{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:-1}
+  .sh{position:absolute;border:2px solid var(--accent);opacity:.14}
+  .sh1{width:230px;height:230px;border-radius:50%;right:-70px;top:-60px}
+  .sh2{width:150px;height:150px;right:120px;bottom:-40px;transform:rotate(20deg)}
+  .foot-note{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:18px;max-width:680px;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const Insight = ({icon, children}) => (
+  <div className="insight"><div className="ic">{icon}</div><p>{children}</p></div>
+);
+
+const Presentation = () => {
+  const [i, setI] = useState(0);
+
+  const slides = [
+    // 0 — Title
+    () => (
+      <div className="slide">
+        <div className="badge">Skillmaker Studio</div>
+        <h1>Authority&nbsp;→&nbsp;Evidence</h1>
+        <p className="subtitle">A week in one idea: the studio moved from a <strong>closed</strong> world of trusted agents to an <strong>open</strong> world of proven skills.</p>
+        <div className="start-hint" onClick={(e)=>{e.stopPropagation();setI(1);}}>Click, or press → to begin</div>
+        <div className="shapes"><div className="sh sh1"></div><div className="sh sh2"></div></div>
+      </div>
+    ),
+
+    // 1 — Jess's baseline (explicit)
+    () => (
+      <div className="slide">
+        <div className="section-label">The studio you left · July 11</div>
+        <h2>Your baseline</h2>
+        <div className="navrow">
+          <div className="ntab old">Board</div>
+          <div className="ntab old">Catalog</div>
+          <div className="ntab old">Skillbook</div>
+          <div className="ntab old">Activity</div>
+        </div>
+        <p className="lede">A skill <strong>factory</strong>, inherited from Playmaker: make a skill, run evals, publish. Everything under one roof. No shipping, no receiving, no card.</p>
+        <Insight icon="📍">Every "changed" in this deck is measured from <strong>here</strong> — what you last shipped, not the midweek drafts that got redone.</Insight>
+      </div>
+    ),
+
+    // 2 — closed world
+    () => (
+      <div className="slide">
+        <div className="section-label">Why it moved · 1</div>
+        <h2>Built for a closed world</h2>
+        <p className="lede">Playmaker lived <strong>inside</strong> a bigger product. There, the <strong>agents were the stars</strong> — named employees you built and watched end-to-end. Trust was free: it came from <em>who</em> was acting.</p>
+        <div className="big-line">Trust = <span className="a">Authority</span></div>
+      </div>
+    ),
+
+    // 3 — open world
+    () => (
+      <div className="slide">
+        <div className="section-label">Why it moved · 2</div>
+        <h2>Skillmaker lives in the open</h2>
+        <p className="lede">Now the <strong>skills are the stars</strong>. A skill <strong>leaves</strong> — someone's repo, another team's agent, a marketplace, a runtime you'll never see. The roof is gone.</p>
+        <Insight icon="🌍">You can't extend authority to a skill you didn't build, running where you can't look.</Insight>
+      </div>
+    ),
+
+    // 4 — the wall
+    () => (
+      <div className="slide">
+        <div className="section-label">Why it moved · 3</div>
+        <h2>You can't trust what you can't see</h2>
+        <ul className="plainlist">
+          <li><span className="b">no telemetry</span><span>Shipped skills vanish into a black box. So we stop claiming "live &amp; proven" and claim only <strong>"shipped, with receipts."</strong></span></li>
+          <li><span className="b">no trust</span><span>An arriving skill carries <strong>claims, not guarantees</strong>. They must be recorded, flagged, and re-proven here.</span></li>
+        </ul>
+        <Insight icon="🧱">The job quietly changed: from <em>running trusted work</em> to <strong>making and moving trust</strong>.</Insight>
+      </div>
+    ),
+
+    // 5 — the pivot
+    () => (
+      <div className="slide">
+        <div className="section-label">The core shift</div>
+        <div className="cols">
+          <div className="col old">
+            <h3>Closed · then</h3>
+            <div className="big">Authority</div>
+            <ul>
+              <li>Agents are the stars</li>
+              <li>Trust from <em>who</em> ran it</li>
+              <li>"Live &amp; proven"</li>
+            </ul>
+          </div>
+          <div className="vs">→</div>
+          <div className="col new">
+            <h3>Open · now</h3>
+            <div className="big">Evidence</div>
+            <ul>
+              <li>Skills are the stars</li>
+              <li>Trust from <em>what's proven</em></li>
+              <li>"Shipped, with receipts"</li>
+            </ul>
+          </div>
+        </div>
+        <Insight icon="⚖️">Everything below is one move — <strong>Authority → Evidence</strong> — in three shapes.</Insight>
+      </div>
+    ),
+
+    // 6 — earn the claim
+    () => (
+      <div className="slide">
+        <div className="section-label">Shape 1 · Make trust</div>
+        <h2>Earn the claim</h2>
+        <div style={{display:'flex',gap:'22px',flexWrap:'wrap',alignItems:'center'}}>
+          <div className="readout">
+            <div className="rline"><span className="k">model</span><span className="pin">claude-opus-4-8 · n=30</span></div>
+            <div className="rline"><span className="k">pass rate</span><span>92% <span className="k">[78–98%]</span></span></div>
+            <div className="rline"><span className="k">RE-1 · invents metrics</span><span className="cov cov-gap">gap</span></div>
+          </div>
+          <p className="lede" style={{flex:1,minWidth:'240px',marginBottom:0}}>Quality is <strong>measured, never asserted</strong> — pass-rate × CI, bound to an exact version × model. The gap shows as loud as the pass.</p>
+        </div>
+      </div>
+    ),
+
+    // 7 — the card
+    () => (
+      <div className="slide">
+        <div className="section-label">Shape 2 · Move trust</div>
+        <h2>Provenance as a baseball card</h2>
+        <div style={{display:'flex',gap:'24px',flexWrap:'wrap',alignItems:'center'}}>
+          <div className="minicard">
+            <div className="cap"></div>
+            <div className="bd">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
+                <div><div className="slug">draft-skill-md</div><div className="one">Drafts SKILL.md from a design doc.</div></div>
+                <span className="badge-unv">unverified</span>
+              </div>
+              <div className="grid">
+                <div className="cell"><div className="cl">pass</div><div className="cv">92%</div></div>
+                <div className="cell"><div className="cl">coverage</div><div className="cv">3/7</div></div>
+                <div className="cell"><div className="cl">drift</div><div className="cv">in-sync</div></div>
+              </div>
+            </div>
+          </div>
+          <p className="lede" style={{flex:1,minWidth:'240px',marginBottom:0}}>Trust has to travel <em>with</em> the skill, so it needs a form: receipts, coverage, lineage — one artifact, <strong>more durable than the skill itself</strong>.</p>
+        </div>
+      </div>
+    ),
+
+    // 8 — three modes
+    () => (
+      <div className="slide">
+        <div className="section-label">Shape 2 · How the card carries trust</div>
+        <h2>One card, three modes</h2>
+        <div className="modes">
+          <div className="mode"><div className="mh">At home</div><div className="mw">Derived</div><p>Regenerated live from our stores. What we know right now.</p></div>
+          <div className="mode"><div className="mh">Shipped</div><div className="mw">Snapshot</div><p>Frozen at departure — what it shipped <em>as</em>.</p></div>
+          <div className="mode"><div className="mh">Arriving</div><div className="mw">Testimony</div><p>A stranger's claims, believed by <strong>no one</strong> until re-proven here.</p></div>
+        </div>
+        <Insight icon="🎴">Your card is testimony; my card is truth. The same artifact flips meaning at the border.</Insight>
+      </div>
+    ),
+
+    // 9 — ship & receive (NEW surfaces)
+    () => (
+      <div className="slide">
+        <div className="section-label">Shape 3 · Guard the border · new since you left</div>
+        <h2>Ship &amp; Receive</h2>
+        <div className="cols">
+          <div className="col new" style={{borderColor:'var(--ink)'}}>
+            <h3 style={{color:'var(--dim)'}}>Ship →</h3>
+            <div className="big">Outbound</div>
+            <ul>
+              <li>Records what left, receipts frozen</li>
+              <li>The "approved version" counter</li>
+            </ul>
+          </div>
+          <div className="vs"> </div>
+          <div className="col new">
+            <h3>← Receive</h3>
+            <div className="big">The dock</div>
+            <ul>
+              <li>Everything may enter; nothing may pretend</li>
+              <li>A human rules: return · new · upgrade · fork · salvage</li>
+            </ul>
+          </div>
+        </div>
+        <Insight icon="🛃"><strong>Trust is derived; identity is decided.</strong> The <span className="mono">Unverified</span> badge holds until our first proof clears it.</Insight>
+      </div>
+    ),
+
+    // 10 — a skill's life
+    () => (
+      <div className="slide">
+        <div className="section-label">Putting it together</div>
+        <h2>The life of a skill</h2>
+        <div className="life">
+          <div className="step"><div className="n">01</div><div className="t">Make</div><p>Frame → research → draft → proof.</p></div>
+          <div className="step"><div className="n">02</div><div className="t">Improve</div><p>Measure, tighten, fork.</p></div>
+          <div className="step"><div className="n">03</div><div className="t">Ship</div><p>Leaves with receipts on the card.</p></div>
+          <div className="step wild"><div className="n">04</div><div className="t">The wild</div><p>Reports back: worked, failed, surprised.</p></div>
+          <div className="step"><div className="n">05</div><div className="t">Receive</div><p>A field report becomes the next fixture.</p></div>
+        </div>
+        <Insight icon="🔁">A failure in the wild <em>is</em> a new test. Each loop makes the evidence stronger — the skill keeps earning its way.</Insight>
+      </div>
+    ),
+
+    // 11 — the nav now, anchored to Jess's baseline
+    () => (
+      <div className="slide">
+        <div className="section-label">In the product · your 4 tabs → today's 5</div>
+        <h2>The surfaces now</h2>
+        <div className="navrow">
+          <div className="ntab">Make<span className="tag">was Board</span><span className="sub">draft new skills</span></div>
+          <div className="ntab newone">Improve<span className="tag">new</span><span className="sub">the bench</span></div>
+          <div className="ntab newone">Ship<span className="tag">new</span><span className="sub">send out</span></div>
+          <div className="ntab newone">Receive<span className="tag">new</span><span className="sub">the dock</span></div>
+          <div className="ntab">Track<span className="sub">Catalog + Feed</span></div>
+        </div>
+        <p className="lede"><strong>Board → Make</strong> (re-scoped to the drafting columns). Your <strong>Catalog &amp; Skillbook survived</strong> — a midweek rename detour got reverted; Catalog now lives inside <strong>Track</strong>. <strong>Ship, Receive, Improve</strong> and the <strong>card</strong> are the new arrivals.</p>
+      </div>
+    ),
+
+    // 12 — status (shipped today, in testing)
+    () => (
+      <div className="slide">
+        <div className="section-label">Honest status</div>
+        <h2>Landed today · in testing</h2>
+        <div className="cols">
+          <div className="col new">
+            <h3>Merged this week</h3>
+            <div className="big" style={{fontSize:'19px'}}>The card era</div>
+            <ul>
+              <li>Ship / Receive + the dock &amp; dispositions</li>
+              <li>The skill card as an in-app surface</li>
+              <li>Triage → "fill the card"; Track</li>
+              <li>Field-report → fixture loop</li>
+            </ul>
+          </div>
+          <div className="vs"> </div>
+          <div className="col old">
+            <h3>Deferred by design</h3>
+            <div className="big" style={{fontSize:'19px'}}>Named, not built</div>
+            <ul>
+              <li>Authority / grants</li>
+              <li>Triggers (auto-fire)</li>
+              <li>Ship's consumer counter</li>
+              <li>Card heat map · world-watch</li>
+            </ul>
+          </div>
+        </div>
+        <Insight icon="🧪">Everything above merged today and awaits your testing. Under the hood: midweek vocabulary drift reconciled, the stored layer frozen.</Insight>
+      </div>
+    ),
+
+    // 13 — summary
+    () => (
+      <div className="slide">
+        <div className="section-label">In one breath</div>
+        <h2>The whole thing</h2>
+        <ul className="plainlist" style={{marginBottom:'6px'}}>
+          <li><span className="b">shift</span><span>Closed → open. Agents were the stars; now <strong>skills are</strong>. Authority → <strong>Evidence</strong>.</span></li>
+          <li><span className="b">make</span><span><strong>Earn the claim</strong> — measure, bound to a version.</span></li>
+          <li><span className="b">move</span><span><strong>The card</strong> — derived, snapshot, testimony.</span></li>
+          <li><span className="b">guard</span><span><strong>Ship &amp; Receive</strong> — derived trust, decided identity.</span></li>
+        </ul>
+        <Insight icon="✅">The job is no longer to run trusted agents. It's to <strong>make skills earn trust, and let that trust travel.</strong></Insight>
+      </div>
+    ),
+  ];
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') setI((n) => Math.min(n + 1, slides.length - 1));
+      if (e.key === 'ArrowLeft') setI((n) => Math.max(n - 1, 0));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const Slide = slides[i];
+  return (
+    <React.Fragment>
+      <div className="stage" onClick={()=>{ if(i>0 && i<slides.length-1) setI(n=>Math.min(n+1,slides.length-1)); }}>
+        <Slide />
+      </div>
+      <div className="nav">
+        <button className="navbtn" disabled={i===0} onClick={()=>setI(n=>Math.max(n-1,0))}>← Prev</button>
+        <div className="dots">
+          {slides.map((_, n) => <div key={n} className={"dot"+(n===i?" on":"")} onClick={()=>setI(n)}></div>)}
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:'16px'}}>
+          <span className="count">{i+1} / {slides.length}</span>
+          <button className="navbtn" disabled={i===slides.length-1} onClick={()=>setI(n=>Math.min(n+1,slides.length-1))}>Next →</button>
+        </div>
+      </div>
+    </React.Fragment>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Presentation />);
+</script>
+</body>
+</html>
