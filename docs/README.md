@@ -12,6 +12,8 @@ Live:
   material, still cited.
 - [`sources/`](sources/) — thesis source notes.
 - [`demos/`](demos/) — recorded walkthroughs.
+- [`presentations/`](presentations/) — self-contained HTML explainers (the
+  narrative behind the proposals).
 
 Archived (completed, kept for the record):
 
