@@ -38,6 +38,7 @@ import { join } from "node:path";
 import { adoptDirectoryInPlace, slugify } from "./Adopt.ts";
 import type { Actor } from "./Actor.ts";
 import type { BundleStage } from "./Bundle.ts";
+import { appendDerivedEntryStageChange } from "./EntryStage.ts";
 import {
   RouteAlreadyRoutedError,
   RouteBundleNotFoundError,
@@ -76,6 +77,17 @@ export const DISPOSITIONS: ReadonlyArray<RouteDisposition> = ["return", "new", "
 export const isRouteDisposition = (value: string): value is RouteDisposition =>
   (DISPOSITIONS as ReadonlyArray<string>).includes(value);
 
+/**
+ * The reason recorded on the `bundle.stage_changed` `landAndAdopt` appends
+ * when no explicit `--stage` was given and the derived entry stage lands
+ * past `"idea"` (issue #115, mirroring `Triage.ts`'s own
+ * `TRIAGE_ENTRY_STAGE_REASON` for the dock's single-crate door). "Derived"
+ * is load-bearing wording here too: this is the system's own read of the
+ * landed crate's observables, not a human's claim -- the event carries NO
+ * `override` field.
+ */
+export const ROUTE_ENTRY_STAGE_REASON = "route: entry stage derived from runnable output";
+
 export interface RouteCrateInput {
   readonly workspaceRoot: string;
   /**
@@ -102,7 +114,18 @@ export interface RouteCrateInput {
   readonly parent?: string;
   /** `new`/`fork`: display-name override for the minted bundle. `upgrade`: version label override. Ignored by `return`/`salvage`. */
   readonly name?: string;
-  /** `new`/`fork` only: entry stage, default `"idea"`. A non-`"idea"` stage is recorded as an honest `override: true` move (issue #91: "working arrivals may enter later stages with the move recorded honestly"). */
+  /**
+   * `new`/`fork` only: an explicit entry-stage override. When given (the
+   * CLI's `--stage`), a non-`"idea"` value is recorded as an honest
+   * `override: true` move (issue #91: "working arrivals may enter later
+   * stages with the move recorded honestly"), and `"idea"` stays a no-op --
+   * today's behavior, unchanged. When ABSENT (issue #115: the two-doors
+   * gap), the entry stage is no longer assumed `"idea"` -- it is derived
+   * from the landed crate's own observables, the identical derivation bulk
+   * triage already applies (`EntryStage.ts`'s `deriveEntryStage`), recorded
+   * with NO `override` (the system's own placement at birth, not a human
+   * overriding anything).
+   */
   readonly stage?: BundleStage;
   /** The hypothesis (broken? evolved? forked?) -- required on every disposition, no exceptions (`SkillRoutedEvent`'s own doc comment). */
   readonly reason: string;
@@ -184,10 +207,17 @@ interface LandAndAdoptResult {
  * The shared `new`/`fork` mechanics: mint the target slug, move the crate
  * directory into place (`fs.rename` -- the crate BECOMES the bundle), wrap
  * it in place via `Adopt.ts`'s `adoptDirectoryInPlace` (reused, not
- * reimplemented), append `bundle.created` (+ an honest `override: true`
- * `bundle.stage_changed` when `--stage` names anything past `"idea"`), and
- * record its first version. `fork` is `new` plus `options.forkOf` threaded
- * onto the marker -- the only difference in this shared path.
+ * reimplemented), append `bundle.created`, then place the entry stage
+ * (issue #115, closing the two-doors gap with `Triage.ts`'s own
+ * `--from-manifest` door): an explicit `--stage` past `"idea"` is an
+ * honest `override: true` move on `ctx.input.reason`, exactly as before;
+ * with no `--stage` at all, the stage is no longer assumed `"idea"` -- it
+ * is DERIVED from the just-landed crate's own observables
+ * (`EntryStage.ts`'s `appendDerivedEntryStageChange`, the identical
+ * derivation bulk triage already applies, reused rather than
+ * re-implemented), reasoned `ROUTE_ENTRY_STAGE_REASON`, no `override`.
+ * `fork` is `new` plus `options.forkOf` threaded onto the marker -- the
+ * only difference in this shared path.
  */
 const landAndAdopt = Effect.fn("Route.landAndAdopt")(function* (
   ctx: RouteContext,
@@ -237,15 +267,28 @@ const landAndAdopt = Effect.fn("Route.landAndAdopt")(function* (
     payload: { bundle: wrapped.slug },
   });
 
-  const targetStage = ctx.input.stage ?? "idea";
-  if (targetStage !== "idea") {
+  if (ctx.input.stage === undefined) {
+    // No `--stage`: derive it from the crate's own observables, same as
+    // triage's `--from-manifest` door (issue #115) -- `wrapped.frontmatter`/
+    // `wrapped.warnings` are the frontmatter parse `adoptDirectoryInPlace`
+    // already performed on this very `SKILL.md`, no extra I/O.
+    yield* appendDerivedEntryStageChange(
+      wrapped.slug,
+      wrapped.frontmatter,
+      wrapped.warnings,
+      ctx.input.actor,
+      ROUTE_ENTRY_STAGE_REASON,
+    );
+  } else if (ctx.input.stage !== "idea") {
+    // Explicit `--stage`: today's behavior, unchanged -- `"idea"` stays a
+    // no-op, anything past it is an honest human override.
     yield* journal.append({
       type: "bundle.stage_changed",
       actor: ctx.input.actor,
       payload: {
         bundle: wrapped.slug,
         from: "idea",
-        to: targetStage,
+        to: ctx.input.stage,
         reason: ctx.input.reason,
         override: true,
       },

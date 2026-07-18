@@ -9,7 +9,8 @@ import { BundleIdentity } from "../src/Bundle.ts";
 import { JournalEvent } from "../src/Journal.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
 import { receiveCrate } from "../src/Receive.ts";
-import { routeCrate } from "../src/Route.ts";
+import { ROUTE_ENTRY_STAGE_REASON, routeCrate } from "../src/Route.ts";
+import { executeManifest, type TriageRow } from "../src/Triage.ts";
 import { computeBundleHashes } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
@@ -494,6 +495,193 @@ describe("routeCrate: fork", () => {
         const markerPath = join(dir, "skills", "diverged-variant", ".skillmaker-adopt.json");
         const marker = Schema.decodeUnknownSync(AdoptMarker)(JSON.parse(readFileSync(markerPath, "utf8")));
         expect(marker.forkOf).toBe("parent-skill");
+      }),
+    );
+  });
+});
+
+describe("routeCrate: new/fork derive the entry stage from observables when --stage is absent (issue #115)", () => {
+  const readEvents = (journalPath: string) =>
+    Effect.gen(function* () {
+      const journal = yield* Journal;
+      return yield* journal.readAll();
+    }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+  /**
+   * The receive -> route scaffolding every test in this block repeats: write
+   * the crate at `incoming/<crateDir>`, receive it, route it (disposition
+   * `"new"` unless `route` says otherwise), and return the journal's events.
+   * Per-test variation lives entirely in the `SKILL.md` content and the
+   * `route` overrides.
+   */
+  const routeArrival = (
+    dir: string,
+    opts: {
+      readonly crateDir: string;
+      readonly claimedName: string;
+      readonly skillMd: string;
+      readonly route?: Partial<Parameters<typeof routeCrate>[0]>;
+    },
+  ) =>
+    Effect.gen(function* () {
+      const journalPath = join(dir, ".skillmaker", "events.jsonl");
+      const sourcePath = join(dir, "incoming", opts.crateDir);
+      yield* writeCrateSource(sourcePath, opts.skillMd);
+      const received = yield* receiveCrate({
+        workspaceRoot: dir,
+        sourcePath,
+        source: "test",
+        claimedName: opts.claimedName,
+        actor,
+      }).pipe(Effect.provide(JournalLayer(journalPath)));
+      yield* routeCrate({
+        workspaceRoot: dir,
+        skillsDir: "skills",
+        intake: received.intake,
+        disposition: "new",
+        reason: "no overlap",
+        actor,
+        ...opts.route,
+      }).pipe(Effect.provide(JournalLayer(journalPath)));
+      return yield* readEvents(journalPath);
+    });
+
+  test("new: a crate whose SKILL.md parses with name + description enters at evaluating -- a bundle.stage_changed with NO override and the route-derived reason", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const events = yield* routeArrival(dir, {
+          crateDir: "runnable-arrival",
+          claimedName: "Runnable Arrival",
+          skillMd: "---\nname: Runnable Arrival\ndescription: arrives complete and runnable.\n---\n\nDo the thing.\n",
+        });
+        const stageChange = events.find((event) => event.type === "bundle.stage_changed");
+        expect(stageChange).toBeDefined();
+        if (stageChange?.type === "bundle.stage_changed") {
+          expect(stageChange.payload.from).toBe("idea");
+          expect(stageChange.payload.to).toBe("evaluating");
+          expect(stageChange.payload.reason).toBe(ROUTE_ENTRY_STAGE_REASON);
+        }
+        // The system's own placement at birth, not a human override -- no
+        // `override` field at all, not even `false`.
+        expect(stageChange?.payload).not.toHaveProperty("override");
+      }),
+    );
+  });
+
+  test("new: a crate with no frontmatter block at all enters at idea -- no bundle.stage_changed appended", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const events = yield* routeArrival(dir, {
+          crateDir: "bare-arrival",
+          claimedName: "Bare Arrival",
+          skillMd: "# Bare Arrival\n\nJust a sketch, no frontmatter.\n",
+        });
+        expect(events.some((event) => event.type === "bundle.stage_changed")).toBe(false);
+      }),
+    );
+  });
+
+  test("new: a crate that parses but is incomplete (name, no description) enters at drafting", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const events = yield* routeArrival(dir, {
+          crateDir: "thin-arrival",
+          claimedName: "Thin Arrival",
+          skillMd: "---\nname: Thin Arrival\n---\nNo description yet.\n",
+        });
+        const stageChange = events.find((event) => event.type === "bundle.stage_changed");
+        expect(stageChange?.payload).toMatchObject({ from: "idea", to: "drafting", reason: ROUTE_ENTRY_STAGE_REASON });
+        expect(stageChange?.payload).not.toHaveProperty("override");
+      }),
+    );
+  });
+
+  test("new: an explicit --stage still records an honest override on the input reason, unchanged, even over a complete SKILL.md", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        // Complete on its own terms -- would derive to "evaluating" -- but the
+        // explicit --stage must still win, exactly as before.
+        const events = yield* routeArrival(dir, {
+          crateDir: "explicit-stage-arrival",
+          claimedName: "Explicit Stage Arrival",
+          skillMd:
+            "---\nname: Explicit Stage Arrival\ndescription: complete, but the human overrides anyway.\n---\n\nDo the thing.\n",
+          route: { stage: "drafting", reason: "arrived already drafted, human says so" },
+        });
+        const stageChange = events.find((event) => event.type === "bundle.stage_changed");
+        expect(stageChange?.payload).toMatchObject({
+          from: "idea",
+          to: "drafting",
+          reason: "arrived already drafted, human says so",
+          override: true,
+        });
+      }),
+    );
+  });
+
+  test("fork: derives the entry stage the same way as new", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* writeExistingBundle(dir, "fork-parent", "---\nname: fork-parent\n---\nThe original.\n");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({ type: "bundle.created", actor, payload: { bundle: "fork-parent" } });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        const events = yield* routeArrival(dir, {
+          crateDir: "fork-child",
+          claimedName: "Fork Child",
+          skillMd:
+            "---\nname: Fork Child\ndescription: diverges from fork-parent, complete and runnable.\n---\n\nDo a different thing.\n",
+          route: { disposition: "fork", parent: "fork-parent", reason: "shares ancestry but diverges on X" },
+        });
+        const stageChange = events.find((event) => event.type === "bundle.stage_changed");
+        expect(stageChange?.payload).toMatchObject({
+          from: "idea",
+          to: "evaluating",
+          reason: ROUTE_ENTRY_STAGE_REASON,
+        });
+        expect(stageChange?.payload).not.toHaveProperty("override");
+      }),
+    );
+  });
+
+  test("parity: identical directory content lands at the same entry stage whether routed via route-new or adopted via a triage manifest row", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        const skillMdContent =
+          "---\nname: Parity Skill\ndescription: identical content routed two different ways.\n---\n\nDo the parity thing.\n";
+
+        // Door A: the dock's single-crate route.
+        yield* routeArrival(dir, {
+          crateDir: "parity-route",
+          claimedName: "Parity Skill",
+          skillMd: skillMdContent,
+        });
+
+        // Door B: bulk triage's manifest execution, same content, a different
+        // directory (so the two never collide on slug).
+        yield* fs.makeDirectory(join(dir, "parity-triage"), { recursive: true });
+        yield* fs.writeFileString(join(dir, "parity-triage", "SKILL.md"), skillMdContent);
+        const row: TriageRow = {
+          name: "Parity Skill Triage",
+          path: "parity-triage",
+          mechanicalCondition: { parses: true, complete: true, hasEvals: false },
+          evidence: { kind: "bare" },
+          decision: "keep",
+          whose: "mine",
+        };
+        yield* executeManifest(dir, [row], actor).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        const events = yield* readEvents(journalPath);
+        const stageChanges = events.filter((event) => event.type === "bundle.stage_changed");
+        expect(stageChanges).toHaveLength(2);
+        expect(
+          stageChanges.every((event) => event.type === "bundle.stage_changed" && event.payload.to === "evaluating"),
+        ).toBe(true);
       }),
     );
   });

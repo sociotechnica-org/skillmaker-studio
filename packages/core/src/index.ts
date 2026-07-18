@@ -271,6 +271,7 @@ export {
   routeCrate,
   DISPOSITIONS,
   isRouteDisposition,
+  ROUTE_ENTRY_STAGE_REASON,
   type RouteCrateInput,
   type RouteCrateResult,
 } from "./Route.ts";

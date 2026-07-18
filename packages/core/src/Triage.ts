@@ -22,18 +22,19 @@ import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { basename, dirname, join, relative, sep } from "node:path";
 import type { Actor } from "./Actor.ts";
-import { type BundleStage } from "./Bundle.ts";
 import {
   ADOPT_MARKER_FILENAME,
   adoptDirectoryInPlace,
   lifecycleFromPath,
   parseFrontmatter,
+  stringField,
   walk,
   type EvalInfraDetection,
   type Frontmatter,
   type ManifestDetection,
 } from "./Adopt.ts";
 import type { DossierSectionName, DossierSeed } from "./Dossier.ts";
+import { appendDerivedEntryStageChange, computeMechanicalReading, deriveEntryStage } from "./EntryStage.ts";
 import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import { IntakeStakes, type IntakeRights } from "./Journal.ts";
@@ -96,37 +97,12 @@ export const isTriageStakes = (value: string): value is TriageStakes =>
   (TRIAGE_STAKES_VALUES as ReadonlyArray<string>).includes(value);
 
 /**
- * The system's own placement of a brownfield import (issue #108, replacing
- * the retired maturity self-grade; data-model draft §Receive "Triage":
- * "Entry column is derived from what's observably there (no runnable output
- * → early columns; runnable output → Proof)"). A MACHINE DERIVATION from
- * observables, never testimony -- no human is asked anything:
- *
- * - `parses && complete` -> `"evaluating"` (Proof): a runnable `SKILL.md`
- *   with a full identity (name + description) is observably present; the
- *   remaining work is proving it, and the Lab's Proof column is where
- *   fixtures get written against real behavior. Never `"published"` -- this
- *   studio has performed zero evaluation of an import, and `"published"`
- *   would overclaim (house law: never a false fact).
- * - `parses` (but incomplete) -> `"drafting"`: skill text exists but isn't
- *   a complete identity yet -- a draft, observably.
- * - otherwise -> `"idea"`: nothing runnable to point at.
- *
- * `hasEvals` deliberately plays no part -- the parameter type says so:
- * evals present is Proof-column WORK already staged, not a further rung --
- * the entry column question is only "is there runnable output" (draft
- * L202). Narrowing to the two consulted facts also spares the caller
- * `scanFixtures`' directory walk, which only ever answered `hasEvals`.
+ * Re-exported for every existing import site (`index.ts`, `Triage.test.ts`)
+ * -- the derivation itself moved to `EntryStage.ts` (issue #115, generalized
+ * so `Route.ts`'s `new`/`fork` door can share it instead of disagreeing with
+ * this one). See that module's doc comment for the full derivation rationale.
  */
-export const deriveEntryStage = (condition: Pick<MechanicalCondition, "parses" | "complete">): BundleStage => {
-  if (condition.parses && condition.complete) {
-    return "evaluating";
-  }
-  if (condition.parses) {
-    return "drafting";
-  }
-  return "idea";
-};
+export { deriveEntryStage };
 
 /**
  * The reason recorded on the single `bundle.stage_changed` the adopt path
@@ -153,20 +129,12 @@ export interface MechanicalCondition {
   readonly hasEvals: boolean;
 }
 
-const stringField = (data: Frontmatter, key: string): string | undefined => {
-  const value = data[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-};
-
-const NO_FRONTMATTER_MARKER = "no frontmatter block found";
-
 const computeMechanicalCondition = Effect.fn("Triage.computeMechanicalCondition")(function* (
   dir: string,
   frontmatter: Frontmatter,
   frontmatterWarnings: ReadonlyArray<string>,
 ) {
-  const parses = !frontmatterWarnings.some((warning) => warning.includes(NO_FRONTMATTER_MARKER));
-  const complete = stringField(frontmatter, "name") !== undefined && stringField(frontmatter, "description") !== undefined;
+  const { parses, complete } = computeMechanicalReading(frontmatter, frontmatterWarnings);
   const fixtureScan = yield* scanFixtures(dir);
   const hasEvals = fixtureScan.cases.length > 0;
   return { parses, complete, hasEvals } satisfies MechanicalCondition;
@@ -665,44 +633,6 @@ const mintHurtsTodo = Effect.fn("Triage.mintHurtsTodo")(function* (
   return true;
 });
 
-/**
- * One `bundle.stage_changed` from `"idea"` to the DERIVED entry stage, when
- * past idea (issue #108, `deriveEntryStage`). `parses`/`complete` come from
- * the frontmatter parse `adoptDirectoryInPlace` just performed on the
- * `SKILL.md` this very row read off disk -- observables at execution time,
- * never read back from the manifest's hand-editable Mechanical Condition
- * cell (machine columns are for a human's reference, not load-bearing for
- * execution; an entry stage must come from observables, not from a cell a
- * maker could have edited into testimony). No `scanFixtures` walk here:
- * `deriveEntryStage` consults only these two facts (`hasEvals` plays no
- * part), so the fixture scan would be wasted I/O over a tree
- * `computeBundleHashes` is about to walk anyway. NO `override` on the
- * event: this is not a human overriding the guard, it is the system's own
- * placement at birth -- the guard (`Machine.ts`'s `checkTransition`) is
- * enforced at the interactive write paths (`advance`, the server's POST
- * allowlist), not here.
- */
-const advanceToDerivedEntryStage = Effect.fn("Triage.advanceToDerivedEntryStage")(function* (
-  slug: string,
-  frontmatter: Frontmatter,
-  frontmatterWarnings: ReadonlyArray<string>,
-  actor: Actor,
-) {
-  const parses = !frontmatterWarnings.some((warning) => warning.includes(NO_FRONTMATTER_MARKER));
-  const complete =
-    stringField(frontmatter, "name") !== undefined && stringField(frontmatter, "description") !== undefined;
-  const to = deriveEntryStage({ parses, complete });
-  if (to === "idea") {
-    return;
-  }
-  const journal = yield* Journal;
-  yield* journal.append({
-    type: "bundle.stage_changed",
-    actor,
-    payload: { bundle: slug, from: "idea", to, reason: TRIAGE_ENTRY_STAGE_REASON },
-  });
-});
-
 export interface ExecuteManifestOptions {
   readonly root: string;
   readonly actor: Actor;
@@ -802,7 +732,13 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
         payload: { bundle: wrapped.slug },
       });
     } else {
-      yield* advanceToDerivedEntryStage(wrapped.slug, wrapped.frontmatter, wrapped.warnings, actor);
+      yield* appendDerivedEntryStageChange(
+        wrapped.slug,
+        wrapped.frontmatter,
+        wrapped.warnings,
+        actor,
+        TRIAGE_ENTRY_STAGE_REASON,
+      );
     }
 
     const { designHash, outputHash } = yield* computeBundleHashes(dir, "in-place");

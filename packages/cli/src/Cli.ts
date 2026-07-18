@@ -125,7 +125,7 @@ Options:
   --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
   --timeout <s>     (run, station run) prompt timeout in seconds; defaults to 300
   --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
-  --stage <stage>   (route) --as new/fork: entry stage for the minted bundle; defaults to "idea"
+  --stage <stage>   (route) --as new/fork: explicit entry-stage override for the minted bundle (recorded as an honest override); omitted, the stage is derived from the crate's own observables (issue #115), same as bulk triage
   --verdict <v>     (grade) pass | fail | partial (required)
   --notes <text>    (grade, review resolve) free-text notes
                     (receive) Free-text notes about the arriving crate; optional
