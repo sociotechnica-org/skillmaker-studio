@@ -250,9 +250,14 @@ crate's content into an existing bundle's output and calls
 `Versions.ts`'s `recordSkillVersion`, `salvage` grants no identity and
 touches no files -- the crate stays at the dock as evidence. Idempotent
 per intake (same disposition twice is a no-op; a different one is an
-honest conflict). `skillmaker route <intake-id> --as <disposition>
---reason <text> [--bundle <slug>] [--parent <slug>] [--name <name>]
-[--stage <stage>]` is the CLI door; `GET /api/intake` now returns only
+honest conflict). `new`/`fork`'s entry stage (issue #115, closing a gap
+against triage's own `--from-manifest` door): with no `--stage`, it is
+DERIVED from the landed crate's own observables -- the identical
+`deriveEntryStage` bulk triage already applies, never `"idea"` by
+default -- and `--stage` remains the explicit escape hatch, recorded as
+an honest `override: true` move. `skillmaker route <intake-id> --as
+<disposition> --reason <text> [--bundle <slug>] [--parent <slug>]
+[--name <name>] [--stage <stage>]` is the CLI door; `GET /api/intake` now returns only
 undisposed crates (a routed crate, including `salvage`, leaves the
 list for good) plus a capped `recentlyRouted` tail; Receive's Intake
 section shows the five doors as copyable `skillmaker route` commands
