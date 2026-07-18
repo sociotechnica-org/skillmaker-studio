@@ -62,7 +62,7 @@ const ShipEntryCard: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
       <div className="flex flex-col gap-1.5 px-4 pb-3 pt-1.5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <Link
-            href={bundleHref(bundle.slug)}
+            href={bundleHref(bundle.slug, "overview", "ship")}
             className="break-words font-mono text-sm font-medium text-neutral-900 hover:underline dark:text-neutral-100"
           >
             {bundle.slug}

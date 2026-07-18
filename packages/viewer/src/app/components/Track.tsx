@@ -63,7 +63,7 @@ const CatalogRow: FC<{ entry: CatalogEntry }> = ({ entry }) => (
   <li className="flex flex-col gap-1.5 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
     <div className="flex flex-wrap items-center gap-2">
       <Link
-        href={bundleHref(entry.slug)}
+        href={bundleHref(entry.slug, "overview", "track")}
         className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
       >
         {entry.name}
@@ -135,7 +135,7 @@ const SalvagedRow: FC<{ crate: SalvagedCrateView }> = ({ crate }) => (
       {crate.bundle !== null && (
         <span title="The existing bundle this salvage defended">
           <Link
-            href={bundleHref(crate.bundle)}
+            href={bundleHref(crate.bundle, "overview", "track")}
             className="text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
           >
             {crate.bundle}

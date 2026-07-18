@@ -14,6 +14,7 @@ import {
   CreateBundleResponse,
   EventsResponse,
   FieldReportsResponse,
+  FixtureDetailResponse,
   HealthResponse,
   IntakeResponse,
   PostEventResponse,
@@ -42,6 +43,13 @@ export const getBundleFile = (slug: string, path: string): Promise<BundleFileRes
   fetchJson(
     `/api/bundles/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`,
     BundleFileResponse,
+  );
+
+/** `GET /api/bundles/:slug/fixtures/:case` -- one fixture's readable test body (card-fidelity round 2). */
+export const getFixtureDetail = (slug: string, caseName: string): Promise<FixtureDetailResponse> =>
+  fetchJson(
+    `/api/bundles/${encodeURIComponent(slug)}/fixtures/${encodeURIComponent(caseName)}`,
+    FixtureDetailResponse,
   );
 
 /** `GET /api/bundles/:slug/runs/:runId` -- the run-detail panel (data-model.md §2.12). */

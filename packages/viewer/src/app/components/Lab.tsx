@@ -73,7 +73,7 @@ const LabRow: FC<{ entry: CatalogEntry }> = ({ entry }) => {
     <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2">
         <Link
-          href={bundleHref(entry.slug)}
+          href={bundleHref(entry.slug, "overview", "improve")}
           className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
         >
           {entry.name}

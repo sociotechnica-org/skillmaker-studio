@@ -434,6 +434,46 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     expect(recorded.status).toBe("already_appended");
     expect(recorded.hash).toBe(adoptedVersion?.hash ?? "");
   });
+
+  test("card-fidelity round 2: an in-place bundle's fixture body is served from ITS OWN evals/ tree", async () => {
+    // The in-place bundle's evals/ lives under the brownfield directory --
+    // exactly the case a `<skillsDir>/<slug>` assumption would go blind on.
+    const caseDir = join(scratchDir, "brownfield", "complete-skill", "evals", "fixtures", "brown-golden");
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, "case.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          case: "brown-golden",
+          class: "golden",
+          risks: ["IN-1"],
+          grading: { answerKey: "the brownfield answer", checks: ["names the brownfield thing"] },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    writeFileSync(join(caseDir, "prompt.md"), "Do the brownfield task, in place.\n");
+
+    const response = await fetch(`${baseUrl}/api/bundles/${inPlaceSlug}/fixtures/brown-golden`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      caseName: string;
+      class: string | null;
+      risks: ReadonlyArray<string>;
+      promptMd: string | null;
+      grading: { answerKey: string | null; checks: ReadonlyArray<string> } | null;
+      warnings: ReadonlyArray<string>;
+    };
+    expect(body.caseName).toBe("brown-golden");
+    expect(body.class).toBe("golden");
+    expect(body.risks).toEqual(["IN-1"]);
+    expect(body.promptMd).toContain("Do the brownfield task, in place.");
+    expect(body.grading?.answerKey).toBe("the brownfield answer");
+    expect(body.grading?.checks).toEqual(["names the brownfield thing"]);
+    expect(body.warnings).toEqual([]);
+  });
 });
 
 describe("card-fidelity simplify pass: GET /api/bundles/:slug instructionsPath for an output-dir bundle", () => {
@@ -454,5 +494,49 @@ describe("card-fidelity simplify pass: GET /api/bundles/:slug instructionsPath f
     expect(afterResponse.status).toBe(200);
     const after = (await afterResponse.json()) as { instructionsPath: string | null };
     expect(after.instructionsPath).toBe("output/SKILL.md");
+  });
+});
+
+describe("card-fidelity round 2: GET /api/bundles/:slug/fixtures/:case for an output-dir bundle", () => {
+  test("serves the parsed case + prompt.md content; an unknown case 404s", async () => {
+    const caseDir = join(scratchDir, "skills", "gizmo", "evals", "fixtures", "harness-golden");
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, "case.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          case: "harness-golden",
+          class: "golden",
+          risks: ["OUT-1"],
+          context: "fleet-eval",
+          grading: { checks: ["output mentions the gizmo"] },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    writeFileSync(join(caseDir, "prompt.md"), "Do the gizmo task for the harness.\n");
+
+    const response = await fetch(`${baseUrl}/api/bundles/gizmo/fixtures/harness-golden`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      caseName: string;
+      class: string | null;
+      context: string | null;
+      promptMd: string | null;
+      legacyPrompt: string | null;
+      grading: { answerKey: string | null; checks: ReadonlyArray<string> } | null;
+    };
+    expect(body.caseName).toBe("harness-golden");
+    expect(body.class).toBe("golden");
+    expect(body.context).toBe("fleet-eval");
+    expect(body.promptMd).toContain("Do the gizmo task for the harness.");
+    expect(body.legacyPrompt).toBeNull();
+    expect(body.grading?.answerKey).toBeNull();
+    expect(body.grading?.checks).toEqual(["output mentions the gizmo"]);
+
+    const missing = await fetch(`${baseUrl}/api/bundles/gizmo/fixtures/no-such-case`);
+    expect(missing.status).toBe(404);
   });
 });

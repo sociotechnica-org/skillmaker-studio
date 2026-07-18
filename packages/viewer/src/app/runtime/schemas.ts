@@ -347,6 +347,33 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
 }) {}
 
 /**
+ * `GET /api/bundles/:slug/fixtures/:case` (card-fidelity round 2): one
+ * fixture's readable test body -- the parsed case, not a raw file dump.
+ * `promptMd` is the sibling `prompt.md`'s content (`null` when the case has
+ * none); `legacyPrompt` is the scaffold-era `case.json` `prompt` string
+ * (tolerated, never required -- shown only when no prompt.md exists);
+ * `grading` carries the authored pass criteria (`answerKey` + `checks`).
+ * All free text, mirrored as-is -- no vocabulary words, no lockstep rows.
+ * `warnings` reports malformed `case.json` content honestly instead of the
+ * server hard-failing (same tolerance as core's `scanFixtures`).
+ */
+export class FixtureGradingView extends Schema.Class<FixtureGradingView>("FixtureGradingView")({
+  answerKey: Schema.NullOr(Schema.String),
+  checks: Schema.Array(Schema.String),
+}) {}
+
+export class FixtureDetailResponse extends Schema.Class<FixtureDetailResponse>("FixtureDetailResponse")({
+  caseName: Schema.String,
+  class: Schema.NullOr(Schema.String),
+  risks: Schema.Array(Schema.String),
+  context: Schema.NullOr(Schema.String),
+  promptMd: Schema.NullOr(Schema.String),
+  legacyPrompt: Schema.NullOr(Schema.String),
+  grading: Schema.NullOr(FixtureGradingView),
+  warnings: Schema.Array(Schema.String),
+}) {}
+
+/**
  * The `run.json` fields the run-detail panel renders (data-model.md §2.8).
  * Extra keys on the wire (`schemaVersion`, `actor`, `kind`, `station`) are
  * ignored on decode, per this file's decode-what-the-wire-sends convention.

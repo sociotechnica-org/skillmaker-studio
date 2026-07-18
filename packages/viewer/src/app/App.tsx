@@ -23,7 +23,16 @@ const Routes: FC = () => {
     case "board":
       return <Board />;
     case "bundle":
-      return <SkillCard slug={route.slug} tab={route.tab} runId={route.runId} file={route.file} />;
+      return (
+        <SkillCard
+          slug={route.slug}
+          tab={route.tab}
+          runId={route.runId}
+          file={route.file}
+          fixture={route.fixture}
+          from={route.from}
+        />
+      );
     case "lab":
       return <Lab view={route.view} bundle={route.bundle} />;
     case "track":

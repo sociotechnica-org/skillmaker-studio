@@ -148,7 +148,7 @@ const ReportRow: FC<{ report: FieldReportView }> = ({ report }) => (
         linked={
           report.fixtureCase !== null ? (
             <Link
-              href={bundleHref(report.bundle, "models")}
+              href={bundleHref(report.bundle, "models", "receive")}
               className="w-fit text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
             >
               harvested → {report.fixtureCase} (Models)
@@ -379,7 +379,7 @@ const RecentlyRoutedRow: FC<{ routed: RecentlyRoutedView }> = ({ routed }) => (
       </span>
       {routed.bundle !== null && (
         <Link
-          href={bundleHref(routed.bundle)}
+          href={bundleHref(routed.bundle, "overview", "receive")}
           className="text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
         >
           {routed.bundle}

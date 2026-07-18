@@ -1284,6 +1284,82 @@ const handleBundleFile = async (
   return jsonResponse({ path: relPath, content });
 };
 
+/**
+ * `GET /api/bundles/:slug/fixtures/:case` -- one fixture's readable test
+ * body (card-fidelity round 2: "I can't see what the tests are"). Returns
+ * the PARSED case, not a raw file dump, so the viewer renders a test a
+ * human can read: the task prompt (`prompt.md` content when present, the
+ * legacy `case.json` `prompt` field otherwise), what passing means
+ * (`grading.answerKey` + `grading.checks`, the authored words), class,
+ * risks, and context. Derived per request from the bundle's ACTUAL
+ * directory (`resolveBundleDir` -- an in-place bundle's `evals/` lives
+ * under its own dir), never stored. Tolerant like `Fixtures.scanFixtures`:
+ * malformed `case.json` fields become honest nulls + a warning line, never
+ * a hard failure -- the card shows what's wrong instead of going blank.
+ */
+const handleFixtureDetail = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  caseName: string,
+): Promise<Response> => {
+  // The case name is a single directory name -- no separators, no dot
+  // segments -- so it can never address outside `evals/fixtures/`.
+  if (caseName.length === 0 || /[/\\]/.test(caseName) || caseName.startsWith(".")) {
+    return jsonResponse({ error: `no such fixture "${caseName}"` }, 404);
+  }
+
+  const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
+  const caseDir = join(bundleDir, "evals", "fixtures", caseName);
+  const caseJsonPath = join(caseDir, "case.json");
+  if (!existsSync(caseJsonPath) || !statSync(caseJsonPath).isFile()) {
+    return jsonResponse({ error: `no such fixture "${caseName}"` }, 404);
+  }
+
+  const warnings: string[] = [];
+  let parsed: Record<string, unknown> = {};
+  try {
+    const raw: unknown = JSON.parse(readFileSync(caseJsonPath, "utf8"));
+    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+      parsed = raw as Record<string, unknown>;
+    } else {
+      warnings.push("case.json is not a JSON object");
+    }
+  } catch {
+    warnings.push("case.json is not valid JSON");
+  }
+
+  const stringOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
+  const stringArray = (value: unknown): ReadonlyArray<string> =>
+    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+
+  const rawGrading = parsed["grading"];
+  const grading =
+    typeof rawGrading === "object" && rawGrading !== null && !Array.isArray(rawGrading)
+      ? {
+          answerKey: stringOrNull((rawGrading as Record<string, unknown>)["answerKey"]),
+          checks: stringArray((rawGrading as Record<string, unknown>)["checks"]),
+        }
+      : null;
+
+  const promptMdPath = join(caseDir, "prompt.md");
+  const promptMd =
+    existsSync(promptMdPath) && statSync(promptMdPath).isFile() ? readFileSync(promptMdPath, "utf8") : null;
+
+  return jsonResponse({
+    caseName,
+    class: stringOrNull(parsed["class"]),
+    risks: stringArray(parsed["risks"]),
+    context: stringOrNull(parsed["context"]),
+    promptMd,
+    // The scaffold-era `prompt` string field (Fixtures.ts: tolerated, never
+    // required) -- shown only when no prompt.md exists.
+    legacyPrompt: stringOrNull(parsed["prompt"]),
+    grading,
+    warnings,
+  });
+};
+
 /** Recursively lists every file under `dir`, as paths relative to `dir` (posix-joined, for stable wire output). */
 const listFilesRecursive = (dir: string, relPrefix = ""): ReadonlyArray<string> => {
   if (!existsSync(dir)) return [];
@@ -1944,6 +2020,17 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             return jsonResponse({ error: "missing run id" }, 404);
           }
           return handleRunDetail(root, config, slug, runId);
+        }
+
+        if (slug !== undefined && segments.length === 3 && segments[1] === "fixtures") {
+          if (request.method !== "GET") {
+            return jsonResponse({ error: "fixtures/:case requires GET" }, 405);
+          }
+          const caseName = segments[2];
+          if (caseName === undefined) {
+            return jsonResponse({ error: "missing fixture case" }, 404);
+          }
+          return handleFixtureDetail(root, config, slug, decodeURIComponent(caseName));
         }
 
         if (slug !== undefined && segments.length === 4 && segments[1] === "fixtures" && segments[3] === "run") {
