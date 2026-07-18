@@ -507,33 +507,53 @@ describe("routeCrate: new/fork derive the entry stage from observables when --st
       return yield* journal.readAll();
     }).pipe(Effect.provide(JournalLayer(journalPath)));
 
+  /**
+   * The receive -> route scaffolding every test in this block repeats: write
+   * the crate at `incoming/<crateDir>`, receive it, route it (disposition
+   * `"new"` unless `route` says otherwise), and return the journal's events.
+   * Per-test variation lives entirely in the `SKILL.md` content and the
+   * `route` overrides.
+   */
+  const routeArrival = (
+    dir: string,
+    opts: {
+      readonly crateDir: string;
+      readonly claimedName: string;
+      readonly skillMd: string;
+      readonly route?: Partial<Parameters<typeof routeCrate>[0]>;
+    },
+  ) =>
+    Effect.gen(function* () {
+      const journalPath = join(dir, ".skillmaker", "events.jsonl");
+      const sourcePath = join(dir, "incoming", opts.crateDir);
+      yield* writeCrateSource(sourcePath, opts.skillMd);
+      const received = yield* receiveCrate({
+        workspaceRoot: dir,
+        sourcePath,
+        source: "test",
+        claimedName: opts.claimedName,
+        actor,
+      }).pipe(Effect.provide(JournalLayer(journalPath)));
+      yield* routeCrate({
+        workspaceRoot: dir,
+        skillsDir: "skills",
+        intake: received.intake,
+        disposition: "new",
+        reason: "no overlap",
+        actor,
+        ...opts.route,
+      }).pipe(Effect.provide(JournalLayer(journalPath)));
+      return yield* readEvents(journalPath);
+    });
+
   test("new: a crate whose SKILL.md parses with name + description enters at evaluating -- a bundle.stage_changed with NO override and the route-derived reason", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
-        const journalPath = join(dir, ".skillmaker", "events.jsonl");
-        const sourcePath = join(dir, "incoming", "runnable-arrival");
-        yield* writeCrateSource(
-          sourcePath,
-          "---\nname: Runnable Arrival\ndescription: arrives complete and runnable.\n---\n\nDo the thing.\n",
-        );
-        const received = yield* receiveCrate({
-          workspaceRoot: dir,
-          sourcePath,
-          source: "test",
+        const events = yield* routeArrival(dir, {
+          crateDir: "runnable-arrival",
           claimedName: "Runnable Arrival",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        yield* routeCrate({
-          workspaceRoot: dir,
-          skillsDir: "skills",
-          intake: received.intake,
-          disposition: "new",
-          reason: "no overlap with anything we hold",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        const events = yield* readEvents(journalPath);
+          skillMd: "---\nname: Runnable Arrival\ndescription: arrives complete and runnable.\n---\n\nDo the thing.\n",
+        });
         const stageChange = events.find((event) => event.type === "bundle.stage_changed");
         expect(stageChange).toBeDefined();
         if (stageChange?.type === "bundle.stage_changed") {
@@ -551,27 +571,11 @@ describe("routeCrate: new/fork derive the entry stage from observables when --st
   test("new: a crate with no frontmatter block at all enters at idea -- no bundle.stage_changed appended", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
-        const journalPath = join(dir, ".skillmaker", "events.jsonl");
-        const sourcePath = join(dir, "incoming", "bare-arrival");
-        yield* writeCrateSource(sourcePath, "# Bare Arrival\n\nJust a sketch, no frontmatter.\n");
-        const received = yield* receiveCrate({
-          workspaceRoot: dir,
-          sourcePath,
-          source: "test",
+        const events = yield* routeArrival(dir, {
+          crateDir: "bare-arrival",
           claimedName: "Bare Arrival",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        yield* routeCrate({
-          workspaceRoot: dir,
-          skillsDir: "skills",
-          intake: received.intake,
-          disposition: "new",
-          reason: "no overlap",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        const events = yield* readEvents(journalPath);
+          skillMd: "# Bare Arrival\n\nJust a sketch, no frontmatter.\n",
+        });
         expect(events.some((event) => event.type === "bundle.stage_changed")).toBe(false);
       }),
     );
@@ -580,27 +584,11 @@ describe("routeCrate: new/fork derive the entry stage from observables when --st
   test("new: a crate that parses but is incomplete (name, no description) enters at drafting", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
-        const journalPath = join(dir, ".skillmaker", "events.jsonl");
-        const sourcePath = join(dir, "incoming", "thin-arrival");
-        yield* writeCrateSource(sourcePath, "---\nname: Thin Arrival\n---\nNo description yet.\n");
-        const received = yield* receiveCrate({
-          workspaceRoot: dir,
-          sourcePath,
-          source: "test",
+        const events = yield* routeArrival(dir, {
+          crateDir: "thin-arrival",
           claimedName: "Thin Arrival",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        yield* routeCrate({
-          workspaceRoot: dir,
-          skillsDir: "skills",
-          intake: received.intake,
-          disposition: "new",
-          reason: "no overlap",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        const events = yield* readEvents(journalPath);
+          skillMd: "---\nname: Thin Arrival\n---\nNo description yet.\n",
+        });
         const stageChange = events.find((event) => event.type === "bundle.stage_changed");
         expect(stageChange?.payload).toMatchObject({ from: "idea", to: "drafting", reason: ROUTE_ENTRY_STAGE_REASON });
         expect(stageChange?.payload).not.toHaveProperty("override");
@@ -611,33 +599,15 @@ describe("routeCrate: new/fork derive the entry stage from observables when --st
   test("new: an explicit --stage still records an honest override on the input reason, unchanged, even over a complete SKILL.md", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
-        const journalPath = join(dir, ".skillmaker", "events.jsonl");
-        const sourcePath = join(dir, "incoming", "explicit-stage-arrival");
         // Complete on its own terms -- would derive to "evaluating" -- but the
         // explicit --stage must still win, exactly as before.
-        yield* writeCrateSource(
-          sourcePath,
-          "---\nname: Explicit Stage Arrival\ndescription: complete, but the human overrides anyway.\n---\n\nDo the thing.\n",
-        );
-        const received = yield* receiveCrate({
-          workspaceRoot: dir,
-          sourcePath,
-          source: "test",
+        const events = yield* routeArrival(dir, {
+          crateDir: "explicit-stage-arrival",
           claimedName: "Explicit Stage Arrival",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        yield* routeCrate({
-          workspaceRoot: dir,
-          skillsDir: "skills",
-          intake: received.intake,
-          disposition: "new",
-          stage: "drafting",
-          reason: "arrived already drafted, human says so",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        const events = yield* readEvents(journalPath);
+          skillMd:
+            "---\nname: Explicit Stage Arrival\ndescription: complete, but the human overrides anyway.\n---\n\nDo the thing.\n",
+          route: { stage: "drafting", reason: "arrived already drafted, human says so" },
+        });
         const stageChange = events.find((event) => event.type === "bundle.stage_changed");
         expect(stageChange?.payload).toMatchObject({
           from: "idea",
@@ -659,30 +629,13 @@ describe("routeCrate: new/fork derive the entry stage from observables when --st
           yield* journal.append({ type: "bundle.created", actor, payload: { bundle: "fork-parent" } });
         }).pipe(Effect.provide(JournalLayer(journalPath)));
 
-        const sourcePath = join(dir, "incoming", "fork-child");
-        yield* writeCrateSource(
-          sourcePath,
-          "---\nname: Fork Child\ndescription: diverges from fork-parent, complete and runnable.\n---\n\nDo a different thing.\n",
-        );
-        const received = yield* receiveCrate({
-          workspaceRoot: dir,
-          sourcePath,
-          source: "test",
+        const events = yield* routeArrival(dir, {
+          crateDir: "fork-child",
           claimedName: "Fork Child",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        yield* routeCrate({
-          workspaceRoot: dir,
-          skillsDir: "skills",
-          intake: received.intake,
-          disposition: "fork",
-          parent: "fork-parent",
-          reason: "shares ancestry but diverges on X",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        const events = yield* readEvents(journalPath);
+          skillMd:
+            "---\nname: Fork Child\ndescription: diverges from fork-parent, complete and runnable.\n---\n\nDo a different thing.\n",
+          route: { disposition: "fork", parent: "fork-parent", reason: "shares ancestry but diverges on X" },
+        });
         const stageChange = events.find((event) => event.type === "bundle.stage_changed");
         expect(stageChange?.payload).toMatchObject({
           from: "idea",
@@ -703,23 +656,11 @@ describe("routeCrate: new/fork derive the entry stage from observables when --st
           "---\nname: Parity Skill\ndescription: identical content routed two different ways.\n---\n\nDo the parity thing.\n";
 
         // Door A: the dock's single-crate route.
-        const routeSourcePath = join(dir, "incoming", "parity-route");
-        yield* writeCrateSource(routeSourcePath, skillMdContent);
-        const received = yield* receiveCrate({
-          workspaceRoot: dir,
-          sourcePath: routeSourcePath,
-          source: "test",
+        yield* routeArrival(dir, {
+          crateDir: "parity-route",
           claimedName: "Parity Skill",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
-        yield* routeCrate({
-          workspaceRoot: dir,
-          skillsDir: "skills",
-          intake: received.intake,
-          disposition: "new",
-          reason: "no overlap",
-          actor,
-        }).pipe(Effect.provide(JournalLayer(journalPath)));
+          skillMd: skillMdContent,
+        });
 
         // Door B: bulk triage's manifest execution, same content, a different
         // directory (so the two never collide on slug).

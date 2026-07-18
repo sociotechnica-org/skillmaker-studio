@@ -27,6 +27,7 @@ import {
   adoptDirectoryInPlace,
   lifecycleFromPath,
   parseFrontmatter,
+  stringField,
   walk,
   type EvalInfraDetection,
   type Frontmatter,
@@ -127,11 +128,6 @@ export interface MechanicalCondition {
   /** At least one `evals/fixtures/*\/case.json` scans cleanly (`Fixtures.ts`'s `scanFixtures`, tolerant). */
   readonly hasEvals: boolean;
 }
-
-const stringField = (data: Frontmatter, key: string): string | undefined => {
-  const value = data[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-};
 
 const computeMechanicalCondition = Effect.fn("Triage.computeMechanicalCondition")(function* (
   dir: string,

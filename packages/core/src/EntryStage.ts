@@ -12,7 +12,7 @@
  */
 import { Effect } from "effect";
 import type { Actor } from "./Actor.ts";
-import type { Frontmatter } from "./Adopt.ts";
+import { stringField, type Frontmatter } from "./Adopt.ts";
 import type { BundleStage } from "./Bundle.ts";
 import { Journal } from "./JournalService.ts";
 
@@ -31,11 +31,6 @@ export interface MechanicalReading {
   readonly parses: boolean;
   readonly complete: boolean;
 }
-
-const stringField = (data: Frontmatter, key: string): string | undefined => {
-  const value = data[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-};
 
 /**
  * `{parses, complete}` from a `SKILL.md` frontmatter parse (`Adopt.ts`'s

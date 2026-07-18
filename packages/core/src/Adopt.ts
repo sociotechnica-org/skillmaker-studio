@@ -179,7 +179,8 @@ export const parseFrontmatter = (content: string): ParsedFrontmatter => {
   return { data, warnings };
 };
 
-const stringField = (data: Frontmatter, key: string): string | undefined => {
+/** A frontmatter field as a non-empty string, else `undefined` — the one reading of "this field is observably present" shared by every consumer of `parseFrontmatter`'s output (`EntryStage.ts`, `Triage.ts`). */
+export const stringField = (data: Frontmatter, key: string): string | undefined => {
   const value = data[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 };

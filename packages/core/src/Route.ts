@@ -267,23 +267,7 @@ const landAndAdopt = Effect.fn("Route.landAndAdopt")(function* (
     payload: { bundle: wrapped.slug },
   });
 
-  if (ctx.input.stage !== undefined) {
-    // Explicit `--stage`: today's behavior, unchanged -- `"idea"` stays a
-    // no-op, anything past it is an honest human override.
-    if (ctx.input.stage !== "idea") {
-      yield* journal.append({
-        type: "bundle.stage_changed",
-        actor: ctx.input.actor,
-        payload: {
-          bundle: wrapped.slug,
-          from: "idea",
-          to: ctx.input.stage,
-          reason: ctx.input.reason,
-          override: true,
-        },
-      });
-    }
-  } else {
+  if (ctx.input.stage === undefined) {
     // No `--stage`: derive it from the crate's own observables, same as
     // triage's `--from-manifest` door (issue #115) -- `wrapped.frontmatter`/
     // `wrapped.warnings` are the frontmatter parse `adoptDirectoryInPlace`
@@ -295,6 +279,20 @@ const landAndAdopt = Effect.fn("Route.landAndAdopt")(function* (
       ctx.input.actor,
       ROUTE_ENTRY_STAGE_REASON,
     );
+  } else if (ctx.input.stage !== "idea") {
+    // Explicit `--stage`: today's behavior, unchanged -- `"idea"` stays a
+    // no-op, anything past it is an honest human override.
+    yield* journal.append({
+      type: "bundle.stage_changed",
+      actor: ctx.input.actor,
+      payload: {
+        bundle: wrapped.slug,
+        from: "idea",
+        to: ctx.input.stage,
+        reason: ctx.input.reason,
+        override: true,
+      },
+    });
   }
 
   const { designHash, outputHash } = yield* computeBundleHashes(bundleDir, "in-place");
