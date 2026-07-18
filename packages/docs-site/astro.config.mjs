@@ -1,31 +1,54 @@
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 
-// Docs site: static Starlight build, no analytics, minimal customization
-// beyond title + GitHub link (plan.md Phase 13). Deployed alongside the
-// marketing site.
+// Docs site: static Starlight build, no analytics. Rebranded 2026-07-18 to
+// the LifeBuild "analog manuscript" skin (parchment/typewriter/amber) to
+// match the marketing site — see src/styles/custom.css; token source of
+// truth is packages/marketing-site/src/styles/global.css.
 export default defineConfig({
   output: "static",
   site: "https://docs.skillmaker.studio",
   integrations: [
     starlight({
       title: "Skillmaker Studio Docs",
-      // Guard against the white FOUC flash that browsers paint during
-      // full-page navigation on this dark-only site: the default UA canvas
-      // is white, and Starlight's own dark background/color-scheme only
-      // land once the external stylesheet finishes loading. Injecting these
-      // tags first in <head> (ahead of the theme-select script and the
-      // stylesheet <link>, both hardcoded after Starlight's <Head/> in
-      // Page.astro) means the very first paint already uses the dark
-      // canvas, so there's nothing to flash from.
+      customCss: ["./src/styles/custom.css"],
+      // Code blocks: one light theme for both modes — the skin is
+      // parchment-only, so mode-dependent frames would flash dark.
+      expressiveCode: {
+        themes: ["github-light"],
+      },
+      // Guard against the white FOUC flash during full-page navigation:
+      // the default UA canvas is white and Starlight's stylesheet lands
+      // late, so paint the parchment canvas first (same trick as the old
+      // dark guard, retinted). Also loads the brand fonts (Special Elite
+      // headings, Source Serif 4 body).
       head: [
         {
           tag: "meta",
-          attrs: { name: "color-scheme", content: "dark" },
+          attrs: { name: "color-scheme", content: "light" },
         },
         {
           tag: "style",
-          content: "html{background-color:#17181c}",
+          content: "html{background-color:#f1e6d3}",
+        },
+        {
+          tag: "link",
+          attrs: { rel: "preconnect", href: "https://fonts.googleapis.com" },
+        },
+        {
+          tag: "link",
+          attrs: {
+            rel: "preconnect",
+            href: "https://fonts.gstatic.com",
+            crossorigin: true,
+          },
+        },
+        {
+          tag: "link",
+          attrs: {
+            rel: "stylesheet",
+            href: "https://fonts.googleapis.com/css2?family=Special+Elite&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap",
+          },
         },
       ],
       social: [

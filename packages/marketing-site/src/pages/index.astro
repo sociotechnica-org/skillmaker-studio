@@ -5,14 +5,55 @@
 // and in docs/gtm/2026-07-12-pull-driven-sales/site-strategy-2026-07-15.md.
 // Format and layout are ruled; copy awaits a section-by-section hand-rewrite.
 // Round 5 (2026-07-16, director rulings): one cold open only — the old enemy
-// story and pain cave merged into THE LINEUP: the full suspects table for why
-// a skill goes from appearing-to-work to appearing-to-fail, managed to reality
-// (15 suspects, 6 families), each with a "how you'd know today" column whose
-// answers are the cave. Machine reveal: "One machine. The whole lineup."
-// Fan-out reframed (director ruling): not "other days it breaks" but the OTHER
-// JOBS on the same workbench — better/cheaper/faster commissions, voiced as the
-// asks a prompt engineer actually receives, each with the silent "…and don't
-// break it" suffix that makes them measurement problems.
+// story and pain cave merged into THE LINEUP: the suspects for why a skill goes
+// from appearing-to-work to appearing-to-fail, managed to reality and grouped
+// into six scannable families. Machine reveal: "One machine. The whole lineup."
+// Hand-rewrite pass (2026-07-16, director): the PULL and the LINEUP re-voiced —
+// pull now names the skill as culprit; the lineup dropped its "how you'd know
+// today" column and the "that's the cave" kicker for a lighter, faster read
+// (suspects are a clean grouped list; kicker lands on "more than one at a time").
+// Round 6 (2026-07-18, director): infomercial arc restored. The page had
+// drifted into reading like an eval suite; re-cut to the model's four beats —
+// pain (you made it; not your fault, still your problem, a slog you might not
+// win) → hard cut to the built world (the LAYER STACK replaces the storyboard)
+// → quick how (bring your most important prompt, not the problem child) →
+// fan-out wonders. New angle: demonstrated evidence — the card travels
+// (org/community), so a break in the wild never reads as "you weren't
+// thorough". Feeling: bend-don't-break, swiftly rebuildable. "Case-closing
+// machine" retired; fixing demoted to one wonder. Cut in this pass (reinstate
+// from git if wanted): the champion sentence + its Claude-models footnote.
+// Round 7 (2026-07-18, director): kicker re-voiced verbatim; the cut beat
+// re-headlined "Embrace Your Inner Maker." The hero beat rebuilt per the Rob
+// Snyder Part-3 grammar ("Watch: just secure the clip and switch it on") —
+// heavy visual, low exposition: pull up the rock-solid skill (the card), tell
+// the agent to run down the suspects (a terminal exchange), win. The 01-03
+// steps grid and the razor/travel paragraphs were compressed to single lines.
+// Round 8 (2026-07-18, director): three panels collapsed to the ruled two-beat
+// supply. Beat A = V3 ("case file, not a mystery") + the terminal, re-scripted
+// so the READER is the hero — the AI investigates and administrates, they
+// judge and craft the clinching eval. Strictly reactive: no telemetry, nothing
+// caught in advance. Beat B = "Embrace Your Inner Maker." + the layer stack
+// (mechanism named, not explained). The card moved to the fan-out as the
+// evidence-that-travels prop. "Weird Tuesday" purged site-wide.
+// Round 9 (2026-07-18, director): the terminal exchange retired (in git) —
+// Beat A's visual is now the card itself: "Meet the case file." shows the
+// case file. Not the solution in action, but the world where it's handled.
+// The fan-out keeps the travels kicker as text; the image lives up top only.
+// Round 11 (2026-07-18, director): fan-out rebuilt as OFFENSE — Rob's beat is
+// a torrent of other instances, so three doors that each contain a multitude:
+// the whole repo (bulk adopt), the growth program (better/cheaper/provable),
+// the open door (receiving dock: testimony until re-proven; ships with the
+// case file). Six ask/answer tiles + standalone travels kicker retired to git.
+// Amended same day: defense/offense sub deleted (defense framing again);
+// door 3 re-ruled as the RECEIVING DOCK — a checkpoint, not an open door:
+// arrivals re-verified, screened for malice, field lessons become tests.
+// Also: Ship cell gets the accent border; "bend instead of break" cut from
+// Beat B (honesty ruling: they DO break — that's the point; they rebuild).
+// Round 10 (2026-07-18, director): Beat B's visual is now the BUILD FLOW —
+// the chronological make pipeline (Frame → Research → Draft → Proof →
+// Measure → gate → Ship) from the data model / Authority→Evidence explainer,
+// shown as an assembly line with the gate as a visible checkpoint. The layer
+// stack retired to git. Minimal words: stage + artifact, one solidity line.
 // Copy rationale: docs/gtm/2026-07-12-pull-driven-sales/voc-language-research-2026-07-16.md
 //                 docs/gtm/2026-07-12-pull-driven-sales/competitor-landscape-2026-07-16.md
 import Footer from "../components/Footer.astro";
@@ -28,92 +69,61 @@ const installLines = [
 
 const title = "Skillmaker Studio — Your agent did something weird again.";
 const description =
-  "Skills drift in a world that never stops changing them. Skillmaker Studio turns drift into a number, blame into a lookup, and breakage into a fix — receipts on every skill.";
+  "You made a skill and the world keeps changing under it. Skillmaker Studio builds skills in layers — research, design, proof, history — so they bend instead of break, rebuild fast, and carry their evidence wherever they go.";
 
-const lineup = [
-  {
-    family: "the world changed",
-    suspects: [
-      { s: "The model changed.", today: "You find out when it breaks." },
-      { s: "The model got quietly tuned. Or nerfed.", today: "Vibes and a Reddit thread." },
-      { s: "It ran on a model it was never rated for.", today: "Nobody checks." },
-      { s: "The agent runtime updated.", today: "Page 40 of a changelog." },
-    ],
-  },
-  {
-    family: "its neighborhood changed",
-    suspects: [
-      { s: "The skill that feeds it changed its handoff.", today: "You wouldn't know." },
-      { s: "The skill it hands off to wants something new.", today: "Blame lands on the wrong skill." },
-      { s: "The general prompt shifted around it.", today: "Who'd tell you?" },
-      { s: "New skills are crowding the context.", today: "Invisible." },
-    ],
-  },
-  {
-    family: "someone changed it",
-    suspects: [
-      { s: "A teammate “improved” it. Same name.", today: "You find out in the incident." },
-      { s: "It forked. You're reading the wrong copy.", today: "They look identical." },
-    ],
-  },
-  {
-    family: "it was never right",
-    suspects: [
-      { s: "Wrong process from day one.", today: "Runs clean. Fails quietly." },
-      { s: "Too broad, too narrow, or too long.", today: "It half-fires. Silently." },
-      { s: "The vibe check flattered it.", today: "There was never a baseline." },
-    ],
-  },
-  {
-    family: "the job changed",
-    suspects: [
-      { s: "You started asking for things at the edge of its scope.", today: "Feels like the skill's fault." },
-    ],
-  },
-  {
-    family: "nothing happened at all",
-    suspects: [
-      { s: "A 1-in-1,000 fluke, caught in the spotlight.", today: "Indistinguishable from everything above." },
-    ],
-  },
+// The suspects, flattened to a scannable checklist (categories dropped per
+// director ruling: an index card reads faster than six labeled groups).
+const suspects = [
+  "The model changed under it.",
+  "The model got quietly nerfed.",
+  "It ran on a model it was never rated for.",
+  "The agent runtime updated.",
+  "A skill up- or downstream changed its handoff.",
+  "The general prompt shifted around it.",
+  "New skills crowded out its context.",
+  "A teammate “improved” it — or you forked it.",
+  "It was never sharp: too vague, too broad, too long.",
+  "Nothing. A 1-in-1,000 fluke.",
 ];
 
-const story = [
+// The build flow — the make pipeline as an assembly line, stage names from
+// the data model (Frame → Research → Draft → Proof → Measure → gate → Ship).
+// Each caption is only the artifact the stage leaves behind.
+const flow = [
   {
-    shot: "01",
-    frame: "$ skillmaker adopt",
-    caption:
-      "That skill everyone quietly distrusts? Bring it into the studio first. Nothing moves — it becomes measurable right where it lives.",
+    num: "01",
+    name: "Frame",
+    desc: "The job, the boundaries, what counts as done.",
   },
   {
-    shot: "02",
-    frame: "what does “good” mean?",
-    caption:
-      "You and the agent write down what it's actually supposed to do — evals in plain English. For most skills, this is the first time it's ever been written down.",
+    num: "02",
+    name: "Research",
+    desc: "Evidence in; failure modes named.",
   },
   {
-    shot: "03",
-    frame: "$ skillmaker run",
-    caption:
-      "The first honest number. Lower than the vibe check promised — and the first time you can see the flake instead of just feeling it.",
+    num: "03",
+    name: "Draft",
+    desc: "A design with reasons — the design writes the SKILL.md.",
   },
   {
-    shot: "04",
-    frame: "the operating table",
-    caption:
-      "Trail each failure back to the choice that caused it. Fix the process, not just the prompt.",
+    num: "04",
+    name: "Proof",
+    desc: "What “good” means, as tests anyone can run.",
   },
   {
-    shot: "05",
-    frame: "green, with a receipt",
-    caption:
-      "Re-measure. The number climbs, pinned to the exact version and model that earned it. The problem child has a report card.",
+    num: "05",
+    name: "Measure",
+    desc: "Pass rate × confidence, pinned to version × model.",
   },
   {
-    shot: "06",
-    frame: "now the rest of them",
-    caption:
-      "Adopt the whole repo. Every skill gets the same treatment; every new skill is born this way. Next time a model changes under you, the board tells you — not a customer.",
+    gate: true,
+    name: "Gate",
+    desc: "The numbers hold, or it doesn't ship.",
+  },
+  {
+    num: "06",
+    name: "Ship",
+    desc: "Receipts frozen; everyone downstream flagged.",
   },
 ];
 
@@ -137,44 +147,39 @@ const wild = [
   },
 ];
 
-const asks = [
+// The fan-out — three doors into the offense, each holding a multitude
+// (Rob's beat is a torrent of other instances). VoC quote as the title,
+// industry terms in the body.
+const doors = [
   {
-    family: "quality",
-    pings: [
-      "“Can we get the pass rate up — without regressing what already passes?”",
-      "“Use it as the base for the gnarlier version.”",
-      "“New model dropped. Half these instructions are probably obsolete.”",
-      "“‘Trust me’ won't pass review. Where are the evals?”",
-    ],
+    label: "the whole repo",
+    quote: "“Do this for all 89.”",
+    body: "Bulk-adopt the company repo in place — zero files moved. Every skill gets the same foundation and its own case file, and the whole portfolio lands on one board: gaps visible, receipts attached, dead weight obvious.",
   },
   {
-    family: "cost",
-    pings: [
-      "“Same output, half the tokens.”",
-      "“Does it really need the big model?”",
-      "“Does this really need 17 steps?”",
-      "“Which of these 89 skills are dead weight?”",
-      "“Can we stop human-reviewing every output?”",
-    ],
+    label: "the growth program",
+    quote: "“Same output, half the tokens.”",
+    body: "Every skill carries its own improvement loop. Fork it to a cheaper model and race it on the same fixtures. Tighten it and prove nothing regressed. New model drops? Re-run the proof and cash it in the same week.",
+  },
+  {
+    label: "the receiving dock",
+    quote: "“Who knows where it's been.”",
+    body: "Nothing walks straight in. Every arriving skill — a teammate's fork, a community find, your own back from the wild — hits the dock first: re-verified against its proof, screened for anything malicious, its field lessons folded back in as new tests.",
   },
 ];
 
 const objections = [
   {
+    q: "“Isn't this just an eval suite?”",
+    a: "Eval suites point at your outputs and hand back a number — they never hold your skill. Skillmaker does: design, proof, versions, receipts, lineage — one git-native bundle that ships with its evidence. Scoring is one thing it does, not the thing it is.",
+  },
+  {
+    q: "“Isn't this slower than just shipping it?”",
+    a: "Up front? Yes — writing down what good means takes real time. But you pay the hours either way: once here, on purpose, with a receipt — or every incident, in the dark.",
+  },
+  {
     q: "“Do we have to restructure our repo?”",
     a: "No. adopt works in place — 59/60 and 39/39 skills adopted cleanly on real public repos. Zero files moved.",
-  },
-  {
-    q: "“I'm not an evals person.”",
-    a: "You don't need to be. If your current process is a vibe check, that's a real start — our agents help you write it down in plain English and make it repeatable. You judge; they build.",
-  },
-  {
-    q: "“Isn't git + CI enough?”",
-    a: "Git shows that the file changed. It can't show whether behavior changed, on which model, or why. Receipts live next to the skill in your repo — git-native — but they carry the number git can't.",
-  },
-  {
-    q: "“Won't the numbers flatter you?”",
-    a: "They refuse to. Three runs reads “below smoke” on our own case study — even when the percentage looks great.",
   },
   {
     q: "“Where does my data go?”",
@@ -185,8 +190,8 @@ const objections = [
     a: "Your receipts are plain files in your git history. If we vanished tomorrow, your evidence wouldn't. No account, no cloud, nothing to sunset.",
   },
   {
-    q: "“Isn't this slower than just shipping it?”",
-    a: "Up front? Yes. Writing down what good means takes real time — the vibe check is faster, right up until the weird Tuesday. You pay the hours either way: once here, on purpose, with a receipt. Or every incident, in the dark.",
+    q: "“I'm not an evals person.”",
+    a: "You don't need to be. If your current process is a vibe check, that's a real start — our agents help you write it down in plain English and make it repeatable. You judge; they build.",
   },
 ];
 ---
@@ -215,109 +220,163 @@ const objections = [
     <main>
       <!-- THE PULL — the only cold open -->
       <section class="mx-auto max-w-5xl px-6 pb-14 pt-16 sm:pt-24">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the pull</p>
         <h1 class="max-w-3xl text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl">
           Your agent did something weird again.
         </h1>
         <p class="mt-6 max-w-2xl text-lg leading-relaxed text-ink-dim">
-          No crash. No error. Nothing your dashboards will catch — just
-          <em>confidently wrong</em>, in front of someone who matters. And you
-          can&#39;t say why, which version did it, or what changed.
+          No crash. No error on a dashboard. Just <em>confidently wrong</em>, in
+          front of someone who matters. A skill you made is to blame. And you
+          can&#39;t say for sure why.
         </p>
       </section>
 
-      <!-- THE LINEUP — enemy + cave, merged: the suspects table -->
-      <section class="border-y border-border bg-surface">
+      <!-- THE LINEUP — the suspects as an old-school index-card checklist -->
+      <section class="border-y border-border bg-canvas">
         <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the enemy</p>
           <h2 class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
             Meet the suspects.
           </h2>
+
+          <div class="mt-8 max-w-3xl">
+            <div
+              class="rounded-md border border-ink/40 bg-surface px-6 pb-4 pt-4 sm:px-8"
+              style="box-shadow: 5px 5px 0 var(--color-paper-dark); transform: rotate(-0.5deg);"
+            >
+              <div class="flex items-baseline justify-between border-b-2 pb-2" style="border-color: #c15c3f;">
+                <span class="font-mono text-xs uppercase tracking-widest text-ink-dim">Root cause</span>
+                <span class="font-mono text-[10px] uppercase tracking-widest text-ink-dim">check all that apply</span>
+              </div>
+              <div class="grid gap-x-10 sm:grid-cols-2">
+                <ul>
+                  {suspects.slice(0, 5).map((s) => (
+                    <li class="flex items-start gap-3 border-b border-border py-2.5">
+                      <span class="mt-0.5 inline-block h-4 w-4 shrink-0 rounded-sm border border-ink/50 bg-canvas"></span>
+                      <span class="text-[15px] leading-snug text-ink">{s}</span>
+                    </li>
+                  ))}
+                </ul>
+                <ul>
+                  {suspects.slice(5).map((s) => (
+                    <li class="flex items-start gap-3 border-b border-border py-2.5">
+                      <span class="mt-0.5 inline-block h-4 w-4 shrink-0 rounded-sm border border-ink/50 bg-canvas"></span>
+                      <span class="text-[15px] leading-snug text-ink">{s}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <p class="mt-10 max-w-3xl font-medium leading-relaxed text-ink">
+            Probably not your fault. Entirely your problem. And running it down
+            means a long slog that can still end at &ldquo;not sure.&rdquo;
+          </p>
+        </div>
+      </section>
+
+      <!-- BEAT A — supply that fits PULL (V3, director-ruled): the case file,
+           not the mystery. The reader is the hero: the AI investigates and
+           administrates; they judge and craft the clinching eval. Strictly
+           reactive — no telemetry, nothing "caught in advance". -->
+      <section class="border-y border-border bg-surface">
+        <div class="mx-auto max-w-5xl px-6 py-14">
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            Meet the case file.
+          </h2>
           <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
-            So you go to find out what happened. The lineup is long.
+            A skill made in Skillmaker never hands you a mystery — it hands you
+            a case file: every suspect checked, evidence attached, likeliest
+            first. You supply the judgment — the call, the clinching eval —
+            and the Studio runs everything else, receipts included.
           </p>
 
           <div class="mt-8 max-w-3xl">
-            <div class="flex items-baseline justify-between gap-4 border-b-2 border-border pb-2">
-              <span class="font-mono text-xs uppercase tracking-widest text-ink-dim">suspect</span>
-              <span class="font-mono text-xs uppercase tracking-widest text-ink-dim">how you&#39;d know today</span>
-            </div>
+            <img
+              src="/skill-card.png"
+              width="2012"
+              height="1542"
+              loading="lazy"
+              decoding="async"
+              alt="A Skillmaker skill card for william-draft-skill-md — a dossier with a risk heat map across the world, its neighborhood, the job, the people, the skill, and luck; 92% pass on Opus, in sync at v0.3, output flagged as the untested blind spot."
+              class="w-full"
+            />
+          </div>
+        </div>
+      </section>
+
+      <!-- BEAT B — the strong supply follow-up: the build system itself
+           (Rob's Part-4 mechanism — named, not explained). -->
+      <section class="border-y border-border bg-canvas">
+        <div class="mx-auto max-w-5xl px-6 py-14">
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            Embrace Your Inner Maker.
+          </h2>
+          <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
+            Skillmaker Studio is a build system for skills: research, design,
+            and proof under every prompt, versioned in your git. Skills built
+            this way rebuild in hours when the world moves.
+          </p>
+
+          <div class="mt-8 grid max-w-3xl gap-4 sm:grid-cols-2">
             {
-              lineup.map((group) => (
-                <div class="mt-6">
-                  <p class="font-mono text-xs uppercase tracking-widest text-accent">{group.family}</p>
-                  <ul>
-                    {group.suspects.map((item) => (
-                      <li class="flex items-baseline justify-between gap-6 border-b border-border py-2.5">
-                        <span class="font-medium text-ink">{item.s}</span>
-                        <span class="shrink-0 text-right font-mono text-xs text-ink-dim">{item.today}</span>
-                      </li>
-                    ))}
-                  </ul>
+              flow.map((f) => (
+                <div
+                  class={
+                    f.name === "Ship"
+                      ? "rounded-md border-2 border-accent bg-surface px-6 py-6 sm:col-span-2"
+                      : f.gate
+                        ? "rounded-md border-2 border-dashed border-accent-dim bg-canvas px-5 py-4"
+                        : "rounded-md border border-ink/40 bg-surface px-5 py-4"
+                  }
+                >
+                  {f.num ? (
+                    <span class="font-mono text-[10px] text-accent">{f.num}</span>
+                  ) : (
+                    <span class="font-mono text-[10px] uppercase tracking-widest text-accent-dim">■</span>
+                  )}
+                  <p class="mt-1 font-mono text-sm uppercase tracking-wide text-ink">{f.name}</p>
+                  <p class="mt-2 text-xs leading-relaxed text-ink-dim">{f.desc}</p>
                 </div>
               ))
             }
           </div>
 
           <p class="mt-8 max-w-3xl font-medium leading-relaxed text-ink">
-            All real. Usually several at once. Each wants a different fix — patch
-            a fluke and you injure a healthy skill. And nothing you have can tell
-            you which one you&#39;re looking at. That&#39;s the cave.
+            Every stage leaves its artifact in your git. When the world moves,
+            you don&#39;t start at zero — you re-enter at the stage that
+            slipped.
           </p>
         </div>
       </section>
 
-      <!-- THE MACHINE -->
-      <section class="mx-auto max-w-5xl px-6 py-14">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the machine</p>
-        <h2 class="max-w-3xl text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-3xl">
-          Skillmaker Studio is the machine that keeps up.
-        </h2>
-        <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-dim">
-          The skill is the part of your agent you can actually operate on —
-          and the studio is where your skills live with receipts: what each
-          one passed, on which version, on which model, re-checked when the
-          world moves, like a canary that never sleeps. Drift becomes a
-          number. Blame becomes a lookup. Breakage becomes a work order.
-          Model changes under you? Re-run the receipts and know what survived
-          by lunch.
-        </p>
-        <p class="mt-4 max-w-2xl font-medium leading-relaxed text-ink">
-          One machine. The whole lineup.
-        </p>
-      </section>
-
-      <!-- WATCH IT HAPPEN — the storyboard IS the demo -->
+      <!-- THE FAN-OUT — but wait, there's more: the asks in your DMs,
+           answered from inside the built world. -->
       <section class="border-y border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">watch it happen</p>
           <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-            Bring the problem child in first.
+            And that&#39;s just the first skill.
           </h2>
-          <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
-            You have one — the skill everyone works around. Ours was a 17-step
-            monster tracked across four tabs, an eval bench, and a spreadsheet
-            before we built the studio. Here&#39;s its week inside, and what
-            happens after.
-          </p>
-
-          <ol class="mt-8 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+          <div class="mt-8 grid gap-6 lg:grid-cols-3">
             {
-              story.map((s) => (
-                <li class="bg-canvas p-6">
-                  <span class="font-mono text-xs text-accent">{s.shot}</span>
-                  <p class="mt-2 font-mono text-base text-ink">{s.frame}</p>
-                  <p class="mt-3 text-sm leading-relaxed text-ink-dim">{s.caption}</p>
-                </li>
+              doors.map((d) => (
+                <div class="rounded-lg border border-border bg-canvas p-6">
+                  <p class="font-mono text-xs uppercase tracking-widest text-accent">{d.label}</p>
+                  <p class="mt-3 font-semibold text-ink">{d.quote}</p>
+                  <p class="mt-3 text-sm leading-relaxed text-ink-dim">{d.body}</p>
+                </div>
               ))
             }
-          </ol>
+          </div>
+          <p class="mt-8 max-w-3xl font-medium leading-relaxed text-ink">
+            Every ask still carries the silent suffix: “…and don&#39;t break
+            it.” Here that isn&#39;t a promise on vibes — it&#39;s the proof,
+            re-run.
+          </p>
         </div>
       </section>
 
       <!-- THE SECRET -->
       <section class="mx-auto max-w-5xl px-6 py-14">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the secret</p>
         <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
           The secret is the trail.
         </h2>
@@ -337,7 +396,6 @@ const objections = [
       <!-- THE WILD — verified public quotes -->
       <section class="border-y border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the wild</p>
           <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
             You&#39;ve already said it.
           </h2>
@@ -359,48 +417,16 @@ const objections = [
               ))
             }
           </div>
-          <p class="mt-6 font-mono text-xs text-ink-dim">
-            Verbatim, from public threads. Links included — receipts, even here.
-          </p>
         </div>
-      </section>
-
-      <!-- THE FAN-OUT — the other jobs on the same workbench -->
-      <section class="mx-auto max-w-5xl px-6 py-14">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the other asks</p>
-        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-          Quality. Cost.
-        </h2>
-        <p class="mt-4 max-w-2xl leading-relaxed text-ink-dim">
-          When nothing&#39;s broken, this is what lands in your DMs instead.
-        </p>
-        <div class="mt-8 max-w-3xl space-y-6">
-          {
-            asks.map((group) => (
-              <div>
-                <p class="font-mono text-xs uppercase tracking-widest text-accent">{group.family}</p>
-                <div class="mt-3 flex flex-wrap gap-3">
-                  {group.pings.map((ping) => (
-                    <span class="rounded-full border border-border bg-surface px-4 py-2 text-sm text-ink">
-                      {ping}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))
-          }
-        </div>
-        <p class="mt-8 max-w-3xl font-medium leading-relaxed text-ink">
-          Every ask carries the same silent suffix: “…and don&#39;t break it.”
-          You can&#39;t promise that on vibes. Same machine.
-        </p>
       </section>
 
       <!-- OBJECTIONS -->
       <section class="border-y border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-14">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">you&#39;re already objecting. good.</p>
-          <div class="grid gap-6 sm:grid-cols-2">
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            Our Favorite Objections.
+          </h2>
+          <div class="mt-8 grid gap-6 sm:grid-cols-2">
             {
               objections.map((o) => (
                 <div class="rounded-lg border border-border bg-canvas p-6">
@@ -416,8 +442,7 @@ const objections = [
       <!-- ACT -->
       <section class="border-t border-border bg-surface">
         <div class="mx-auto max-w-5xl px-6 py-16">
-          <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">the next ninety seconds</p>
-          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Find out first.</h2>
+          <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Find out fast.</h2>
 
           <div class="mt-8 max-w-3xl rounded-lg border border-border bg-canvas shadow-2xl shadow-black/40">
             <div class="flex items-center justify-between border-b border-border px-4 py-3">

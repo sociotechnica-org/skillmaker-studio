@@ -1,0 +1,328 @@
+---
+// The skill card, WIDE — for embedding in the marketing page as the "show, don't
+// tell" artifact. Ported from the /card portrait mockup to a landscape layout
+// that fits the page's width: the risk heat map runs as COLUMNS (the homepage
+// lineup, across), not rows. Manila folder tabs, paperclip, sticky note kept.
+// Data real where the repo has it (william-draft-skill-md); run counts, model
+// splits, corpus, and heat levels are illustrative. Copy still on the fat side —
+// word-diet is a later pass.
+const HCLS: Record<string, string> = { "0": "heat0", "2": "heat2", "3": "heat3", "-1": "heatx" };
+
+const skill = {
+  slug: "william-draft-skill-md",
+  oneLiner: "Drafts output/SKILL.md from a bundle's design.md.",
+  tags: ["meta", "stations"],
+  status: "published",
+  version: "v0.3",
+};
+const glanceHeat = [3, 2, 2, 0, 3, 2];
+const heatMap = [
+  { cat: "The world", note: "1 of 3 models proven", cells: [
+    { label: "Opus ✓", heat: 0 }, { label: "Sonnet", heat: 3 }, { label: "Haiku", heat: 3 },
+  ] },
+  { cat: "Neighborhood", note: "handoffs not re-checked", cells: [
+    { label: "upstream", heat: 2 }, { label: "downstream", heat: 2 }, { label: "context", heat: 2 },
+  ] },
+  { cat: "The job", note: "usage not monitored", cells: [
+    { label: "scope", heat: 2 },
+  ] },
+  { cat: "The people", note: "fully accounted for", cells: [
+    { label: "reviews", heat: 0 }, { label: "versions", heat: 0 }, { label: "forks", heat: 0 },
+  ] },
+  { cat: "The skill", note: "output is the blind spot", cells: [
+    { label: "Input", heat: 0 }, { label: "Reasoning", heat: 2 }, { label: "Output", heat: 3 }, { label: "Adversarial", heat: 0 }, { label: "Chain", heat: -1 },
+  ] },
+  { cat: "Pure luck", note: "2 fixtures below floor", cells: [
+    { label: "reps · n", heat: 2 },
+  ] },
+];
+const pipeline = {
+  upstream: { skill: "william-research-a-skill", hands: "design.md + research/" },
+  self: "reads design.md → writes output/SKILL.md",
+  downstream: { skill: "evaluating → dist/skills", hands: "output/SKILL.md" },
+};
+const facts = [
+  ["Runtime", "claude-code (ACP)"],
+  ["Ships to", "dist/skills · marketplace"],
+  ["Created", "2026-07-11"],
+  ["Fixtures", "4 · golden/trigger/…"],
+];
+const models = [
+  { name: "Opus 4.8", tested: true, reps: "12", pass: "92% [78–98%]", latency: "36s", cost: "1.0×" },
+  { name: "Sonnet 5", tested: false, cost: "≈0.2×" },
+  { name: "Haiku 4.5", tested: false, cost: "≈0.08×" },
+];
+const dossier = [
+  ["Job", "Turn an approved design.md into a shippable SKILL.md — without inventing scope."],
+  ["Out of scope", "Writing design.md; touching research/ or evals/."],
+  ["Fit criterion", "Keeps every design.md constraint; declines when design.md is empty."],
+];
+const corpus = [
+  ["design.md", "the reasoning — why it's shaped this way"],
+  ["failure hypotheses ×5", "the known ways drafting goes wrong"],
+  ["SKILL.md conventions", "prior art the draft is held to"],
+  ["proof spec", "the fixture each hypothesis must pass"],
+];
+const provenance = [
+  ["Created", "Jess Martin · 2026-07-11"],
+  ["Last change", "Jess Martin · 2026-07-12"],
+  ["Versions", "v0.1 → v0.2 → v0.3 (HEAD)"],
+  ["Reviews", "2 approved · human-gated"],
+];
+const family = [
+  { mark: "—", name: "origin", note: "(not forked from anything)", kind: "root" },
+  { mark: "●", name: "william-draft-skill-md", note: "this skill · v0.3", kind: "self" },
+  { mark: "└─", name: "william-draft-skill-md-haiku", note: "fork · cheaper model · awaiting first run", kind: "fork" },
+];
+const growth = [
+  { group: "Make it cheaper", plays: [
+    { t: "Split-test on Haiku 4.5", d: "Head-to-head vs Opus. ~12× cheaper.", cta: "fork & run" },
+    { t: "Token diet", d: "Trim the reference material — re-measure.", cta: "open" },
+    { t: "Drop the big model", d: "If Sonnet clears the bar, stop paying for Opus.", cta: "compare" },
+  ] },
+  { group: "Prove it deeper", plays: [
+    { t: "Close 3 gaps", d: "RE-1, OUT-1, OUT-2 have no fixture.", cta: "author" },
+    { t: "Clear below-smoke", d: "Add reps to tighten the interval.", cta: "queue" },
+    { t: "Add an adversarial case", d: "Raise the floor on what burned you.", cta: "add" },
+  ] },
+  { group: "Innovate", plays: [
+    { t: "Fork upward", d: "Base for a gnarlier drafting skill.", cta: "fork" },
+    { t: "Cash in a new model", d: "Exploit the next drop, don't just survive it.", cta: "test" },
+    { t: "Specialize it", d: "A variant for a domain or customer.", cta: "fork" },
+  ] },
+];
+
+const tabs = ["Risk", "Overview", "Models", "Research", "Lineage", "Growth"];
+---
+
+<article class="skillcard relative w-full rounded-lg border-2 border-ink bg-surface" style="box-shadow: 8px 8px 0 var(--color-paper-dark);">
+  <!-- paperclip -->
+  <svg viewBox="0 0 24 60" width="20" height="50" class="absolute -top-3 left-10 z-20 rotate-6" aria-hidden="true">
+    <path d="M8 12 C8 5 16 5 16 12 L16 42 C16 51 5 51 5 42 L5 16 C5 11 12 11 12 16 L12 38" fill="none" stroke="#9a9483" stroke-width="2.4" stroke-linecap="round" />
+  </svg>
+
+  <div class="h-2 overflow-hidden rounded-t-md bg-amber-device"></div>
+
+  <!-- HEADER: identity + glance, wide -->
+  <div class="px-6 pt-5 sm:px-8">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="min-w-0">
+        <p class="sec">skill dossier</p>
+        <p class="mt-1 break-words font-mono text-2xl leading-tight text-ink">{skill.slug}</p>
+        <p class="mt-1.5 text-sm leading-snug text-ink-dim">{skill.oneLiner}</p>
+        <div class="mt-2.5 flex flex-wrap gap-1.5">
+          {skill.tags.map((t) => (
+            <span class="rounded-full border border-border bg-canvas px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ink-dim">{t}</span>
+          ))}
+        </div>
+      </div>
+      <div class="flex shrink-0 flex-col items-end gap-2">
+        <span class="skillmaker-logo h-5 w-[59px]" role="img" aria-label="Skillmaker Studio"></span>
+        <span class="rounded-full border border-ink/30 bg-canvas px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ink">{skill.status} · {skill.version}</span>
+      </div>
+    </div>
+
+    <!-- glance bar -->
+    <div class="mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-border bg-border">
+      <div class="bg-surface px-3 py-2.5">
+        <p class="klabel">Risk</p>
+        <div class="mt-1.5 flex gap-1">{glanceHeat.map((h) => (<span class={`hmini ${HCLS[String(h)]}`}></span>))}</div>
+        <p class="mt-1.5 font-mono text-[10px] text-ink-dim">2 hot · look inside</p>
+      </div>
+      <div class="bg-surface px-3 py-2.5">
+        <p class="klabel">Pass rate</p>
+        <p class="mt-0.5 font-mono text-lg leading-none text-ink">92%</p>
+        <p class="font-mono text-[10px] text-ink-dim">on Opus</p>
+      </div>
+      <div class="bg-surface px-3 py-2.5">
+        <p class="klabel">Drift</p>
+        <p class="mt-0.5 font-mono text-lg leading-none text-ink">in sync</p>
+        <p class="font-mono text-[10px] text-ink-dim">at v0.3</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOLDER: tabs + wide page -->
+  <div class="px-5 pb-5 pt-4 sm:px-7">
+    <div class="relative z-10 flex flex-wrap items-end gap-1 pl-2">
+      {tabs.map((t, i) => (<button type="button" data-tab={t} class={`ftab ${i === 0 ? "ftab-active" : ""}`}>{t}</button>))}
+    </div>
+
+    <div class="folder-page px-6 py-5 sm:px-7" style="min-height: 260px;">
+      <!-- RISK (default) — the lineup as columns -->
+      <div data-panel="Risk">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p class="sec">risk heat map</p>
+            <p class="mt-1 max-w-md text-[13px] leading-snug text-ink">Every way this skill can go wrong — lit by how little we've tested it. Start at the hottest.</p>
+          </div>
+          <div class="sticky shrink-0 rounded-sm px-3 py-2">
+            <p class="font-mono text-[9px] uppercase tracking-widest">Look here first</p>
+            <p class="mt-0.5 font-mono text-[13px] font-bold leading-tight">Output handling</p>
+            <p class="font-mono text-[9px]">untested · no fixture</p>
+          </div>
+        </div>
+        <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {heatMap.map((g) => (
+            <div class="flex flex-col gap-1.5">
+              <p class="klabel">{g.cat}</p>
+              <div class="flex flex-col gap-1.5">
+                {g.cells.map((c) => (<span class={`hcell ${HCLS[String(c.heat)]}`}>{c.label}</span>))}
+              </div>
+              <p class="text-[10px] leading-tight text-ink-dim">{g.note}</p>
+            </div>
+          ))}
+        </div>
+        <div class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+          <span class="flex items-center gap-1.5"><span class="hmini heat0"></span> proven</span>
+          <span class="flex items-center gap-1.5"><span class="hmini heat2"></span> thin / unverified</span>
+          <span class="flex items-center gap-1.5"><span class="hmini heat3"></span> untested</span>
+          <span class="flex items-center gap-1.5"><span class="hmini heatx"></span> unmapped</span>
+          <span class="ml-auto normal-case tracking-normal">the homepage lineup — measured. cool is proven; hot is where you haven't looked.</span>
+        </div>
+      </div>
+
+      <!-- OVERVIEW -->
+      <div data-panel="Overview" class="hidden">
+        <p class="sec">pipeline · what it depends on and feeds</p>
+        <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div class="rounded-md border border-border bg-canvas p-3">
+            <p class="klabel">upstream</p>
+            <p class="mt-1 font-mono text-[13px] text-ink">{pipeline.upstream.skill}</p>
+            <p class="mt-1 text-[11px] text-ink-dim">→ {pipeline.upstream.hands}</p>
+          </div>
+          <div class="rounded-md border border-accent bg-canvas p-3">
+            <p class="klabel text-accent">this skill</p>
+            <p class="mt-1 text-[13px] text-ink">{pipeline.self}</p>
+          </div>
+          <div class="rounded-md border border-border bg-canvas p-3">
+            <p class="klabel">downstream</p>
+            <p class="mt-1 font-mono text-[13px] text-ink">{pipeline.downstream.skill}</p>
+            <p class="mt-1 text-[11px] text-ink-dim">← {pipeline.downstream.hands}</p>
+          </div>
+        </div>
+        <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-4 sm:grid-cols-4">
+          {facts.map(([k, v]) => (<div><dt class="klabel">{k}</dt><dd class="mt-0.5 text-[13px] text-ink">{v}</dd></div>))}
+        </dl>
+      </div>
+
+      <!-- MODELS -->
+      <div data-panel="Models" class="hidden">
+        <div class="flex items-center justify-between">
+          <p class="sec">model performance</p>
+          <p class="font-mono text-[10px] text-ink-dim">runtime: claude-code</p>
+        </div>
+        <table class="mt-3 w-full text-left text-[13px]">
+          <thead>
+            <tr class="klabel"><th class="pb-1 pr-2 font-normal">Model</th><th class="pb-1 pr-2 font-normal">Reps</th><th class="pb-1 pr-2 font-normal">Pass</th><th class="pb-1 pr-2 font-normal">Latency</th><th class="pb-1 pr-2 font-normal">Cost</th><th class="pb-1 font-normal"></th></tr>
+          </thead>
+          <tbody>
+            {models.map((m) => (
+              <tr class="border-t border-border">
+                <td class="py-2 pr-2 font-mono text-ink">{m.name}{m.tested ? " ✓" : ""}</td>
+                {m.tested ? (
+                  <><td class="py-2 pr-2 text-ink">{m.reps}</td><td class="py-2 pr-2 text-ink">{m.pass}</td><td class="py-2 pr-2 text-ink">{m.latency}</td><td class="py-2 pr-2 text-ink">{m.cost}</td><td class="py-2 font-mono text-[10px] text-ink-dim">proven</td></>
+                ) : (
+                  <><td class="py-2 pr-2 text-ink-dim">—</td><td class="py-2 pr-2 text-ink-dim">not run</td><td class="py-2 pr-2 text-ink-dim">—</td><td class="py-2 pr-2 text-ink">{m.cost}</td><td class="py-2"><span class="chip">▸ run 4</span></td></>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- RESEARCH -->
+      <div data-panel="Research" class="hidden grid gap-6 sm:grid-cols-2">
+        <div>
+          <p class="sec">basis · what it was built from</p>
+          <dl class="mt-3 flex flex-col gap-2">
+            {dossier.map(([k, v]) => (<div><dt class="klabel">{k}</dt><dd class="mt-0.5 text-[13px] leading-snug text-ink">{v}</dd></div>))}
+          </dl>
+        </div>
+        <div>
+          <p class="sec">research corpus</p>
+          <ul class="mt-3 flex flex-col gap-1.5">
+            {corpus.map(([name, note]) => (<li class="flex items-baseline gap-2 text-[13px]"><span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent"></span><span><span class="font-mono text-ink">{name}</span> <span class="text-ink-dim">— {note}</span></span></li>))}
+          </ul>
+        </div>
+      </div>
+
+      <!-- LINEAGE -->
+      <div data-panel="Lineage" class="hidden grid gap-6 sm:grid-cols-2">
+        <div>
+          <p class="sec">chain of custody</p>
+          <dl class="mt-3 flex flex-col gap-1.5">
+            {provenance.map(([k, v]) => (<div class="flex items-baseline gap-3"><dt class="klabel w-24 shrink-0">{k}</dt><dd class="text-[13px] text-ink">{v}</dd></div>))}
+          </dl>
+        </div>
+        <div>
+          <p class="sec">family</p>
+          <div class="mt-3 flex flex-col gap-1">
+            {family.map((n) => (
+              <div class={`flex items-baseline gap-2 ${n.kind === "fork" ? "pl-4" : ""}`}>
+                <span class={`font-mono text-sm ${n.kind === "self" ? "text-accent" : "text-ink-dim"}`}>{n.mark}</span>
+                <span class="text-[13px]"><span class={`font-mono ${n.kind === "self" ? "font-semibold text-ink" : "text-ink"}`}>{n.name}</span><span class="text-ink-dim"> · {n.note}</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <!-- GROWTH -->
+      <div data-panel="Growth" class="hidden">
+        <p class="sec">growth &amp; improvement · ways to win more</p>
+        <div class="mt-3 grid gap-5 md:grid-cols-3">
+          {growth.map((g) => (
+            <div>
+              <p class="font-mono text-[11px] uppercase tracking-wider text-accent">{g.group}</p>
+              <ul class="mt-1.5 flex flex-col gap-1.5">
+                {g.plays.map((p) => (
+                  <li class="border-b border-border pb-1.5">
+                    <div class="flex items-start justify-between gap-2"><span class="text-[13px] text-ink">{p.t}</span><span class="chip mt-0.5">{p.cta} ▸</span></div>
+                    <p class="text-[11px] leading-snug text-ink-dim">{p.d}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <p class="mt-4 rounded-md border border-border bg-canvas px-3 py-2.5 text-[12px] leading-snug text-ink">Every play ends the same way: change it, re-run the fixtures, keep the receipt. <span class="text-accent">Win without breaking it.</span></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER MARK -->
+  <div class="flex items-center justify-between gap-3 border-t border-ink/15 bg-paper-dark/40 px-6 py-3 sm:px-8">
+    <span class="skillmaker-logo h-4 w-[47px] opacity-70" role="img" aria-label="Skillmaker Studio"></span>
+    <p class="text-right font-mono text-[10px] text-ink-dim">every figure pinned to a version &amp; model</p>
+  </div>
+</article>
+
+<style>
+  .skillcard .sec { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; color: var(--color-accent); }
+  .skillcard .klabel { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-ink-dim); }
+  .skillcard .chip { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-accent-dim); border: 1px dashed var(--color-accent); border-radius: 6px; padding: 3px 8px; display: inline-block; white-space: nowrap; }
+  .skillcard .ftab { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; padding: 6px 12px; border: 1.5px solid var(--color-border); border-bottom: none; border-radius: 9px 9px 0 0; background: #e7d6b0; color: var(--color-ink-dim); cursor: pointer; }
+  .skillcard .ftab:hover { color: var(--color-ink); }
+  .skillcard .ftab-active { background: var(--color-surface); color: var(--color-ink); border-color: rgba(44, 36, 22, 0.55); padding-top: 9px; padding-bottom: 8px; margin-bottom: -1.5px; position: relative; z-index: 5; }
+  .skillcard .folder-page { background: var(--color-surface); border: 1.5px solid rgba(44, 36, 22, 0.45); border-radius: 0 0 14px 14px; }
+  .skillcard .heat0 { background: #ece3ce; color: var(--color-ink); }
+  .skillcard .heat2 { background: #dca94e; color: #3a2f16; }
+  .skillcard .heat3 { background: #b0561c; color: #fdf6e9; }
+  .skillcard .heatx { background: transparent; border: 1px dashed var(--color-border); color: var(--color-ink-dim); }
+  .skillcard .hcell { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12px; padding: 6px 8px; border-radius: 5px; text-align: center; }
+  .skillcard .hmini { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+  .skillcard .sticky { background: #f4e08a; color: #4a3d12; box-shadow: 3px 3px 0 rgba(44, 36, 22, 0.16); transform: rotate(-1.4deg); }
+</style>
+
+<script is:inline>
+  (() => {
+    const card = document.currentScript ? document.currentScript.previousElementSibling : null;
+    const scope = document;
+    const activate = (target) => {
+      scope.querySelectorAll(".skillcard [data-tab]").forEach((b) => b.classList.toggle("ftab-active", b.getAttribute("data-tab") === target));
+      scope.querySelectorAll(".skillcard [data-panel]").forEach((p) => p.classList.toggle("hidden", p.getAttribute("data-panel") !== target));
+    };
+    scope.querySelectorAll(".skillcard [data-tab]").forEach((btn) => btn.addEventListener("click", () => activate(btn.getAttribute("data-tab"))));
+  })();
+</script>
