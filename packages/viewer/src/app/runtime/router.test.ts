@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { bundleHref, bundleRunHref, labHref, parseRoute, shipBundleHref, trackHref } from "./router.tsx";
+import {
+  bundleFileHref,
+  bundleFixtureHref,
+  bundleHref,
+  bundleRunHref,
+  labHref,
+  parseRoute,
+  shipBundleHref,
+  trackHref,
+} from "./router.tsx";
 
 describe("parseRoute", () => {
   test("canonical Board · Lab · Ship · Receive · Track routes (#72, #109)", () => {
@@ -53,7 +62,62 @@ describe("parseRoute", () => {
       tab: "instructions",
       runId: undefined,
       file: undefined,
+      fixture: undefined,
+      from: undefined,
     });
+  });
+
+  test("?from= carries the card's origin room (round 2); absent/invalid = undefined (= Make), exactly today's direct-URL behavior", () => {
+    expect(parseRoute("/bundles/my-skill", "?from=improve")).toEqual({
+      name: "bundle",
+      slug: "my-skill",
+      tab: "overview",
+      runId: undefined,
+      file: undefined,
+      fixture: undefined,
+      from: "improve",
+    });
+    for (const origin of ["track", "ship", "receive"] as const) {
+      const route = parseRoute("/bundles/my-skill", `?from=${origin}`);
+      expect(route.name === "bundle" && route.from).toBe(origin);
+    }
+    expect(parseRoute("/bundles/my-skill", "?from=bogus")).toEqual(parseRoute("/bundles/my-skill", ""));
+    const bare = parseRoute("/bundles/my-skill", "");
+    expect(bare.name === "bundle" && bare.from).toBeUndefined();
+  });
+
+  test("bundleHref threads ?from= and drops it entirely when absent (old URLs stay byte-identical)", () => {
+    expect(bundleHref("my-skill")).toBe("/bundles/my-skill");
+    expect(bundleHref("my-skill", "overview", "improve")).toBe("/bundles/my-skill?from=improve");
+    // Preservation across tab switches: the same `from` rides every tab href.
+    expect(bundleHref("my-skill", "models", "improve")).toBe("/bundles/my-skill/models?from=improve");
+    const [pathname, search] = bundleHref("my-skill", "models", "improve").split("?");
+    const route = parseRoute(pathname ?? "", `?${search}`);
+    expect(route.name === "bundle" && route.tab).toBe("models");
+    expect(route.name === "bundle" && route.from).toBe("improve");
+  });
+
+  test("?fixture= (Coverage's cross-link into Models) parses and round-trips through bundleFixtureHref, with ?from= preserved", () => {
+    expect(bundleFixtureHref("my-skill", "golden-basic")).toBe("/bundles/my-skill/models?fixture=golden-basic");
+    const href = bundleFixtureHref("my-skill", "golden-basic", "track");
+    expect(href).toBe("/bundles/my-skill/models?fixture=golden-basic&from=track");
+    const [pathname, search] = href.split("?");
+    expect(parseRoute(pathname ?? "", `?${search}`)).toEqual({
+      name: "bundle",
+      slug: "my-skill",
+      tab: "models",
+      runId: undefined,
+      file: undefined,
+      fixture: "golden-basic",
+      from: "track",
+    });
+  });
+
+  test("bundleRunHref / bundleFileHref preserve ?from= alongside their own params", () => {
+    expect(bundleRunHref("my-skill", "run-1", "ship")).toBe("/bundles/my-skill/models?run=run-1&from=ship");
+    expect(bundleFileHref("my-skill", "design.md", "receive")).toBe(
+      "/bundles/my-skill/files?file=design.md&from=receive",
+    );
   });
 
   test("old /catalog, /port(/:slug), and /skillbook(/:slug) paths still parse to the same routes (bookmarks/deep links survive)", () => {

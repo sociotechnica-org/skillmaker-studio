@@ -48,7 +48,7 @@
  * neighborhood scoring, card.json interchange. Unverified stays a badge,
  * never a band.
  */
-import { type FC, type ReactNode, useState } from "react";
+import { type FC, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   type PostEventInput,
   postEvent,
@@ -59,7 +59,16 @@ import {
 } from "../runtime/api.ts";
 import { coverageTally, formatCI, formatPassRate, nextChips, providerModelId, provenOnProviders } from "../runtime/cardGlance.ts";
 import { formatDay, formatTimestamp } from "../runtime/dates.ts";
-import { bundleFileHref, bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
+import {
+  bundleFileHref,
+  bundleFixtureHref,
+  bundleHref,
+  bundleRunHref,
+  Link,
+  type BundleTab,
+  type CardOrigin,
+  useRouter,
+} from "../runtime/router.tsx";
 import {
   RETIRED_BADGE_CLASS,
   STAGES,
@@ -82,6 +91,7 @@ import {
 } from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
 import { useBundleFileContent } from "../runtime/useBundleFileContent.ts";
+import { useFixtureDetail } from "../runtime/useFixtureDetail.ts";
 import { useWorkspace } from "../runtime/useWorkspace.ts";
 import { nextAction, nextStageOf } from "../runtime/nextAction.ts";
 import { Badge } from "./Badge.tsx";
@@ -248,12 +258,28 @@ const COVERAGE_LABEL: Record<CoverageValue, string> = {
   "n/a": "n/a",
 };
 
+/**
+ * Where "back" goes per origin room (`?from=`, card-fidelity round 2): the
+ * card belongs to no single room, so the back affordance names the room
+ * the reader actually came from. Absent origin = Make, today's behavior.
+ */
+const ORIGIN_BACK: Record<CardOrigin, { readonly label: string; readonly href: string }> = {
+  improve: { label: "← Improve", href: "/lab" },
+  track: { label: "← Track", href: "/track" },
+  ship: { label: "← Ship", href: "/ship" },
+  receive: { label: "← Receive", href: "/receive" },
+};
+
 export const SkillCard: FC<{
   slug: string;
   tab: BundleTab;
   runId: string | undefined;
   file: string | undefined;
-}> = ({ slug, tab, runId, file }) => {
+  /** `?fixture=` -- the Models tab's auto-expanded test body (Coverage's cross-link target). */
+  fixture: string | undefined;
+  /** `?from=` -- the origin room this card displays under (back link + nav highlight); absent = Make. */
+  from: CardOrigin | undefined;
+}> = ({ slug, tab, runId, file, fixture, from }) => {
   const { detail, loading, error, refetch } = useBundleDetail(slug);
   const { navigate } = useRouter();
   const [actionError, setActionError] = useState<string | undefined>(undefined);
@@ -295,14 +321,16 @@ export const SkillCard: FC<{
   // each child on every action-form keystroke.
   const proven = detail === undefined ? [] : provenOnProviders(detail.measurements, detail.versions[0]?.hash);
 
+  const back = from !== undefined ? ORIGIN_BACK[from] : { label: "← Make", href: "/" };
+
   return (
     <div className="flex max-w-4xl flex-col gap-4">
       <div className="flex items-start justify-between">
         <Link
-          href="/"
+          href={back.href}
           className="text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
         >
-          ← Make
+          {back.label}
         </Link>
       </div>
 
@@ -328,7 +356,7 @@ export const SkillCard: FC<{
             {TABS.map((candidate) => (
               <Link
                 key={candidate.key}
-                href={bundleHref(slug, candidate.key)}
+                href={bundleHref(slug, candidate.key, from)}
                 className={
                   tab === candidate.key
                     ? "relative z-10 -mb-px rounded-t-lg border border-b-0 border-neutral-900/50 bg-surface px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-neutral-900 dark:border-neutral-100/50 dark:text-neutral-100"
@@ -346,6 +374,7 @@ export const SkillCard: FC<{
                 detail={detail}
                 proven={proven}
                 slug={slug}
+                from={from}
                 pending={pending}
                 actionError={actionError}
                 reviseNotes={reviseNotes}
@@ -366,6 +395,7 @@ export const SkillCard: FC<{
             {tab === "instructions" && (
               <InstructionsTab
                 slug={slug}
+                from={from}
                 instructionsPath={detail.instructionsPath}
                 latestVersion={detail.versions[0]}
                 drift={detail.bundle.drift}
@@ -379,18 +409,20 @@ export const SkillCard: FC<{
                 measurements={detail.measurements}
                 versions={detail.versions}
                 runId={runId}
-                onOpenRun={(id) => navigate(bundleRunHref(slug, id))}
-                onCloseRun={() => navigate(bundleHref(slug, "models"))}
+                fixtureParam={fixture}
+                onOpenRun={(id) => navigate(bundleRunHref(slug, id, from))}
+                onCloseRun={() => navigate(bundleHref(slug, "models", from))}
                 onChanged={refetch}
               />
             )}
             {tab === "coverage" && (
-              <CoverageTab riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
+              <CoverageTab slug={slug} from={from} riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
             )}
             {tab === "research" && <DossierSection dossier={detail.dossier} />}
             {tab === "lineage" && (
               <LineageTab
                 slug={slug}
+                from={from}
                 lineage={detail.lineage}
                 drift={detail.bundle.drift}
                 versions={detail.versions}
@@ -524,6 +556,8 @@ interface OverviewTabProps {
   /** Proven-on provider ids, derived once in `SkillCard` (shared with the header's glance strip). */
   readonly proven: ReadonlyArray<string>;
   readonly slug: string;
+  /** The card's origin room (`?from=`), preserved on every internal link. */
+  readonly from: CardOrigin | undefined;
   readonly pending: boolean;
   readonly actionError: string | undefined;
   readonly reviseNotes: string;
@@ -753,6 +787,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
   detail,
   proven,
   slug,
+  from,
   pending,
   actionError,
   reviseNotes,
@@ -861,7 +896,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
                     {reviewArtifacts.map((path) => (
                       <li key={path}>
                         <Link
-                          href={bundleFileHref(slug, path)}
+                          href={bundleFileHref(slug, path, from)}
                           className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
                         >
                           {path}
@@ -931,7 +966,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
                 {reviewArtifacts.map((path) => (
                   <li key={path}>
                     <Link
-                      href={bundleFileHref(slug, path)}
+                      href={bundleFileHref(slug, path, from)}
                       className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
                     >
                       {path}
@@ -1327,10 +1362,11 @@ const PublishToTargetsSection: FC<{ slug: string }> = ({ slug }) => {
  */
 const InstructionsTab: FC<{
   slug: string;
+  from: CardOrigin | undefined;
   instructionsPath: string | null;
   latestVersion: VersionRecord | undefined;
   drift: Drift;
-}> = ({ slug, instructionsPath, latestVersion, drift }) => {
+}> = ({ slug, from, instructionsPath, latestVersion, drift }) => {
   const path = instructionsPath ?? undefined;
   const { content, loading, error: fileError } = useBundleFileContent(slug, path);
 
@@ -1357,7 +1393,7 @@ const InstructionsTab: FC<{
           </span>
         </p>
         <Link
-          href={bundleFileHref(slug, path)}
+          href={bundleFileHref(slug, path, from)}
           className="font-mono text-[11px] text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
         >
           {path}
@@ -1567,11 +1603,12 @@ const custodyLine = (event: EventView): string => {
  */
 const LineageTab: FC<{
   slug: string;
+  from: CardOrigin | undefined;
   lineage: LineageRecord;
   drift: Drift;
   versions: ReadonlyArray<VersionRecord>;
   onRecorded: () => void;
-}> = ({ slug, lineage, drift, versions, onRecorded }) => (
+}> = ({ slug, from, lineage, drift, versions, onRecorded }) => (
   <section className="flex flex-col gap-4">
     <section className="flex flex-col gap-1">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Fork family</h4>
@@ -1582,7 +1619,10 @@ const LineageTab: FC<{
           ) : (
             <>
               Forked from{" "}
-              <Link href={bundleHref(lineage.forkOf)} className="font-medium text-sky-700 hover:underline dark:text-sky-300">
+              <Link
+                href={bundleHref(lineage.forkOf, "overview", from)}
+                className="font-medium text-sky-700 hover:underline dark:text-sky-300"
+              >
                 {lineage.forkOf}
               </Link>
             </>
@@ -1597,7 +1637,10 @@ const LineageTab: FC<{
               {lineage.forks.map((fork, index) => (
                 <span key={fork}>
                   {index > 0 ? ", " : ""}
-                  <Link href={bundleHref(fork)} className="font-medium text-sky-700 hover:underline dark:text-sky-300">
+                  <Link
+                    href={bundleHref(fork, "overview", from)}
+                    className="font-medium text-sky-700 hover:underline dark:text-sky-300"
+                  >
                     {fork}
                   </Link>
                 </span>
@@ -1670,12 +1713,17 @@ const LineageTab: FC<{
  * covered / partial / gap, exactly as `risk-map.md` says. Deliberately no
  * measurement chips and no pass rates here (unlike the old Evals tab):
  * coverage is authored judgment, pass rates are measurements, and the two
- * never blend. The rates live one tab over, in Models.
+ * never blend. The rates live one tab over, in Models -- and each row's
+ * fixture name links there (`?fixture=`, card-fidelity round 2), landing
+ * on that fixture's expanded test body: the claim connected to the test
+ * that buys it, without the two axes ever merging.
  */
 const CoverageTab: FC<{
+  slug: string;
+  from: CardOrigin | undefined;
   riskCoverage: ReadonlyArray<RiskCoverageRecord>;
   warnings: ReadonlyArray<WarningRecord>;
-}> = ({ riskCoverage, warnings }) => {
+}> = ({ slug, from, riskCoverage, warnings }) => {
   const families = RISK_FAMILY_ORDER.filter((family) => riskCoverage.some((row) => row.family === family));
   const otherFamilies = Array.from(
     new Set(riskCoverage.map((row) => row.family).filter((family) => !(RISK_FAMILY_ORDER as ReadonlyArray<string>).includes(family))),
@@ -1732,7 +1780,19 @@ const CoverageTab: FC<{
                           {COVERAGE_LABEL[row.coverage]}
                         </span>
                       </td>
-                      <td className="py-1 pr-2 font-mono">{row.fixtureCase ?? "—"}</td>
+                      <td className="py-1 pr-2 font-mono">
+                        {row.fixtureCase === undefined ? (
+                          "—"
+                        ) : (
+                          <Link
+                            href={bundleFixtureHref(slug, row.fixtureCase, from)}
+                            title={`Open ${row.fixtureCase}'s test body under Models`}
+                            className="text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+                          >
+                            {row.fixtureCase}
+                          </Link>
+                        )}
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -1808,9 +1868,113 @@ const MeasurementChips: FC<{
 };
 
 /**
+ * One fixture's readable TEST BODY (card-fidelity round 2: "I can't see
+ * what the tests are"): what the fixture does (the task prompt --
+ * `prompt.md` when present, the legacy `case.json` `prompt` field
+ * otherwise) and what passing means (`grading`'s answer key + checks, in
+ * their authored words). Mounted only while the row is expanded, so the
+ * detail fetch (`useFixtureDetail`) is lazy by construction -- never eager
+ * for every fixture. Every absent piece is an honest gap line.
+ */
+const FixtureTestBody: FC<{ slug: string; caseName: string }> = ({ slug, caseName }) => {
+  const { detail, loading, error } = useFixtureDetail(slug, caseName);
+
+  if (loading && detail === undefined) {
+    return <p className="text-xs text-neutral-500">Loading test...</p>;
+  }
+  if (error !== undefined) {
+    return (
+      <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+        Could not load {caseName}: {error}
+      </p>
+    );
+  }
+  if (detail === undefined) {
+    return null;
+  }
+
+  const prompt = detail.promptMd ?? detail.legacyPrompt;
+  const grading = detail.grading;
+  const hasGrading = grading !== null && (grading.answerKey !== null || grading.checks.length > 0);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border bg-canvas/40 p-3">
+      {detail.warnings.map((warning) => (
+        <p key={warning} className="text-[11px] text-amber-800 dark:text-amber-300">
+          [fixture] {warning}
+        </p>
+      ))}
+
+      <div className="flex flex-col gap-1">
+        <h5 className="font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          What it does
+        </h5>
+        {prompt === null ? (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            <Unrecorded word="no prompt recorded" /> — a case-only fixture; nothing spells out the task yet.
+          </p>
+        ) : (
+          <>
+            {detail.promptMd === null && (
+              <p className="text-[11px] text-neutral-400">
+                From the legacy <span className="font-mono">case.json</span> prompt field —{" "}
+                <span className="font-mono">prompt.md</span> is the current home for task prose.
+              </p>
+            )}
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface p-2 font-mono text-xs leading-relaxed text-neutral-800 dark:text-neutral-200">
+              {prompt}
+            </pre>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <h5 className="font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          What passing means
+        </h5>
+        {!hasGrading ? (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            <Unrecorded word="no authored grading" /> — pass/fail rests on the grader&apos;s judgment of the
+            prompt alone.
+          </p>
+        ) : (
+          <>
+            {grading.answerKey !== null && (
+              <p className="text-xs text-neutral-700 dark:text-neutral-300">
+                <span className="text-neutral-500 dark:text-neutral-400">Answer key: </span>
+                {grading.answerKey}
+              </p>
+            )}
+            {grading.checks.length > 0 && (
+              <ul className="flex flex-col gap-0.5">
+                {grading.checks.map((check) => (
+                  <li key={check} className="text-xs text-neutral-700 dark:text-neutral-300">
+                    <span className="text-neutral-400">☐</span> {check}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
+
+      {detail.context !== null && (
+        <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+          Exercises dossier context: <span className="font-mono">{detail.context}</span>
+        </p>
+      )}
+    </div>
+  );
+};
+
+/**
  * One fixture row of the read-out: header (name, class, prompt.md,
- * measurement chips, Run button + provider select when >1 provider) plus
- * that fixture's runs newest-first -- each run opens the run-detail modal.
+ * measurement chips, Run button + provider select when >1 provider), an
+ * expandable readable test body (`FixtureTestBody`, lazy -- card-fidelity
+ * round 2), plus that fixture's runs newest-first -- each run opens the
+ * run-detail modal. `autoExpand` (the route's `?fixture=` param, Coverage's
+ * cross-link) opens the body and scrolls the row into view; the reader can
+ * still collapse it by hand afterwards.
  */
 const FixtureRow: FC<{
   slug: string;
@@ -1820,10 +1984,23 @@ const FixtureRow: FC<{
   latestHash: string | undefined;
   latestVersion?: VersionRecord;
   providers: ReadonlyArray<string>;
+  autoExpand: boolean;
   onOpenRun: (runId: string) => void;
   onChanged: () => void;
-}> = ({ slug, fixture, runs, measurements, latestHash, latestVersion, providers, onOpenRun, onChanged }) => {
+}> = ({ slug, fixture, runs, measurements, latestHash, latestVersion, providers, autoExpand, onOpenRun, onChanged }) => {
   const [provider, setProvider] = useState<string>(providers[0] ?? "claude-code");
+  const [expanded, setExpanded] = useState(autoExpand);
+  const rowRef = useRef<HTMLLIElement | null>(null);
+
+  // A later `?fixture=` navigation (e.g. a second Coverage cross-link while
+  // already on Models) re-opens and re-scrolls; a hand-collapse afterwards
+  // still sticks because this only fires when `autoExpand` turns true.
+  useEffect(() => {
+    if (autoExpand) {
+      setExpanded(true);
+      rowRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [autoExpand]);
   // Fix 1 (Phase 20 Story 2 friction log F1): the advertised model list is
   // only known once an ACP session connects (session/new's
   // models.availableModels), so this stays a free-text id rather than a
@@ -1854,7 +2031,7 @@ const FixtureRow: FC<{
   const fixtureRuns = runs.filter((run) => run.fixtureCase === fixture.caseName);
 
   return (
-    <li className="flex flex-col gap-1 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+    <li ref={rowRef} className="flex flex-col gap-1 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-300">
         <span className="font-mono font-medium text-neutral-900 dark:text-neutral-100">{fixture.caseName}</span>
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
@@ -1870,6 +2047,13 @@ const FixtureRow: FC<{
         >
           {fixture.hasPromptMd ? "prompt.md" : "no prompt.md"}
         </span>
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          className="rounded border border-neutral-300 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:text-neutral-100"
+        >
+          {expanded ? "Hide test ▾" : "View test ▸"}
+        </button>
         <span className="ml-auto flex items-center gap-1">
           {providers.length > 1 && (
             <select
@@ -1910,6 +2094,7 @@ const FixtureRow: FC<{
           latestVersion={latestVersion}
         />
       </div>
+      {expanded && <FixtureTestBody slug={slug} caseName={fixture.caseName} />}
       {runError !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
           {runError}
@@ -1964,10 +2149,12 @@ const ModelsTab: FC<{
   versions: ReadonlyArray<VersionRecord>;
   /** The open run, sourced from the route's `?run=` query param -- not local state, so it survives reload/back-forward. */
   runId: string | undefined;
+  /** The auto-expanded fixture, sourced from the route's `?fixture=` query param (Coverage's cross-link) -- same reload-survival as `runId`. */
+  fixtureParam: string | undefined;
   onOpenRun: (runId: string) => void;
   onCloseRun: () => void;
   onChanged: () => void;
-}> = ({ slug, fixtures, runs, measurements, versions, runId, onOpenRun, onCloseRun, onChanged }) => {
+}> = ({ slug, fixtures, runs, measurements, versions, runId, fixtureParam, onOpenRun, onCloseRun, onChanged }) => {
   const { state } = useWorkspace();
   const providers = state?.config.providers ?? [];
   // Versions arrive newest-first; the fixture chips below only count against
@@ -2065,6 +2252,7 @@ const ModelsTab: FC<{
               latestHash={latestHash}
               latestVersion={latestVersion}
               providers={providers}
+              autoExpand={fixtureParam === fixture.caseName}
               onOpenRun={onOpenRun}
               onChanged={onChanged}
             />

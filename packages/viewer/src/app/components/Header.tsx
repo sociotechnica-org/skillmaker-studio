@@ -1,22 +1,35 @@
 import { useEffect, useState, type FC } from "react";
 import { Link, useRouter, type Route } from "../runtime/router.tsx";
 
+/**
+ * A bundle card's nav highlight follows its `?from=` origin room (card-
+ * fidelity round 2): the card is the per-skill projection every surface
+ * indexes, so the room that linked in stays lit instead of Make claiming
+ * every card. Absent origin = Make, exactly the old behavior for a direct
+ * URL. Display-layer only -- route names are untouched.
+ */
+const bundleFrom = (route: Route): string => (route.name === "bundle" ? (route.from ?? "make") : "");
+
 const NAV_ITEMS: ReadonlyArray<{
   readonly href: string;
   readonly label: string;
-  readonly match: (name: Route["name"]) => boolean;
+  readonly match: (route: Route) => boolean;
 }> = [
-  { href: "/", label: "Make", match: (name) => name === "board" || name === "bundle" },
-  { href: "/lab", label: "Improve", match: (name) => name === "lab" },
+  { href: "/", label: "Make", match: (route) => route.name === "board" || bundleFrom(route) === "make" },
+  { href: "/lab", label: "Improve", match: (route) => route.name === "lab" || bundleFrom(route) === "improve" },
   {
     href: "/ship",
     label: "Ship",
-    match: (name) => name === "ship" || name === "ship-bundle",
+    match: (route) => route.name === "ship" || route.name === "ship-bundle" || bundleFrom(route) === "ship",
   },
-  { href: "/receive", label: "Receive", match: (name) => name === "receive" },
+  {
+    href: "/receive",
+    label: "Receive",
+    match: (route) => route.name === "receive" || bundleFrom(route) === "receive",
+  },
   // #109: Activity's nav slot becomes Track (Catalog + Feed + Archive
   // drawer); the old /activity path still aliases into Track's Feed.
-  { href: "/track", label: "Track", match: (name) => name === "track" },
+  { href: "/track", label: "Track", match: (route) => route.name === "track" || bundleFrom(route) === "track" },
 ];
 
 const NAV_LINK_ACTIVE =
@@ -53,7 +66,7 @@ export const Header: FC<{ workspaceName: string | undefined; bundleCount: number
     <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
       <nav className="flex items-center gap-1">
         {NAV_ITEMS.map((item) => (
-          <Link key={item.href} href={item.href} className={item.match(route.name) ? NAV_LINK_ACTIVE : NAV_LINK_INACTIVE}>
+          <Link key={item.href} href={item.href} className={item.match(route) ? NAV_LINK_ACTIVE : NAV_LINK_INACTIVE}>
             {item.label}
           </Link>
         ))}

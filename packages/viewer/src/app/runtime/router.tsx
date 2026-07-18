@@ -49,6 +49,23 @@ export type LabView = "bench" | "queue";
 /** Track's two rooms (#109): Catalog (default, the complete inside index) and Feed (the journal, chronological). */
 export type TrackView = "catalog" | "feed";
 
+/**
+ * The room a skill card was opened FROM (`?from=`, card-fidelity round 2):
+ * the card is the per-skill projection every surface indexes -- it belongs
+ * to no single room, so the room that linked in rides along as a display
+ * hint (back link + nav highlight) instead of the card hard-wiring itself
+ * to Make. Absent/invalid = Make (the default, exactly today's behavior for
+ * a direct URL). Display-layer only: route names stay frozen, and the param
+ * threads through the card's internal links the same way `?run=`/`?file=`
+ * ride their tabs' hrefs.
+ */
+export type CardOrigin = "improve" | "track" | "ship" | "receive";
+
+const CARD_ORIGINS: ReadonlyArray<CardOrigin> = ["improve", "track", "ship", "receive"];
+
+const parseCardOrigin = (value: string | null): CardOrigin | undefined =>
+  value !== null && (CARD_ORIGINS as ReadonlyArray<string>).includes(value) ? (value as CardOrigin) : undefined;
+
 export type Route =
   | { readonly name: "board" }
   | {
@@ -57,6 +74,9 @@ export type Route =
       readonly tab: BundleTab;
       readonly runId: string | undefined;
       readonly file: string | undefined;
+      /** `?fixture=<case>` on the Models tab: auto-expand + scroll to that fixture's test body (Coverage's cross-link target). */
+      readonly fixture: string | undefined;
+      readonly from: CardOrigin | undefined;
     }
   | { readonly name: "lab"; readonly view: LabView; readonly bundle: string | undefined }
   | { readonly name: "track"; readonly view: TrackView; readonly archive: boolean }
@@ -129,14 +149,36 @@ export const parseRoute = (pathname: string, search: string): Route => {
     const params = new URLSearchParams(search);
     const runId = params.get("run") ?? undefined;
     const file = params.get("file") ?? undefined;
-    return { name: "bundle", slug, tab: tabSegment ?? "overview", runId, file };
+    const fixture = params.get("fixture") ?? undefined;
+    const from = parseCardOrigin(params.get("from"));
+    return { name: "bundle", slug, tab: tabSegment ?? "overview", runId, file, fixture, from };
   }
   return { name: "not-found" };
 };
 
-/** The canonical URL for a bundle's tab -- `overview` has no path suffix. */
-export const bundleHref = (slug: string, tab: BundleTab = "overview"): string =>
-  tab === "overview" ? `/bundles/${encodeURIComponent(slug)}` : `/bundles/${encodeURIComponent(slug)}/${tab}`;
+/** Appends `?from=<origin>` (plus any extra params) to a bundle path -- absent origin = Make = no param at all, so today's URLs stay byte-identical. */
+const withBundleParams = (
+  base: string,
+  from: CardOrigin | undefined,
+  extra?: Readonly<Record<string, string>>,
+): string => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    params.set(key, value);
+  }
+  if (from !== undefined) {
+    params.set("from", from);
+  }
+  const query = params.toString();
+  return query.length > 0 ? `${base}?${query}` : base;
+};
+
+/** The canonical URL for a bundle's tab -- `overview` has no path suffix; `from` is the origin room the card should display under (absent = Make). */
+export const bundleHref = (slug: string, tab: BundleTab = "overview", from?: CardOrigin): string =>
+  withBundleParams(
+    tab === "overview" ? `/bundles/${encodeURIComponent(slug)}` : `/bundles/${encodeURIComponent(slug)}/${tab}`,
+    from,
+  );
 
 /** The canonical URL for a bundle's Skillbook chapter, now docked at Ship. */
 export const shipBundleHref = (slug: string): string => `/ship/${encodeURIComponent(slug)}`;
@@ -176,15 +218,21 @@ export const trackHref = (view: TrackView = "catalog", options?: { readonly arch
   return query.length > 0 ? `/track?${query}` : "/track";
 };
 
-/** The Models tab (the measurements + runs read-out), optionally with a run selected via `?run=`. */
-export const bundleRunHref = (slug: string, runId: string | undefined): string => {
-  const base = bundleHref(slug, "models");
-  return runId === undefined ? base : `${base}?run=${encodeURIComponent(runId)}`;
-};
+/** The Models tab (the measurements + runs read-out), optionally with a run selected via `?run=`; `from` preserves the card's origin room. */
+export const bundleRunHref = (slug: string, runId: string | undefined, from?: CardOrigin): string =>
+  withBundleParams(
+    `/bundles/${encodeURIComponent(slug)}/models`,
+    from,
+    runId === undefined ? undefined : { run: runId },
+  );
 
-/** The Files tab with a specific source file pre-selected via `?file=`. */
-export const bundleFileHref = (slug: string, file: string): string =>
-  `${bundleHref(slug, "files")}?file=${encodeURIComponent(file)}`;
+/** The Files tab with a specific source file pre-selected via `?file=`; `from` preserves the card's origin room. */
+export const bundleFileHref = (slug: string, file: string, from?: CardOrigin): string =>
+  withBundleParams(`/bundles/${encodeURIComponent(slug)}/files`, from, { file });
+
+/** The Models tab with one fixture's test body auto-expanded via `?fixture=` -- Coverage's cross-link to the test it references. */
+export const bundleFixtureHref = (slug: string, caseName: string, from?: CardOrigin): string =>
+  withBundleParams(`/bundles/${encodeURIComponent(slug)}/models`, from, { fixture: caseName });
 
 interface RouterState {
   readonly route: Route;
@@ -239,14 +287,16 @@ export const useRouter = (): RouterState => {
 export const Link: FC<{
   href: string;
   className?: string | undefined;
+  title?: string | undefined;
   children: ReactNode;
   onClick?: (() => void) | undefined;
-}> = ({ href, className, children, onClick }) => {
+}> = ({ href, className, title, children, onClick }) => {
   const { navigate } = useRouter();
   return (
     <a
       href={href}
       className={className}
+      title={title}
       onClick={(event) => {
         if (
           event.defaultPrevented ||

@@ -38,7 +38,7 @@ const EventRow: FC<{ event: EventView }> = ({ event }) => {
           {event.actor.provider !== undefined ? ` (${event.actor.provider})` : ""}
         </span>
         {bundle !== undefined && (
-          <Link href={bundleHref(bundle)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+          <Link href={bundleHref(bundle, "overview", "track")} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
             {bundle}
           </Link>
         )}
