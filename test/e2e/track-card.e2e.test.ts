@@ -381,6 +381,7 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
       dossier: { job?: string; basis?: string };
       files: ReadonlyArray<string>;
       versions: ReadonlyArray<{ hash: string; label?: string }>;
+      instructionsPath: string | null;
     };
 
     // The manifest's card answers (issue #108) round-trip: seeded into the
@@ -388,6 +389,11 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     // directory by the detail handler.
     expect(detail.dossier.job).toBe("Do the brownfield thing");
     expect(detail.dossier.basis).toBe("the seam-pass field manual");
+
+    // Card-fidelity simplify pass: the SERVER owns the Instructions tab's
+    // path, derived from the resolved layout -- an in-place bundle IS the
+    // skill directory, so the instructions are its root SKILL.md.
+    expect(detail.instructionsPath).toBe("SKILL.md");
 
     // Layout-aware reviewable files: the in-place payload's SKILL.md plus
     // the dossier Adopt scaffolded next to it (no design.md traveled with
@@ -427,5 +433,26 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     const recorded = (await recordResponse.json()) as { status: string; hash: string };
     expect(recorded.status).toBe("already_appended");
     expect(recorded.hash).toBe(adoptedVersion?.hash ?? "");
+  });
+});
+
+describe("card-fidelity simplify pass: GET /api/bundles/:slug instructionsPath for an output-dir bundle", () => {
+  test("null while output/SKILL.md doesn't exist (honest gap), then the layout's conventional path once it does", async () => {
+    // `skillmaker new` scaffolds output/ but writes no SKILL.md into it --
+    // the drafting station does that later -- so a fresh bundle's honest
+    // answer is null, never a path to a file that isn't there.
+    const beforeResponse = await fetch(`${baseUrl}/api/bundles/gizmo`);
+    expect(beforeResponse.status).toBe(200);
+    const before = (await beforeResponse.json()) as { instructionsPath: string | null };
+    expect(before.instructionsPath).toBeNull();
+
+    writeFileSync(
+      join(scratchDir, "skills", "gizmo", "output", "SKILL.md"),
+      "# Gizmo\n\nDo the gizmo thing.\n",
+    );
+    const afterResponse = await fetch(`${baseUrl}/api/bundles/gizmo`);
+    expect(afterResponse.status).toBe(200);
+    const after = (await afterResponse.json()) as { instructionsPath: string | null };
+    expect(after.instructionsPath).toBe("output/SKILL.md");
   });
 });

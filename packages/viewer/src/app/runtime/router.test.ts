@@ -46,6 +46,16 @@ describe("parseRoute", () => {
     expect(parseRoute("/bundles/my-skill/bogus", "")).toEqual({ name: "not-found" });
   });
 
+  test("the Instructions tab (card-fidelity round: the skill itself, first-class) parses at /bundles/:slug/instructions", () => {
+    expect(parseRoute("/bundles/my-skill/instructions", "")).toEqual({
+      name: "bundle",
+      slug: "my-skill",
+      tab: "instructions",
+      runId: undefined,
+      file: undefined,
+    });
+  });
+
   test("old /catalog, /port(/:slug), and /skillbook(/:slug) paths still parse to the same routes (bookmarks/deep links survive)", () => {
     expect(parseRoute("/catalog", "")).toEqual({ name: "lab", view: "bench", bundle: undefined });
     expect(parseRoute("/port", "")).toEqual({ name: "ship" });

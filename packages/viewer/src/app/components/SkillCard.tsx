@@ -6,13 +6,26 @@
  * **display before derivation, derivation before automation** -- v1 shows
  * only what the data already backs.
  *
- * Layout: an always-visible header + glance (identity · stage · version ·
- * drift · coverage tally · proven-on providers · Unverified), then tabs:
- *  - **Overview**: the glance expanded -- a plain-language status line,
- *    "Next" chips (derivable-today gaps only, `runtime/cardGlance.ts`), and
- *    every action affordance the old panel had (review pair, publish gate,
- *    stage advance/back, station run, publish-to-targets, recent events).
- *    The card replaces the panel's layout, not its capabilities.
+ * Layout (card-fidelity round, visual target `.context/card-v1/card-v1.html`):
+ * one card OBJECT -- strong border, amber accent strip, offset shadow,
+ * footer stamp -- reading as a physical index card, not a flat panel.
+ * Always visible: the prototype header (eyebrow · mono slug · one-liner ·
+ * tags | stage·version + drift badges) and the 3-cell glance strip
+ * (Proven on / Coverage / Version). Then file-folder tabs over a bordered
+ * "page", and BELOW the page an always-visible "Next, from what we already
+ * know" chip strip (derivable-today gaps only, `runtime/cardGlance.ts`):
+ *  - **Overview**: a plain-language status line, the Facts mini-table +
+ *    Pipeline (neighborhood) block, and -- grouped under one "Actions"
+ *    area so they stop dominating -- every action affordance the old panel
+ *    had (review pair, publish gate, stage advance/back, station run,
+ *    publish-to-targets, recent events). The card replaces the panel's
+ *    layout, not its capabilities.
+ *  - **Instructions**: the skill ITSELF -- the shipped SKILL.md (the
+ *    server-derived `instructionsPath`: `output/SKILL.md`, or `SKILL.md`
+ *    for in-place bundles) rendered read-only via the existing file
+ *    endpoint, bound honestly to the recorded version + drift state. The
+ *    card's readable payload: without this tab the card showed everything
+ *    *about* the skill and never the skill.
  *  - **Models**: the measurements table -- one row per (fixture × provider ×
  *    model × version), NEVER pooled (data-model.md §1.1 laws 5-6), exact
  *    pinned model ids as recorded, n · pass · rate · 95% CI (computed in
@@ -35,9 +48,8 @@
  * neighborhood scoring, card.json interchange. Unverified stays a badge,
  * never a band.
  */
-import { type FC, useEffect, useState } from "react";
+import { type FC, type ReactNode, useState } from "react";
 import {
-  getBundleFile,
   type PostEventInput,
   postEvent,
   publishBundle,
@@ -46,7 +58,7 @@ import {
   triggerStationRun,
 } from "../runtime/api.ts";
 import { coverageTally, formatCI, formatPassRate, nextChips, providerModelId, provenOnProviders } from "../runtime/cardGlance.ts";
-import { formatTimestamp } from "../runtime/dates.ts";
+import { formatDay, formatTimestamp } from "../runtime/dates.ts";
 import { bundleFileHref, bundleHref, bundleRunHref, Link, type BundleTab, useRouter } from "../runtime/router.tsx";
 import {
   RETIRED_BADGE_CLASS,
@@ -69,8 +81,10 @@ import {
   type WarningRecord,
 } from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
+import { useBundleFileContent } from "../runtime/useBundleFileContent.ts";
 import { useWorkspace } from "../runtime/useWorkspace.ts";
 import { nextAction, nextStageOf } from "../runtime/nextAction.ts";
+import { Badge } from "./Badge.tsx";
 import { RunDetailModal } from "./RunDetailModal.tsx";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -200,6 +214,7 @@ const DRIFT_BADGE_CLASS: Record<Drift, string> = {
 
 const TABS: ReadonlyArray<{ readonly key: BundleTab; readonly label: string }> = [
   { key: "overview", label: "Overview" },
+  { key: "instructions", label: "Instructions" },
   { key: "models", label: "Models" },
   { key: "coverage", label: "Coverage" },
   { key: "research", label: "Research" },
@@ -218,11 +233,12 @@ const RISK_FAMILY_LABEL: Record<string, string> = {
   CHN: "CHN Chain",
 };
 
-const COVERAGE_GLYPH: Record<CoverageValue, string> = {
-  covered: "●",
-  partial: "◐",
-  gap: "○",
-  "n/a": "—",
+/** The coverage pills (prototype `.cov-ok`/`.cov-mid`/`.cov-gap`): the authored word, colored -- moss / gold / rust in the app's own ramps. */
+const COVERAGE_PILL_CLASS: Record<CoverageValue, string> = {
+  covered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  partial: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  gap: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
+  "n/a": "bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
 };
 
 const COVERAGE_LABEL: Record<CoverageValue, string> = {
@@ -273,6 +289,12 @@ export const SkillCard: FC<{
   // A single event is just the one-element case of `submitMany`.
   const submit = (type: string, payload: Record<string, unknown>): void => submitMany([{ type, payload }]);
 
+  // Derived ONCE per render, next to `detail` (simplify pass): the header's
+  // glance strip and Overview's Facts table both read the same proven-on
+  // list, so it is computed here and passed down rather than re-derived in
+  // each child on every action-form keystroke.
+  const proven = detail === undefined ? [] : provenOnProviders(detail.measurements, detail.versions[0]?.hash);
+
   return (
     <div className="flex max-w-4xl flex-col gap-4">
       <div className="flex items-start justify-between">
@@ -290,18 +312,27 @@ export const SkillCard: FC<{
       )}
 
       {detail !== undefined && (
-        <>
-          <CardHeader detail={detail} />
+        /* The card OBJECT (prototype `.card`): strong ink border, amber
+           accent strip, hard offset shadow (`.card-shadow-lg`, the skin's
+           card-object motif in global.css), footer stamp -- a physical
+           index card, visually distinct from the app's flat panels. All
+           surfaces use theme tokens (`surface`, `canvas`, `border`, `ink`,
+           `paper-dark`) so dark mode flips with the skin. */
+        <article className="card-shadow-lg overflow-hidden rounded-xl border-2 border-ink bg-surface">
+          <div className="h-2 bg-amber-500" aria-hidden="true" />
 
-          <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800">
+          <CardHeader detail={detail} proven={proven} />
+
+          {/* File-folder tabs over the bordered "page" (prototype `.tabs`/`.page`). */}
+          <div className="flex flex-wrap gap-0.5 px-4 pt-4 sm:px-6">
             {TABS.map((candidate) => (
               <Link
                 key={candidate.key}
                 href={bundleHref(slug, candidate.key)}
                 className={
                   tab === candidate.key
-                    ? "border-b-2 border-neutral-900 px-2 py-1 text-xs font-medium text-neutral-900 dark:border-neutral-100 dark:text-neutral-100"
-                    : "border-b-2 border-transparent px-2 py-1 text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                    ? "relative z-10 -mb-px rounded-t-lg border border-b-0 border-neutral-900/50 bg-surface px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-neutral-900 dark:border-neutral-100/50 dark:text-neutral-100"
+                    : "rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
                 }
               >
                 {candidate.label}
@@ -309,126 +340,180 @@ export const SkillCard: FC<{
             ))}
           </div>
 
-          {tab === "overview" && (
-            <OverviewTab
-              detail={detail}
-              slug={slug}
-              pending={pending}
-              actionError={actionError}
-              reviseNotes={reviseNotes}
-              setReviseNotes={setReviseNotes}
-              reviewQuestion={reviewQuestion}
-              setReviewQuestion={setReviewQuestion}
-              backTarget={backTarget}
-              setBackTarget={setBackTarget}
-              backReason={backReason}
-              setBackReason={setBackReason}
-              gateBasis={gateBasis}
-              setGateBasis={setGateBasis}
-              submit={submit}
-              submitMany={submitMany}
-              onChanged={refetch}
-            />
-          )}
-          {tab === "models" && (
-            <ModelsTab
-              slug={slug}
-              fixtures={detail.fixtures}
-              runs={detail.runs}
-              measurements={detail.measurements}
-              versions={detail.versions}
-              runId={runId}
-              onOpenRun={(id) => navigate(bundleRunHref(slug, id))}
-              onCloseRun={() => navigate(bundleHref(slug, "models"))}
-              onChanged={refetch}
-            />
-          )}
-          {tab === "coverage" && (
-            <CoverageTab riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
-          )}
-          {tab === "research" && <DossierSection dossier={detail.dossier} />}
-          {tab === "lineage" && (
-            <LineageTab
-              slug={slug}
-              lineage={detail.lineage}
-              drift={detail.bundle.drift}
-              versions={detail.versions}
-              onRecorded={refetch}
-            />
-          )}
-          {tab === "files" && <FilesTab slug={slug} files={detail.files} initialFile={file} />}
-        </>
+          <div className="mx-4 mb-5 flex flex-col gap-4 rounded-b-xl rounded-tr-xl border border-neutral-900/40 bg-surface p-4 sm:mx-6 sm:p-6 dark:border-neutral-100/40">
+            {tab === "overview" && (
+              <OverviewTab
+                detail={detail}
+                proven={proven}
+                slug={slug}
+                pending={pending}
+                actionError={actionError}
+                reviseNotes={reviseNotes}
+                setReviseNotes={setReviseNotes}
+                reviewQuestion={reviewQuestion}
+                setReviewQuestion={setReviewQuestion}
+                backTarget={backTarget}
+                setBackTarget={setBackTarget}
+                backReason={backReason}
+                setBackReason={setBackReason}
+                gateBasis={gateBasis}
+                setGateBasis={setGateBasis}
+                submit={submit}
+                submitMany={submitMany}
+                onChanged={refetch}
+              />
+            )}
+            {tab === "instructions" && (
+              <InstructionsTab
+                slug={slug}
+                instructionsPath={detail.instructionsPath}
+                latestVersion={detail.versions[0]}
+                drift={detail.bundle.drift}
+              />
+            )}
+            {tab === "models" && (
+              <ModelsTab
+                slug={slug}
+                fixtures={detail.fixtures}
+                runs={detail.runs}
+                measurements={detail.measurements}
+                versions={detail.versions}
+                runId={runId}
+                onOpenRun={(id) => navigate(bundleRunHref(slug, id))}
+                onCloseRun={() => navigate(bundleHref(slug, "models"))}
+                onChanged={refetch}
+              />
+            )}
+            {tab === "coverage" && (
+              <CoverageTab riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
+            )}
+            {tab === "research" && <DossierSection dossier={detail.dossier} />}
+            {tab === "lineage" && (
+              <LineageTab
+                slug={slug}
+                lineage={detail.lineage}
+                drift={detail.bundle.drift}
+                versions={detail.versions}
+                onRecorded={refetch}
+              />
+            )}
+            {tab === "files" && <FilesTab slug={slug} files={detail.files} initialFile={file} />}
+          </div>
+
+          {/* "Next" lives OUTSIDE the tabbed page, always visible (prototype):
+              derivable-today gaps only, whatever tab is open. */}
+          <NextChips detail={detail} />
+
+          <footer className="flex justify-between gap-3 border-t border-neutral-900/15 bg-canvas/60 px-4 py-2.5 font-mono text-[10px] text-neutral-500 sm:px-6 dark:border-neutral-100/15 dark:text-neutral-400">
+            <span>SKILLMAKER STUDIO</span>
+            <span>every figure pinned to a version &amp; model</span>
+          </footer>
+        </article>
       )}
     </div>
   );
 };
 
+/** One cell of the glance strip: small label above, big mono value, small detail below (prototype `.kl`/`.kv`/`.kvs`). */
+const GlanceCell: FC<{ label: string; value: string; sub: string; title?: string }> = ({ label, value, sub, title }) => (
+  <div className="bg-surface px-3.5 py-2.5" title={title}>
+    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">{label}</p>
+    <p className="mt-0.5 font-mono text-lg leading-snug text-neutral-900 dark:text-neutral-100">{value}</p>
+    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400">{sub}</p>
+  </div>
+);
+
 /**
- * The always-visible header + glance: identity, then the derived status
- * facts -- stage (display label) · latest version · drift · coverage tally
- * (authored words, a count of judgments, never a rate) · proven-on
- * providers (exact ids, >=1 passing measurement at the latest version) ·
- * the Unverified badge. Every empty state is an honest gap, dossier-style.
+ * The always-visible header (prototype `.hd`): eyebrow · big mono slug ·
+ * one-liner · tag pills on the left; the badge stack (stage · short
+ * version, drift, Unverified, Retired) on the right. Below it the 3-cell
+ * GLANCE STRIP -- Proven on / Coverage / Version -- the readability core.
+ * Every empty state is an honest gap, dossier-style.
  */
-const CardHeader: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]> }> = ({ detail }) => {
+const CardHeader: FC<{
+  detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
+  /** Proven-on provider ids, derived once in `SkillCard` and shared with Overview's Facts table. */
+  proven: ReadonlyArray<string>;
+}> = ({ detail, proven }) => {
   const { bundle } = detail;
   const latestVersion = detail.versions[0];
   const tally = coverageTally(detail.riskCoverage);
-  const proven = provenOnProviders(detail.measurements, latestVersion?.hash);
 
   return (
-    <header className="flex flex-col gap-2">
-      <div>
-        <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{bundle.name}</h3>
-        <p className="font-mono text-xs text-neutral-500 dark:text-neutral-400">{bundle.slug}</p>
-        {bundle.oneLiner.length > 0 && (
-          <p className="text-sm text-neutral-600 dark:text-neutral-300">{bundle.oneLiner}</p>
-        )}
-        {bundle.tags.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {bundle.tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+    <header className="px-4 pt-5 sm:px-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
+            skill card
+          </p>
+          <h3 className="break-words font-mono text-xl leading-tight text-neutral-900 sm:text-2xl dark:text-neutral-100">
+            {bundle.slug}
+          </h3>
+          {bundle.name.length > 0 && bundle.name !== bundle.slug && (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{bundle.name}</p>
+          )}
+          {bundle.oneLiner.length > 0 && (
+            <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-300">{bundle.oneLiner}</p>
+          )}
+          {bundle.tags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {bundle.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-border bg-canvas px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-neutral-500 dark:text-neutral-400"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col items-end gap-1.5">
+          <Badge
+            tone={STAGE_BADGE_CLASS[bundle.stage]}
+            title={latestVersion !== undefined ? latestVersion.hash : "No version recorded yet."}
+          >
+            {STAGE_LABEL[bundle.stage]}
+            {" · "}
+            {latestVersion === undefined ? "no version" : versionLabelFor(latestVersion, latestVersion.hash)}
+          </Badge>
+          <Badge tone={DRIFT_BADGE_CLASS[bundle.drift]} title={DRIFT_EXPLANATION[bundle.drift]}>
+            drift: {DRIFT_LABEL[bundle.drift]}
+          </Badge>
+          {detail.unverified && (
+            <Badge tone={UNVERIFIED_BADGE_CLASS} title="Arrived from outside; we have not yet measured it.">
+              Unverified
+            </Badge>
+          )}
+          {bundle.archived && <Badge tone={RETIRED_BADGE_CLASS}>Retired</Badge>}
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-300">
-        <span className={`rounded-full px-2 py-0.5 font-medium ${STAGE_BADGE_CLASS[bundle.stage]}`}>
-          {STAGE_LABEL[bundle.stage]}
-        </span>
-        {bundle.archived && (
-          <span className={`rounded-full px-2 py-0.5 font-medium ${RETIRED_BADGE_CLASS}`}>Retired</span>
-        )}
-        <span className="font-mono" title={latestVersion !== undefined ? latestVersion.hash : undefined}>
-          {latestVersion === undefined
-            ? "no version recorded"
-            : `v: ${versionLabelFor(latestVersion, latestVersion.hash)}`}
-        </span>
-        <span className={`rounded-full px-2 py-0.5 font-medium ${DRIFT_BADGE_CLASS[bundle.drift]}`}>
-          {DRIFT_LABEL[bundle.drift]}
-        </span>
-        <span title="The risk map's authored judgments -- coverage is never a pass rate.">
-          {tally.total === 0
-            ? "risks: none authored"
-            : `risks: ${tally.covered} covered · ${tally.partial} partial · ${tally.gap} gap`}
-        </span>
-        <span title="Providers with at least one passing measurement at the latest recorded version -- exact recorded ids.">
-          {proven.length === 0 ? "proven on: none yet" : `proven on ${proven.join(", ")}`}
-        </span>
-        {detail.unverified && (
-          <span
-            title="Arrived from outside; we have not yet measured it."
-            className={`rounded-full px-2 py-0.5 font-medium ${UNVERIFIED_BADGE_CLASS}`}
-          >
-            Unverified
-          </span>
-        )}
+      {/* The glance strip (prototype `.glance`): a 3-cell bordered grid. */}
+      <div className="mt-4 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-3">
+        <GlanceCell
+          label="Proven on"
+          value={proven.length === 0 ? "none yet" : `${proven.length} provider(s)`}
+          sub={proven.length === 0 ? "no passing measurement at this version" : proven.join(", ")}
+          title="Providers with at least one passing measurement at the latest recorded version -- exact recorded ids."
+        />
+        <GlanceCell
+          label="Coverage"
+          value={tally.total === 0 ? "none authored" : `${tally.covered}/${tally.total} covered`}
+          sub={tally.total === 0 ? "no risk-map.md yet" : `${tally.partial} partial · ${tally.gap} gap`}
+          title="The risk map's authored judgments -- coverage is never a pass rate."
+        />
+        <GlanceCell
+          label="Version"
+          value={detail.versions.length === 0 ? "none recorded" : `${detail.versions.length} recorded`}
+          sub={
+            latestVersion === undefined
+              ? "record one to start the chain"
+              : `latest ${versionLabelFor(latestVersion, latestVersion.hash)} · ${formatDay(latestVersion.recordedAt)}`
+          }
+          title={latestVersion?.hash}
+        />
       </div>
     </header>
   );
@@ -436,6 +521,8 @@ const CardHeader: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["d
 
 interface OverviewTabProps {
   readonly detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
+  /** Proven-on provider ids, derived once in `SkillCard` (shared with the header's glance strip). */
+  readonly proven: ReadonlyArray<string>;
   readonly slug: string;
   readonly pending: boolean;
   readonly actionError: string | undefined;
@@ -462,8 +549,6 @@ interface OverviewTabProps {
  * (issue #108) render per context when present; absent = unclaimed =
  * honest gap, no placeholder row.
  */
-const DOSSIER_GAP = <span className="text-neutral-400">unrecorded</span>;
-
 const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
   const fields: ReadonlyArray<readonly [string, string | undefined]> = [
     ["Job", dossier.job],
@@ -472,21 +557,24 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
     ["Evidence", dossier.evidence],
     ["Fit criterion", dossier.fitCriterion],
   ];
+  const anyGap = fields.some(([, value]) => value === undefined) || dossier.contexts.length === 0;
   return (
     <section className="flex flex-col gap-2">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Dossier</h4>
-      <dl className="flex flex-col gap-1 text-[11px]">
+      <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+        Dossier — context of use (honest gaps kept, never hidden)
+      </h4>
+      <dl className="flex flex-col text-[13px]">
         {fields.map(([label, value]) => (
-          <div key={label} className="flex gap-2">
-            <dt className="w-24 shrink-0 text-neutral-500 dark:text-neutral-400">{label}</dt>
-            <dd className="text-neutral-700 dark:text-neutral-300">{value ?? DOSSIER_GAP}</dd>
+          <div key={label} className="flex gap-3 border-t border-border py-1.5 first:border-t-0">
+            <dt className="w-28 shrink-0 text-neutral-500 dark:text-neutral-400">{label}</dt>
+            <dd className="text-neutral-700 dark:text-neutral-300">{value ?? <Unrecorded />}</dd>
           </div>
         ))}
-        <div className="flex gap-2">
-          <dt className="w-24 shrink-0 text-neutral-500 dark:text-neutral-400">Contexts</dt>
+        <div className="flex gap-3 border-t border-border py-1.5">
+          <dt className="w-28 shrink-0 text-neutral-500 dark:text-neutral-400">Contexts</dt>
           <dd className="text-neutral-700 dark:text-neutral-300">
             {dossier.contexts.length === 0 ? (
-              <span className="text-neutral-400">none named</span>
+              <Unrecorded word="none named" />
             ) : (
               <ul className="flex flex-col gap-1">
                 {dossier.contexts.map((context) => {
@@ -517,15 +605,24 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
           </dd>
         </div>
       </dl>
+      {anyGap && (
+        <Footnote>
+          Every empty field is an honest gap — exactly what &quot;fill out the card&quot; is for. The card
+          shows what&apos;s missing instead of pretending it&apos;s complete.
+        </Footnote>
+      )}
     </section>
   );
 };
 
 /**
- * The Overview's "Next" chips (issue #109): derivable-today gaps only --
- * uncovered risks, fixtures below the smoke threshold, unmeasured
- * providers. No speculative plays, no scoring, no heat. An empty list is a
- * quiet, honest "nothing derivable to suggest," not a congratulation.
+ * "Next, from what we already know" (issue #109; prototype `.chips`):
+ * derivable-today gaps only -- uncovered risks, fixtures below the smoke
+ * threshold, unmeasured providers. No speculative plays, no scoring, no
+ * heat. Lives OUTSIDE the tabbed page, always visible whatever tab is
+ * open: a dashed "derivable" chip + bold title + one-line detail per row.
+ * An empty list is a quiet, honest "nothing derivable to suggest," not a
+ * congratulation.
  */
 const NextChips: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]> }> = ({ detail }) => {
   const { state } = useWorkspace();
@@ -540,24 +637,121 @@ const NextChips: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["de
     return null;
   }
   return (
-    <section className="flex flex-col gap-1">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Next</h4>
-      <div className="flex flex-wrap gap-1">
+    <section className="px-4 pb-3 sm:px-6">
+      <h4 className="mb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+        Next, from what we already know
+      </h4>
+      <ul className="flex flex-col">
         {chips.map((chip) => (
-          <span
-            key={chip.key}
-            className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
-          >
-            {chip.label}
-          </span>
+          <li key={chip.key} className="border-b border-border py-2 last:border-b-0">
+            <span className="mr-2 rounded border border-dashed border-amber-600 px-1.5 py-0.5 align-middle font-mono text-[9px] uppercase tracking-wider text-amber-600 dark:border-amber-400 dark:text-amber-400">
+              derivable
+            </span>
+            <b className="text-[13px] text-neutral-900 dark:text-neutral-100">{chip.title}</b>
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{chip.detail}</p>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
+  );
+};
+
+/** The one italic warning-toned honest-gap rendering (prototype `.unrec`) -- shared by Facts, Pipeline, and the Research table. */
+const Unrecorded: FC<{ word?: string }> = ({ word = "unrecorded" }) => (
+  <span className="italic text-red-600 dark:text-red-400">{word}</span>
+);
+
+/** The one law-line footnote (prototype `.gaprow`): every per-tab honest-read note shares this style so spacing never drifts between tabs. */
+const Footnote: FC<{ children: ReactNode }> = ({ children }) => (
+  <p className="text-xs text-neutral-500 dark:text-neutral-400">{children}</p>
+);
+
+/**
+ * Overview's two-column core (prototype `.two`): the "Facts" mini-table
+ * (Runtime / Stage / Fixtures / Created / Drift) and the "Pipeline
+ * (neighborhood)" block -- the dossier's handoff CLAIMS per context when
+ * present (issue #108: free text, never a link, never resolved to a
+ * bundle), else the honest italic gap instead of an inferred graph.
+ * "Created" is the first custody event's day (the journal's first sighting
+ * -- the payload carries no created-at field), an honest gap when the
+ * journal is empty.
+ */
+const FactsAndPipeline: FC<{
+  detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
+  /** Proven-on provider ids, derived once in `SkillCard` (shared with the header's glance strip). */
+  proven: ReadonlyArray<string>;
+}> = ({ detail, proven }) => {
+  const { bundle } = detail;
+  const firstCustody = detail.lineage.custody[0];
+  const contextsWithClaims = detail.dossier.contexts.filter(
+    (context) => context.upstream !== undefined || context.downstream !== undefined || context.hands !== undefined,
+  );
+  const facts: ReadonlyArray<readonly [string, ReactNode]> = [
+    ["Runtime", proven.length > 0 ? proven.join(", ") : <Unrecorded word="none proven yet" />],
+    ["Stage", STAGE_LABEL[bundle.stage]],
+    ["Fixtures", String(detail.fixtures.length)],
+    ["Created", firstCustody !== undefined ? formatDay(firstCustody.at) : <Unrecorded />],
+    ["Drift", DRIFT_LABEL[bundle.drift]],
+  ];
+
+  return (
+    <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+      <div>
+        <h4 className="mb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          Facts
+        </h4>
+        <table className="w-full text-[13px]">
+          <tbody>
+            {facts.map(([label, value]) => (
+              <tr key={label} className="border-t border-border first:border-t-0">
+                <td className="py-1.5 pr-3 text-neutral-500 dark:text-neutral-400">{label}</td>
+                <td className="py-1.5 font-mono text-neutral-800 dark:text-neutral-200">{value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h4 className="mb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          Pipeline (neighborhood)
+        </h4>
+        {contextsWithClaims.length === 0 ? (
+          <p className="text-[13px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+            <Unrecorded word="Not yet recorded." /> Upstream/downstream handoffs live in the dossier&apos;s
+            Contexts; this skill has named none, so the card shows the honest gap rather than an inferred
+            graph.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2 text-[13px]">
+            {contextsWithClaims.map((context) => {
+              const claims: ReadonlyArray<readonly [string, string | undefined]> = [
+                ["Upstream", context.upstream],
+                ["Downstream", context.downstream],
+                ["Hands", context.hands],
+              ];
+              return (
+                <li key={context.name}>
+                  <span className="font-medium text-neutral-800 dark:text-neutral-100">{context.name}</span>
+                  {claims
+                    .filter((claim): claim is readonly [string, string] => claim[1] !== undefined)
+                    .map(([label, value]) => (
+                      <div key={label} className="text-neutral-500 dark:text-neutral-400">
+                        {label}: <span className="text-neutral-700 dark:text-neutral-300">{value}</span>
+                      </div>
+                    ))}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 };
 
 const OverviewTab: FC<OverviewTabProps> = ({
   detail,
+  proven,
   slug,
   pending,
   actionError,
@@ -625,272 +819,281 @@ const OverviewTab: FC<OverviewTabProps> = ({
         </details>
       </div>
 
-      <NextChips detail={detail} />
+      <FactsAndPipeline detail={detail} proven={proven} />
 
-      {actionError !== undefined && (
-        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
-          {humanizeError(actionError)}
-        </p>
-      )}
+      {/* Every action affordance the old panel had, grouped under ONE
+          labeled area (card-fidelity round) so the workflow controls stop
+          dominating the read -- readability first, capabilities intact. */}
+      <section className="flex flex-col gap-3 rounded-md border border-border p-3">
+        <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          Actions
+        </h4>
 
-      {action.kind === "terminal" && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-          Published — this skill has shipped.
-        </p>
-      )}
+        {actionError !== undefined && (
+          <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+            {humanizeError(actionError)}
+          </p>
+        )}
 
-      {action.kind === "gate" && (
-        <>
-          {/* Publishing is two conscious steps: approve the evaluation (no
-              advance -- the gate does that), then clear the publish gate. */}
-          {!guardStatus.approvedForForward && (
-            <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                {bundle.substate === "awaiting-review" ? "Ready for your review" : "Approve the evaluation"}
-              </h4>
-              <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
-                Then clear the publish gate below to ship.
-              </p>
-              {question !== undefined && question.length > 0 && (
-                <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
-              )}
-              {reviewArtifacts.length > 0 && (
-                <ul className="flex flex-col gap-0.5">
-                  {reviewArtifacts.map((path) => (
-                    <li key={path}>
-                      <Link
-                        href={bundleFileHref(slug, path)}
-                        className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
-                      >
-                        {path}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  bundle.substate === "awaiting-review"
-                    ? submit("review.resolved", { bundle: slug, state: stage, decision: "approve" })
-                    : submitMany([
-                        { type: "review.requested", payload: { bundle: slug, state: stage } },
-                        { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
-                      ])
-                }
-                className="self-start rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-              >
-                Approve the evaluation
-              </button>
-              {bundle.substate === "awaiting-review" && (
-                <>
-                  <textarea
-                    value={reviseNotes}
-                    onChange={(event) => setReviseNotes(event.target.value)}
-                    placeholder="Notes for the author (required to send back)"
-                    className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-                  />
-                  <button
-                    type="button"
-                    disabled={pending || reviseNotes.trim().length === 0}
-                    onClick={() =>
-                      submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
-                    }
-                    className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
-                  >
-                    Send back with notes
-                  </button>
-                </>
-              )}
-            </section>
-          )}
-          <PublishSection
-            slug={slug}
-            approvedForForward={guardStatus.approvedForForward}
-            gateApproved={guardStatus.gateApproved}
-            gateBasis={gateBasis}
-            setGateBasis={setGateBasis}
-            onChanged={onChanged}
-          />
-        </>
-      )}
+        {action.kind === "terminal" && (
+          <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+            Published — this skill has shipped.
+          </p>
+        )}
 
-      {action.kind === "review" && (
-        <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-            Ready for your review
-          </h4>
-          {question !== undefined && question.length > 0 && (
-            <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
-          )}
-          {reviewArtifacts.length > 0 && (
-            <ul className="flex flex-col gap-0.5">
-              {reviewArtifacts.map((path) => (
-                <li key={path}>
-                  <Link
-                    href={bundleFileHref(slug, path)}
-                    className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
-                  >
-                    {path}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() =>
-              submitMany([
-                { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
-                { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
-              ])
-            }
-            className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-          >
-            Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
-          </button>
-          <textarea
-            value={reviseNotes}
-            onChange={(event) => setReviseNotes(event.target.value)}
-            placeholder="Notes for the author (required to send back)"
-            className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-          />
-          <button
-            type="button"
-            disabled={pending || reviseNotes.trim().length === 0}
-            onClick={() =>
-              submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
-            }
-            className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
-          >
-            Send back with notes
-          </button>
-        </section>
-      )}
-
-      {action.kind === "advance" && (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => submit("bundle.stage_changed", { bundle: slug, from: stage, to: action.nextStage })}
-          className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-        >
-          Move to {STAGE_LABEL[action.nextStage]} ▸
-        </button>
-      )}
-
-      {action.kind === "approve-advance" && (
-        <section className="flex flex-col gap-2">
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() =>
-              // Collapse the solo review pair: request -> approve -> advance in
-              // one click. review.resolved is only accepted while awaiting-review
-              // (Server.ts), so the request must lead; the journal still records
-              // the full pair.
-              submitMany([
-                { type: "review.requested", payload: { bundle: slug, state: stage } },
-                { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
-                { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
-              ])
-            }
-            className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-          >
-            Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
-          </button>
-
-          <details className="rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800">
-            <summary className="cursor-pointer select-none text-neutral-500">Other ways forward</summary>
-            <div className="mt-2 flex flex-col gap-3">
-              {detail.station !== null && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-neutral-600 dark:text-neutral-300">
-                    Have an agent do the {STAGE_LABEL[stage]} stage's work (skill{" "}
-                    <span className="font-mono">{detail.station.skill}</span>) — it requests your review when done.
-                  </p>
-                  {stationError !== undefined && (
-                    <p className="rounded-md bg-red-100 px-2 py-1 text-red-800 dark:bg-red-950 dark:text-red-300">
-                      {stationError}
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    disabled={stationPending}
-                    onClick={runCurrentStageStation}
-                    className="self-start rounded-md bg-neutral-900 px-2 py-1 font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
-                  >
-                    Run station ▸
-                  </button>
-                </div>
-              )}
-              <div className="flex flex-col gap-1">
-                <p className="text-neutral-600 dark:text-neutral-300">Or hand it to someone else to review first:</p>
-                <input
-                  value={reviewQuestion}
-                  onChange={(event) => setReviewQuestion(event.target.value)}
-                  placeholder="Question for the reviewer (optional)"
-                  className="w-full rounded-md border border-neutral-300 p-2 dark:border-neutral-700 dark:bg-neutral-900"
-                />
+        {action.kind === "gate" && (
+          <>
+            {/* Publishing is two conscious steps: approve the evaluation (no
+                advance -- the gate does that), then clear the publish gate. */}
+            {!guardStatus.approvedForForward && (
+              <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                  {bundle.substate === "awaiting-review" ? "Ready for your review" : "Approve the evaluation"}
+                </h4>
+                <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+                  Then clear the publish gate below to ship.
+                </p>
+                {question !== undefined && question.length > 0 && (
+                  <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
+                )}
+                {reviewArtifacts.length > 0 && (
+                  <ul className="flex flex-col gap-0.5">
+                    {reviewArtifacts.map((path) => (
+                      <li key={path}>
+                        <Link
+                          href={bundleFileHref(slug, path)}
+                          className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+                        >
+                          {path}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <button
                   type="button"
                   disabled={pending}
                   onClick={() =>
-                    submit("review.requested", {
-                      bundle: slug,
-                      state: stage,
-                      ...(reviewQuestion.trim().length > 0 ? { question: reviewQuestion.trim() } : {}),
-                    })
+                    bundle.substate === "awaiting-review"
+                      ? submit("review.resolved", { bundle: slug, state: stage, decision: "approve" })
+                      : submitMany([
+                          { type: "review.requested", payload: { bundle: slug, state: stage } },
+                          { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                        ])
                   }
-                  className="self-start rounded-md border border-neutral-300 px-2 py-1 font-medium disabled:opacity-50 dark:border-neutral-700"
+                  className="self-start rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
                 >
-                  Request review
+                  Approve the evaluation
                 </button>
-              </div>
-            </div>
-          </details>
-        </section>
-      )}
+                {bundle.substate === "awaiting-review" && (
+                  <>
+                    <textarea
+                      value={reviseNotes}
+                      onChange={(event) => setReviseNotes(event.target.value)}
+                      placeholder="Notes for the author (required to send back)"
+                      className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+                    />
+                    <button
+                      type="button"
+                      disabled={pending || reviseNotes.trim().length === 0}
+                      onClick={() =>
+                        submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
+                      }
+                      className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+                    >
+                      Send back with notes
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
+            <PublishSection
+              slug={slug}
+              approvedForForward={guardStatus.approvedForForward}
+              gateApproved={guardStatus.gateApproved}
+              gateBasis={gateBasis}
+              setGateBasis={setGateBasis}
+              onChanged={onChanged}
+            />
+          </>
+        )}
 
-      {stage === "published" && <PublishToTargetsSection slug={slug} />}
-
-      {earlier.length > 0 && (
-        <details className="text-[11px] text-neutral-400">
-          <summary className="cursor-pointer select-none">Move to an earlier stage</summary>
-          <div className="mt-2 flex flex-col gap-2">
-            <select
-              value={backTarget}
-              onChange={(event) => setBackTarget(event.target.value)}
-              className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+        {action.kind === "review" && (
+          <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+              Ready for your review
+            </h4>
+            {question !== undefined && question.length > 0 && (
+              <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
+            )}
+            {reviewArtifacts.length > 0 && (
+              <ul className="flex flex-col gap-0.5">
+                {reviewArtifacts.map((path) => (
+                  <li key={path}>
+                    <Link
+                      href={bundleFileHref(slug, path)}
+                      className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+                    >
+                      {path}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                submitMany([
+                  { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                  { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
+                ])
+              }
+              className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
             >
-              <option value="">Select an earlier stage</option>
-              {earlier.map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {STAGE_LABEL[candidate]}
-                </option>
-              ))}
-            </select>
-            <input
-              value={backReason}
-              onChange={(event) => setBackReason(event.target.value)}
-              placeholder="Reason (required)"
+              Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
+            </button>
+            <textarea
+              value={reviseNotes}
+              onChange={(event) => setReviseNotes(event.target.value)}
+              placeholder="Notes for the author (required to send back)"
               className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
             />
             <button
               type="button"
-              disabled={pending || backTarget.length === 0 || backReason.trim().length === 0}
+              disabled={pending || reviseNotes.trim().length === 0}
               onClick={() =>
-                submit("bundle.stage_changed", { bundle: slug, from: stage, to: backTarget, reason: backReason.trim() })
+                submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
               }
-              className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+              className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
             >
-              Move back
+              Send back with notes
             </button>
-          </div>
-        </details>
-      )}
+          </section>
+        )}
+
+        {action.kind === "advance" && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => submit("bundle.stage_changed", { bundle: slug, from: stage, to: action.nextStage })}
+            className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            Move to {STAGE_LABEL[action.nextStage]} ▸
+          </button>
+        )}
+
+        {action.kind === "approve-advance" && (
+          <section className="flex flex-col gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                // Collapse the solo review pair: request -> approve -> advance in
+                // one click. review.resolved is only accepted while awaiting-review
+                // (Server.ts), so the request must lead; the journal still records
+                // the full pair.
+                submitMany([
+                  { type: "review.requested", payload: { bundle: slug, state: stage } },
+                  { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                  { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
+                ])
+              }
+              className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
+            </button>
+
+            <details className="rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800">
+              <summary className="cursor-pointer select-none text-neutral-500">Other ways forward</summary>
+              <div className="mt-2 flex flex-col gap-3">
+                {detail.station !== null && (
+                  <div className="flex flex-col gap-1">
+                    <p className="text-neutral-600 dark:text-neutral-300">
+                      Have an agent do the {STAGE_LABEL[stage]} stage's work (skill{" "}
+                      <span className="font-mono">{detail.station.skill}</span>) — it requests your review when done.
+                    </p>
+                    {stationError !== undefined && (
+                      <p className="rounded-md bg-red-100 px-2 py-1 text-red-800 dark:bg-red-950 dark:text-red-300">
+                        {stationError}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      disabled={stationPending}
+                      onClick={runCurrentStageStation}
+                      className="self-start rounded-md bg-neutral-900 px-2 py-1 font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+                    >
+                      Run station ▸
+                    </button>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  <p className="text-neutral-600 dark:text-neutral-300">Or hand it to someone else to review first:</p>
+                  <input
+                    value={reviewQuestion}
+                    onChange={(event) => setReviewQuestion(event.target.value)}
+                    placeholder="Question for the reviewer (optional)"
+                    className="w-full rounded-md border border-neutral-300 p-2 dark:border-neutral-700 dark:bg-neutral-900"
+                  />
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      submit("review.requested", {
+                        bundle: slug,
+                        state: stage,
+                        ...(reviewQuestion.trim().length > 0 ? { question: reviewQuestion.trim() } : {}),
+                      })
+                    }
+                    className="self-start rounded-md border border-neutral-300 px-2 py-1 font-medium disabled:opacity-50 dark:border-neutral-700"
+                  >
+                    Request review
+                  </button>
+                </div>
+              </div>
+            </details>
+          </section>
+        )}
+
+        {stage === "published" && <PublishToTargetsSection slug={slug} />}
+
+        {earlier.length > 0 && (
+          <details className="text-[11px] text-neutral-400">
+            <summary className="cursor-pointer select-none">Move to an earlier stage</summary>
+            <div className="mt-2 flex flex-col gap-2">
+              <select
+                value={backTarget}
+                onChange={(event) => setBackTarget(event.target.value)}
+                className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+              >
+                <option value="">Select an earlier stage</option>
+                {earlier.map((candidate) => (
+                  <option key={candidate} value={candidate}>
+                    {STAGE_LABEL[candidate]}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={backReason}
+                onChange={(event) => setBackReason(event.target.value)}
+                placeholder="Reason (required)"
+                className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+              />
+              <button
+                type="button"
+                disabled={pending || backTarget.length === 0 || backReason.trim().length === 0}
+                onClick={() =>
+                  submit("bundle.stage_changed", { bundle: slug, from: stage, to: backTarget, reason: backReason.trim() })
+                }
+                className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+              >
+                Move back
+              </button>
+            </div>
+          </details>
+        )}
+      </section>
 
       <section className="flex flex-col gap-1">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Recent events</h4>
@@ -1107,6 +1310,80 @@ const PublishToTargetsSection: FC<{ slug: string }> = ({ slug }) => {
   );
 };
 
+/**
+ * The Instructions tab (card-fidelity round, problem 3: "I can't find the
+ * actual skill in the skill card"): the shipped SKILL.md rendered
+ * read-only -- the card's payload, one tab after Overview. The SERVER owns
+ * which file that is (`instructionsPath` on the detail payload, derived
+ * from the bundle's resolved layout: `output/SKILL.md` for output-dir
+ * bundles, `SKILL.md` for in-place ones; `null` when it doesn't exist) --
+ * the viewer never re-derives `BundleLayout` by probing the files list.
+ * Content comes through the same `GET /api/bundles/:slug/file` endpoint as
+ * the Files tab, via the shared `useBundleFileContent` hook. The header
+ * line binds the text honestly: the endpoint serves the LIVE file, so the
+ * recorded-version label plus the drift state is exactly the honest claim
+ * about what you are reading. Empty/missing file: an honest gap line,
+ * never a spinner that lies.
+ */
+const InstructionsTab: FC<{
+  slug: string;
+  instructionsPath: string | null;
+  latestVersion: VersionRecord | undefined;
+  drift: Drift;
+}> = ({ slug, instructionsPath, latestVersion, drift }) => {
+  const path = instructionsPath ?? undefined;
+  const { content, loading, error: fileError } = useBundleFileContent(slug, path);
+
+  if (path === undefined) {
+    return (
+      <p className="text-[13px] text-neutral-500 dark:text-neutral-400">
+        <Unrecorded word="No SKILL.md yet." /> The drafting station writes <span className="font-mono">output/SKILL.md</span>;
+        until it exists there are no instructions to show — an honest gap, not a rendering failure.
+      </p>
+    );
+  }
+
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+          The shipped instructions at{" "}
+          <span className="font-mono text-neutral-700 dark:text-neutral-200">
+            {latestVersion === undefined ? "no recorded version" : versionLabelFor(latestVersion, latestVersion.hash)}
+          </span>
+          {" · drift: "}
+          <span className="font-mono text-neutral-700 dark:text-neutral-200" title={DRIFT_EXPLANATION[drift]}>
+            {DRIFT_LABEL[drift]}
+          </span>
+        </p>
+        <Link
+          href={bundleFileHref(slug, path)}
+          className="font-mono text-[11px] text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+        >
+          {path}
+        </Link>
+      </div>
+      {loading && <p className="text-xs text-neutral-500">Loading...</p>}
+      {fileError !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          Could not load {path}: {fileError}
+        </p>
+      )}
+      {!loading && fileError === undefined && content !== undefined && content.length === 0 && (
+        <p className="text-[13px] text-neutral-500 dark:text-neutral-400">
+          <Unrecorded word={`${path} is empty.`} /> Nothing shipped yet — an honest gap, not a rendering
+          failure.
+        </p>
+      )}
+      {!loading && fileError === undefined && content !== undefined && content.length > 0 && (
+        <pre className="max-h-[36rem] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-canvas/50 p-3 font-mono text-xs leading-relaxed text-neutral-800 dark:text-neutral-200">
+          {content}
+        </pre>
+      )}
+    </section>
+  );
+};
+
 const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: string | undefined }> = ({
   slug,
   files,
@@ -1121,40 +1398,7 @@ const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: st
   // stays picked; a vanished one falls back to `preferred`).
   const [userSelected, setUserSelected] = useState<string | undefined>(undefined);
   const selected = userSelected !== undefined && files.includes(userSelected) ? userSelected : preferred;
-  const [content, setContent] = useState<string | undefined>(undefined);
-  const [fileError, setFileError] = useState<string | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (selected === undefined) {
-      setContent(undefined);
-      setFileError(undefined);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setFileError(undefined);
-    getBundleFile(slug, selected)
-      .then((response) => {
-        if (!cancelled) {
-          setContent(response.content);
-        }
-      })
-      .catch((cause: Error) => {
-        if (!cancelled) {
-          setContent(undefined);
-          setFileError(cause.message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, selected]);
+  const { content, loading, error: fileError } = useBundleFileContent(slug, selected);
 
   if (files.length === 0) {
     return (
@@ -1381,22 +1625,39 @@ const LineageTab: FC<{
     </section>
 
     <section className="flex flex-col gap-1">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Chain of custody</h4>
+      <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+        Chain of custody — replayed from the journal
+      </h4>
       {lineage.custody.length === 0 ? (
         <p className="text-[11px] text-neutral-400">No custody events journaled yet.</p>
       ) : (
-        <ol className="flex flex-col gap-1 border-l border-neutral-200 pl-3 dark:border-neutral-800">
+        /* The prototype's dotted list: `date  humanized-line — actor` per
+           row. The actor stays VISIBLE (not hover-only -- keyboard/touch
+           users get it too); the full timestamp and raw event type remain
+           on the row's title as a convenience duplicate, never the only
+           path to anything a row doesn't already show. */
+        <ol className="flex flex-col">
           {lineage.custody.map((event) => (
-            <li key={event.id} className="flex flex-col text-[11px]">
-              <span className="text-neutral-700 dark:text-neutral-200">{custodyLine(event)}</span>
-              <span className="text-neutral-400">
-                {formatTimestamp(event.at)} · {event.actor.kind}:{event.actor.name}
-                {" · "}
-                <span className="font-mono">{event.type}</span>
+            <li
+              key={event.id}
+              className="border-b border-dotted border-border py-1.5 text-[13px] last:border-b-0"
+              title={`${formatTimestamp(event.at)} · ${event.type}`}
+            >
+              <span className="font-mono text-neutral-400">{formatDay(event.at)}</span>{" "}
+              <span className="text-neutral-700 dark:text-neutral-200">{custodyLine(event)}</span>{" "}
+              <span className="text-[11px] text-neutral-400">
+                — {event.actor.kind}:{event.actor.name}
               </span>
             </li>
           ))}
         </ol>
+      )}
+      {versions[0] !== undefined && (
+        <Footnote>
+          Version <span className="font-mono">{versionLabelFor(versions[0], versions[0].hash)}</span>{" "}
+          recorded {formatDay(versions[0].recordedAt)}; measurements bind to it, so a re-record resets
+          displayed validation by construction.
+        </Footnote>
       )}
     </section>
 
@@ -1439,10 +1700,9 @@ const CoverageTab: FC<{
       )}
 
       <section className="flex flex-col gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Risk coverage</h4>
-        <p className="text-[11px] text-neutral-400">
-          Authored judgment only — pass rates are measurements and live under Models.
-        </p>
+        <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          Risk coverage — the authored axis, in its own words
+        </h4>
         {orderedFamilies.length === 0 && (
           <p className="text-[11px] text-neutral-400">No risk-map.md authored yet.</p>
         )}
@@ -1466,7 +1726,11 @@ const CoverageTab: FC<{
                     <tr key={row.riskId} className="border-t border-neutral-100 dark:border-neutral-800">
                       <td className="py-1 pr-2 font-mono">{row.riskId}</td>
                       <td className="py-1 pr-2">
-                        {COVERAGE_GLYPH[row.coverage]} {COVERAGE_LABEL[row.coverage]}
+                        <span
+                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${COVERAGE_PILL_CLASS[row.coverage]}`}
+                        >
+                          {COVERAGE_LABEL[row.coverage]}
+                        </span>
                       </td>
                       <td className="py-1 pr-2 font-mono">{row.fixtureCase ?? "—"}</td>
                     </tr>
@@ -1475,6 +1739,13 @@ const CoverageTab: FC<{
             </table>
           </div>
         ))}
+        {orderedFamilies.length > 0 && (
+          <Footnote>
+            Authored <span className="font-mono">covered / partial / gap</span> — what a human claimed the
+            fixtures buy, kept separate from measured pass rates (coverage and validation never merge; the
+            rates live under Models).
+          </Footnote>
+        )}
       </section>
     </section>
   );
@@ -1717,10 +1988,9 @@ const ModelsTab: FC<{
   return (
     <section className="flex flex-col gap-4">
       <section className="flex flex-col gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Measurements</h4>
-        <p className="text-[11px] text-neutral-400">
-          One row per fixture × provider × model, pinned to the version it measured — never pooled.
-        </p>
+        <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          Model performance — every row pinned to a fixture × provider × exact model
+        </h4>
         {rows.length === 0 ? (
           <p className="text-[11px] text-neutral-400">
             No measurements yet — a measurement is a set of graded runs at a recorded version.
@@ -1745,7 +2015,8 @@ const ModelsTab: FC<{
                   <tr key={measurementRowKey(cell)} className="border-t border-neutral-100 dark:border-neutral-800">
                     <td className="py-1 pr-2 font-mono">{cell.fixtureCase}</td>
                     <td className="py-1 pr-2 font-mono">{cell.provider}</td>
-                    <td className="py-1 pr-2 font-mono">
+                    {/* The pinned model id, visually accented (prototype `.pin`): the exact recorded string, never a marketing alias. */}
+                    <td className="py-1 pr-2 font-mono text-amber-700 dark:text-amber-400">
                       {cell.model.length > 0 ? (
                         cell.model
                       ) : (
@@ -1772,6 +2043,12 @@ const ModelsTab: FC<{
               </tbody>
             </table>
           </div>
+        )}
+        {rows.length > 0 && (
+          <Footnote>
+            Never pooled: each row is one (fixture × provider × model) sample. Intervals are wide because n
+            is small — that is the honest read, not a rounding choice.
+          </Footnote>
         )}
       </section>
 

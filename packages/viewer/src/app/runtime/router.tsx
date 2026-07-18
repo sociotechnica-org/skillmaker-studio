@@ -11,18 +11,22 @@
 import { createContext, useCallback, useContext, useEffect, useState, type FC, type ReactNode } from "react";
 
 /**
- * The skill card's tabs (issue #109): Overview · Models · Coverage ·
- * Research · Lineage, plus Files (the panel's read-only source review,
- * kept as its own tab so `?file=` deep links keep a stable home). The old
- * panel's `evals` and `versions` tab paths survive as aliases (`evals` ->
- * `models`, where the measurements + runs now live; `versions` ->
+ * The skill card's tabs (issue #109): Overview · Instructions · Models ·
+ * Coverage · Research · Lineage, plus Files (the panel's read-only source
+ * review, kept as its own tab so `?file=` deep links keep a stable home).
+ * Instructions (card-fidelity round) is the skill ITSELF -- the shipped
+ * SKILL.md rendered read-only, first content after Overview, so the card
+ * never again shows everything *about* the skill and never the skill. The
+ * old panel's `evals` and `versions` tab paths survive as aliases (`evals`
+ * -> `models`, where the measurements + runs now live; `versions` ->
  * `lineage`, where version records now live in the custody chain) --
  * display-layer only, old deep links keep working.
  */
-export type BundleTab = "overview" | "models" | "coverage" | "research" | "lineage" | "files";
+export type BundleTab = "overview" | "instructions" | "models" | "coverage" | "research" | "lineage" | "files";
 
 const BUNDLE_TABS: ReadonlyArray<BundleTab> = [
   "overview",
+  "instructions",
   "models",
   "coverage",
   "research",

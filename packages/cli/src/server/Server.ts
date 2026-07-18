@@ -1020,6 +1020,16 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
         : null,
   };
 
+  // The skill's own instructions file (card-fidelity simplify pass): the
+  // SERVER owns the layout question -- the viewer's Instructions tab must
+  // not re-derive `BundleLayout` by probing the files list. Off the SAME
+  // resolved `layout` as `files` below: an output-dir bundle ships
+  // `output/SKILL.md`; an in-place bundle IS the skill directory, so
+  // `SKILL.md` sits at its root. `null` when the file doesn't exist yet --
+  // an honest gap the card renders as such.
+  const instructionsRelPath = layout === "output-dir" ? "output/SKILL.md" : "SKILL.md";
+  const instructionsPath = existsSync(join(bundleDir, instructionsRelPath)) ? instructionsRelPath : null;
+
   return jsonResponse({
     bundle,
     guardStatus: guardStatus(events, slug),
@@ -1038,6 +1048,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     dossier,
     lineage,
     files: listReviewableBundleFiles(bundleDir, layout),
+    instructionsPath,
   });
 };
 
