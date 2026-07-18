@@ -18,12 +18,16 @@
 import type { FC } from "react";
 import { provenOnProviders } from "../runtime/cardGlance.ts";
 import { bundleHref, Link, shipBundleHref, trackHref, useRouter } from "../runtime/router.tsx";
-import { STAGE_BADGE_CLASS, type BundleStage, type SkillbookBundle } from "../runtime/schemas.ts";
+import { STAGE_BADGE_CLASS, STAGE_LABEL, type BundleStage, type SkillbookBundle } from "../runtime/schemas.ts";
 import { useSkillbook } from "../runtime/useSkillbook.ts";
+import { Badge } from "./Badge.tsx";
 
 /** The Skillbook payload's `stage` is a plain string on the wire, so unknown values fall back to the idea-gray badge instead of an undefined class. */
 const stageBadgeClass = (stage: string): string =>
   STAGE_BADGE_CLASS[stage as BundleStage] ?? "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300";
+
+/** The stage's display word (the card era's vocabulary, e.g. "Proof" for `evaluating`) -- the raw wire word only when unknown, mirroring `stageBadgeClass`'s fallback. */
+const stageLabel = (stage: string): string => STAGE_LABEL[stage as BundleStage] ?? stage;
 
 const shortHash = (hash: string): string => {
   const prefix = "sha256:";
@@ -53,10 +57,7 @@ const ShipEntryCard: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   const proven = provenOnProviders(bundle.measurements, bundle.latestVersion?.hash);
   const shipping = shippingLine(bundle);
   return (
-    <li
-      className="flex flex-col gap-1.5 overflow-hidden rounded-lg border border-ink/70 bg-surface"
-      style={{ boxShadow: "4px 4px 0 var(--color-paper-dark)" }}
-    >
+    <li className="card-shadow-sm flex flex-col gap-1.5 overflow-hidden rounded-lg border border-ink/70 bg-surface">
       <div className="h-1 bg-amber-500" aria-hidden="true" />
       <div className="flex flex-col gap-1.5 px-4 pb-3 pt-1.5">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -66,14 +67,14 @@ const ShipEntryCard: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
           >
             {bundle.slug}
           </Link>
-          <span
-            className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase ${stageBadgeClass(bundle.stage)}`}
+          <Badge
+            tone={stageBadgeClass(bundle.stage)}
             title={bundle.latestVersion === null ? "No version recorded yet." : bundle.latestVersion.hash}
           >
-            {bundle.stage}
+            {stageLabel(bundle.stage)}
             {" · "}
             {bundle.latestVersion === null ? "no version" : shortHash(bundle.latestVersion.hash)}
-          </span>
+          </Badge>
         </div>
         {bundle.oneLiner.length > 0 && (
           <p className="text-xs text-neutral-600 dark:text-neutral-300">{bundle.oneLiner}</p>
@@ -134,10 +135,7 @@ export const Ship: FC = () => {
       {/* The book COVER (#109 Stage 3; card-fidelity round): a distinct
           object -- ink border, offset shadow like the card family, but a
           left spine band and centered cover type so it reads as a book. */}
-      <section
-        className="flex overflow-hidden rounded-lg border-2 border-ink bg-surface"
-        style={{ boxShadow: "8px 8px 0 var(--color-paper-dark)" }}
-      >
+      <section className="card-shadow-lg flex overflow-hidden rounded-lg border-2 border-ink bg-surface">
         <div className="w-3 shrink-0 bg-amber-500" aria-hidden="true" />
         <div className="flex flex-1 flex-col items-center gap-2 px-6 py-8 text-center">
           <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-amber-600 dark:text-amber-400">
@@ -318,7 +316,7 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
         <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{bundle.name}</h1>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
           <span className={`mr-2 rounded-full px-2 py-0.5 font-medium ${stageBadgeClass(bundle.stage)}`}>
-            {bundle.stage}
+            {stageLabel(bundle.stage)}
           </span>
           {bundle.oneLiner}
         </p>

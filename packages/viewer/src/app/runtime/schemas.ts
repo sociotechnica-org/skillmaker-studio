@@ -333,6 +333,15 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   lineage: LineageRecord,
   /** The bundle's reviewable source files (design.md, research/*, output/*) for the Files tab, pipeline-ordered. */
   files: Schema.Array(Schema.String),
+  /**
+   * The skill's own instructions file for the Instructions tab (card-fidelity
+   * simplify pass): derived server-side from the bundle's resolved layout
+   * (`output/SKILL.md` for output-dir bundles, `SKILL.md` for in-place ones)
+   * so the viewer never re-derives `BundleLayout` by probing `files`. `null`
+   * when the file doesn't exist yet -- an honest gap. A free-text relative
+   * path, not a vocabulary word (no VocabLockstep row).
+   */
+  instructionsPath: Schema.NullOr(Schema.String),
   /** The Unverified badge (issue #93): same derivation as `CatalogEntry.unverified`, computed from this same response's `measurements`. */
   unverified: Schema.Boolean,
 }) {}

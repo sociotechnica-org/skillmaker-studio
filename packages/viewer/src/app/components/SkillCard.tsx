@@ -20,12 +20,12 @@
  *    had (review pair, publish gate, stage advance/back, station run,
  *    publish-to-targets, recent events). The card replaces the panel's
  *    layout, not its capabilities.
- *  - **Instructions**: the skill ITSELF -- the shipped SKILL.md
- *    (`output/SKILL.md`, or `SKILL.md` for in-place bundles) rendered
- *    read-only via the existing file endpoint, bound honestly to the
- *    recorded version + drift state. The card's readable payload: without
- *    this tab the card showed everything *about* the skill and never the
- *    skill.
+ *  - **Instructions**: the skill ITSELF -- the shipped SKILL.md (the
+ *    server-derived `instructionsPath`: `output/SKILL.md`, or `SKILL.md`
+ *    for in-place bundles) rendered read-only via the existing file
+ *    endpoint, bound honestly to the recorded version + drift state. The
+ *    card's readable payload: without this tab the card showed everything
+ *    *about* the skill and never the skill.
  *  - **Models**: the measurements table -- one row per (fixture × provider ×
  *    model × version), NEVER pooled (data-model.md §1.1 laws 5-6), exact
  *    pinned model ids as recorded, n · pass · rate · 95% CI (computed in
@@ -48,9 +48,8 @@
  * neighborhood scoring, card.json interchange. Unverified stays a badge,
  * never a band.
  */
-import { type FC, type ReactNode, useEffect, useState } from "react";
+import { type FC, type ReactNode, useState } from "react";
 import {
-  getBundleFile,
   type PostEventInput,
   postEvent,
   publishBundle,
@@ -82,8 +81,10 @@ import {
   type WarningRecord,
 } from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
+import { useBundleFileContent } from "../runtime/useBundleFileContent.ts";
 import { useWorkspace } from "../runtime/useWorkspace.ts";
 import { nextAction, nextStageOf } from "../runtime/nextAction.ts";
+import { Badge } from "./Badge.tsx";
 import { RunDetailModal } from "./RunDetailModal.tsx";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -288,6 +289,12 @@ export const SkillCard: FC<{
   // A single event is just the one-element case of `submitMany`.
   const submit = (type: string, payload: Record<string, unknown>): void => submitMany([{ type, payload }]);
 
+  // Derived ONCE per render, next to `detail` (simplify pass): the header's
+  // glance strip and Overview's Facts table both read the same proven-on
+  // list, so it is computed here and passed down rather than re-derived in
+  // each child on every action-form keystroke.
+  const proven = detail === undefined ? [] : provenOnProviders(detail.measurements, detail.versions[0]?.hash);
+
   return (
     <div className="flex max-w-4xl flex-col gap-4">
       <div className="flex items-start justify-between">
@@ -306,18 +313,15 @@ export const SkillCard: FC<{
 
       {detail !== undefined && (
         /* The card OBJECT (prototype `.card`): strong ink border, amber
-           accent strip, hard offset shadow (inline so the global skin's
-           softer `.rounded-*` shadow rules can't override it), footer
-           stamp -- a physical index card, visually distinct from the app's
-           flat panels. All surfaces use theme tokens (`surface`, `canvas`,
-           `border`, `ink`, `paper-dark`) so dark mode flips with the skin. */
-        <article
-          className="overflow-hidden rounded-xl border-2 border-ink bg-surface"
-          style={{ boxShadow: "8px 8px 0 var(--color-paper-dark)" }}
-        >
+           accent strip, hard offset shadow (`.card-shadow-lg`, the skin's
+           card-object motif in global.css), footer stamp -- a physical
+           index card, visually distinct from the app's flat panels. All
+           surfaces use theme tokens (`surface`, `canvas`, `border`, `ink`,
+           `paper-dark`) so dark mode flips with the skin. */
+        <article className="card-shadow-lg overflow-hidden rounded-xl border-2 border-ink bg-surface">
           <div className="h-2 bg-amber-500" aria-hidden="true" />
 
-          <CardHeader detail={detail} />
+          <CardHeader detail={detail} proven={proven} />
 
           {/* File-folder tabs over the bordered "page" (prototype `.tabs`/`.page`). */}
           <div className="flex flex-wrap gap-0.5 px-4 pt-4 sm:px-6">
@@ -340,6 +344,7 @@ export const SkillCard: FC<{
             {tab === "overview" && (
               <OverviewTab
                 detail={detail}
+                proven={proven}
                 slug={slug}
                 pending={pending}
                 actionError={actionError}
@@ -361,7 +366,7 @@ export const SkillCard: FC<{
             {tab === "instructions" && (
               <InstructionsTab
                 slug={slug}
-                files={detail.files}
+                instructionsPath={detail.instructionsPath}
                 latestVersion={detail.versions[0]}
                 drift={detail.bundle.drift}
               />
@@ -425,11 +430,14 @@ const GlanceCell: FC<{ label: string; value: string; sub: string; title?: string
  * GLANCE STRIP -- Proven on / Coverage / Version -- the readability core.
  * Every empty state is an honest gap, dossier-style.
  */
-const CardHeader: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]> }> = ({ detail }) => {
+const CardHeader: FC<{
+  detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
+  /** Proven-on provider ids, derived once in `SkillCard` and shared with Overview's Facts table. */
+  proven: ReadonlyArray<string>;
+}> = ({ detail, proven }) => {
   const { bundle } = detail;
   const latestVersion = detail.versions[0];
   const tally = coverageTally(detail.riskCoverage);
-  const proven = provenOnProviders(detail.measurements, latestVersion?.hash);
 
   return (
     <header className="px-4 pt-5 sm:px-6">
@@ -462,33 +470,23 @@ const CardHeader: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["d
         </div>
 
         <div className="flex flex-col items-end gap-1.5">
-          <span
-            className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase ${STAGE_BADGE_CLASS[bundle.stage]}`}
+          <Badge
+            tone={STAGE_BADGE_CLASS[bundle.stage]}
             title={latestVersion !== undefined ? latestVersion.hash : "No version recorded yet."}
           >
             {STAGE_LABEL[bundle.stage]}
             {" · "}
             {latestVersion === undefined ? "no version" : versionLabelFor(latestVersion, latestVersion.hash)}
-          </span>
-          <span
-            className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase ${DRIFT_BADGE_CLASS[bundle.drift]}`}
-            title={DRIFT_EXPLANATION[bundle.drift]}
-          >
+          </Badge>
+          <Badge tone={DRIFT_BADGE_CLASS[bundle.drift]} title={DRIFT_EXPLANATION[bundle.drift]}>
             drift: {DRIFT_LABEL[bundle.drift]}
-          </span>
+          </Badge>
           {detail.unverified && (
-            <span
-              title="Arrived from outside; we have not yet measured it."
-              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase ${UNVERIFIED_BADGE_CLASS}`}
-            >
+            <Badge tone={UNVERIFIED_BADGE_CLASS} title="Arrived from outside; we have not yet measured it.">
               Unverified
-            </span>
+            </Badge>
           )}
-          {bundle.archived && (
-            <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase ${RETIRED_BADGE_CLASS}`}>
-              Retired
-            </span>
-          )}
+          {bundle.archived && <Badge tone={RETIRED_BADGE_CLASS}>Retired</Badge>}
         </div>
       </div>
 
@@ -523,6 +521,8 @@ const CardHeader: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["d
 
 interface OverviewTabProps {
   readonly detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
+  /** Proven-on provider ids, derived once in `SkillCard` (shared with the header's glance strip). */
+  readonly proven: ReadonlyArray<string>;
   readonly slug: string;
   readonly pending: boolean;
   readonly actionError: string | undefined;
@@ -606,10 +606,10 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
         </div>
       </dl>
       {anyGap && (
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        <Footnote>
           Every empty field is an honest gap — exactly what &quot;fill out the card&quot; is for. The card
           shows what&apos;s missing instead of pretending it&apos;s complete.
-        </p>
+        </Footnote>
       )}
     </section>
   );
@@ -661,6 +661,11 @@ const Unrecorded: FC<{ word?: string }> = ({ word = "unrecorded" }) => (
   <span className="italic text-red-600 dark:text-red-400">{word}</span>
 );
 
+/** The one law-line footnote (prototype `.gaprow`): every per-tab honest-read note shares this style so spacing never drifts between tabs. */
+const Footnote: FC<{ children: ReactNode }> = ({ children }) => (
+  <p className="text-xs text-neutral-500 dark:text-neutral-400">{children}</p>
+);
+
 /**
  * Overview's two-column core (prototype `.two`): the "Facts" mini-table
  * (Runtime / Stage / Fixtures / Created / Drift) and the "Pipeline
@@ -671,9 +676,12 @@ const Unrecorded: FC<{ word?: string }> = ({ word = "unrecorded" }) => (
  * -- the payload carries no created-at field), an honest gap when the
  * journal is empty.
  */
-const FactsAndPipeline: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]> }> = ({ detail }) => {
+const FactsAndPipeline: FC<{
+  detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
+  /** Proven-on provider ids, derived once in `SkillCard` (shared with the header's glance strip). */
+  proven: ReadonlyArray<string>;
+}> = ({ detail, proven }) => {
   const { bundle } = detail;
-  const proven = provenOnProviders(detail.measurements, detail.versions[0]?.hash);
   const firstCustody = detail.lineage.custody[0];
   const contextsWithClaims = detail.dossier.contexts.filter(
     (context) => context.upstream !== undefined || context.downstream !== undefined || context.hands !== undefined,
@@ -743,6 +751,7 @@ const FactsAndPipeline: FC<{ detail: NonNullable<ReturnType<typeof useBundleDeta
 
 const OverviewTab: FC<OverviewTabProps> = ({
   detail,
+  proven,
   slug,
   pending,
   actionError,
@@ -810,280 +819,280 @@ const OverviewTab: FC<OverviewTabProps> = ({
         </details>
       </div>
 
-      <FactsAndPipeline detail={detail} />
+      <FactsAndPipeline detail={detail} proven={proven} />
 
       {/* Every action affordance the old panel had, grouped under ONE
           labeled area (card-fidelity round) so the workflow controls stop
           dominating the read -- readability first, capabilities intact. */}
       <section className="flex flex-col gap-3 rounded-md border border-border p-3">
-      <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-        Actions
-      </h4>
+        <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+          Actions
+        </h4>
 
-      {actionError !== undefined && (
-        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
-          {humanizeError(actionError)}
-        </p>
-      )}
+        {actionError !== undefined && (
+          <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+            {humanizeError(actionError)}
+          </p>
+        )}
 
-      {action.kind === "terminal" && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-          Published — this skill has shipped.
-        </p>
-      )}
+        {action.kind === "terminal" && (
+          <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+            Published — this skill has shipped.
+          </p>
+        )}
 
-      {action.kind === "gate" && (
-        <>
-          {/* Publishing is two conscious steps: approve the evaluation (no
-              advance -- the gate does that), then clear the publish gate. */}
-          {!guardStatus.approvedForForward && (
-            <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                {bundle.substate === "awaiting-review" ? "Ready for your review" : "Approve the evaluation"}
-              </h4>
-              <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
-                Then clear the publish gate below to ship.
-              </p>
-              {question !== undefined && question.length > 0 && (
-                <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
-              )}
-              {reviewArtifacts.length > 0 && (
-                <ul className="flex flex-col gap-0.5">
-                  {reviewArtifacts.map((path) => (
-                    <li key={path}>
-                      <Link
-                        href={bundleFileHref(slug, path)}
-                        className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
-                      >
-                        {path}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  bundle.substate === "awaiting-review"
-                    ? submit("review.resolved", { bundle: slug, state: stage, decision: "approve" })
-                    : submitMany([
-                        { type: "review.requested", payload: { bundle: slug, state: stage } },
-                        { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
-                      ])
-                }
-                className="self-start rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-              >
-                Approve the evaluation
-              </button>
-              {bundle.substate === "awaiting-review" && (
-                <>
-                  <textarea
-                    value={reviseNotes}
-                    onChange={(event) => setReviseNotes(event.target.value)}
-                    placeholder="Notes for the author (required to send back)"
-                    className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-                  />
-                  <button
-                    type="button"
-                    disabled={pending || reviseNotes.trim().length === 0}
-                    onClick={() =>
-                      submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
-                    }
-                    className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
-                  >
-                    Send back with notes
-                  </button>
-                </>
-              )}
-            </section>
-          )}
-          <PublishSection
-            slug={slug}
-            approvedForForward={guardStatus.approvedForForward}
-            gateApproved={guardStatus.gateApproved}
-            gateBasis={gateBasis}
-            setGateBasis={setGateBasis}
-            onChanged={onChanged}
-          />
-        </>
-      )}
-
-      {action.kind === "review" && (
-        <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-            Ready for your review
-          </h4>
-          {question !== undefined && question.length > 0 && (
-            <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
-          )}
-          {reviewArtifacts.length > 0 && (
-            <ul className="flex flex-col gap-0.5">
-              {reviewArtifacts.map((path) => (
-                <li key={path}>
-                  <Link
-                    href={bundleFileHref(slug, path)}
-                    className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
-                  >
-                    {path}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() =>
-              submitMany([
-                { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
-                { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
-              ])
-            }
-            className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-          >
-            Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
-          </button>
-          <textarea
-            value={reviseNotes}
-            onChange={(event) => setReviseNotes(event.target.value)}
-            placeholder="Notes for the author (required to send back)"
-            className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-          />
-          <button
-            type="button"
-            disabled={pending || reviseNotes.trim().length === 0}
-            onClick={() =>
-              submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
-            }
-            className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
-          >
-            Send back with notes
-          </button>
-        </section>
-      )}
-
-      {action.kind === "advance" && (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => submit("bundle.stage_changed", { bundle: slug, from: stage, to: action.nextStage })}
-          className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-        >
-          Move to {STAGE_LABEL[action.nextStage]} ▸
-        </button>
-      )}
-
-      {action.kind === "approve-advance" && (
-        <section className="flex flex-col gap-2">
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() =>
-              // Collapse the solo review pair: request -> approve -> advance in
-              // one click. review.resolved is only accepted while awaiting-review
-              // (Server.ts), so the request must lead; the journal still records
-              // the full pair.
-              submitMany([
-                { type: "review.requested", payload: { bundle: slug, state: stage } },
-                { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
-                { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
-              ])
-            }
-            className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-          >
-            Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
-          </button>
-
-          <details className="rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800">
-            <summary className="cursor-pointer select-none text-neutral-500">Other ways forward</summary>
-            <div className="mt-2 flex flex-col gap-3">
-              {detail.station !== null && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-neutral-600 dark:text-neutral-300">
-                    Have an agent do the {STAGE_LABEL[stage]} stage's work (skill{" "}
-                    <span className="font-mono">{detail.station.skill}</span>) — it requests your review when done.
-                  </p>
-                  {stationError !== undefined && (
-                    <p className="rounded-md bg-red-100 px-2 py-1 text-red-800 dark:bg-red-950 dark:text-red-300">
-                      {stationError}
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    disabled={stationPending}
-                    onClick={runCurrentStageStation}
-                    className="self-start rounded-md bg-neutral-900 px-2 py-1 font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
-                  >
-                    Run station ▸
-                  </button>
-                </div>
-              )}
-              <div className="flex flex-col gap-1">
-                <p className="text-neutral-600 dark:text-neutral-300">Or hand it to someone else to review first:</p>
-                <input
-                  value={reviewQuestion}
-                  onChange={(event) => setReviewQuestion(event.target.value)}
-                  placeholder="Question for the reviewer (optional)"
-                  className="w-full rounded-md border border-neutral-300 p-2 dark:border-neutral-700 dark:bg-neutral-900"
-                />
+        {action.kind === "gate" && (
+          <>
+            {/* Publishing is two conscious steps: approve the evaluation (no
+                advance -- the gate does that), then clear the publish gate. */}
+            {!guardStatus.approvedForForward && (
+              <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                  {bundle.substate === "awaiting-review" ? "Ready for your review" : "Approve the evaluation"}
+                </h4>
+                <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+                  Then clear the publish gate below to ship.
+                </p>
+                {question !== undefined && question.length > 0 && (
+                  <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
+                )}
+                {reviewArtifacts.length > 0 && (
+                  <ul className="flex flex-col gap-0.5">
+                    {reviewArtifacts.map((path) => (
+                      <li key={path}>
+                        <Link
+                          href={bundleFileHref(slug, path)}
+                          className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+                        >
+                          {path}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <button
                   type="button"
                   disabled={pending}
                   onClick={() =>
-                    submit("review.requested", {
-                      bundle: slug,
-                      state: stage,
-                      ...(reviewQuestion.trim().length > 0 ? { question: reviewQuestion.trim() } : {}),
-                    })
+                    bundle.substate === "awaiting-review"
+                      ? submit("review.resolved", { bundle: slug, state: stage, decision: "approve" })
+                      : submitMany([
+                          { type: "review.requested", payload: { bundle: slug, state: stage } },
+                          { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                        ])
                   }
-                  className="self-start rounded-md border border-neutral-300 px-2 py-1 font-medium disabled:opacity-50 dark:border-neutral-700"
+                  className="self-start rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
                 >
-                  Request review
+                  Approve the evaluation
                 </button>
-              </div>
-            </div>
-          </details>
-        </section>
-      )}
+                {bundle.substate === "awaiting-review" && (
+                  <>
+                    <textarea
+                      value={reviseNotes}
+                      onChange={(event) => setReviseNotes(event.target.value)}
+                      placeholder="Notes for the author (required to send back)"
+                      className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+                    />
+                    <button
+                      type="button"
+                      disabled={pending || reviseNotes.trim().length === 0}
+                      onClick={() =>
+                        submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
+                      }
+                      className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+                    >
+                      Send back with notes
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
+            <PublishSection
+              slug={slug}
+              approvedForForward={guardStatus.approvedForForward}
+              gateApproved={guardStatus.gateApproved}
+              gateBasis={gateBasis}
+              setGateBasis={setGateBasis}
+              onChanged={onChanged}
+            />
+          </>
+        )}
 
-      {stage === "published" && <PublishToTargetsSection slug={slug} />}
-
-      {earlier.length > 0 && (
-        <details className="text-[11px] text-neutral-400">
-          <summary className="cursor-pointer select-none">Move to an earlier stage</summary>
-          <div className="mt-2 flex flex-col gap-2">
-            <select
-              value={backTarget}
-              onChange={(event) => setBackTarget(event.target.value)}
-              className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+        {action.kind === "review" && (
+          <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+              Ready for your review
+            </h4>
+            {question !== undefined && question.length > 0 && (
+              <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
+            )}
+            {reviewArtifacts.length > 0 && (
+              <ul className="flex flex-col gap-0.5">
+                {reviewArtifacts.map((path) => (
+                  <li key={path}>
+                    <Link
+                      href={bundleFileHref(slug, path)}
+                      className="font-mono text-xs text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
+                    >
+                      {path}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                submitMany([
+                  { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                  { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
+                ])
+              }
+              className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
             >
-              <option value="">Select an earlier stage</option>
-              {earlier.map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {STAGE_LABEL[candidate]}
-                </option>
-              ))}
-            </select>
-            <input
-              value={backReason}
-              onChange={(event) => setBackReason(event.target.value)}
-              placeholder="Reason (required)"
+              Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
+            </button>
+            <textarea
+              value={reviseNotes}
+              onChange={(event) => setReviseNotes(event.target.value)}
+              placeholder="Notes for the author (required to send back)"
               className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
             />
             <button
               type="button"
-              disabled={pending || backTarget.length === 0 || backReason.trim().length === 0}
+              disabled={pending || reviseNotes.trim().length === 0}
               onClick={() =>
-                submit("bundle.stage_changed", { bundle: slug, from: stage, to: backTarget, reason: backReason.trim() })
+                submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
               }
-              className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+              className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
             >
-              Move back
+              Send back with notes
             </button>
-          </div>
-        </details>
-      )}
+          </section>
+        )}
+
+        {action.kind === "advance" && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => submit("bundle.stage_changed", { bundle: slug, from: stage, to: action.nextStage })}
+            className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            Move to {STAGE_LABEL[action.nextStage]} ▸
+          </button>
+        )}
+
+        {action.kind === "approve-advance" && (
+          <section className="flex flex-col gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                // Collapse the solo review pair: request -> approve -> advance in
+                // one click. review.resolved is only accepted while awaiting-review
+                // (Server.ts), so the request must lead; the journal still records
+                // the full pair.
+                submitMany([
+                  { type: "review.requested", payload: { bundle: slug, state: stage } },
+                  { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                  { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
+                ])
+              }
+              className="self-start rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
+            </button>
+
+            <details className="rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800">
+              <summary className="cursor-pointer select-none text-neutral-500">Other ways forward</summary>
+              <div className="mt-2 flex flex-col gap-3">
+                {detail.station !== null && (
+                  <div className="flex flex-col gap-1">
+                    <p className="text-neutral-600 dark:text-neutral-300">
+                      Have an agent do the {STAGE_LABEL[stage]} stage's work (skill{" "}
+                      <span className="font-mono">{detail.station.skill}</span>) — it requests your review when done.
+                    </p>
+                    {stationError !== undefined && (
+                      <p className="rounded-md bg-red-100 px-2 py-1 text-red-800 dark:bg-red-950 dark:text-red-300">
+                        {stationError}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      disabled={stationPending}
+                      onClick={runCurrentStageStation}
+                      className="self-start rounded-md bg-neutral-900 px-2 py-1 font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+                    >
+                      Run station ▸
+                    </button>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  <p className="text-neutral-600 dark:text-neutral-300">Or hand it to someone else to review first:</p>
+                  <input
+                    value={reviewQuestion}
+                    onChange={(event) => setReviewQuestion(event.target.value)}
+                    placeholder="Question for the reviewer (optional)"
+                    className="w-full rounded-md border border-neutral-300 p-2 dark:border-neutral-700 dark:bg-neutral-900"
+                  />
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      submit("review.requested", {
+                        bundle: slug,
+                        state: stage,
+                        ...(reviewQuestion.trim().length > 0 ? { question: reviewQuestion.trim() } : {}),
+                      })
+                    }
+                    className="self-start rounded-md border border-neutral-300 px-2 py-1 font-medium disabled:opacity-50 dark:border-neutral-700"
+                  >
+                    Request review
+                  </button>
+                </div>
+              </div>
+            </details>
+          </section>
+        )}
+
+        {stage === "published" && <PublishToTargetsSection slug={slug} />}
+
+        {earlier.length > 0 && (
+          <details className="text-[11px] text-neutral-400">
+            <summary className="cursor-pointer select-none">Move to an earlier stage</summary>
+            <div className="mt-2 flex flex-col gap-2">
+              <select
+                value={backTarget}
+                onChange={(event) => setBackTarget(event.target.value)}
+                className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+              >
+                <option value="">Select an earlier stage</option>
+                {earlier.map((candidate) => (
+                  <option key={candidate} value={candidate}>
+                    {STAGE_LABEL[candidate]}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={backReason}
+                onChange={(event) => setBackReason(event.target.value)}
+                placeholder="Reason (required)"
+                className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+              />
+              <button
+                type="button"
+                disabled={pending || backTarget.length === 0 || backReason.trim().length === 0}
+                onClick={() =>
+                  submit("bundle.stage_changed", { bundle: slug, from: stage, to: backTarget, reason: backReason.trim() })
+                }
+                className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+              >
+                Move back
+              </button>
+            </div>
+          </details>
+        )}
       </section>
 
       <section className="flex flex-col gap-1">
@@ -1304,60 +1313,26 @@ const PublishToTargetsSection: FC<{ slug: string }> = ({ slug }) => {
 /**
  * The Instructions tab (card-fidelity round, problem 3: "I can't find the
  * actual skill in the skill card"): the shipped SKILL.md rendered
- * read-only -- the card's payload, one tab after Overview. No server
- * changes: the detail payload's `files` list + the existing
- * `GET /api/bundles/:slug/file` endpoint serve it, `output/SKILL.md` when
- * present (station-built bundles), else `SKILL.md` (in-place bundles). The
- * header line binds the text honestly: the endpoint serves the LIVE file,
- * so the recorded-version label plus the drift state is exactly the honest
- * claim about what you are reading. Empty/missing file: an honest gap
- * line, never a spinner that lies.
+ * read-only -- the card's payload, one tab after Overview. The SERVER owns
+ * which file that is (`instructionsPath` on the detail payload, derived
+ * from the bundle's resolved layout: `output/SKILL.md` for output-dir
+ * bundles, `SKILL.md` for in-place ones; `null` when it doesn't exist) --
+ * the viewer never re-derives `BundleLayout` by probing the files list.
+ * Content comes through the same `GET /api/bundles/:slug/file` endpoint as
+ * the Files tab, via the shared `useBundleFileContent` hook. The header
+ * line binds the text honestly: the endpoint serves the LIVE file, so the
+ * recorded-version label plus the drift state is exactly the honest claim
+ * about what you are reading. Empty/missing file: an honest gap line,
+ * never a spinner that lies.
  */
 const InstructionsTab: FC<{
   slug: string;
-  files: ReadonlyArray<string>;
+  instructionsPath: string | null;
   latestVersion: VersionRecord | undefined;
   drift: Drift;
-}> = ({ slug, files, latestVersion, drift }) => {
-  const path = files.includes("output/SKILL.md")
-    ? "output/SKILL.md"
-    : files.includes("SKILL.md")
-      ? "SKILL.md"
-      : undefined;
-  const [content, setContent] = useState<string | undefined>(undefined);
-  const [fileError, setFileError] = useState<string | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (path === undefined) {
-      setContent(undefined);
-      setFileError(undefined);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setFileError(undefined);
-    getBundleFile(slug, path)
-      .then((response) => {
-        if (!cancelled) {
-          setContent(response.content);
-        }
-      })
-      .catch((cause: Error) => {
-        if (!cancelled) {
-          setContent(undefined);
-          setFileError(cause.message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, path]);
+}> = ({ slug, instructionsPath, latestVersion, drift }) => {
+  const path = instructionsPath ?? undefined;
+  const { content, loading, error: fileError } = useBundleFileContent(slug, path);
 
   if (path === undefined) {
     return (
@@ -1423,40 +1398,7 @@ const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: st
   // stays picked; a vanished one falls back to `preferred`).
   const [userSelected, setUserSelected] = useState<string | undefined>(undefined);
   const selected = userSelected !== undefined && files.includes(userSelected) ? userSelected : preferred;
-  const [content, setContent] = useState<string | undefined>(undefined);
-  const [fileError, setFileError] = useState<string | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (selected === undefined) {
-      setContent(undefined);
-      setFileError(undefined);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setFileError(undefined);
-    getBundleFile(slug, selected)
-      .then((response) => {
-        if (!cancelled) {
-          setContent(response.content);
-        }
-      })
-      .catch((cause: Error) => {
-        if (!cancelled) {
-          setContent(undefined);
-          setFileError(cause.message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, selected]);
+  const { content, loading, error: fileError } = useBundleFileContent(slug, selected);
 
   if (files.length === 0) {
     return (
@@ -1689,28 +1631,33 @@ const LineageTab: FC<{
       {lineage.custody.length === 0 ? (
         <p className="text-[11px] text-neutral-400">No custody events journaled yet.</p>
       ) : (
-        /* The prototype's dotted list: `date  humanized-line` per row; the
-           full timestamp, actor, and raw event type stay reachable on hover
-           (title) instead of doubling every row's height. */
+        /* The prototype's dotted list: `date  humanized-line — actor` per
+           row. The actor stays VISIBLE (not hover-only -- keyboard/touch
+           users get it too); the full timestamp and raw event type remain
+           on the row's title as a convenience duplicate, never the only
+           path to anything a row doesn't already show. */
         <ol className="flex flex-col">
           {lineage.custody.map((event) => (
             <li
               key={event.id}
               className="border-b border-dotted border-border py-1.5 text-[13px] last:border-b-0"
-              title={`${formatTimestamp(event.at)} · ${event.actor.kind}:${event.actor.name} · ${event.type}`}
+              title={`${formatTimestamp(event.at)} · ${event.type}`}
             >
               <span className="font-mono text-neutral-400">{formatDay(event.at)}</span>{" "}
-              <span className="text-neutral-700 dark:text-neutral-200">{custodyLine(event)}</span>
+              <span className="text-neutral-700 dark:text-neutral-200">{custodyLine(event)}</span>{" "}
+              <span className="text-[11px] text-neutral-400">
+                — {event.actor.kind}:{event.actor.name}
+              </span>
             </li>
           ))}
         </ol>
       )}
       {versions[0] !== undefined && (
-        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+        <Footnote>
           Version <span className="font-mono">{versionLabelFor(versions[0], versions[0].hash)}</span>{" "}
           recorded {formatDay(versions[0].recordedAt)}; measurements bind to it, so a re-record resets
           displayed validation by construction.
-        </p>
+        </Footnote>
       )}
     </section>
 
@@ -1793,11 +1740,11 @@ const CoverageTab: FC<{
           </div>
         ))}
         {orderedFamilies.length > 0 && (
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          <Footnote>
             Authored <span className="font-mono">covered / partial / gap</span> — what a human claimed the
             fixtures buy, kept separate from measured pass rates (coverage and validation never merge; the
             rates live under Models).
-          </p>
+          </Footnote>
         )}
       </section>
     </section>
@@ -2098,10 +2045,10 @@ const ModelsTab: FC<{
           </div>
         )}
         {rows.length > 0 && (
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          <Footnote>
             Never pooled: each row is one (fixture × provider × model) sample. Intervals are wide because n
             is small — that is the honest read, not a rounding choice.
-          </p>
+          </Footnote>
         )}
       </section>
 

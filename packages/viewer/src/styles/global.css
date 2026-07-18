@@ -207,6 +207,19 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 3px 3px 0 var(--color-paper-dark);
 }
 
+/* The card-object motif (card-fidelity round): the skill card, the
+ * Skillbook cover, and Ship's entry mini-cards are physical "index card"
+ * objects -- ink border, amber accent strip, and a HARD offset shadow at
+ * one of two sizes. Each selector repeats its class to out-specify the
+ * generic rounded-* shadow rules above (worst case (0,3,0)) without
+ * resorting to !important. */
+.card-shadow-lg.card-shadow-lg.card-shadow-lg {
+  box-shadow: 8px 8px 0 var(--color-paper-dark);
+}
+.card-shadow-sm.card-shadow-sm.card-shadow-sm {
+  box-shadow: 4px 4px 0 var(--color-paper-dark);
+}
+
 /* Hand-drawn amber underline beneath page titles — a LifeBuild signature.
  * Scoped to main-content h1s; inline-block keeps the bar to the text width. */
 main h1 {
