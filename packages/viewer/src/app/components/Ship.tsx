@@ -16,7 +16,8 @@
  * it never 404s the paperwork.
  */
 import type { FC } from "react";
-import { Link, shipBundleHref, trackHref, useRouter } from "../runtime/router.tsx";
+import { provenOnProviders } from "../runtime/cardGlance.ts";
+import { bundleHref, Link, shipBundleHref, trackHref, useRouter } from "../runtime/router.tsx";
 import { STAGE_BADGE_CLASS, type BundleStage, type SkillbookBundle } from "../runtime/schemas.ts";
 import { useSkillbook } from "../runtime/useSkillbook.ts";
 
@@ -39,46 +40,82 @@ const shippingLine = (bundle: SkillbookBundle): string | undefined => {
   return `Shipped ${count}x — last to "${last?.destination}"`;
 };
 
-const ShipRow: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
+/**
+ * One book entry as a CARD SUMMARY (card-fidelity round, problem 1): a
+ * mini skill card echoing the full card's glance language -- mono slug +
+ * one-liner, a stage · short-hash badge, the proven-on / measured tally,
+ * and the shipped line. The slug links to the full skill card; the
+ * "Skillbook entry" link keeps the per-bundle receipts/history chapter
+ * (`/ship/:slug`) reachable, exactly as before.
+ */
+const ShipEntryCard: FC<{ bundle: SkillbookBundle }> = ({ bundle }) => {
   const measuredCount = new Set(bundle.measurements.map((m) => m.fixtureCase)).size;
+  const proven = provenOnProviders(bundle.measurements, bundle.latestVersion?.hash);
   const shipping = shippingLine(bundle);
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
-      <div className="flex flex-wrap items-center gap-2">
+    <li
+      className="flex flex-col gap-1.5 overflow-hidden rounded-lg border border-ink/70 bg-surface"
+      style={{ boxShadow: "4px 4px 0 var(--color-paper-dark)" }}
+    >
+      <div className="h-1 bg-amber-500" aria-hidden="true" />
+      <div className="flex flex-col gap-1.5 px-4 pb-3 pt-1.5">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <Link
+            href={bundleHref(bundle.slug)}
+            className="break-words font-mono text-sm font-medium text-neutral-900 hover:underline dark:text-neutral-100"
+          >
+            {bundle.slug}
+          </Link>
+          <span
+            className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase ${stageBadgeClass(bundle.stage)}`}
+            title={bundle.latestVersion === null ? "No version recorded yet." : bundle.latestVersion.hash}
+          >
+            {bundle.stage}
+            {" · "}
+            {bundle.latestVersion === null ? "no version" : shortHash(bundle.latestVersion.hash)}
+          </span>
+        </div>
+        {bundle.oneLiner.length > 0 && (
+          <p className="text-xs text-neutral-600 dark:text-neutral-300">{bundle.oneLiner}</p>
+        )}
+        <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
+          {proven.length === 0 ? "proven on: none yet" : `proven on ${proven.join(", ")}`}
+          {" · "}
+          {measuredCount} fixture(s) measured
+        </p>
+        {shipping !== undefined && (
+          <p className="text-[11px] text-emerald-700 dark:text-emerald-400">{shipping}</p>
+        )}
         <Link
           href={shipBundleHref(bundle.slug)}
-          className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
+          className="text-[11px] text-sky-700 hover:underline dark:text-sky-300"
         >
-          {bundle.name}
+          Skillbook entry — receipts &amp; changelog →
         </Link>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageBadgeClass(bundle.stage)}`}>
-          {bundle.stage}
-        </span>
-      </div>
-      <p className="text-sm text-neutral-600 dark:text-neutral-300">{bundle.oneLiner}</p>
-      <div className="flex flex-wrap gap-4 text-xs text-neutral-500 dark:text-neutral-400">
-        <span>
-          {bundle.latestVersion === null ? "No recorded version" : `Version ${shortHash(bundle.latestVersion.hash)}`}
-        </span>
-        <span>{measuredCount} fixture(s) measured</span>
-        {shipping !== undefined && (
-          <span className="text-emerald-700 dark:text-emerald-400">{shipping}</span>
-        )}
       </div>
     </li>
   );
 };
 
-/** The `/ship` index page: the Skillbook cover + one card per curated bundle; everything else is counted and pointed at the Catalog. The population is the server-derived `inBook` (`Skillbook.ts`'s `isInSkillbook`) -- one definition, shared with `book build`'s static index. */
+/**
+ * The `/ship` index page (card-fidelity round, problem 1 -- one page, one
+ * clear structure): a small doorplate header, then THE SKILLBOOK as a real
+ * book-cover object (spine accent + centered cover type -- clearly a book,
+ * not a skill card: no stage badges, no card affordances), then the book's
+ * entries as card summaries, then the Catalog pointer. The population is
+ * the server-derived `inBook` (`Skillbook.ts`'s `isInSkillbook`) -- one
+ * definition, shared with `book build`'s static index.
+ */
 export const Ship: FC = () => {
   const { bundles, workspaceName, loading, error } = useSkillbook();
   const inBook = bundles.filter((bundle) => bundle.inBook);
   const insideCount = bundles.length - inBook.length;
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
+    <div className="flex max-w-3xl flex-col gap-5">
+      {/* The doorplate: visually minor -- the cover below is the headline. */}
       <div>
-        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Ship</h1>
+        <h1 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Ship</h1>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
           the shipping bay — skills leave with receipts.
         </p>
@@ -94,35 +131,51 @@ export const Ship: FC = () => {
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
       )}
 
-      {/* The cover page (#109 Stage 3): the outward book's framing. */}
-      <section className="flex flex-col gap-1 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
-        <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-neutral-900 dark:text-neutral-100">
-          The Skillbook{workspaceName !== undefined ? ` — ${workspaceName}` : ""}
-        </h2>
-        <p className="text-xs text-neutral-600 dark:text-neutral-300">
-          The outward book: what we stand behind; what you may take. Every entry carries its receipts —
-          measurements at a pinned version, shipments, and the journal trail.
-        </p>
-        <p className="text-[11px] text-neutral-400">
-          {inBook.length === 0
-            ? "Nothing published or shipped yet — the book is honestly empty."
-            : `${inBook.length} skill${inBook.length === 1 ? "" : "s"} in the book.`}
-          {insideCount > 0 && (
-            <>
-              {" "}
-              <Link href={trackHref()} className="text-sky-700 hover:underline dark:text-sky-300">
-                {insideCount} more in progress live in the Catalog →
-              </Link>
-            </>
+      {/* The book COVER (#109 Stage 3; card-fidelity round): a distinct
+          object -- ink border, offset shadow like the card family, but a
+          left spine band and centered cover type so it reads as a book. */}
+      <section
+        className="flex overflow-hidden rounded-lg border-2 border-ink bg-surface"
+        style={{ boxShadow: "8px 8px 0 var(--color-paper-dark)" }}
+      >
+        <div className="w-3 shrink-0 bg-amber-500" aria-hidden="true" />
+        <div className="flex flex-1 flex-col items-center gap-2 px-6 py-8 text-center">
+          <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-amber-600 dark:text-amber-400">
+            the outward book
+          </p>
+          <h2 className="font-display text-2xl text-neutral-900 sm:text-3xl dark:text-neutral-100">
+            The Skillbook
+          </h2>
+          {workspaceName !== undefined && (
+            <p className="font-mono text-xs uppercase tracking-[0.15em] text-neutral-500 dark:text-neutral-400">
+              {workspaceName}
+            </p>
           )}
-        </p>
+          <p className="max-w-md text-sm text-neutral-600 dark:text-neutral-300">
+            What we stand behind; what you may take. Every entry carries its receipts — measurements at a
+            pinned version, shipments, and the journal trail.
+          </p>
+          <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+            {inBook.length === 0
+              ? "Nothing published or shipped yet — the book is honestly empty."
+              : `${inBook.length} skill${inBook.length === 1 ? "" : "s"} in the book`}
+          </p>
+        </div>
       </section>
 
-      <ul className="flex flex-col gap-3">
+      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {inBook.map((bundle) => (
-          <ShipRow key={bundle.slug} bundle={bundle} />
+          <ShipEntryCard key={bundle.slug} bundle={bundle} />
         ))}
       </ul>
+
+      {insideCount > 0 && (
+        <p className="text-[11px] text-neutral-400">
+          <Link href={trackHref()} className="text-sky-700 hover:underline dark:text-sky-300">
+            {insideCount} more in progress live in the Catalog →
+          </Link>
+        </p>
+      )}
     </div>
   );
 };

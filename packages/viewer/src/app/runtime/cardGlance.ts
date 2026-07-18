@@ -82,7 +82,10 @@ export const coverageTally = (rows: ReadonlyArray<RiskCoverageRecord>): Coverage
 
 export interface NextChip {
   readonly key: string;
-  readonly label: string;
+  /** The bold headline, e.g. "Cover IN-1" -- the prototype's chip title. */
+  readonly title: string;
+  /** The one-line explanation under the title, e.g. `authored "gap"`. */
+  readonly detail: string;
 }
 
 /**
@@ -104,13 +107,13 @@ export const nextChips = (input: {
 
   for (const row of input.riskCoverage) {
     if (row.coverage === "gap") {
-      chips.push({ key: `risk-${row.riskId}`, label: `Cover ${row.riskId} — authored "gap"` });
+      chips.push({ key: `risk-${row.riskId}`, title: `Cover ${row.riskId}`, detail: `authored "gap" — no fixture buys it yet` });
     }
   }
 
   if (input.latestHash === undefined) {
     if (input.fixtures.length > 0) {
-      chips.push({ key: "no-version", label: "Record a version — measurements need one to pin to" });
+      chips.push({ key: "no-version", title: "Record a version", detail: "measurements need one to pin to" });
     }
     return chips;
   }
@@ -120,14 +123,15 @@ export const nextChips = (input: {
   for (const fixture of input.fixtures) {
     const cells = atLatest.filter((cell) => cell.fixtureCase === fixture.caseName);
     if (cells.length === 0) {
-      chips.push({ key: `fixture-${fixture.caseName}`, label: `Measure ${fixture.caseName} — not yet measured at this version` });
+      chips.push({ key: `fixture-${fixture.caseName}`, title: `Measure ${fixture.caseName}`, detail: "not yet measured at this version" });
       continue;
     }
     const bestN = Math.max(...cells.map((cell) => cell.n));
     if (bestN < SMOKE_K) {
       chips.push({
         key: `fixture-${fixture.caseName}`,
-        label: `Grow ${fixture.caseName} past smoke — best n=${bestN} of ${SMOKE_K}`,
+        title: `Grow ${fixture.caseName} past smoke`,
+        detail: `best n=${bestN} of ${SMOKE_K} — add reps to narrow the CI`,
       });
     }
   }
@@ -135,7 +139,7 @@ export const nextChips = (input: {
   const measuredProviders = new Set(atLatest.map((cell) => cell.provider));
   for (const provider of input.providers) {
     if (!measuredProviders.has(provider)) {
-      chips.push({ key: `provider-${provider}`, label: `Run on ${provider} — unmeasured at this version` });
+      chips.push({ key: `provider-${provider}`, title: `Run on ${provider}`, detail: "unmeasured at this version" });
     }
   }
 

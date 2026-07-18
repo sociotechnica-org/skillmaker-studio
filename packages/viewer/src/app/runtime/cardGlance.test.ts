@@ -122,7 +122,7 @@ describe("nextChips", () => {
       providers: [],
     });
     expect(chips.map((chip) => chip.key)).toEqual(["fixture-unmeasured", "fixture-thin"]);
-    expect(chips[1]?.label).toContain("n=2");
+    expect(chips[1]?.detail).toContain("n=2");
   });
 
   test("configured providers with no cell at the latest version chip; measured ones do not", () => {
