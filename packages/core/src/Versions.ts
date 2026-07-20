@@ -65,6 +65,26 @@ export const WORKSPACE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
   "receiving",
 ]);
 
+/**
+ * A NESTED GIT CHECKOUT inside the workspace is a different repository's
+ * content, not this workspace's -- most commonly an agent worktree under
+ * `.claude/worktrees/agent-*`, a full copy of the repo whose `skills/`
+ * tree otherwise reindexes as duplicate-slug warnings and pollutes
+ * `adopt --triage` manifests with the same duplicates. Both full-workspace
+ * walks (`Adopt.ts`'s discovery `walk` and `IndexService.ts`'s
+ * bundle-identity scan) prune any non-root directory that carries its own
+ * `.git` entry. A NAME check, deliberately not a stat: a normal clone has a
+ * `.git` directory but a `git worktree` checkout has a `.git` FILE (a
+ * `gitdir:` pointer), and both mean "someone else's checkout starts here".
+ * Note this is about a directory CONTAINING `.git`; the skip-set above only
+ * stops descent INTO a `.git` entry itself. Harness dirs (`.claude/`,
+ * `.codex/`, `.agents/`) are NOT skipped wholesale -- in-place adoption
+ * makes e.g. `.agents/skills/<name>/` a legitimate bundle home (phase16
+ * e2e), and the init sweep deliberately discovers skills there.
+ */
+export const isNestedGitCheckout = (dirEntries: ReadonlyArray<string>): boolean =>
+  dirEntries.includes(".git");
+
 /** sha256 of one file's bytes, as `sha256:<hex>`. */
 export const hashFile = Effect.fn("Versions.hashFile")(function* (filePath: string) {
   const fs = yield* FileSystem;

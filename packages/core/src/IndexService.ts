@@ -46,6 +46,7 @@ import {
   computeBundleHashes,
   computeDrift,
   foldSkillVersions,
+  isNestedGitCheckout,
   latestSkillVersion,
   WORKSPACE_SCAN_SKIP_DIR_NAMES,
 } from "./Versions.ts";
@@ -342,7 +343,9 @@ interface BundleIdentityLocation {
  * carry a `bundle.json` from wherever it came from (e.g. a returning
  * bundle), this scan must never mint it into THIS workspace's catalog as a
  * side effect. Identity is a human ruling (a disposition, #next), never a
- * scan result.
+ * scan result. Nested git checkouts (e.g. `.claude/worktrees/agent-*`) are
+ * pruned separately, by `Versions.ts`'s `isNestedGitCheckout` -- a
+ * containing-directory fact, not a directory NAME this set could express.
  */
 const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = WORKSPACE_SCAN_SKIP_DIR_NAMES;
 
@@ -915,6 +918,17 @@ export const layer = (
           const entries = yield* fs
             .readDirectory(dir)
             .pipe(Effect.mapError(toIndexError(`could not list ${dir}`)));
+
+          // A non-root directory carrying its own `.git` (file OR dir --
+          // `git worktree` checkouts use a `.git` FILE) is a nested
+          // checkout: another repository's content, e.g. an agent worktree
+          // under `.claude/worktrees/`, whose copied `skills/` tree must
+          // never reindex as this workspace's bundles (`Versions.ts`'s
+          // `isNestedGitCheckout`).
+          if (dir !== workspaceRoot && isNestedGitCheckout(entries)) {
+            continue;
+          }
+
           const sortedEntries = entries.slice().sort();
 
           // Two passes over the (sorted) entries: bundle.json presence must

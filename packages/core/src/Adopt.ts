@@ -28,7 +28,7 @@ import { BundleIdentity } from "./Bundle.ts";
 import { writeDossierScaffold, type DossierSeed } from "./Dossier.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { classifyIntakeEvidence, type IntakeEvidence, type IntakeRegistry } from "./Receive.ts";
-import { ADOPT_EXCLUDED_NAMES, ADOPT_MARKER_FILENAME, hashOutputTree, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
+import { ADOPT_EXCLUDED_NAMES, ADOPT_MARKER_FILENAME, hashOutputTree, isNestedGitCheckout, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
@@ -268,6 +268,16 @@ export const walk = Effect.fn("Adopt.walk")(function* (root: string) {
     const entries = yield* fs
       .readDirectory(dir)
       .pipe(Effect.mapError(toIOError(`could not list ${dir}`)));
+
+    // A non-root directory with its own `.git` entry (file or dir) is a
+    // NESTED CHECKOUT -- another repository's content (e.g. an agent
+    // worktree under `.claude/worktrees/`). Discovery must not offer its
+    // skills for adoption or pollute a `--triage` manifest with duplicates
+    // of everything this workspace already has (`Versions.ts`'s
+    // `isNestedGitCheckout`).
+    if (dir !== root && isNestedGitCheckout(entries)) {
+      continue;
+    }
 
     for (const entry of entries) {
       const full = join(dir, entry);

@@ -157,6 +157,23 @@ describe("adoptWorkspace: discovery", () => {
     );
   });
 
+  test("skips a nested git checkout (a directory with its own .git entry, e.g. an agent worktree)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        // A `git worktree` checkout marks itself with a `.git` FILE (a
+        // gitdir: pointer) -- its content belongs to another checkout and
+        // must not be offered for adoption or pollute a triage manifest.
+        yield* write(dir, ".claude/worktrees/agent-x/.git", "gitdir: /somewhere/.git/worktrees/agent-x\n");
+        yield* write(dir, ".claude/worktrees/agent-x/copied-skill/SKILL.md", skillMd("copied-skill"));
+        yield* write(dir, "real-skill/SKILL.md", skillMd("real-skill"));
+
+        const report = yield* adoptWorkspace(dir);
+        expect(report.found).toBe(1);
+        expect(report.adopted[0]?.slug).toBe("real-skill");
+      }),
+    );
+  });
+
   test("skips a directory that already has bundle.json (idempotent re-adopt)", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
