@@ -60,17 +60,22 @@ jobs:
         # Tag is "vX.Y.Z" -- npm packages publish under the bare version
         # (no leading "v"), same version the GitHub Release above carries.
         run: ./scripts/build-npm-packages.sh "${GITHUB_REF_NAME#v}"
+      - name: Tar npm packages (preserves the executable bit through upload-artifact's zip hop)
+        run: |
+          set -eu
+          tar -czf npm-cli-darwin-arm64.tar.gz -C dist/npm cli-darwin-arm64
+          tar -czf npm-skillmaker-studio.tar.gz -C dist/npm skillmaker-studio
       - uses: actions/upload-artifact@v4
         with:
           name: npm-cli-darwin-arm64
-          path: dist/npm/cli-darwin-arm64
+          path: npm-cli-darwin-arm64.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           # Built identically by either matrix job (it doesn't embed a
           # binary) -- only uploaded once here to avoid a duplicate-name
           # collision with the linux job's own build.
           name: npm-skillmaker-studio
-          path: dist/npm/skillmaker-studio
+          path: npm-skillmaker-studio.tar.gz
 
   build-linux-x64:
     runs-on: ubuntu-latest
@@ -102,10 +107,12 @@ jobs:
           path: ${{ env.TARBALL }}
       - name: Build npm package (platform package, Phase A.2)
         run: ./scripts/build-npm-packages.sh "${GITHUB_REF_NAME#v}"
+      - name: Tar npm package (preserves the executable bit through upload-artifact's zip hop)
+        run: tar -czf npm-cli-linux-x64.tar.gz -C dist/npm cli-linux-x64
       - uses: actions/upload-artifact@v4
         with:
           name: npm-cli-linux-x64
-          path: dist/npm/cli-linux-x64
+          path: npm-cli-linux-x64.tar.gz
 
   publish-release:
     needs: [build-macos-arm64, build-linux-x64]
@@ -115,6 +122,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          # Restrict to the release-tarball artifacts (name prefix
+          # "skillmaker-") -- without this, merge-multiple would flatten
+          # the npm-* artifacts' identically-named package.json files into
+          # the same directory too, silently clobbering each other
+          # (harmless today since only *.tar.gz is globbed below, but
+          # fragile to leave implicit).
+          pattern: skillmaker-*
           path: artifacts
           merge-multiple: true
       - name: Create GitHub Release
@@ -123,6 +137,31 @@ jobs:
           files: artifacts/*.tar.gz
           generate_release_notes: true
 
+  # The `secrets` context isn't available in a job-level `if:` (actionlint
+  # rejects it outright, and an invalid expression there fails the whole
+  # workflow file to parse -- not just this job -- so a plain
+  # `if: ${{ secrets.NPM_TOKEN != '' }}` on publish-npm would silently kill
+  # even the tarball release). Standard indirection: a step CAN read a
+  # secret (via `env:`), so compute the presence check there and expose it
+  # as a job output; publish-npm's `if:` then only ever reads
+  # `needs.*.outputs`, which IS allowed.
+  check-npm-token:
+    runs-on: ubuntu-latest
+    outputs:
+      has-token: ${{ steps.check.outputs.has-token }}
+    steps:
+      - name: Check whether NPM_TOKEN is configured
+        id: check
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -eu
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            echo "has-token=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "has-token=false" >>"$GITHUB_OUTPUT"
+          fi
+
   # Publishes the zero-install npm door (Phase A.4): the two platform
   # packages built above plus the skillmaker-studio wrapper that resolves
   # between them. Gated on the NPM_TOKEN repo secret actually being set --
@@ -130,13 +169,25 @@ jobs:
   # yet), this job is skipped rather than failing the release, so tagging a
   # release never blocks on npm credentials existing.
   publish-npm:
-    needs: [build-macos-arm64, build-linux-x64]
+    needs: [build-macos-arm64, build-linux-x64, check-npm-token]
     runs-on: ubuntu-latest
-    if: ${{ secrets.NPM_TOKEN != '' }}
+    if: needs.check-npm-token.outputs.has-token == 'true'
     steps:
       - uses: actions/download-artifact@v4
         with:
+          # Restrict to this job's own tarball artifacts -- avoids pulling
+          # in the unrelated release tarballs (name prefix "skillmaker-").
+          pattern: npm-*
           path: artifacts
+          merge-multiple: true
+      - name: Extract npm packages (restores the executable bit tar preserved)
+        run: |
+          set -eu
+          mkdir -p pkgs
+          for tarball in artifacts/*.tar.gz; do
+            tar -xzf "$tarball" -C pkgs
+          done
+          ls -l pkgs/cli-darwin-arm64/bin pkgs/cli-linux-x64/bin pkgs/skillmaker-studio/bin
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -144,9 +195,9 @@ jobs:
       - name: Publish platform + wrapper packages
         run: |
           set -eu
-          for dir in npm-cli-darwin-arm64 npm-cli-linux-x64 npm-skillmaker-studio; do
-            echo "==> npm publish artifacts/${dir}"
-            npm publish "artifacts/${dir}" --access public
+          for dir in pkgs/cli-darwin-arm64 pkgs/cli-linux-x64 pkgs/skillmaker-studio; do
+            echo "==> npm publish ${dir}"
+            npm publish "${dir}" --access public
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
