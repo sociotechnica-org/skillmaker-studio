@@ -995,6 +995,56 @@ describe("publishCodexMarketplace", () => {
       }),
     );
   });
+
+  // Parity with the claude-marketplace target (proposal 2026-07-20 appendix
+  // #3): an idempotent re-publish must not silently rewrite generated files.
+  test("regenerating identical content writes nothing and reports changed: false", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const first = yield* publishCodexMarketplace(
+          { id: "codex", kind: "codex-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+        );
+        expect(first.changed).toBe(true);
+
+        const second = yield* publishCodexMarketplace(
+          { id: "codex", kind: "codex-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+        );
+        expect(second.changed).toBe(false);
+        expect(second.contentSignature).toBe(first.contentSignature);
+      }),
+    );
+  });
+
+  test("adding a second bundle still reports changed: true", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* publishCodexMarketplace(
+          { id: "codex", kind: "codex-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+        );
+        const second = yield* publishCodexMarketplace(
+          { id: "codex", kind: "codex-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/second/output",
+        );
+        expect(second.changed).toBe(true);
+        const fs = yield* FileSystem;
+        const plugin = JSON.parse(yield* fs.readFileString(second.pluginManifestPath)) as {
+          skills: ReadonlyArray<string>;
+        };
+        expect(plugin.skills).toEqual(["./skills/demo/output", "./skills/second/output"]);
+      }),
+    );
+  });
 });
 
 describe("publishBundle", () => {
@@ -1156,6 +1206,100 @@ describe("publishBundle", () => {
         expect(second.results[0]?.status).toBe("already_published");
 
         const afterSecond = yield* readJournalTypes;
+        expect(afterSecond.length).toBe(afterFirst.length);
+      }),
+    );
+  });
+
+  // Same incident class, codex target: version already published per the
+  // journal, but the generated manifests on disk predate the current
+  // generator -- the rewrite must happen AND be journaled; a further
+  // re-publish with unchanged content writes and journals nothing.
+  test("codex re-publish with changed generated content journals the regeneration; unchanged re-publish journals nothing", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const bundleDir = join(dir, "skills", "demo");
+        yield* writeBundle(bundleDir);
+        const { designHash, outputHash } = yield* computeBundleHashes(bundleDir);
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+
+        // Disk state as an older generator left it: plugin.json exists but
+        // does not yet list this bundle's output path.
+        yield* fs.makeDirectory(join(dir, ".codex-plugin"), { recursive: true });
+        yield* fs.writeFileString(
+          join(dir, ".codex-plugin", "plugin.json"),
+          JSON.stringify({ name: "demo-studio", skills: [] }, undefined, 2),
+        );
+
+        const priorPublish = SkillPublishedEvent.make({
+          schemaVersion: 1,
+          id: crypto.randomUUID(),
+          at: at(),
+          actor,
+          type: "skill.published",
+          idempotencyKey: `skill.published:demo:${outputHash}:codex`,
+          payload: { bundle: "demo", versionHash: outputHash, target: "codex" },
+        });
+        const seedEvents = [
+          ...publishedEvents("demo"),
+          versionRecorded("demo", outputHash, designHash),
+          priorPublish,
+        ];
+        const targets = [{ id: "codex", kind: "codex-marketplace" }];
+
+        const readJournal = Effect.gen(function* () {
+          const raw = yield* fs.readFileString(journalPath);
+          return JSON.parse(`[${raw.trim().split("\n").join(",")}]`) as ReadonlyArray<{
+            type: string;
+            idempotencyKey?: string;
+            payload: { reason?: string };
+          }>;
+        });
+
+        const first = yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          for (const event of seedEvents) {
+            yield* journal.append(event);
+          }
+          return yield* publishBundle({
+            workspaceRoot: dir,
+            bundleDir,
+            bundle: "demo",
+            workspaceName: "Demo Studio",
+            targets,
+            actor,
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        expect(first.results[0]?.status).toBe("already_published");
+
+        // The rewrite happened...
+        const plugin = JSON.parse(
+          yield* fs.readFileString(join(dir, ".codex-plugin", "plugin.json")),
+        ) as { skills: ReadonlyArray<string> };
+        expect(plugin.skills).toEqual(["./skills/demo/output"]);
+
+        // ...and the journal saw it: one regeneration event with a reason.
+        const afterFirst = yield* readJournal;
+        const regenEvents = afterFirst.filter(
+          (event) => event.type === "skill.published" && event.payload.reason !== undefined,
+        );
+        expect(regenEvents).toHaveLength(1);
+        expect(regenEvents[0]?.idempotencyKey).toContain(":regen:");
+
+        // A further re-publish is a true no-op: same content, no write, no event.
+        const second = yield* publishBundle({
+          workspaceRoot: dir,
+          bundleDir,
+          bundle: "demo",
+          workspaceName: "Demo Studio",
+          targets,
+          actor,
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+        expect(second.results[0]?.status).toBe("already_published");
+
+        const afterSecond = yield* readJournal;
         expect(afterSecond.length).toBe(afterFirst.length);
       }),
     );
