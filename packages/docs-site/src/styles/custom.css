@@ -1,0 +1,78 @@
+/* Skillmaker docs — LifeBuild "analog manuscript" skin.
+   Token values mirror packages/marketing-site/src/styles/global.css
+   (canonical brand source: docs/library/brand/). Parchment-only: both
+   Starlight themes get the same palette so the theme toggle is a no-op,
+   and the picker is hidden below. */
+
+:root,
+[data-theme="light"],
+[data-theme="dark"] {
+  color-scheme: light;
+
+  /* accent — deep amber, legible as small text on parchment */
+  --sl-color-accent-low: #f3e3c6;
+  --sl-color-accent: #b8863a;
+  --sl-color-accent-high: #8f6526;
+
+  /* grayscale, warmed to ink-on-paper */
+  --sl-color-white: #2c2416;
+  --sl-color-gray-1: #3a3122;
+  --sl-color-gray-2: #4a4032;
+  --sl-color-gray-3: #5b5143;
+  --sl-color-gray-4: #8a7d67;
+  --sl-color-gray-5: #d9cbb2;
+  --sl-color-gray-6: #efe4d0;
+  --sl-color-gray-7: #f4ece0;
+  --sl-color-black: #f1e6d3;
+
+  /* surfaces */
+  --sl-color-bg: #f1e6d3;
+  --sl-color-bg-nav: #f1e6d3;
+  --sl-color-bg-sidebar: #f1e6d3;
+  --sl-color-bg-inline-code: #e8dcc8;
+  --sl-color-hairline: #d9cbb2;
+  --sl-color-hairline-light: #e2d5bd;
+  --sl-color-hairline-shade: #d9cbb2;
+
+  /* text */
+  --sl-color-text: #3a3122;
+  --sl-color-text-accent: #8f6526;
+  --sl-color-text-invert: #fff9f0;
+
+  --sl-font: "Source Serif 4", Georgia, "Times New Roman", serif;
+}
+
+/* Typewriter headings — Special Elite ships one weight; undo synthetic
+   bold and keep tracking loose, same as the marketing site. */
+h1,
+h2,
+h3,
+h4,
+.site-title {
+  font-family: "Special Elite", "Courier New", monospace !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.01em;
+}
+
+/* Amber hand-underline under each page's H1 — thin rotated bar, brand spec. */
+main h1::after {
+  content: "";
+  display: block;
+  width: 140px;
+  height: 4px;
+  margin-top: 14px;
+  border-radius: 2px;
+  background: #d4a052;
+  transform: rotate(-0.5deg);
+  opacity: 0.8;
+}
+
+/* Both themes are identical, so the light/dark picker is dead weight. */
+starlight-theme-select {
+  display: none;
+}
+
+::selection {
+  background-color: #d4a052;
+  color: #2c2416;
+}

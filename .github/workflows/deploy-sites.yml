@@ -1,0 +1,49 @@
+name: Deploy sites
+
+# Deploys skillmaker.studio (marketing) and docs.skillmaker.studio (docs)
+# to Cloudflare Pages on every main push that touches either site.
+#
+# DORMANT until the repo is configured by whoever holds the Cloudflare
+# account — the job is gated on `vars.CF_PAGES_ENABLED`. The enable
+# checklist lives in packages/marketing-site/README.md ("Deploy").
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/marketing-site/**"
+      - "packages/docs-site/**"
+      - ".github/workflows/deploy-sites.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: ${{ vars.CF_PAGES_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - name: Install
+        run: bun install --frozen-lockfile
+        env:
+          # prepare script clones effect source for local research; skip in CI
+          SKIP_EFFECT_CLONE: "1"
+      - name: Build marketing site
+        run: bun run build
+        working-directory: packages/marketing-site
+      - name: Build docs site
+        run: bun run build
+        working-directory: packages/docs-site
+      - name: Deploy marketing site
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy packages/marketing-site/dist --project-name=${{ vars.CF_PAGES_PROJECT_SITE }}
+      - name: Deploy docs site
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy packages/docs-site/dist --project-name=${{ vars.CF_PAGES_PROJECT_DOCS }}
