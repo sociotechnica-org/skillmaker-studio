@@ -141,6 +141,71 @@ describe("runInit", () => {
     });
   });
 
+  test("F3: running init twice in a harness-present dir finds nothing new the second time", async () => {
+    await withIsolatedHome(async (dir) => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          yield* fs.makeDirectory(path.join(dir, ".claude"), { recursive: true });
+        }).pipe(Effect.provide(TestServices)),
+      );
+
+      // First run installs the /skillmaker skill under .claude/skills/skillmaker.
+      const first = await runInitEffect(dir);
+      expect(first.stdout).toContain("/skillmaker skill installed at");
+      expect(first.stdout).not.toContain("adopt-manifest.md");
+
+      // Second run must NOT sweep up the SKILL.md it just installed and
+      // offer it back for adoption -- that file is owned by registerSkill,
+      // not something the user brought in from elsewhere.
+      const second = await runInitEffect(dir);
+      expect(second.stdout).toContain("no existing skills found nearby");
+      expect(second.stdout).not.toContain("adopt-manifest.md");
+      expect(second.stdout).toContain('→ run "skillmaker start" to open the board');
+
+      const manifestExists = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          return yield* fs.exists(path.join(dir, "adopt-manifest.md"));
+        }).pipe(Effect.provide(TestServices)),
+      );
+      expect(manifestExists).toBe(false);
+    });
+  });
+
+  test("F4: an existing adopt-manifest.md is never overwritten by a later sweep", async () => {
+    await withIsolatedHome(async (dir) => {
+      const handWritten = "# hand-edited triage in progress\n";
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          yield* fs.makeDirectory(path.join(dir, "found-skill"), { recursive: true });
+          yield* fs.writeFileString(
+            path.join(dir, "found-skill", "SKILL.md"),
+            "---\nname: found-skill\ndescription: test\n---\nBody.\n",
+          );
+          yield* fs.writeFileString(path.join(dir, "adopt-manifest.md"), handWritten);
+        }).pipe(Effect.provide(TestServices)),
+      );
+
+      const result = await runInitEffect(dir);
+      expect(result.stdout).toContain("already exists, left untouched");
+      expect(result.stdout).toContain('run "skillmaker adopt --triage" to regenerate it');
+
+      const manifestContent = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          return yield* fs.readFileString(path.join(dir, "adopt-manifest.md"));
+        }).pipe(Effect.provide(TestServices)),
+      );
+      expect(manifestContent).toBe(handWritten);
+    });
+  });
+
   test("json output carries the same facts as the text output", async () => {
     await withIsolatedHome(async (dir) => {
       const result = await runInitEffect(dir, true);

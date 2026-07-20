@@ -20,7 +20,9 @@
  */
 import {
   detectHarnesses,
+  HARNESS_KINDS,
   HARNESS_LABEL,
+  HARNESS_SKILL_INSTALL_DIR,
   registerSkill,
   renderManifest,
   triageWorkspace,
@@ -121,6 +123,18 @@ const sweepExistingSkills = Effect.fn("Init.sweepExistingSkills")(function* (
 
 const MANIFEST_FILENAME = "adopt-manifest.md";
 
+/**
+ * The repo-local paths `registerSkill` itself installs the `/skillmaker`
+ * skill into (`.claude/skills/skillmaker`, `.agents/skills/skillmaker`) --
+ * excluded from the sweep so a second `init` doesn't offer its own
+ * self-installed SKILL.md back to the user as something to adopt (F3: a
+ * second run must be a no-op, not re-discover what the first run just
+ * wrote).
+ */
+const OWN_SKILL_INSTALL_PATHS: ReadonlySet<string> = new Set(
+  HARNESS_KINDS.map((kind) => `${HARNESS_SKILL_INSTALL_DIR[kind]}/skillmaker`),
+);
+
 export const runInit = Effect.fn("runInit")(function* (cwd: string, options: InitOptions) {
   const workspace = yield* Workspace;
   const initResult = yield* workspace.init(cwd);
@@ -134,11 +148,24 @@ export const runInit = Effect.fn("runInit")(function* (cwd: string, options: Ini
   const fs = yield* FileSystem;
   const journalPath = path.join(root, ".skillmaker", "events.jsonl");
 
-  const sweep = yield* sweepExistingSkills(root, journalPath);
+  const rawSweep = yield* sweepExistingSkills(root, journalPath);
+  const sweep: TriageWorkspaceResult = {
+    ...rawSweep,
+    rows: rawSweep.rows.filter((row) => !OWN_SKILL_INSTALL_PATHS.has(row.path)),
+  };
   let manifestPath: string | undefined;
+  let manifestSkippedExisting = false;
   if (sweep.rows.length > 0) {
     manifestPath = path.join(root, MANIFEST_FILENAME);
-    yield* fs.writeFileString(manifestPath, renderManifest(sweep.rows));
+    const manifestAlreadyExists = yield* fs.exists(manifestPath);
+    if (manifestAlreadyExists) {
+      // F4: never clobber a manifest the user may already be hand-editing
+      // (triage decisions, "whose" assignments) -- only `adopt --triage`'s
+      // explicit regeneration is allowed to overwrite it.
+      manifestSkippedExisting = true;
+    } else {
+      yield* fs.writeFileString(manifestPath, renderManifest(sweep.rows));
+    }
   }
 
   const harnesses = yield* detectHarnesses(root);
@@ -155,6 +182,7 @@ export const runInit = Effect.fn("runInit")(function* (cwd: string, options: Ini
     gitattributesChanged,
     sweep,
     manifestPath,
+    manifestSkippedExisting,
     harnesses,
     skillInstalls,
     json: options.json,
@@ -168,6 +196,7 @@ interface SummarizeInput {
   readonly gitattributesChanged: boolean;
   readonly sweep: TriageWorkspaceResult;
   readonly manifestPath: string | undefined;
+  readonly manifestSkippedExisting: boolean;
   readonly harnesses: ReadonlyArray<HarnessDetection>;
   readonly skillInstalls: ReadonlyArray<SkillInstallResult>;
   readonly json: boolean;
@@ -191,6 +220,7 @@ const summarize = (input: SummarizeInput): CliResult => {
         gitattributesChanged: input.gitattributesChanged,
         sweep: {
           manifest: input.manifestPath ?? null,
+          manifestSkippedExisting: input.manifestSkippedExisting,
           rowsFound: input.sweep.rows.length,
           alreadyAdopted: input.sweep.skipped.length,
         },
@@ -207,7 +237,12 @@ const summarize = (input: SummarizeInput): CliResult => {
       : `skillmaker: initialized workspace at ${input.root}`,
   ];
 
-  if (input.manifestPath !== undefined) {
+  if (input.manifestPath !== undefined && input.manifestSkippedExisting) {
+    lines.push(
+      `skillmaker: found ${input.sweep.rows.length} existing skill(s) nearby -- ${input.manifestPath} already exists, left untouched`,
+    );
+    lines.push(`  (run "skillmaker adopt --triage" to regenerate it)`);
+  } else if (input.manifestPath !== undefined) {
     lines.push(
       `skillmaker: found ${input.sweep.rows.length} existing skill(s) nearby -- wrote ${input.manifestPath}`,
     );
