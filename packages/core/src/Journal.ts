@@ -120,6 +120,15 @@ export class SkillPublishedEvent extends Schema.Class<SkillPublishedEvent>(
     /** Publish-target id from skillmaker.config.json. */
     target: Schema.String,
     url: Schema.optionalKey(Schema.String),
+    /**
+     * Present only on a re-publish that actually changed the target's
+     * generated artifacts (e.g. the generator's output shape evolved since
+     * the version was first published). A plain idempotent re-publish of
+     * unchanged content writes nothing and journals nothing; when the
+     * content DID change, that's a real act the journal must see, and this
+     * field says why (Publish.ts, proposal 2026-07-20 appendix #3).
+     */
+    reason: Schema.optionalKey(Schema.String),
   }),
 }) {}
 

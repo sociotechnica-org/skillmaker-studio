@@ -10,6 +10,7 @@ import {
   BundleGateDecidedEvent,
   BundleStageChangedEvent,
   ReviewResolvedEvent,
+  SkillPublishedEvent,
   SkillVersionRecordedEvent,
 } from "../src/Journal.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
@@ -588,6 +589,233 @@ describe("publishClaudeMarketplace richness (Phase 20 Story 4 friction log findi
   });
 });
 
+describe("publishClaudeMarketplace destructive-publish fixes (proposal 2026-07-20 appendix #3)", () => {
+  const demoInfo = {
+    slug: "demo",
+    name: "Demo Skill",
+    oneLiner: "Does the demo thing.",
+    tags: ["demo"],
+    versionHash: "sha256:v1",
+    versionLabel: "v1",
+    measurements: [],
+  };
+
+  test("never touches the repo-root README.md -- the storefront lives at .claude-plugin/MARKETPLACE.md", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const handWritten = "# My Project\n\nHand-authored prose that must survive a publish.\n";
+        yield* fs.writeFileString(join(dir, "README.md"), handWritten);
+
+        const result = yield* publishClaudeMarketplace(
+          { id: "claude", kind: "claude-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+          demoInfo,
+        );
+
+        expect(result.readmePath).toBe(join(dir, ".claude-plugin", "MARKETPLACE.md"));
+        const rootReadme = yield* fs.readFileString(join(dir, "README.md"));
+        expect(rootReadme).toBe(handWritten);
+        const storefront = yield* fs.readFileString(result.readmePath);
+        expect(storefront).toContain("### demo");
+      }),
+    );
+  });
+
+  test("old-shape accumulator entry is reconciled in place: exactly one entry, current shape, no duplicate", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const manifestPath = join(dir, ".claude-plugin", "marketplace.json");
+        yield* fs.makeDirectory(join(dir, ".claude-plugin"), { recursive: true });
+        // The exact pre-#114 shape observed on disk in the incident: a bare
+        // "skills" accumulator listing this bundle's output path.
+        yield* fs.writeFileString(
+          manifestPath,
+          JSON.stringify(
+            {
+              name: "demo-studio",
+              owner: { name: "demo-studio" },
+              plugins: [{ source: "./", name: "skills", skills: ["./skills/demo/output"] }],
+            },
+            undefined,
+            2,
+          ),
+        );
+
+        const result = yield* publishClaudeMarketplace(
+          { id: "claude", kind: "claude-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+          demoInfo,
+        );
+
+        const manifest = JSON.parse(yield* fs.readFileString(result.manifestPath)) as {
+          plugins: ReadonlyArray<{ name: string; source: string; skillmakerReceipts?: unknown; skills?: unknown }>;
+        };
+        // Exactly one entry: the per-bundle entry in the current shape. The
+        // emptied bare accumulator husk is gone -- NOT left beside a newly
+        // appended duplicate.
+        expect(manifest.plugins).toHaveLength(1);
+        expect(manifest.plugins[0]?.name).toBe("demo");
+        expect(manifest.plugins[0]?.source).toBe("./skills/demo/output");
+        expect(manifest.plugins[0]?.skillmakerReceipts).toBeDefined();
+        expect(manifest.plugins[0]?.skills).toBeUndefined();
+      }),
+    );
+  });
+
+  test("an accumulator also listing OTHER bundles' paths survives minus this bundle's path", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const manifestPath = join(dir, ".claude-plugin", "marketplace.json");
+        yield* fs.makeDirectory(join(dir, ".claude-plugin"), { recursive: true });
+        yield* fs.writeFileString(
+          manifestPath,
+          JSON.stringify(
+            {
+              name: "demo-studio",
+              owner: { name: "demo-studio" },
+              plugins: [
+                { source: "./", name: "skills", skills: ["./skills/demo/output", "./skills/other/output"] },
+              ],
+            },
+            undefined,
+            2,
+          ),
+        );
+
+        const result = yield* publishClaudeMarketplace(
+          { id: "claude", kind: "claude-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+          demoInfo,
+        );
+
+        const manifest = JSON.parse(yield* fs.readFileString(result.manifestPath)) as {
+          plugins: ReadonlyArray<{ name: string; skills?: ReadonlyArray<string> }>;
+        };
+        expect(manifest.plugins).toHaveLength(2);
+        const demo = manifest.plugins.find((entry) => entry.name === "demo");
+        expect(demo).toBeDefined();
+        const accumulator = manifest.plugins.find((entry) => entry.name === "skills");
+        expect(accumulator?.skills).toEqual(["./skills/other/output"]);
+      }),
+    );
+  });
+
+  test("an old-shape entry that already wears the bundle's slug is upgraded in place, not duplicated", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const manifestPath = join(dir, ".claude-plugin", "marketplace.json");
+        yield* fs.makeDirectory(join(dir, ".claude-plugin"), { recursive: true });
+        yield* fs.writeFileString(
+          manifestPath,
+          JSON.stringify(
+            {
+              name: "demo-studio",
+              owner: { name: "demo-studio" },
+              plugins: [{ source: "./", name: "demo", skills: ["./skills/demo/output"] }],
+            },
+            undefined,
+            2,
+          ),
+        );
+
+        const result = yield* publishClaudeMarketplace(
+          { id: "claude", kind: "claude-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+          demoInfo,
+        );
+
+        const manifest = JSON.parse(yield* fs.readFileString(result.manifestPath)) as {
+          plugins: ReadonlyArray<{ name: string; source: string; skills?: unknown; skillmakerReceipts?: unknown }>;
+        };
+        expect(manifest.plugins).toHaveLength(1);
+        expect(manifest.plugins[0]?.name).toBe("demo");
+        expect(manifest.plugins[0]?.source).toBe("./skills/demo/output");
+        expect(manifest.plugins[0]?.skills).toBeUndefined();
+        expect(manifest.plugins[0]?.skillmakerReceipts).toBeDefined();
+      }),
+    );
+  });
+
+  test("a prior bad regeneration's appended duplicate (same source, old shape alongside) collapses to one entry", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const manifestPath = join(dir, ".claude-plugin", "marketplace.json");
+        yield* fs.makeDirectory(join(dir, ".claude-plugin"), { recursive: true });
+        // The incident's end state: the old entry AND an appended duplicate.
+        yield* fs.writeFileString(
+          manifestPath,
+          JSON.stringify(
+            {
+              name: "demo-studio",
+              owner: { name: "demo-studio" },
+              plugins: [
+                { source: "./", name: "skills", skills: ["./skills/demo/output"] },
+                { name: "demo", source: "./skills/demo/output", description: "stale", version: "v0" },
+              ],
+            },
+            undefined,
+            2,
+          ),
+        );
+
+        const result = yield* publishClaudeMarketplace(
+          { id: "claude", kind: "claude-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+          demoInfo,
+        );
+
+        const manifest = JSON.parse(yield* fs.readFileString(result.manifestPath)) as {
+          plugins: ReadonlyArray<{ name: string; description?: string; version?: string }>;
+        };
+        expect(manifest.plugins).toHaveLength(1);
+        expect(manifest.plugins[0]?.name).toBe("demo");
+        expect(manifest.plugins[0]?.description).toBe("Does the demo thing.");
+        expect(manifest.plugins[0]?.version).toBe("v1");
+      }),
+    );
+  });
+
+  test("regenerating identical content writes nothing and reports changed: false", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const first = yield* publishClaudeMarketplace(
+          { id: "claude", kind: "claude-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+          demoInfo,
+        );
+        expect(first.changed).toBe(true);
+
+        const second = yield* publishClaudeMarketplace(
+          { id: "claude", kind: "claude-marketplace" },
+          dir,
+          "Demo Studio",
+          "./skills/demo/output",
+          demoInfo,
+        );
+        expect(second.changed).toBe(false);
+        expect(second.contentSignature).toBe(first.contentSignature);
+      }),
+    );
+  });
+});
+
 describe("publishClaudeMarketplace via publishBundle end-to-end (real bundle.json + real graded runs)", () => {
   test("the storefront README carries real measurement receipts for a real bundle", async () => {
     await withTempDir((dir) =>
@@ -683,8 +911,12 @@ describe("publishClaudeMarketplace via publishBundle end-to-end (real bundle.jso
         expect(manifest.plugins[0]?.version).toBe("v3");
         expect(manifest.plugins[0]?.keywords).toEqual(["writing", "changelog"]);
 
-        const readmePath = join(dir, "README.md");
+        // The generated storefront lives inside .claude-plugin/, never at
+        // the repo root (proposal 2026-07-20 appendix #3).
+        const readmePath = join(dir, ".claude-plugin", "MARKETPLACE.md");
         const readme = yield* fs.readFileString(readmePath);
+        const rootReadmeExists = yield* fs.exists(join(dir, "README.md"));
+        expect(rootReadmeExists).toBe(false);
         expect(readme).toContain("### demo");
         expect(readme).toContain("Turns raw notes into a clean changelog entry.");
         expect(readme).toContain("v3");
@@ -819,6 +1051,112 @@ describe("publishBundle", () => {
         ) as ReadonlyArray<{ type: string }>;
         const publishedEventCount = events.filter((event) => event.type === "skill.published").length;
         expect(publishedEventCount).toBe(2);
+      }),
+    );
+  });
+
+  // The incident (proposal 2026-07-20 appendix #3): version already
+  // published (journal has the base-key event), but the generator's output
+  // shape has since evolved, so regeneration DOES rewrite files. Before the
+  // fix, the idempotency key suppressed any journal record of that rewrite.
+  // Now: the rewrite is reconciled AND journaled with a reason; a further
+  // re-publish with unchanged content writes and journals nothing.
+  test("re-publish with changed generated content journals the regeneration; unchanged re-publish journals nothing", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const bundleDir = join(dir, "skills", "demo");
+        yield* writeBundle(bundleDir);
+        const { designHash, outputHash } = yield* computeBundleHashes(bundleDir);
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+
+        // Disk state as the old generator left it: pre-#114 accumulator shape.
+        yield* fs.makeDirectory(join(dir, ".claude-plugin"), { recursive: true });
+        yield* fs.writeFileString(
+          join(dir, ".claude-plugin", "marketplace.json"),
+          JSON.stringify(
+            {
+              name: "demo-studio",
+              owner: { name: "demo-studio" },
+              plugins: [{ source: "./", name: "skills", skills: ["./skills/demo/output"] }],
+            },
+            undefined,
+            2,
+          ),
+        );
+
+        // Journal state: this version was already published to this target.
+        const priorPublish = SkillPublishedEvent.make({
+          schemaVersion: 1,
+          id: crypto.randomUUID(),
+          at: at(),
+          actor,
+          type: "skill.published",
+          idempotencyKey: `skill.published:demo:${outputHash}:claude`,
+          payload: { bundle: "demo", versionHash: outputHash, target: "claude" },
+        });
+        const seedEvents = [
+          ...publishedEvents("demo"),
+          versionRecorded("demo", outputHash, designHash),
+          priorPublish,
+        ];
+        const targets = [{ id: "claude", kind: "claude-marketplace" }];
+
+        const readJournalTypes = Effect.gen(function* () {
+          const raw = yield* fs.readFileString(journalPath);
+          return JSON.parse(`[${raw.trim().split("\n").join(",")}]`) as ReadonlyArray<{
+            type: string;
+            idempotencyKey?: string;
+            payload: { reason?: string };
+          }>;
+        });
+
+        const first = yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          for (const event of seedEvents) {
+            yield* journal.append(event);
+          }
+          return yield* publishBundle({
+            workspaceRoot: dir,
+            bundleDir,
+            bundle: "demo",
+            workspaceName: "Demo Studio",
+            targets,
+            actor,
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        expect(first.results[0]?.status).toBe("already_published");
+
+        // The rewrite happened (reconciled to the current shape)...
+        const manifest = JSON.parse(
+          yield* fs.readFileString(join(dir, ".claude-plugin", "marketplace.json")),
+        ) as { plugins: ReadonlyArray<{ name: string }> };
+        expect(manifest.plugins).toHaveLength(1);
+        expect(manifest.plugins[0]?.name).toBe("demo");
+
+        // ...and the journal saw it: one regeneration event with a reason.
+        const afterFirst = yield* readJournalTypes;
+        const regenEvents = afterFirst.filter(
+          (event) => event.type === "skill.published" && event.payload.reason !== undefined,
+        );
+        expect(regenEvents).toHaveLength(1);
+        expect(regenEvents[0]?.idempotencyKey).toContain(":regen:");
+        expect(regenEvents[0]?.payload.reason).toContain("regenerated");
+
+        // A further re-publish is a true no-op: same content, no write, no event.
+        const second = yield* publishBundle({
+          workspaceRoot: dir,
+          bundleDir,
+          bundle: "demo",
+          workspaceName: "Demo Studio",
+          targets,
+          actor,
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+        expect(second.results[0]?.status).toBe("already_published");
+
+        const afterSecond = yield* readJournalTypes;
+        expect(afterSecond.length).toBe(afterFirst.length);
       }),
     );
   });

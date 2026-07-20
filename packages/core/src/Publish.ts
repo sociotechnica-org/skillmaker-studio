@@ -6,8 +6,10 @@
  *   - `git-dir` {path}: copy the bundle's `output/` -> `<path>/<slug>/`.
  *   - `claude-marketplace` {path?}: emit/update `.claude-plugin/marketplace.json`
  *     (docs/research/2026-07-11-competitive-scan/claude-marketplace-spec.md)
- *     -- one skills-only plugin entry whose `skills` array accumulates every
- *     published bundle's output dir (the spec's "simplest valid shape").
+ *     plus a generated storefront page at `.claude-plugin/MARKETPLACE.md`
+ *     (never the repo-root README.md -- that file is hand-authored).
+ *     Regeneration reconciles plugin entries by name/source in place;
+ *     it never appends duplicates.
  *   - `codex-marketplace` {path?}: emit/update `.codex-plugin/plugin.json` +
  *     `.agents/plugins/marketplace.json`
  *     (docs/research/2026-07-11-competitive-scan/codex-skills-marketplace.md
@@ -25,6 +27,7 @@
  * present on disk (the "adopt" principle, strategy-skills-repo-mode.md §3B):
  * this module only ever adds/merges the specific fields it owns.
  */
+import { createHash } from "node:crypto";
 import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
@@ -220,9 +223,14 @@ export const publishGitDir = Effect.fn("Publish.publishGitDir")(function* (
 
 export interface ClaudeMarketplacePublishResult {
   readonly manifestPath: string;
+  /** The generated storefront page -- `.claude-plugin/MARKETPLACE.md`, NEVER the repo-root `README.md` (proposal 2026-07-20 appendix #3: generated output must never collide with a hand-authored source file). */
   readonly readmePath: string;
   readonly pluginName: string;
   readonly skillPath: string;
+  /** `false` when the generated manifest + storefront already matched what was on disk byte-for-byte, so nothing was written. */
+  readonly changed: boolean;
+  /** Short content hash of the generated manifest+storefront pair -- lets a re-publish that DID change content be journaled idempotently per generated shape. */
+  readonly contentSignature: string;
 }
 
 /** Everything `publishClaudeMarketplace` needs about the bundle being published, beyond its output path (friction log finding #4). */
@@ -334,20 +342,87 @@ const buildMarketplaceReadme = (marketplaceName: string, ownerName: string, plug
   return `${[...header, ...sections].join("\n").trimEnd()}\n`;
 };
 
+/** Short (12 hex chars) sha256 over the pair of generated artifacts -- identifies one generator output shape for idempotent re-publish journaling. */
+const generatedContentSignature = (manifestRaw: string, readmeRaw: string): string =>
+  createHash("sha256").update(manifestRaw).update(" ").update(readmeRaw).digest("hex").slice(0, 12);
+
+/** Reads a file's exact bytes-as-string, or `undefined` when it doesn't exist -- for byte-for-byte "would this write change anything?" checks. */
+const readFileStringIfExists = Effect.fn("Publish.readFileStringIfExists")(function* (filePath: string) {
+  const fs = yield* FileSystem;
+  const exists = yield* fs.exists(filePath).pipe(Effect.mapError(toIOError(`could not check ${filePath}`)));
+  if (!exists) return undefined;
+  return yield* fs.readFileString(filePath).pipe(Effect.mapError(toIOError(`could not read ${filePath}`)));
+});
+
+/**
+ * Reconciles the old pre-#114 accumulator shape (`skills: string[]`, no
+ * per-bundle identity) out of the plugin list when the bundle being
+ * published is upgraded to its own per-slug entry: the output path moves to
+ * the per-bundle entry ("one canonical home per fact" -- data-model.md), so
+ * it is removed from any accumulator that lists it, and an accumulator left
+ * as an empty husk (nothing beyond name/source/skills) is dropped entirely.
+ * Accumulator entries carrying other skills, or hand-added fields, survive
+ * minus this one path.
+ */
+const removeFromLegacyAccumulators = (
+  plugins: ReadonlyArray<JsonRecord>,
+  outputRelativePath: string,
+): JsonRecord[] => {
+  const result: JsonRecord[] = [];
+  for (const entry of plugins) {
+    const skills = entry["skills"];
+    if (!isStringArray(skills) || !skills.includes(outputRelativePath)) {
+      result.push(entry);
+      continue;
+    }
+    const remaining = skills.filter((skillPath) => skillPath !== outputRelativePath);
+    if (remaining.length > 0) {
+      result.push({ ...entry, skills: remaining });
+      continue;
+    }
+    const { skills: _dropped, ...rest } = entry;
+    const husk = Object.keys(rest).every((key) => key === "name" || key === "source");
+    if (!husk) {
+      result.push(rest);
+    }
+  }
+  return result;
+};
+
 /**
  * Emits/updates `.claude-plugin/marketplace.json` (claude-marketplace-spec.md)
- * and refreshes the marketplace README storefront alongside it. Each
- * published bundle gets its OWN plugin entry (`name` = the bundle's slug,
- * `source` = the bundle's output dir) carrying `description` (the bundle's
- * oneLiner), `version` (the recorded label, falling back to a short hash),
- * and `keywords` (the bundle's tags) -- friction log finding #4: before
- * this, every bundle collapsed into one generically-named `"skills"` plugin
- * with no description or human version. A `skillmakerReceipts` field (this
- * module's own, ignored by Claude Code's loader per the spec's "unrecognized
- * fields ignored" rule) carries the measurement data the README renders, so
- * the README can be regenerated in full from the manifest alone on every
- * publish. Every other top-level/plugin field already on disk -- including
- * unrelated hand-authored plugin entries -- is preserved verbatim.
+ * and refreshes the generated storefront page at
+ * `.claude-plugin/MARKETPLACE.md` alongside it. The storefront deliberately
+ * does NOT live at the repo root `README.md`: that file is hand-authored
+ * project prose, and generated output must never collide with a
+ * hand-authored source file (proposal 2026-07-20 appendix #3 -- a viewer
+ * re-publish once clobbered the real README). The spec's required artifact
+ * is marketplace.json alone; the storefront page is decoration, so it gets
+ * a non-colliding, obviously-generated home inside `.claude-plugin/`.
+ *
+ * Each published bundle gets its OWN plugin entry (`name` = the bundle's
+ * slug, `source` = the bundle's output dir) carrying `description` (the
+ * bundle's oneLiner), `version` (the recorded label, falling back to a
+ * short hash), and `keywords` (the bundle's tags) -- friction log finding
+ * #4: before this, every bundle collapsed into one generically-named
+ * `"skills"` plugin with no description or human version. A
+ * `skillmakerReceipts` field (this module's own, ignored by Claude Code's
+ * loader per the spec's "unrecognized fields ignored" rule) carries the
+ * measurement data the storefront renders, so it can be regenerated in
+ * full from the manifest alone on every publish.
+ *
+ * Regeneration RECONCILES, never appends duplicates: the bundle's entry is
+ * matched by plugin name (or by `source` -- same published artifact, same
+ * fact) and updated in place, extra same-name/same-source entries are
+ * collapsed into it, and an old pre-#114 accumulator entry listing this
+ * bundle's output path is upgraded in place (path moves to the per-bundle
+ * entry; an emptied bare accumulator is dropped). Every other
+ * top-level/plugin field already on disk -- including unrelated
+ * hand-authored plugin entries -- is preserved verbatim.
+ *
+ * When the generated manifest + storefront already match what is on disk
+ * byte-for-byte, nothing is written at all (`changed: false`) -- an
+ * idempotent re-publish leaves no unjournaled file writes behind.
  */
 export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketplace")(function* (
   target: PublishTarget,
@@ -359,7 +434,7 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
   const path = yield* Path;
   const base = target.path ?? workspaceRoot;
   const manifestPath = path.join(base, ".claude-plugin", "marketplace.json");
-  const readmePath = path.join(base, "README.md");
+  const readmePath = path.join(base, ".claude-plugin", "MARKETPLACE.md");
 
   const existing = yield* readJsonRecord(manifestPath);
 
@@ -369,16 +444,22 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
   const ownerName = readStringField(owner, "name") ?? workspaceName;
 
   const pluginsRaw = existing["plugins"];
-  const plugins: JsonRecord[] = Array.isArray(pluginsRaw) ? pluginsRaw.filter(isJsonRecord) : [];
+  let plugins: JsonRecord[] = Array.isArray(pluginsRaw) ? pluginsRaw.filter(isJsonRecord) : [];
 
-  // Back-compat: a pre-fix manifest may still carry the old shared "skills"
-  // plugin entry (a `skills: string[]` accumulator, no per-bundle identity).
-  // Leave it exactly as found -- it round-trips like any other unowned
-  // entry -- new publishes only ever create/update per-bundle entries keyed
-  // by slug.
   const pluginName = bundleInfo?.slug ?? "skills";
-  const pluginIndex = plugins.findIndex((entry) => readStringField(entry, "name") === pluginName);
+
+  // Reconcile-by-identity: this bundle's entry is whichever existing entry
+  // shares its plugin name OR already points at the same output dir
+  // (`source`). ALL such matches collapse into one updated entry -- a prior
+  // bad regeneration may have appended duplicates.
+  const matchesBundle = (entry: JsonRecord): boolean =>
+    readStringField(entry, "name") === pluginName ||
+    (bundleInfo !== undefined && readStringField(entry, "source") === outputRelativePath);
+  const pluginIndex = plugins.findIndex(matchesBundle);
   const existingPlugin = pluginIndex === -1 ? undefined : plugins[pluginIndex];
+  if (pluginIndex !== -1) {
+    plugins = plugins.filter((entry, index) => index === pluginIndex || !matchesBundle(entry));
+  }
 
   let updatedPlugin: JsonRecord;
   if (bundleInfo === undefined) {
@@ -408,8 +489,22 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
           ci: m.ci,
         })),
     };
+    // Upgrade-in-place: if the matched entry was itself in the old
+    // accumulator shape (this module's own former output, never
+    // hand-authored), its `skills` list must not restate the path the
+    // per-bundle entry now owns.
+    const carried: JsonRecord = { ...(existingPlugin ?? {}) };
+    const carriedSkills = carried["skills"];
+    if (isStringArray(carriedSkills)) {
+      const remaining = carriedSkills.filter((skillPath) => skillPath !== outputRelativePath);
+      if (remaining.length > 0) {
+        carried["skills"] = remaining;
+      } else {
+        delete carried["skills"];
+      }
+    }
     updatedPlugin = {
-      ...(existingPlugin ?? {}),
+      ...carried,
       name: pluginName,
       source: outputRelativePath,
       description: bundleInfo.oneLiner,
@@ -425,6 +520,21 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
     plugins[pluginIndex] = updatedPlugin;
   }
 
+  // The upgraded bundle entry is now the one canonical home for this
+  // bundle's output path -- sweep it out of any old-shape accumulator entry
+  // still listing it (per-bundle publishes only; the bare-fallback path IS
+  // the accumulator writer).
+  if (bundleInfo !== undefined) {
+    const upgradedIndex = pluginIndex === -1 ? plugins.length - 1 : pluginIndex;
+    const upgraded = plugins[upgradedIndex] as JsonRecord;
+    const others = removeFromLegacyAccumulators(
+      plugins.filter((_, index) => index !== upgradedIndex),
+      outputRelativePath,
+    );
+    const insertAt = Math.min(upgradedIndex, others.length);
+    plugins = [...others.slice(0, insertAt), upgraded, ...others.slice(insertAt)];
+  }
+
   const updated: JsonRecord = {
     ...existing,
     name: marketplaceName,
@@ -432,19 +542,29 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
     plugins,
   };
 
-  yield* writeJsonRecord(manifestPath, updated);
-
-  const fs = yield* FileSystem;
+  const manifestRaw = `${JSON.stringify(updated, undefined, 2)}\n`;
   const readme = buildMarketplaceReadme(marketplaceName, ownerName, plugins);
-  yield* fs
-    .writeFileString(readmePath, readme)
-    .pipe(Effect.mapError(toIOError(`could not write ${readmePath}`)));
+  const contentSignature = generatedContentSignature(manifestRaw, readme);
+
+  const existingManifestRaw = yield* readFileStringIfExists(manifestPath);
+  const existingReadmeRaw = yield* readFileStringIfExists(readmePath);
+  const changed = existingManifestRaw !== manifestRaw || existingReadmeRaw !== readme;
+
+  if (changed) {
+    yield* writeJsonRecord(manifestPath, updated);
+    const fs = yield* FileSystem;
+    yield* fs
+      .writeFileString(readmePath, readme)
+      .pipe(Effect.mapError(toIOError(`could not write ${readmePath}`)));
+  }
 
   const result: ClaudeMarketplacePublishResult = {
     manifestPath,
     readmePath,
     pluginName,
     skillPath: outputRelativePath,
+    changed,
+    contentSignature,
   };
   return result;
 });
@@ -549,6 +669,13 @@ const gatherMeasurements = (workspaceRoot: string, bundle: string) =>
     Effect.orElseSucceed((): ReadonlyArray<MeasurementRecord> => []),
   );
 
+/** What one target publish did: the reportable `url`, plus -- for targets that can tell -- whether any generated file actually changed on disk, and a signature of the generated content (for idempotent re-publish journaling). `changed: undefined` means the target cannot cheaply tell (e.g. git-dir's overwrite-copy) and legacy journaling applies. */
+interface TargetPublishOutcome {
+  readonly url?: string;
+  readonly changed?: boolean;
+  readonly contentSignature?: string;
+}
+
 const publishToTarget = Effect.fn("Publish.publishToTarget")(function* (
   workspaceRoot: string,
   bundleDir: string,
@@ -563,7 +690,8 @@ const publishToTarget = Effect.fn("Publish.publishToTarget")(function* (
   switch (target.kind) {
     case "git-dir": {
       const result = yield* publishGitDir(outputDir, target, bundle);
-      return result.url;
+      const outcome: TargetPublishOutcome = { url: result.url };
+      return outcome;
     }
     case "claude-marketplace": {
       const base = target.path ?? workspaceRoot;
@@ -579,13 +707,19 @@ const publishToTarget = Effect.fn("Publish.publishToTarget")(function* (
         ...(guard.versionLabel !== undefined ? { versionLabel: guard.versionLabel } : {}),
         measurements,
       });
-      return result.manifestPath;
+      const outcome: TargetPublishOutcome = {
+        url: result.manifestPath,
+        changed: result.changed,
+        contentSignature: result.contentSignature,
+      };
+      return outcome;
     }
     case "codex-marketplace": {
       const base = target.path ?? workspaceRoot;
       const relOutput = normalizeRelative(path.relative(base, outputDir));
       const result = yield* publishCodexMarketplace(target, workspaceRoot, workspaceName, relOutput);
-      return result.pluginManifestPath;
+      const outcome: TargetPublishOutcome = { url: result.pluginManifestPath };
+      return outcome;
     }
     default:
       return yield* Effect.fail(
@@ -622,10 +756,21 @@ export interface PublishBundleInput {
 /**
  * Runs the publish guard, then publishes to the selected targets (default:
  * every configured target) and appends `skill.published` per target,
- * idempotent on `(bundle, versionHash, target)` -- a re-publish of the same
- * version to the same target is a no-op journal append, but manifest/file
- * writes still run (they are themselves idempotent: same content in, same
- * content out).
+ * idempotent on `(bundle, versionHash, target)`.
+ *
+ * Re-publish of an already-published `(bundle, version, target)` (proposal
+ * 2026-07-20 appendix #3, journal conventions in data-model.md §Journal):
+ *
+ * - generated content unchanged -> nothing is written and nothing is
+ *   journaled: a true no-op, `status: "already_published"`.
+ * - generated content CHANGED (the generator evolved since first publish)
+ *   -> that's a real act: the reconciled output is regenerated on disk AND
+ *   a `skill.published` event with a `reason` records the re-publish,
+ *   idempotent per generated content signature -- the journal never again
+ *   misses a state change the publish path made.
+ * - targets that can't cheaply report "changed" (git-dir's overwrite-copy,
+ *   codex) keep the previous behavior: writes are content-idempotent, the
+ *   journal append dedupes on the base key.
  */
 export const publishBundle = Effect.fn("Publish.publishBundle")(function* (input: PublishBundleInput) {
   const journal = yield* Journal;
@@ -648,7 +793,9 @@ export const publishBundle = Effect.fn("Publish.publishBundle")(function* (input
 
   const results: PublishTargetResult[] = [];
   for (const target of selected) {
-    const url = yield* publishToTarget(
+    const baseKey = `skill.published:${input.bundle}:${guard.versionHash}:${target.id}`;
+    const alreadyPublished = events.some((event) => event.idempotencyKey === baseKey);
+    const outcome = yield* publishToTarget(
       input.workspaceRoot,
       input.bundleDir,
       input.bundle,
@@ -656,10 +803,51 @@ export const publishBundle = Effect.fn("Publish.publishBundle")(function* (input
       target,
       guard,
     );
+    const url = outcome.url;
+
+    if (alreadyPublished && outcome.changed === false) {
+      // True no-op: the version was already published here and regeneration
+      // produced byte-identical content, so nothing was written -- and a
+      // no-op leaves no journal entry.
+      results.push({
+        target: target.id,
+        kind: target.kind,
+        status: "already_published",
+        ...(url !== undefined ? { url } : {}),
+      });
+      continue;
+    }
+
+    if (alreadyPublished && outcome.changed === true) {
+      // Real act on a re-publish: the generator's output differs from what
+      // this version's first publish wrote (e.g. the manifest shape
+      // evolved), so the files WERE rewritten -- record it, idempotent per
+      // generated content signature.
+      yield* journal.append({
+        type: "skill.published",
+        actor: input.actor,
+        idempotencyKey: `${baseKey}:regen:${outcome.contentSignature ?? "unknown"}`,
+        payload: {
+          bundle: input.bundle,
+          versionHash: guard.versionHash,
+          target: target.id,
+          ...(url !== undefined ? { url } : {}),
+          reason: "re-publish regenerated changed marketplace content (generator output evolved since first publish)",
+        },
+      });
+      results.push({
+        target: target.id,
+        kind: target.kind,
+        status: "already_published",
+        ...(url !== undefined ? { url } : {}),
+      });
+      continue;
+    }
+
     const appendResult = yield* journal.append({
       type: "skill.published",
       actor: input.actor,
-      idempotencyKey: `skill.published:${input.bundle}:${guard.versionHash}:${target.id}`,
+      idempotencyKey: baseKey,
       payload: {
         bundle: input.bundle,
         versionHash: guard.versionHash,

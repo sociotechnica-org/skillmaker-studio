@@ -5,11 +5,87 @@
   },
   "plugins": [
     {
-      "source": "./",
-      "name": "skills",
-      "skills": [
-        "./skills/william-draft-skill-md/output"
-      ]
+      "name": "william-draft-skill-md",
+      "source": "./skills/william-draft-skill-md/output",
+      "description": "Drafts output/SKILL.md from a bundle's design.md -- the drafting station's default agent.",
+      "version": "sha256:6b28bc53677f",
+      "keywords": [
+        "meta",
+        "stations"
+      ],
+      "skillmakerReceipts": {
+        "oneLiner": "Drafts output/SKILL.md from a bundle's design.md -- the drafting station's default agent.",
+        "tags": [
+          "meta",
+          "stations"
+        ],
+        "version": {
+          "label": "sha256:6b28bc53677f",
+          "hash": "sha256:6b28bc53677f2b9ccc050b2b35b9c7cbcb5a6db7248d99c03f6f36363bbe5de4"
+        },
+        "measurements": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol[xhigh]",
+            "fixtureCase": "golden-basic",
+            "n": 1,
+            "passes": 1,
+            "passRate": 1,
+            "ci": [
+              0.20654931437723742,
+              1
+            ]
+          },
+          {
+            "provider": "claude-code",
+            "model": "default",
+            "fixtureCase": "trigger-basic",
+            "n": 1,
+            "passes": 1,
+            "passRate": 1,
+            "ci": [
+              0.20654931437723742,
+              1
+            ]
+          },
+          {
+            "provider": "claude-code",
+            "model": "default",
+            "fixtureCase": "hard-case-conflicting-sections",
+            "n": 1,
+            "passes": 1,
+            "passRate": 1,
+            "ci": [
+              0.20654931437723742,
+              1
+            ]
+          },
+          {
+            "provider": "claude-code",
+            "model": "default",
+            "fixtureCase": "refusal-empty-design",
+            "n": 1,
+            "passes": 1,
+            "passRate": 1,
+            "ci": [
+              0.20654931437723742,
+              1
+            ]
+          },
+          {
+            "provider": "claude-code",
+            "model": "default",
+            "fixtureCase": "golden-basic",
+            "n": 3,
+            "passes": 3,
+            "passRate": 1,
+            "ci": [
+              0.4385029682449545,
+              1
+            ]
+          }
+        ]
+      }
     }
   ]
 }
