@@ -1,0 +1,13 @@
+{
+  "name": "@skillmaker/cli-darwin-arm64",
+  "version": "0.0.0",
+  "description": "skillmaker CLI binary + viewer assets for darwin-arm64. Installed automatically as an optionalDependency of skillmaker-studio -- not meant to be depended on or invoked directly.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sociotechnica-org/skillmaker-studio.git"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["bin/skillmaker", "viewer-dist/**"]
+}
