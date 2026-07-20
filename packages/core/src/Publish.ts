@@ -158,17 +158,40 @@ const readJsonRecord = Effect.fn("Publish.readJsonRecord")(function* (filePath: 
   return isJsonRecord(parsed) ? parsed : EMPTY_JSON_RECORD;
 });
 
-const writeJsonRecord = Effect.fn("Publish.writeJsonRecord")(function* (
+/** The one JSON renderer for every manifest this module emits -- byte-stable so "would this write change the file?" is a plain string compare. */
+const renderJsonRecord = (record: JsonRecord): string => `${JSON.stringify(record, undefined, 2)}\n`;
+
+/** Reads a file's exact bytes-as-string, or `undefined` when it doesn't exist -- for byte-for-byte "would this write change anything?" checks. */
+const readFileStringIfExists = Effect.fn("Publish.readFileStringIfExists")(function* (filePath: string) {
+  const fs = yield* FileSystem;
+  const exists = yield* fs.exists(filePath).pipe(Effect.mapError(toIOError(`could not check ${filePath}`)));
+  if (!exists) return undefined;
+  return yield* fs.readFileString(filePath).pipe(Effect.mapError(toIOError(`could not read ${filePath}`)));
+});
+
+/**
+ * Writes `content` to `filePath` (creating parent directories) ONLY when it
+ * differs byte-for-byte from what is already on disk; returns whether a
+ * write happened. Every generated-artifact write in this module goes
+ * through here, so an idempotent re-publish leaves no unjournaled file
+ * writes behind (proposal 2026-07-20 appendix #3).
+ */
+const writeFileStringIfChanged = Effect.fn("Publish.writeFileStringIfChanged")(function* (
   filePath: string,
-  record: JsonRecord,
+  content: string,
 ) {
+  const existing = yield* readFileStringIfExists(filePath);
+  if (existing === content) {
+    return false;
+  }
   const fs = yield* FileSystem;
   const path = yield* Path;
   const dir = path.dirname(filePath);
   yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.mapError(toIOError(`could not create ${dir}`)));
   yield* fs
-    .writeFileString(filePath, `${JSON.stringify(record, undefined, 2)}\n`)
+    .writeFileString(filePath, content)
     .pipe(Effect.mapError(toIOError(`could not write ${filePath}`)));
+  return true;
 });
 
 const kebabCase = (value: string): string =>
@@ -345,14 +368,6 @@ const buildMarketplaceReadme = (marketplaceName: string, ownerName: string, plug
 /** Short (12 hex chars) sha256 over the pair of generated artifacts -- identifies one generator output shape for idempotent re-publish journaling. */
 const generatedContentSignature = (manifestRaw: string, readmeRaw: string): string =>
   createHash("sha256").update(manifestRaw).update(" ").update(readmeRaw).digest("hex").slice(0, 12);
-
-/** Reads a file's exact bytes-as-string, or `undefined` when it doesn't exist -- for byte-for-byte "would this write change anything?" checks. */
-const readFileStringIfExists = Effect.fn("Publish.readFileStringIfExists")(function* (filePath: string) {
-  const fs = yield* FileSystem;
-  const exists = yield* fs.exists(filePath).pipe(Effect.mapError(toIOError(`could not check ${filePath}`)));
-  if (!exists) return undefined;
-  return yield* fs.readFileString(filePath).pipe(Effect.mapError(toIOError(`could not read ${filePath}`)));
-});
 
 /**
  * Reconciles the old pre-#114 accumulator shape (`skills: string[]`, no
@@ -542,21 +557,13 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
     plugins,
   };
 
-  const manifestRaw = `${JSON.stringify(updated, undefined, 2)}\n`;
+  const manifestRaw = renderJsonRecord(updated);
   const readme = buildMarketplaceReadme(marketplaceName, ownerName, plugins);
   const contentSignature = generatedContentSignature(manifestRaw, readme);
 
-  const existingManifestRaw = yield* readFileStringIfExists(manifestPath);
-  const existingReadmeRaw = yield* readFileStringIfExists(readmePath);
-  const changed = existingManifestRaw !== manifestRaw || existingReadmeRaw !== readme;
-
-  if (changed) {
-    yield* writeJsonRecord(manifestPath, updated);
-    const fs = yield* FileSystem;
-    yield* fs
-      .writeFileString(readmePath, readme)
-      .pipe(Effect.mapError(toIOError(`could not write ${readmePath}`)));
-  }
+  const manifestChanged = yield* writeFileStringIfChanged(manifestPath, manifestRaw);
+  const readmeChanged = yield* writeFileStringIfChanged(readmePath, readme);
+  const changed = manifestChanged || readmeChanged;
 
   const result: ClaudeMarketplacePublishResult = {
     manifestPath,
@@ -576,17 +583,31 @@ export const publishClaudeMarketplace = Effect.fn("Publish.publishClaudeMarketpl
 export interface CodexMarketplacePublishResult {
   readonly pluginManifestPath: string;
   readonly marketplaceManifestPath: string;
+  /** `false` when both generated manifests already matched what was on disk byte-for-byte, so nothing was written. */
+  readonly changed: boolean;
+  /** Short content hash of the generated manifest pair -- lets a re-publish that DID change content be journaled idempotently per generated shape (same contract as the claude-marketplace target). */
+  readonly contentSignature: string;
 }
 
 /**
  * Emits/updates `.codex-plugin/plugin.json` (this workspace's own plugin
- * manifest, `skills` array accumulating every published bundle's output
- * dir) and registers this workspace as a local marketplace source in
- * `.agents/plugins/marketplace.json`. The marketplace.json shape here is a
- * best-effort minimal guess (codex-skills-marketplace.md flags Codex's
- * exact registration schema as not fully documented) -- kept deliberately
- * small (`marketplaces: [{name, source}]`) and lossless on unknown fields
- * so it can be corrected later without losing hand-edits.
+ * manifest, `skills` array carrying every published bundle's output dir --
+ * for Codex this per-workspace array IS the current intended shape, so
+ * reconciliation means exact-path dedup, not per-bundle entries) and
+ * registers this workspace as a local marketplace source in
+ * `.agents/plugins/marketplace.json`, matched by marketplace name. The
+ * marketplace.json shape here is a best-effort minimal guess
+ * (codex-skills-marketplace.md flags Codex's exact registration schema as
+ * not fully documented) -- kept deliberately small
+ * (`marketplaces: [{name, source}]`) and lossless on unknown fields so it
+ * can be corrected later without losing hand-edits.
+ *
+ * Same no-op contract as the claude-marketplace target (proposal
+ * 2026-07-20 appendix #3): when both generated manifests already match
+ * what is on disk byte-for-byte, nothing is written (`changed: false`) --
+ * an idempotent re-publish leaves no unjournaled file writes behind; when
+ * they differ (e.g. this generator's output shape evolves), the caller
+ * journals the rewrite via `contentSignature`.
  */
 export const publishCodexMarketplace = Effect.fn("Publish.publishCodexMarketplace")(function* (
   target: PublishTarget,
@@ -611,7 +632,6 @@ export const publishCodexMarketplace = Effect.fn("Publish.publishCodexMarketplac
     name: pluginName,
     skills,
   };
-  yield* writeJsonRecord(pluginManifestPath, updatedPlugin);
 
   const existingMarketplace = yield* readJsonRecord(marketplaceManifestPath);
   const marketplacesRaw = existingMarketplace["marketplaces"];
@@ -625,9 +645,21 @@ export const publishCodexMarketplace = Effect.fn("Publish.publishCodexMarketplac
     ...existingMarketplace,
     marketplaces,
   };
-  yield* writeJsonRecord(marketplaceManifestPath, updatedMarketplace);
 
-  const result: CodexMarketplacePublishResult = { pluginManifestPath, marketplaceManifestPath };
+  const pluginRaw = renderJsonRecord(updatedPlugin);
+  const marketplaceRaw = renderJsonRecord(updatedMarketplace);
+  const contentSignature = generatedContentSignature(pluginRaw, marketplaceRaw);
+
+  const pluginChanged = yield* writeFileStringIfChanged(pluginManifestPath, pluginRaw);
+  const marketplaceChanged = yield* writeFileStringIfChanged(marketplaceManifestPath, marketplaceRaw);
+  const changed = pluginChanged || marketplaceChanged;
+
+  const result: CodexMarketplacePublishResult = {
+    pluginManifestPath,
+    marketplaceManifestPath,
+    changed,
+    contentSignature,
+  };
   return result;
 });
 
@@ -669,7 +701,7 @@ const gatherMeasurements = (workspaceRoot: string, bundle: string) =>
     Effect.orElseSucceed((): ReadonlyArray<MeasurementRecord> => []),
   );
 
-/** What one target publish did: the reportable `url`, plus -- for targets that can tell -- whether any generated file actually changed on disk, and a signature of the generated content (for idempotent re-publish journaling). `changed: undefined` means the target cannot cheaply tell (e.g. git-dir's overwrite-copy) and legacy journaling applies. */
+/** What one target publish did: the reportable `url`, plus -- for the manifest-generating targets (claude, codex) -- whether any generated file actually changed on disk, and a signature of the generated content (for idempotent re-publish journaling). `changed: undefined` means the target cannot cheaply tell (git-dir's overwrite-copy) and legacy journaling applies. */
 interface TargetPublishOutcome {
   readonly url?: string;
   readonly changed?: boolean;
@@ -718,7 +750,11 @@ const publishToTarget = Effect.fn("Publish.publishToTarget")(function* (
       const base = target.path ?? workspaceRoot;
       const relOutput = normalizeRelative(path.relative(base, outputDir));
       const result = yield* publishCodexMarketplace(target, workspaceRoot, workspaceName, relOutput);
-      const outcome: TargetPublishOutcome = { url: result.pluginManifestPath };
+      const outcome: TargetPublishOutcome = {
+        url: result.pluginManifestPath,
+        changed: result.changed,
+        contentSignature: result.contentSignature,
+      };
       return outcome;
     }
     default:
@@ -768,9 +804,9 @@ export interface PublishBundleInput {
  *   a `skill.published` event with a `reason` records the re-publish,
  *   idempotent per generated content signature -- the journal never again
  *   misses a state change the publish path made.
- * - targets that can't cheaply report "changed" (git-dir's overwrite-copy,
- *   codex) keep the previous behavior: writes are content-idempotent, the
- *   journal append dedupes on the base key.
+ * - targets that can't cheaply report "changed" (git-dir's overwrite-copy)
+ *   keep the previous behavior: writes are content-idempotent, the journal
+ *   append dedupes on the base key.
  */
 export const publishBundle = Effect.fn("Publish.publishBundle")(function* (input: PublishBundleInput) {
   const journal = yield* Journal;
