@@ -238,12 +238,14 @@ describe("skillmaker publish: guard + real target publishing", () => {
     expect(manifest.plugins[0]?.version).toBe("v1");
   });
 
-  test("claude-marketplace target: a storefront README.md is generated at the target root", () => {
-    const readmePath = join(scratchDir, "README.md");
-    expect(existsSync(readmePath)).toBe(true);
-    const readme = readFileSync(readmePath, "utf8");
-    expect(readme).toContain("### demo-skill");
-    expect(readme).toContain("v1");
+  test("claude-marketplace target: the storefront lives at .claude-plugin/MARKETPLACE.md, never the root README", () => {
+    const storefrontPath = join(scratchDir, ".claude-plugin", "MARKETPLACE.md");
+    expect(existsSync(storefrontPath)).toBe(true);
+    const storefront = readFileSync(storefrontPath, "utf8");
+    expect(storefront).toContain("### demo-skill");
+    expect(storefront).toContain("v1");
+    // The hand-authored project README must never be written by publish.
+    expect(existsSync(join(scratchDir, "README.md"))).toBe(false);
   });
 
   test("re-publishing the same version to the same targets is idempotent: no new skill.published events", () => {
