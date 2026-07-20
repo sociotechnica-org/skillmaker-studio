@@ -154,6 +154,17 @@ export {
   type AdoptDirectoryResult,
   type AdoptDirectoryUpstream,
 } from "./Adopt.ts";
+export {
+  HARNESS_KINDS,
+  HARNESS_PRESENCE_DIR,
+  HARNESS_SKILL_INSTALL_DIR,
+  HARNESS_LABEL,
+  detectHarnesses,
+  registerSkill,
+  type HarnessKind,
+  type HarnessDetection,
+  type SkillInstallResult,
+} from "./Harness.ts";
 export { didSkillActivate } from "./SkillActivation.ts";
 export { extractResponseText, responseMarkdown } from "./RunResponse.ts";
 export {
