@@ -10,6 +10,7 @@ import { WorkspaceLayer } from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
 import { Cause, Effect, Layer } from "effect";
 import { run } from "./Cli.ts";
+import { isDebugRequested, renderFailure } from "./ErrorBoundary.ts";
 
 // `provideMerge` (not `provide`): commands also need FileSystem/Path
 // directly (e.g. to build the workspace-root-dependent Journal layer), so
@@ -17,15 +18,17 @@ import { run } from "./Cli.ts";
 // construction.
 const AppLayer = Layer.provideMerge(WorkspaceLayer, BunServices.layer);
 
+const argv = process.argv.slice(2);
+const debug = isDebugRequested(argv, process.env);
+
 const program: Effect.Effect<CliResult> = Effect.gen(function* () {
-  const argv = process.argv.slice(2);
   return yield* run(argv, process.cwd());
 }).pipe(
   Effect.provide(AppLayer),
   Effect.catchCause((cause: Cause.Cause<unknown>) =>
     Effect.succeed<CliResult>({
       stdout: "",
-      stderr: `skillmaker: unexpected error\n${Cause.pretty(cause)}\n`,
+      stderr: renderFailure(cause, debug),
       exitCode: 1,
     }),
   ),
