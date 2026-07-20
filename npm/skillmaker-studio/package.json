@@ -1,0 +1,18 @@
+{
+  "name": "skillmaker-studio",
+  "version": "0.0.0",
+  "description": "Design, evaluate, and ship agent skills with receipts. Zero-install door onto the skillmaker CLI: `npx skillmaker-studio`.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sociotechnica-org/skillmaker-studio.git"
+  },
+  "bin": {
+    "skillmaker": "bin/skillmaker.js"
+  },
+  "files": ["bin/skillmaker.js"],
+  "optionalDependencies": {
+    "@skillmaker/cli-darwin-arm64": "0.0.0",
+    "@skillmaker/cli-linux-x64": "0.0.0"
+  }
+}

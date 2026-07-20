@@ -35,3 +35,9 @@ packages/viewer/public/skillmaker-logo.png
 packages/desktop/src-tauri/target/
 packages/desktop/src-tauri/binaries/
 packages/desktop/src-tauri/gen/
+npm/cli-darwin-arm64/bin/
+npm/cli-darwin-arm64/viewer-dist/
+npm/cli-linux-x64/bin/
+npm/cli-linux-x64/viewer-dist/
+# dist/npm/ (build-npm-packages.sh's output) is already covered by dist/*
+# above; noted here for discoverability.

@@ -15,6 +15,12 @@ name: Release
 # *host* platform it runs on -- there's no cross-compile step here, so each
 # platform gets its own job on a matching runner. macOS x64 (Intel) is a
 # fast-follow, not built here yet.
+#
+# Also publishes the npm zero-install door (install-simplification.md Phase
+# A.4): each matrix job assembles its `@skillmaker/cli-<platform>-<arch>`
+# package (scripts/build-npm-packages.sh) alongside its tarball, and
+# publish-npm publishes those plus the skillmaker-studio wrapper -- skipped
+# gracefully if the NPM_TOKEN secret isn't configured.
 
 on:
   push:
@@ -50,6 +56,21 @@ jobs:
         with:
           name: skillmaker-darwin-arm64
           path: ${{ env.TARBALL }}
+      - name: Build npm packages (platform package + wrapper, Phase A.2/A.3)
+        # Tag is "vX.Y.Z" -- npm packages publish under the bare version
+        # (no leading "v"), same version the GitHub Release above carries.
+        run: ./scripts/build-npm-packages.sh "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-cli-darwin-arm64
+          path: dist/npm/cli-darwin-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          # Built identically by either matrix job (it doesn't embed a
+          # binary) -- only uploaded once here to avoid a duplicate-name
+          # collision with the linux job's own build.
+          name: npm-skillmaker-studio
+          path: dist/npm/skillmaker-studio
 
   build-linux-x64:
     runs-on: ubuntu-latest
@@ -79,6 +100,12 @@ jobs:
         with:
           name: skillmaker-linux-x64
           path: ${{ env.TARBALL }}
+      - name: Build npm package (platform package, Phase A.2)
+        run: ./scripts/build-npm-packages.sh "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-cli-linux-x64
+          path: dist/npm/cli-linux-x64
 
   publish-release:
     needs: [build-macos-arm64, build-linux-x64]
@@ -95,3 +122,31 @@ jobs:
         with:
           files: artifacts/*.tar.gz
           generate_release_notes: true
+
+  # Publishes the zero-install npm door (Phase A.4): the two platform
+  # packages built above plus the skillmaker-studio wrapper that resolves
+  # between them. Gated on the NPM_TOKEN repo secret actually being set --
+  # if it's absent (e.g. this repo hasn't been granted npm publish access
+  # yet), this job is skipped rather than failing the release, so tagging a
+  # release never blocks on npm credentials existing.
+  publish-npm:
+    needs: [build-macos-arm64, build-linux-x64]
+    runs-on: ubuntu-latest
+    if: ${{ secrets.NPM_TOKEN != '' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Publish platform + wrapper packages
+        run: |
+          set -eu
+          for dir in npm-cli-darwin-arm64 npm-cli-linux-x64 npm-skillmaker-studio; do
+            echo "==> npm publish artifacts/${dir}"
+            npm publish "artifacts/${dir}" --access public
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
