@@ -716,6 +716,109 @@ bundle: frame-the-problem
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
   });
+
+  test("a nested git checkout (agent worktree under .claude/worktrees/) is never scanned as workspace bundles", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "alpha" });
+
+        // An agent worktree under .claude/worktrees/ is a full checkout of
+        // the repo, including skills/ -- its bundle.json duplicates alpha's
+        // slug and used to surface as a duplicate-slug warning on every
+        // reindex of the primary tree. What makes it a nested checkout is
+        // its own `.git` entry: a `git worktree` checkout carries a `.git`
+        // FILE (a `gitdir:` pointer), not a directory.
+        const worktreeDir = join(dir, ".claude", "worktrees", "agent-x");
+        const worktreeBundleDir = join(worktreeDir, "skills", "alpha");
+        mkdirSync(worktreeBundleDir, { recursive: true });
+        writeFileSync(join(worktreeDir, ".git"), "gitdir: /somewhere/.git/worktrees/agent-x\n");
+        writeFileSync(
+          join(worktreeBundleDir, "bundle.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            slug: "alpha",
+            name: "Alpha",
+            oneLiner: "",
+            tags: [],
+            created: "2026-07-20",
+            targets: ["claude-code"],
+          }),
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.bundles).toBe(1);
+          // Specifically: no duplicate-slug warning for the worktree copy.
+          expect(result.warnings).toEqual([]);
+          const bundles = yield* index.listBundles();
+          expect(bundles.map((b) => b.slug)).toEqual(["alpha"]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("harness dirs stay legitimate bundle homes: an in-place adoption under .agents/skills/ IS indexed (phase16's aikido shape)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "alpha" });
+
+        // The elicit shape phase16 e2e adopts in place: .agents/skills/foo/
+        // with bundle.json + the in-place adopt marker. No `.git` anywhere
+        // under .agents/ -- a harness dir is not a nested checkout.
+        const adoptedDir = join(dir, ".agents", "skills", "foo");
+        mkdirSync(adoptedDir, { recursive: true });
+        writeFileSync(
+          join(adoptedDir, "bundle.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            slug: "foo",
+            name: "Foo",
+            oneLiner: "adopted in place inside a harness dir",
+            tags: [],
+            created: "2026-07-20",
+            targets: ["claude-code"],
+          }),
+        );
+        writeFileSync(
+          join(adoptedDir, ".skillmaker-adopt.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            adoptedAt: "2026-07-20T12:00:00.000Z",
+            layout: "in-place",
+            skillPath: "SKILL.md",
+            generated: false,
+            frontmatter: { name: "foo" },
+          }),
+        );
+        writeFileSync(join(adoptedDir, "SKILL.md"), "---\nname: foo\n---\n# foo\n");
+
+        // An unadopted, SKILL.md-only harness install (no bundle.json) is
+        // out of the catalog by nature -- identity is a human ruling, and
+        // this scan only ever reads bundle.json.
+        const unadoptedDir = join(dir, ".codex", "skills", "bare");
+        mkdirSync(unadoptedDir, { recursive: true });
+        writeFileSync(join(unadoptedDir, "SKILL.md"), "---\nname: bare\n---\n# bare\n");
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.bundles).toBe(2);
+          expect(result.warnings).toEqual([]);
+          const bundles = yield* index.listBundles();
+          expect(bundles.map((b) => b.slug).sort()).toEqual(["alpha", "foo"]);
+          const foo = yield* index.getBundle("foo");
+          expect(foo?.oneLiner).toBe("adopted in place inside a harness dir");
+          expect(result.locations.get("foo")?.layout).toBe("in-place");
+          expect(yield* index.getBundle("bare")).toBeUndefined();
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
 });
 
 describe("IndexService.listMeasurements", () => {
