@@ -331,6 +331,18 @@ const GradingPanel: FC<{
 // Artifacts
 // ---------------------------------------------------------------------------
 
+/**
+ * Every artifact except `response.md` is a COPY captured from the eval
+ * sandbox into `runs/<id>/artifacts/` -- e.g. `output/SKILL.md` here is the
+ * sandbox's file, not the bundle's real distributable at the same relative
+ * path. Appendix fault #1 (2026-07-20 proposal): labeling the chip with the
+ * bare path made it read as "the eval wrote into my skill file", a lie about
+ * provenance. So sandbox chips carry a "sandbox" tag and a tooltip naming
+ * where the copy actually lives.
+ */
+const sandboxArtifactTitle = (runId: string, artifact: string): string =>
+  `Sandbox copy captured at runs/${runId}/artifacts/${artifact} -- not the bundle's own ${artifact}.`;
+
 const ArtifactViewer: FC<{ slug: string; runId: string; artifacts: ReadonlyArray<string> }> = ({
   slug,
   runId,
@@ -377,21 +389,30 @@ const ArtifactViewer: FC<{ slug: string; runId: string; artifacts: ReadonlyArray
   return (
     <div className="flex flex-col gap-1">
       <ul className="flex flex-wrap gap-1">
-        {artifacts.map((artifact) => (
-          <li key={artifact}>
-            <button
-              type="button"
-              onClick={() => setSelected(selected === artifact ? undefined : artifact)}
-              className={
-                selected === artifact
-                  ? "rounded-md bg-neutral-900 px-2 py-0.5 font-mono text-[10px] text-white dark:bg-neutral-100 dark:text-neutral-900"
-                  : "rounded-md border border-neutral-300 px-2 py-0.5 font-mono text-[10px] text-neutral-600 hover:border-neutral-500 dark:border-neutral-700 dark:text-neutral-300"
-              }
-            >
-              {artifact}
-            </button>
-          </li>
-        ))}
+        {artifacts.map((artifact) => {
+          const sandboxed = artifact !== "response.md";
+          return (
+            <li key={artifact}>
+              <button
+                type="button"
+                onClick={() => setSelected(selected === artifact ? undefined : artifact)}
+                title={sandboxed ? sandboxArtifactTitle(runId, artifact) : undefined}
+                className={
+                  selected === artifact
+                    ? "inline-flex items-center gap-1 rounded-md bg-neutral-900 px-2 py-0.5 font-mono text-[10px] text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-0.5 font-mono text-[10px] text-neutral-600 hover:border-neutral-500 dark:border-neutral-700 dark:text-neutral-300"
+                }
+              >
+                {sandboxed && (
+                  <span className="rounded-full bg-violet-100 px-1.5 text-[9px] font-medium uppercase tracking-wide text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+                    sandbox
+                  </span>
+                )}
+                {artifact}
+              </button>
+            </li>
+          );
+        })}
       </ul>
       {fileError !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">

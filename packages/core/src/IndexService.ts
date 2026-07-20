@@ -346,6 +346,18 @@ interface BundleIdentityLocation {
  */
 const BUNDLE_SCAN_SKIP_DIR_NAMES: ReadonlySet<string> = WORKSPACE_SCAN_SKIP_DIR_NAMES;
 
+/**
+ * Subtrees of a BUNDLE ROOT (a directory that itself carries `bundle.json`)
+ * never descended into while scanning for more bundles: `evals/` holds
+ * fixture props (`evals/fixtures/<case>/files/` can stage a whole prop
+ * `bundle.json` for the eval sandbox) and `runs/` holds sandbox-copied
+ * artifacts -- both are studio-owned captures, not workspace content
+ * (appendix fault #2, 2026-07-20 skill-centric-restructure proposal).
+ * Applied only under a bundle root, unlike `BUNDLE_SCAN_SKIP_DIR_NAMES`
+ * which prunes everywhere.
+ */
+const BUNDLE_INTERNAL_SKIP_DIR_NAMES: ReadonlySet<string> = new Set(["evals", "runs"]);
+
 const BUNDLE_STAGES: ReadonlyArray<BundleStage> = [
   "idea",
   "researching",
@@ -905,6 +917,11 @@ export const layer = (
             .pipe(Effect.mapError(toIndexError(`could not list ${dir}`)));
           const sortedEntries = entries.slice().sort();
 
+          // Two passes over the (sorted) entries: bundle.json presence must
+          // be known BEFORE deciding which subdirectories to descend into,
+          // because a directory that IS a bundle root gets its studio-owned
+          // subtrees pruned below.
+          const subdirectories: string[] = [];
           let hasBundleJson = false;
           for (const entry of sortedEntries) {
             const full = join(dir, entry);
@@ -913,12 +930,33 @@ export const layer = (
               if (BUNDLE_SCAN_SKIP_DIR_NAMES.has(entry)) {
                 continue;
               }
-              stack.push(full);
+              subdirectories.push(entry);
               continue;
             }
             if (info.type === "File" && entry === "bundle.json") {
               hasBundleJson = true;
             }
+          }
+          for (const entry of subdirectories) {
+            // Appendix fault #2 (2026-07-20 proposal): a bundle's own
+            // `evals/` and `runs/` trees hold PROPS and CAPTURES -- a
+            // fixture's staged workspace (`evals/fixtures/<case>/files/`,
+            // which may carry a whole prop `bundle.json`) and a run's
+            // sandbox-copied artifacts. Neither is workspace content; a
+            // `bundle.json` in there must never mint a catalog bundle
+            // (`changelog-entry-writer` leaked in exactly this way). Same
+            // reasoning as `receiving` in the shared skip-set, but scoped:
+            // `evals`/`runs` are only studio-owned INSIDE a bundle root
+            // (`ADOPT_EXCLUDED_NAMES`), so they are pruned only when this
+            // directory carries a `bundle.json` -- an unrelated top-level
+            // `evals/` dir elsewhere in a brownfield repo is still walked.
+            // #118's first-class fixtures are unaffected: they surface via
+            // `scanFixtures` + `GET /api/bundles/:slug/fixtures/:case`,
+            // never via this catalog scan.
+            if (hasBundleJson && BUNDLE_INTERNAL_SKIP_DIR_NAMES.has(entry)) {
+              continue;
+            }
+            stack.push(join(dir, entry));
           }
 
           if (!hasBundleJson) {
