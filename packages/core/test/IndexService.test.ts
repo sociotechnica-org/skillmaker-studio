@@ -647,6 +647,75 @@ bundle: frame-the-problem
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
   });
+
+  test("a fixture's prop bundle.json under evals/fixtures/**/files/ never mints a catalog bundle (appendix fault #2)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "alpha" });
+
+        // A golden fixture whose staged workspace carries a whole prop
+        // bundle.json -- exactly william-research-a-skill's golden-basic
+        // shape, where `changelog-entry-writer` leaked into `skillmaker
+        // list` with 0 events and no journal presence.
+        const caseDir = join(dir, "skills", "alpha", "evals", "fixtures", "golden-basic");
+        mkdirSync(join(caseDir, "files"), { recursive: true });
+        writeFileSync(
+          join(caseDir, "case.json"),
+          JSON.stringify({ schemaVersion: 1, case: "golden-basic", class: "golden", risks: [] }),
+        );
+        writeFileSync(join(caseDir, "prompt.md"), "Write a changelog entry.\n");
+        writeFileSync(
+          join(caseDir, "files", "bundle.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            slug: "prop-skill",
+            name: "Prop Skill",
+            oneLiner: "A fixture's prop, not workspace content.",
+            tags: [],
+            created: "2026-07-11",
+            targets: ["claude-code"],
+          }),
+        );
+        // Same leak class on the other studio-owned capture tree: a run's
+        // sandbox-copied artifacts.
+        const artifactsDir = join(dir, "skills", "alpha", "runs", "run-1", "artifacts", "output");
+        mkdirSync(artifactsDir, { recursive: true });
+        writeFileSync(
+          join(artifactsDir, "bundle.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            slug: "sandbox-copy",
+            name: "Sandbox Copy",
+            oneLiner: "",
+            tags: [],
+            created: "2026-07-11",
+            targets: ["claude-code"],
+          }),
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.bundles).toBe(1);
+          expect(result.warnings).toEqual([]);
+
+          const bundles = yield* index.listBundles();
+          expect(bundles.map((b) => b.slug)).toEqual(["alpha"]);
+          expect(yield* index.getBundle("prop-skill")).toBeUndefined();
+          expect(yield* index.getBundle("sandbox-copy")).toBeUndefined();
+
+          // #118's first-class fixtures are a separate surface
+          // (scanFixtures -> the fixtures table) and must keep working:
+          // pruning the catalog scan out of evals/ does not unindex the
+          // fixture case itself.
+          const fixtures = yield* index.listFixtures("alpha");
+          expect(fixtures.map((f) => f.caseName)).toEqual(["golden-basic"]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
 });
 
 describe("IndexService.listMeasurements", () => {
