@@ -46,7 +46,7 @@ export const NewBundleForm: FC = () => {
           return;
         }
         if (result.response.status === "already_exists") {
-          setError(`A bundle named "${slug}" already exists.`);
+          setError(`A skill named "${slug}" already exists.`);
           setPending(false);
           return;
         }
@@ -65,7 +65,7 @@ export const NewBundleForm: FC = () => {
         onClick={() => setOpen(true)}
         className="rounded-md border border-dashed border-neutral-300 px-2 py-2 text-xs font-medium text-neutral-500 hover:border-neutral-400 hover:text-neutral-700 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-200"
       >
-        + New bundle
+        + New skill
       </button>
     );
   }

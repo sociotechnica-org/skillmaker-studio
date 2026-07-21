@@ -133,7 +133,7 @@ const SalvagedRow: FC<{ crate: SalvagedCrateView }> = ({ crate }) => (
         </span>
       )}
       {crate.bundle !== null && (
-        <span title="The existing bundle this salvage defended">
+        <span title="The existing skill this salvage defended">
           <Link
             href={bundleHref(crate.bundle, "overview", "track")}
             className="text-xs font-medium text-neutral-700 hover:underline dark:text-neutral-300"
@@ -184,7 +184,7 @@ const ArchiveDrawer: FC<{
         <span>{open ? "▾" : "▸"}</span>
         <span>Archive ({count})</span>
         <span className="font-normal normal-case tracking-normal text-neutral-400">
-          out of commission but kept — retired bundles and salvaged crates
+          retired skills and salvaged crates
         </span>
       </Link>
 
@@ -192,12 +192,10 @@ const ArchiveDrawer: FC<{
         <div className="flex flex-col gap-4 pt-1">
           <div className="flex flex-col gap-2">
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-              Retired bundles
+              Retired skills
             </h3>
             {retired.length === 0 ? (
-              <p className="text-xs text-neutral-400">
-                Nothing retired. Retiring is journaled and reversible — a retired skill lands here, whole.
-              </p>
+              <p className="text-xs text-neutral-400">Nothing retired.</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {retired.map((entry) => (
@@ -212,9 +210,7 @@ const ArchiveDrawer: FC<{
               Salvaged crates
             </h3>
             {salvaged.length === 0 ? (
-              <p className="text-xs text-neutral-400">
-                No salvaged crates. A refused arrival never becomes a skill, but its crate stays harvestable here.
-              </p>
+              <p className="text-xs text-neutral-400">No salvaged crates.</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {salvaged.map((crate) => (
@@ -276,7 +272,7 @@ const CatalogRoom: FC<{ archiveOpen: boolean }> = ({ archiveOpen }) => {
           <CatalogRow key={entry.slug} entry={entry} />
         ))}
         {entries.length === 0 && !loading && (
-          <li className="text-sm text-neutral-400">No skills yet — the Catalog lists everything that exists.</li>
+          <li className="text-sm text-neutral-400">No skills yet.</li>
         )}
       </ul>
 
@@ -290,7 +286,7 @@ const MODE_TAB_ACTIVE =
 const MODE_TAB_INACTIVE =
   "font-display uppercase tracking-wide rounded-md px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100";
 
-const MODE_LABEL: Record<TrackView, string> = { catalog: "Catalog", feed: "Feed" };
+const MODE_LABEL: Record<TrackView, string> = { catalog: "Catalog", feed: "Activity" };
 
 const ModeTabs: FC<{ view: TrackView }> = ({ view }) => (
   <nav className="flex items-center gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
@@ -303,8 +299,8 @@ const ModeTabs: FC<{ view: TrackView }> = ({ view }) => (
 );
 
 const MODE_TAGLINE: Record<TrackView, string> = {
-  catalog: "the books — every skill that exists, whereabouts derived, click through to the card.",
-  feed: "the journal, chronological — the acts land here; the stuff lives in the drawer.",
+  catalog: "Every skill in this workspace.",
+  feed: "All activity, newest first.",
 };
 
 export const Track: FC<{ view: TrackView; archive: boolean }> = ({ view, archive }) => (

@@ -12,10 +12,10 @@
 import { STAGES, type BundleStage } from "@skillmaker/core";
 
 export const STAGE_LABEL: Record<BundleStage, string> = {
-  idea: "Frame",
+  idea: "Idea",
   researching: "Research",
   drafting: "Draft",
-  evaluating: "Proof",
+  evaluating: "Evals",
   published: "Publish",
 };
 

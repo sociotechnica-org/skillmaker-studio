@@ -43,7 +43,7 @@ describe("pendingReview", () => {
     const pending = pendingReview(events, "evaluating");
     expect(pending?.title).toBe("Review the Draft-stage work");
     expect(pending?.staleNote).toBe(
-      "This review was requested by the Draft station; the bundle has since moved to Proof. No Proof-stage work exists to approve yet.",
+      "This review was requested by the Draft station; this skill has since moved to Evals. No Evals-stage work exists to approve yet.",
     );
   });
 

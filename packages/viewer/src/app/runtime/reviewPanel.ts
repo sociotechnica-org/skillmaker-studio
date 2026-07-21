@@ -82,7 +82,7 @@ export const pendingReview = (
         : `Review the ${stageWord(requestedState)}-stage work`;
     const staleNote =
       requestedState !== undefined && requestedState !== currentStage
-        ? `This review was requested by the ${stageWord(requestedState)} station; the bundle has since moved to ${stageWord(currentStage)}. No ${stageWord(currentStage)}-stage work exists to approve yet.`
+        ? `This review was requested by the ${stageWord(requestedState)} station; this skill has since moved to ${stageWord(currentStage)}. No ${stageWord(currentStage)}-stage work exists to approve yet.`
         : undefined;
     return {
       requestedState,

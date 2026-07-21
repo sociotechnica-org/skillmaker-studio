@@ -200,7 +200,7 @@ const DRIFT_LABEL: Record<Drift, string> = {
 };
 
 const DRIFT_EXPLANATION: Record<Drift, string> = {
-  "no-version": "This bundle has no recorded version yet -- record one to start tracking drift.",
+  "no-version": "No version recorded yet.",
   "in-sync": "design.md and output/ match the latest recorded version.",
   "design-changed": "design.md has changed since the latest recorded version; output/ still matches.",
   "output-hand-edited": "output/ has been hand-edited since the latest recorded version; design.md still matches.",
@@ -329,7 +329,7 @@ export const SkillCard: FC<{
 
       {loading && detail === undefined && <p className="text-sm text-neutral-500">Loading...</p>}
       {error !== undefined && (
-        <p className="text-sm text-red-700 dark:text-red-300">Could not load bundle: {error.message}</p>
+        <p className="text-sm text-red-700 dark:text-red-300">Could not load skill: {error.message}</p>
       )}
 
       {detail !== undefined && (
@@ -431,7 +431,6 @@ export const SkillCard: FC<{
 
           <footer className="flex justify-between gap-3 border-t border-neutral-900/15 bg-canvas/60 px-4 py-2.5 font-mono text-[10px] text-neutral-500 sm:px-6 dark:border-neutral-100/15 dark:text-neutral-400">
             <span>SKILLMAKER STUDIO</span>
-            <span>every figure pinned to a version &amp; model</span>
           </footer>
         </article>
       )}
@@ -534,7 +533,7 @@ const CardHeader: FC<{
           value={detail.versions.length === 0 ? "none recorded" : `${detail.versions.length} recorded`}
           sub={
             latestVersion === undefined
-              ? "record one to start the chain"
+              ? "No version recorded yet"
               : `latest ${versionLabelFor(latestVersion, latestVersion.hash)} · ${formatDay(latestVersion.recordedAt)}`
           }
           title={latestVersion?.hash}
@@ -584,11 +583,10 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
     ["Evidence", dossier.evidence],
     ["Fit criterion", dossier.fitCriterion],
   ];
-  const anyGap = fields.some(([, value]) => value === undefined) || dossier.contexts.length === 0;
   return (
     <section className="flex flex-col gap-2">
       <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-        Dossier — context of use (honest gaps kept, never hidden)
+        Context of use
       </h4>
       <dl className="flex flex-col text-[13px]">
         {fields.map(([label, value]) => (
@@ -632,12 +630,6 @@ const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
           </dd>
         </div>
       </dl>
-      {anyGap && (
-        <Footnote>
-          Every empty field is an honest gap — exactly what &quot;fill out the card&quot; is for. The card
-          shows what&apos;s missing instead of pretending it&apos;s complete.
-        </Footnote>
-      )}
     </section>
   );
 };
@@ -740,13 +732,11 @@ const FactsAndPipeline: FC<{
       </div>
       <div>
         <h4 className="mb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-          Pipeline (neighborhood)
+          Pipeline
         </h4>
         {contextsWithClaims.length === 0 ? (
           <p className="text-[13px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-            <Unrecorded word="Not yet recorded." /> Upstream/downstream handoffs live in the dossier&apos;s
-            Contexts; this skill has named none, so the card shows the honest gap rather than an inferred
-            graph.
+            No upstream or downstream skills recorded.
           </p>
         ) : (
           <ul className="flex flex-col gap-2 text-[13px]">
@@ -1236,7 +1226,7 @@ const PublishSection: FC<{
   if (!approvedForForward) {
     return (
       <section className="flex flex-col gap-1 rounded-md border border-dashed border-neutral-300 p-3 text-[11px] text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-        Publishing requires an approved review of &quot;evaluating&quot; first.
+        Publishing requires an approved review of the {STAGE_LABEL.evaluating} stage first.
       </section>
     );
   }
@@ -1249,7 +1239,7 @@ const PublishSection: FC<{
       <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Publish</h4>
         <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
-          The publish gate is already approved. Finish moving this bundle to &quot;published&quot;.
+          The publish gate is already approved. Finish moving this skill to Published.
         </p>
         {publishError !== undefined && (
           <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
@@ -1316,7 +1306,7 @@ const PublishSection: FC<{
     <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Publish</h4>
       <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
-        Record the publish-gate decision basis and move this bundle to &quot;published&quot; in one step.
+        Record the publish-gate decision basis and move this skill to Published in one step.
       </p>
       <input
         value={gateBasis}
@@ -1437,8 +1427,7 @@ const InstructionsTab: FC<{
   if (path === undefined) {
     return (
       <p className="text-[13px] text-neutral-500 dark:text-neutral-400">
-        <Unrecorded word="No SKILL.md yet." /> The drafting station writes <span className="font-mono">output/SKILL.md</span>;
-        until it exists there are no instructions to show — an honest gap, not a rendering failure.
+        <Unrecorded word="No SKILL.md yet." /> The Draft stage writes <span className="font-mono">output/SKILL.md</span>.
       </p>
     );
   }
@@ -1471,8 +1460,7 @@ const InstructionsTab: FC<{
       )}
       {!loading && fileError === undefined && content !== undefined && content.length === 0 && (
         <p className="text-[13px] text-neutral-500 dark:text-neutral-400">
-          <Unrecorded word={`${path} is empty.`} /> Nothing shipped yet — an honest gap, not a rendering
-          failure.
+          <Unrecorded word={`${path} is empty.`} />
         </p>
       )}
       {!loading && fileError === undefined && content !== undefined && content.length > 0 && (
@@ -1628,7 +1616,7 @@ const custodyLine = (event: EventView): string => {
     case "skill.routed": {
       const disposition = stringField(event.payload, "disposition") ?? "?";
       const reason = stringField(event.payload, "reason");
-      return `Arrived via the dock — routed "${disposition}"${reason !== undefined ? `: ${reason}` : ""}`;
+      return `Arrived from outside — routed "${disposition}"${reason !== undefined ? `: ${reason}` : ""}`;
     }
     case "skill.version_recorded": {
       const hash = stringField(event.payload, "hash");
@@ -1733,10 +1721,10 @@ const LineageTab: FC<{
 
     <section className="flex flex-col gap-1">
       <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-        Chain of custody — replayed from the journal
+        Chain of custody
       </h4>
       {lineage.custody.length === 0 ? (
-        <p className="text-[11px] text-neutral-400">No custody events journaled yet.</p>
+        <p className="text-[11px] text-neutral-400">No custody events yet.</p>
       ) : (
         /* The prototype's dotted list: `date  humanized-line — actor` per
            row. The actor stays VISIBLE (not hover-only -- keyboard/touch
@@ -1758,13 +1746,6 @@ const LineageTab: FC<{
             </li>
           ))}
         </ol>
-      )}
-      {versions[0] !== undefined && (
-        <Footnote>
-          Version <span className="font-mono">{versionLabelFor(versions[0], versions[0].hash)}</span>{" "}
-          recorded {formatDay(versions[0].recordedAt)}; measurements bind to it, so a re-record resets
-          displayed validation by construction.
-        </Footnote>
       )}
     </section>
 
@@ -1813,7 +1794,7 @@ const CoverageTab: FC<{
 
       <section className="flex flex-col gap-2">
         <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-          Risk coverage — the authored axis, in its own words
+          Risk coverage
         </h4>
         {orderedFamilies.length === 0 && (
           <p className="text-[11px] text-neutral-400">No risk-map.md authored yet.</p>
@@ -1864,11 +1845,7 @@ const CoverageTab: FC<{
           </div>
         ))}
         {orderedFamilies.length > 0 && (
-          <Footnote>
-            Authored <span className="font-mono">covered / partial / gap</span> — what a human claimed the
-            fixtures buy, kept separate from measured pass rates (coverage and validation never merge; the
-            rates live under Models).
-          </Footnote>
+          <Footnote>Authored judgments; measured pass rates are on the Models tab.</Footnote>
         )}
       </section>
     </section>
@@ -1975,7 +1952,7 @@ const FixtureTestBody: FC<{ slug: string; caseName: string }> = ({ slug, caseNam
         </h5>
         {prompt === null ? (
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            <Unrecorded word="no prompt recorded" /> — a case-only fixture; nothing spells out the task yet.
+            <Unrecorded word="no prompt recorded" />
           </p>
         ) : (
           <>
@@ -2024,7 +2001,7 @@ const FixtureTestBody: FC<{ slug: string; caseName: string }> = ({ slug, caseNam
 
       {detail.context !== null && (
         <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-          Exercises dossier context: <span className="font-mono">{detail.context}</span>
+          Context: <span className="font-mono">{detail.context}</span>
         </p>
       )}
     </div>
@@ -2240,7 +2217,7 @@ const ModelsTab: FC<{
     <section className="flex flex-col gap-4">
       <section className="flex flex-col gap-2">
         <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-          Model performance — every row pinned to a fixture × provider × exact model
+          Model performance
         </h4>
         {rows.length === 0 ? (
           <p className="text-[11px] text-neutral-400">
@@ -2294,12 +2271,6 @@ const ModelsTab: FC<{
               </tbody>
             </table>
           </div>
-        )}
-        {rows.length > 0 && (
-          <Footnote>
-            Never pooled: each row is one (fixture × provider × model) sample. Intervals are wide because n
-            is small — that is the honest read, not a rounding choice.
-          </Footnote>
         )}
       </section>
 

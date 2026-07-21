@@ -143,7 +143,7 @@ const MODE_TAB_ACTIVE =
 const MODE_TAB_INACTIVE =
   "font-display uppercase tracking-wide rounded-md px-3 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-100";
 
-const MODE_LABEL: Record<LabView, string> = { bench: "Bench", queue: "Queue" };
+const MODE_LABEL: Record<LabView, string> = { bench: "Skills", queue: "Queue" };
 
 const ModeTabs: FC<{ view: LabView }> = ({ view }) => (
   <nav className="flex items-center gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
@@ -163,7 +163,7 @@ const Bench: FC = () => {
     <div className="flex flex-col gap-4">
       {error !== undefined && (
         <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
-          Could not load lab: {error.message}
+          Could not load skills: {error.message}
         </p>
       )}
 
@@ -176,7 +176,7 @@ const Bench: FC = () => {
           <LabRow key={entry.slug} entry={entry} />
         ))}
         {entries.length === 0 && !loading && (
-          <li className="text-sm text-neutral-400">No bundles yet.</li>
+          <li className="text-sm text-neutral-400">No skills yet.</li>
         )}
       </ul>
     </div>
@@ -184,14 +184,14 @@ const Bench: FC = () => {
 };
 
 const MODE_TAGLINE: Record<LabView, string> = {
-  bench: "the hardening bench — stage, drift, coverage, and open work at a glance.",
-  queue: "to-do mode — every unit of work across the workspace, priority-sorted.",
+  bench: "Stage, drift, coverage, and open work for every skill.",
+  queue: "Every todo across the workspace, priority-sorted.",
 };
 
 export const Lab: FC<{ view: LabView; bundle: string | undefined }> = ({ view, bundle }) => (
   <div className="flex max-w-3xl flex-col gap-4">
     <div>
-      <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Lab</h1>
+      <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Eval workspace</h1>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">{MODE_TAGLINE[view]}</p>
     </div>
 

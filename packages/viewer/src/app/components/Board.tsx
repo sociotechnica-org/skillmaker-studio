@@ -60,7 +60,7 @@ const DoorwayFooter: FC<{ elidedCount: number }> = ({ elidedCount }) =>
       href="/lab"
       className="block px-1 text-xs text-neutral-500 hover:underline dark:text-neutral-400"
     >
-      {elidedCount} in the Lab →
+      {elidedCount} in the eval workspace →
     </Link>
   );
 
@@ -87,7 +87,7 @@ export const Board: FC = () => {
     <>
       {error !== undefined && (
         <p className="mb-4 rounded-md bg-red-100 px-3 py-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-300">
-          Could not load bundles: {error.message}
+          Could not load skills: {error.message}
         </p>
       )}
       {loading && bundles.length === 0 && error === undefined ? (
