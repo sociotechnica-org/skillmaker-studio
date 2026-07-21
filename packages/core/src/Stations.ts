@@ -13,8 +13,17 @@ export class Station extends Schema.Class<Station>("Station")({
   doer: StationDoer,
   /** The skill the station-agent runs with, e.g. "william-research-a-skill". */
   skill: Schema.optionalKey(Schema.String),
-  /** Paths (relative to the bundle) this station's work produces. */
+  /** Paths (relative to the bundle) this station's work produces. Controls BOTH sandbox seeding and copyback (StationEngine.ts's `filterToProduces`). */
   produces: Schema.Array(Schema.String),
+  /**
+   * Paths (relative to the bundle) seeded INTO the station's sandbox as
+   * read-only upstream context, but never copied back — copyback stays
+   * filtered to `produces` (friction #16: without this, a drafting station
+   * never saw the researching station's `research/` output and drafted
+   * blind). Kept separate from `produces` precisely because `produces`
+   * also grants copyback rights.
+   */
+  seeds: Schema.optionalKey(Schema.Array(Schema.String)),
   review: Schema.Boolean,
 }) {}
 
@@ -51,11 +60,17 @@ export const DEFAULT_STATIONS_TEMPLATE: typeof StationsFile.Type = {
       // Real, working skill as of Phase 10: skills/william-draft-skill-md/.
       skill: "william-draft-skill-md",
       produces: ["design.md", "output/SKILL.md"],
+      // Friction #16: the researching station's output must reach the
+      // drafting agent's sandbox, without granting copyback rights over it.
+      seeds: ["research/"],
       review: true,
     },
     evaluating: {
       doer: "agent",
       produces: ["evals/", "runs/"],
+      // Eval authoring needs to see what it is evaluating -- the research,
+      // the design, and the drafted skill -- again read-only (friction #16).
+      seeds: ["research/", "design.md", "output/"],
       review: true,
     },
   },
