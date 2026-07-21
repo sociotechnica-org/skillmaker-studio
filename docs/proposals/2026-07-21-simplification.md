@@ -178,6 +178,41 @@ without a felt need from a real use.
 demand evidence — a friction-log entry or a run→todo from real use — not
 design intuition.
 
+## D9 — The chat surface: agent chat in the viewer via ACP (added post-walk, same day)
+
+Embed agent chat in the viewer (and the desktop app) using the existing ACP
+plumbing: the station/run engines already spawn `claude-code-acp`/`codex-acp`
+subprocesses and stream session updates — the product discards the stream
+into transcripts instead of rendering it. A chat panel on the Skill page —
+backed by a per-skill ACP session the server owns — becomes the surface
+where work is *driven*: frame conversationally, hand over sources, launch
+stations, watch them live, answer an agent's questions, dispatch revisions.
+
+**Demand evidence (D8-compliant):** friction log entries #2, #4, #5, #6,
+#9, #12, #13 from the first day of real use are all the same absence — no
+live surface where work moves forward.
+
+**Scoping guards:** v1 is chat that starts/attaches to per-skill sessions,
+not an always-running companion; the engine's current silent auto-approval
+of agent permission requests must become a real UX surface; requires the
+user to have Claude Code or Codex installed and authenticated — the
+desktop-audience onboarding answer is an open design question for the
+Danvers brief.
+
+**Ruling:** **Accepted in principle** (Jess, 2026-07-21 — "I like it").
+Detailed design pending; belongs to the desktop-app workstream with the
+Skill page (D2) as its home surface.
+
+**Amendment (same day): direct manipulation is a peer, not a fallback.**
+The Skill page must also support doing things *directly* in the UI —
+adding research sources, editing files, answering an agent's open
+questions — without touching the filesystem. Chat handles judgment and
+delegation; direct manipulation handles anything with an obvious form
+(drop a file, fill a field). Friction evidence: #6 (sources required
+`mkdir` + `curl` on disk — undiscoverable and terminal-bound). For the
+desktop audience, "no terminal" must mean "no filesystem spelunking"
+too.
+
 ## After the walk
 
 - Record each ruling in the Ledger.

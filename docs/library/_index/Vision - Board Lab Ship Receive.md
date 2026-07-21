@@ -2,7 +2,8 @@
 type: Vision
 prefLabel: Board · Lab · Ship · Receive
 context: _index
-status: adopted
+status: superseded
+superseded_by: "./Vision - The Skill Is the Product"
 links:
   related_to:
     - "./Concept - Skillmaker Studio"
