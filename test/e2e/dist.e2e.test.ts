@@ -33,6 +33,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startE2eServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const distBinary = join(repoRoot, "dist", "skillmaker");
@@ -58,25 +59,6 @@ const runBinary = (args: ReadonlyArray<string>, cwd: string) => {
     stderr: result.stderr.toString(),
     exitCode: result.exitCode,
   };
-};
-
-const waitForHealth = async (url: string, timeoutMs: number): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  let lastError: unknown;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${url}/api/health`);
-      if (response.ok) {
-        return;
-      }
-    } catch (cause) {
-      lastError = cause;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(
-    `server never became healthy at ${url}: ${String(lastError)}`,
-  );
 };
 
 const claimPath = () =>
@@ -133,20 +115,18 @@ describe.skipIf(!distArtifactsPresent)(
         (JSON.parse(versionRecord.stdout) as { status: string }).status,
       ).toBe("appended");
 
-      port = 24000 + Math.floor(Math.random() * 4000);
-      baseUrl = `http://localhost:${port}`;
-
-      serverProcess = Bun.spawn(
-        [binaryPath, "start", "--port", String(port), "--no-open"],
-        {
-          cwd: workspaceDir,
-          stdout: "pipe",
-          stderr: "pipe",
-        },
-      );
-
-      await waitForHealth(baseUrl, 15000);
-    }, 30000);
+      const server = await startE2eServer({
+        command: (port) => [binaryPath, "start", "--port", String(port), "--no-open"],
+        cwd: workspaceDir,
+      });
+      serverProcess = server.process;
+      port = server.port;
+      baseUrl = server.baseUrl;
+      // 90s, not the old 30s: the wait above is readiness-driven with a
+      // 60s backstop -- the hook budget must outlast the backstop so a
+      // genuine failure surfaces the helper's diagnostic error, not bun's
+      // bare hook timeout.
+    }, 90000);
 
     afterAll(async () => {
       if (serverProcess !== undefined) {

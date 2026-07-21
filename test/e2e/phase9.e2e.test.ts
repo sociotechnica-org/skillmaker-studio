@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startE2eServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -110,21 +111,6 @@ const cliMeasurements = (slug: string): ReadonlyArray<MeasurementCell> => {
   const parsed = jsonFrom<{ measurements: ReadonlyArray<MeasurementCell> }>(result);
   expect(parsed).toBeDefined();
   return parsed?.measurements ?? [];
-};
-
-const waitForHealth = async (url: string, timeoutMs: number): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  let lastError: unknown;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${url}/api/health`);
-      if (response.ok) return;
-    } catch (cause) {
-      lastError = cause;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`server never became healthy at ${url}: ${String(lastError)}`);
 };
 
 beforeAll(async () => {
@@ -292,14 +278,12 @@ describe("grade + measurements: the CLI door", () => {
 describe("phase 9 server surface", () => {
   beforeAll(async () => {
     setProviderCommand(["node", fakeAdapterSuccess]);
-    const port = 20000 + Math.floor(Math.random() * 20000);
-    baseUrl = `http://localhost:${port}`;
-    serverProcess = Bun.spawn(["bun", cliEntry, "start", "--port", String(port), "--no-open"], {
+    const server = await startE2eServer({
+      command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
       cwd: scratchDir,
-      stdout: "pipe",
-      stderr: "pipe",
     });
-    await waitForHealth(baseUrl, 30000);
+    serverProcess = server.process;
+    baseUrl = server.baseUrl;
   }, 30000);
 
   test("GET /api/bundles/:slug includes measurements[]", async () => {

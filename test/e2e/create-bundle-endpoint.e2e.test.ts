@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startE2eServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -21,20 +22,6 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
-
-const waitForHealth = async (url: string, timeoutMs: number): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  let lastError: unknown;
-  while (Date.now() < deadline) {
-    try {
-      if ((await fetch(`${url}/api/health`)).ok) return;
-    } catch (cause) {
-      lastError = cause;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`server never became healthy at ${url}: ${String(lastError)}`);
-};
 
 const createBundle = (payload: unknown): Promise<Response> =>
   fetch(`${baseUrl}/api/bundles`, {
@@ -57,14 +44,12 @@ beforeAll(async () => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
   expect(Bun.spawnSync(["bun", cliEntry, "init", "--json"], { cwd: scratchDir }).exitCode).toBe(0);
 
-  const port = 21000 + Math.floor(Math.random() * 8000);
-  baseUrl = `http://localhost:${port}`;
-  serverProcess = Bun.spawn(["bun", cliEntry, "start", "--port", String(port), "--no-open"], {
+  const server = await startE2eServer({
+    command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
-    stdout: "pipe",
-    stderr: "pipe",
   });
-  await waitForHealth(baseUrl, 30000);
+  serverProcess = server.process;
+  baseUrl = server.baseUrl;
 }, 60000);
 
 afterAll(async () => {

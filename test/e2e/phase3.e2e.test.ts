@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startE2eServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -33,23 +34,6 @@ const runCli = (args: ReadonlyArray<string>, cwd: string) => {
     stderr: result.stderr.toString(),
     exitCode: result.exitCode,
   };
-};
-
-const waitForHealth = async (url: string, timeoutMs: number): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  let lastError: unknown;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${url}/api/health`);
-      if (response.ok) {
-        return;
-      }
-    } catch (cause) {
-      lastError = cause;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`server never became healthy at ${url}: ${String(lastError)}`);
 };
 
 const claimPath = () => join(scratchDir, ".skillmaker", "claims", "server.json");
@@ -81,16 +65,13 @@ beforeAll(async () => {
   expect(runCli(["new", "alpha", "--json"], scratchDir).exitCode).toBe(0);
   expect(runCli(["new", "beta", "--json"], scratchDir).exitCode).toBe(0);
 
-  port = 20000 + Math.floor(Math.random() * 20000);
-  baseUrl = `http://localhost:${port}`;
-
-  serverProcess = Bun.spawn(["bun", cliEntry, "start", "--port", String(port), "--no-open"], {
+  const server = await startE2eServer({
+    command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
-    stdout: "pipe",
-    stderr: "pipe",
   });
-
-  await waitForHealth(baseUrl, 30000);
+  serverProcess = server.process;
+  port = server.port;
+  baseUrl = server.baseUrl;
 }, 60000);
 
 afterAll(async () => {
