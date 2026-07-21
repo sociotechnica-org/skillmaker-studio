@@ -195,9 +195,13 @@ jobs:
       - name: Publish platform + wrapper packages
         run: |
           set -eu
+          # cd into each package rather than passing the path: a bare
+          # "pkgs/name" argument matches npm's GitHub owner/repo shorthand
+          # and gets resolved as a git spec, not a directory (v0.3.0's
+          # publish failed exactly this way).
           for dir in pkgs/cli-darwin-arm64 pkgs/cli-linux-x64 pkgs/skillmaker-studio; do
             echo "==> npm publish ${dir}"
-            npm publish "${dir}" --access public
+            (cd "${dir}" && npm publish --access public)
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
