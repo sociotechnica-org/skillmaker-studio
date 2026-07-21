@@ -190,3 +190,16 @@ was trying to do, what happened, how it felt.
   'now run the drafting station from your terminal' — the UI knows this
   and doesn't say it). The one-sentence version of the whole log: **the
   UI is a status display for a process it refuses to narrate or drive.**
+
+- **#18 — Reviews wear the current stage's costume.** After approving to
+  Draft advanced the stage to evaluating ("Proof"), the still-pending
+  drafting review re-labeled itself "APPROVE THE EVALUATION" — soliciting
+  approval of evaluation work that doesn't exist (Fixtures 0, coverage
+  none) when the actual pending item was the drafting station's design.md
+  + SKILL.md. The review box titles itself by the bundle's *current*
+  stage instead of the station that requested the review — the #5
+  disease (gates soliciting approval for non-work) at the far end of the
+  ladder, compounded by "evaluation" colliding with evals-the-feature
+  (D3). Also observed en route: the user wandered into a different tab
+  (Track) and found the same card with different buttons — #118's "card
+  belongs to every room," experienced live.
