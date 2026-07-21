@@ -224,6 +224,30 @@ describe("latestReviseNotes", () => {
     expect(latestReviseNotes(events, "example-skill", "drafting")).toBeUndefined();
   });
 
+  test("approve-with-notes never becomes a revise prompt: notes on an approve decision are ignored (friction #15)", () => {
+    const events = [
+      {
+        type: "review.resolved",
+        payload: { bundle: "example-skill", state: "drafting", decision: "approve", notes: "LGTM with nits." },
+      },
+    ];
+    expect(latestReviseNotes(events, "example-skill", "drafting")).toBeUndefined();
+  });
+
+  test("an approve-with-notes clears an earlier revise's notes, same as a bare approve", () => {
+    const events = [
+      {
+        type: "review.resolved",
+        payload: { bundle: "example-skill", state: "drafting", decision: "revise", notes: "fix the frontmatter" },
+      },
+      {
+        type: "review.resolved",
+        payload: { bundle: "example-skill", state: "drafting", decision: "approve", notes: "good now" },
+      },
+    ];
+    expect(latestReviseNotes(events, "example-skill", "drafting")).toBeUndefined();
+  });
+
   test("ignores review.resolved events for a different bundle or state", () => {
     const events = [
       {

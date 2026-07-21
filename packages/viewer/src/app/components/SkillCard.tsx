@@ -94,6 +94,7 @@ import { useBundleFileContent } from "../runtime/useBundleFileContent.ts";
 import { useFixtureDetail } from "../runtime/useFixtureDetail.ts";
 import { useWorkspace } from "../runtime/useWorkspace.ts";
 import { nextAction, nextStageOf } from "../runtime/nextAction.ts";
+import { latestReviewOutcome, pendingReview, type ReviewOutcome } from "../runtime/reviewPanel.ts";
 import { Badge } from "./Badge.tsx";
 import { RunDetailModal } from "./RunDetailModal.tsx";
 
@@ -106,14 +107,6 @@ const stringField = (payload: unknown, key: string): string | undefined => {
   }
   const value = payload[key];
   return typeof value === "string" ? value : undefined;
-};
-
-const stringArrayField = (payload: unknown, key: string): ReadonlyArray<string> => {
-  if (!isRecord(payload)) {
-    return [];
-  }
-  const value = payload[key];
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 };
 
 const earlierStages = (stage: BundleStage): ReadonlyArray<BundleStage> => STAGES.slice(0, STAGES.indexOf(stage));
@@ -783,6 +776,30 @@ const FactsAndPipeline: FC<{
   );
 };
 
+/**
+ * The most recent review verdict on the current stage's work (friction #13,
+ * derived by `runtime/reviewPanel.ts`): the decision word, the timestamp,
+ * the submitted notes verbatim, and the next step said out loud -- so a
+ * send-back's notes stay visible on the card instead of vanishing into the
+ * journal the moment the button is clicked.
+ */
+const ReviewOutcomePanel: FC<{ outcome: ReviewOutcome }> = ({ outcome }) => (
+  <section className="flex flex-col gap-1.5 rounded-md border border-border bg-canvas p-3">
+    <div className="flex flex-wrap items-baseline gap-2">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Latest review — {outcome.headline}
+      </h4>
+      <span className="text-[11px] text-neutral-400">{formatTimestamp(outcome.at)}</span>
+    </div>
+    {outcome.notes !== undefined && (
+      <p className="whitespace-pre-wrap border-l-2 border-amber-500 pl-2 text-xs text-neutral-700 dark:text-neutral-200">
+        {outcome.notes}
+      </p>
+    )}
+    <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{outcome.nextStep}</p>
+  </section>
+);
+
 const OverviewTab: FC<OverviewTabProps> = ({
   detail,
   proven,
@@ -807,12 +824,17 @@ const OverviewTab: FC<OverviewTabProps> = ({
   const { bundle, guardStatus } = detail;
   const stage = bundle.stage;
   const action = nextAction(stage, bundle.substate, guardStatus);
-  const latestReviewRequest = detail.events.find((event) => event.type === "review.requested");
-  const question = stringField(latestReviewRequest?.payload, "question");
-  // The exact files the station changed (review.requested's `artifacts`), so
-  // the reviewer can open what they're being asked to approve -- not just read
-  // its name in the question text.
-  const reviewArtifacts = stringArrayField(latestReviewRequest?.payload, "artifacts");
+  // The unresolved review request, labeled by the state that REQUESTED it
+  // (friction #18) -- carries the question and the exact files the station
+  // changed (`artifacts`), so the reviewer can open what they're being asked
+  // to approve. `undefined` once resolved (or never requested), so stale
+  // questions stop soliciting review of work that isn't pending.
+  const pendingRequest = pendingReview(detail.events, stage);
+  const question = pendingRequest?.question;
+  const reviewArtifacts = pendingRequest?.artifacts ?? [];
+  // The most recent review verdict on this stage's work (friction #13):
+  // rendered as a panel so submitted notes never vanish after the click.
+  const reviewOutcome = latestReviewOutcome(detail.events, stage);
   const forwardReady = guardStatus.approvedForForward && (stage !== "evaluating" || guardStatus.gateApproved);
   const earlier = earlierStages(stage);
   const [stationPending, setStationPending] = useState(false);
@@ -870,6 +892,12 @@ const OverviewTab: FC<OverviewTabProps> = ({
           </p>
         )}
 
+        {/* The most recent review verdict on this stage's work (friction
+            #13): decision + when + the submitted notes + what happens next.
+            Without this, "Send back with notes" left the card looking
+            identical to pre-review -- machinery flawless, interface silent. */}
+        {reviewOutcome !== undefined && <ReviewOutcomePanel outcome={reviewOutcome} />}
+
         {action.kind === "terminal" && (
           <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
             Published — this skill has shipped.
@@ -882,11 +910,23 @@ const OverviewTab: FC<OverviewTabProps> = ({
                 advance -- the gate does that), then clear the publish gate. */}
             {!guardStatus.approvedForForward && (
               <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+                {/* Labeled by the work under review (friction #18): the
+                    requesting event's state names the heading, never the
+                    bundle's current stage -- and with NO pending review the
+                    gate stops soliciting approval of work that doesn't
+                    exist and says what the button really records. */}
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                  {bundle.substate === "awaiting-review" ? "Ready for your review" : "Approve the evaluation"}
+                  {bundle.substate === "awaiting-review"
+                    ? (pendingRequest?.title ?? "Review the submitted work")
+                    : `Sign off the ${STAGE_LABEL[stage]} stage yourself`}
                 </h4>
+                {pendingRequest?.staleNote !== undefined && (
+                  <p className="text-[11px] text-neutral-600 dark:text-neutral-300">{pendingRequest.staleNote}</p>
+                )}
                 <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
-                  Then clear the publish gate below to ship.
+                  {bundle.substate === "awaiting-review"
+                    ? "Then clear the publish gate below to ship."
+                    : `No review is pending — nothing has been submitted for review here. Approving records your own sign-off of the ${STAGE_LABEL[stage]} stage so the publish gate below can open.`}
                 </p>
                 {question !== undefined && question.length > 0 && (
                   <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
@@ -905,12 +945,28 @@ const OverviewTab: FC<OverviewTabProps> = ({
                     ))}
                   </ul>
                 )}
+                {bundle.substate === "awaiting-review" && (
+                  <textarea
+                    value={reviseNotes}
+                    onChange={(event) => setReviseNotes(event.target.value)}
+                    placeholder="Notes for the author (optional on approve, required to send back)"
+                    className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+                  />
+                )}
                 <button
                   type="button"
                   disabled={pending}
                   onClick={() =>
                     bundle.substate === "awaiting-review"
-                      ? submit("review.resolved", { bundle: slug, state: stage, decision: "approve" })
+                      ? submit("review.resolved", {
+                          bundle: slug,
+                          state: stage,
+                          decision: "approve",
+                          // Approve-with-notes (friction #15): commentary rides
+                          // along for the record; `latestReviseNotes` only ever
+                          // injects `revise` notes into station prompts.
+                          ...(reviseNotes.trim().length > 0 ? { notes: reviseNotes.trim() } : {}),
+                        })
                       : submitMany([
                           { type: "review.requested", payload: { bundle: slug, state: stage } },
                           { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
@@ -918,27 +974,19 @@ const OverviewTab: FC<OverviewTabProps> = ({
                   }
                   className="self-start rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
                 >
-                  Approve the evaluation
+                  {bundle.substate === "awaiting-review" ? "Approve" : "Record my sign-off"}
                 </button>
                 {bundle.substate === "awaiting-review" && (
-                  <>
-                    <textarea
-                      value={reviseNotes}
-                      onChange={(event) => setReviseNotes(event.target.value)}
-                      placeholder="Notes for the author (required to send back)"
-                      className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-                    />
-                    <button
-                      type="button"
-                      disabled={pending || reviseNotes.trim().length === 0}
-                      onClick={() =>
-                        submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
-                      }
-                      className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
-                    >
-                      Send back with notes
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    disabled={pending || reviseNotes.trim().length === 0}
+                    onClick={() =>
+                      submit("review.resolved", { bundle: slug, state: stage, decision: "revise", notes: reviseNotes.trim() })
+                    }
+                    className="self-start rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium disabled:opacity-50 dark:border-neutral-700"
+                  >
+                    Send back with notes
+                  </button>
                 )}
               </section>
             )}
@@ -955,9 +1003,14 @@ const OverviewTab: FC<OverviewTabProps> = ({
 
         {action.kind === "review" && (
           <section className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+            {/* Named for the work under review (friction #18), not the
+                bundle's current stage. */}
             <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-              Ready for your review
+              {pendingRequest?.title ?? "Review the submitted work"}
             </h4>
+            {pendingRequest?.staleNote !== undefined && (
+              <p className="text-[11px] text-neutral-600 dark:text-neutral-300">{pendingRequest.staleNote}</p>
+            )}
             {question !== undefined && question.length > 0 && (
               <p className="text-xs text-neutral-700 dark:text-neutral-200">{question}</p>
             )}
@@ -975,12 +1028,29 @@ const OverviewTab: FC<OverviewTabProps> = ({
                 ))}
               </ul>
             )}
+            <textarea
+              value={reviseNotes}
+              onChange={(event) => setReviseNotes(event.target.value)}
+              placeholder="Notes for the author (optional on approve, required to send back)"
+              className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+            />
             <button
               type="button"
               disabled={pending}
               onClick={() =>
                 submitMany([
-                  { type: "review.resolved", payload: { bundle: slug, state: stage, decision: "approve" } },
+                  {
+                    type: "review.resolved",
+                    payload: {
+                      bundle: slug,
+                      state: stage,
+                      decision: "approve",
+                      // Approve-with-notes (friction #15): "LGTM with nits"
+                      // rides along for the record; only `revise` notes are
+                      // ever fed to the agent (core's `latestReviseNotes`).
+                      ...(reviseNotes.trim().length > 0 ? { notes: reviseNotes.trim() } : {}),
+                    },
+                  },
                   { type: "bundle.stage_changed", payload: { bundle: slug, from: stage, to: action.nextStage } },
                 ])
               }
@@ -988,12 +1058,6 @@ const OverviewTab: FC<OverviewTabProps> = ({
             >
               Approve &amp; move to {STAGE_LABEL[action.nextStage]} ▸
             </button>
-            <textarea
-              value={reviseNotes}
-              onChange={(event) => setReviseNotes(event.target.value)}
-              placeholder="Notes for the author (required to send back)"
-              className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-            />
             <button
               type="button"
               disabled={pending || reviseNotes.trim().length === 0}

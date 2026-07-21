@@ -159,6 +159,23 @@ describe("JournalEvent schema round-trip", () => {
     });
   }
 
+  test("review.resolved decodes an APPROVE that carries notes (friction #15: 'LGTM with nits') and re-encodes them intact", async () => {
+    const sample = {
+      ...envelope("review.resolved"),
+      payload: { bundle: "demo", state: "drafting", decision: "approve", notes: "LGTM with nits." },
+    };
+    const decoded = await Effect.runPromise(Schema.decodeUnknownEffect(JournalEvent)(sample));
+    expect(decoded.type).toBe("review.resolved");
+    if (decoded.type === "review.resolved") {
+      expect(decoded.payload.decision).toBe("approve");
+      expect(decoded.payload.notes).toBe("LGTM with nits.");
+    }
+    const encoded = (await Effect.runPromise(Schema.encodeEffect(JournalEvent)(decoded))) as {
+      payload: Record<string, unknown>;
+    };
+    expect(encoded.payload.notes).toBe("LGTM with nits.");
+  });
+
   test("skill.field_report decodes with versionHash/destination omitted (issue #67: the reporter may not know either)", async () => {
     const sample = {
       ...envelope("skill.field_report"),
