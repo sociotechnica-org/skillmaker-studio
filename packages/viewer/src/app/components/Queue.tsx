@@ -17,7 +17,7 @@
  */
 import { type FC, type FormEvent, useState } from "react";
 import { postEvent } from "../runtime/api.ts";
-import { Link, labHref } from "../runtime/router.tsx";
+import { Link, bundleRunHref, labHref } from "../runtime/router.tsx";
 import type { TodoKind, TodoOriginView, TodoRecord, TodoStatus } from "../runtime/schemas.ts";
 import { filterTodosByBundle, isDone } from "../runtime/todoQueue.ts";
 import { useBundles } from "../runtime/useBundles.ts";
@@ -53,11 +53,30 @@ const DEFAULT_PRIORITY_BY_KIND: Readonly<Record<TodoKind, number>> = {
 const ORIGIN_LABEL: Readonly<Record<TodoOriginView["kind"], { readonly label: string; readonly titlePrefix: string }>> = {
   "field-report": { label: "from the field", titlePrefix: "from field report" },
   intake: { label: "from intake", titlePrefix: "from intake" },
+  run: { label: "from a run", titlePrefix: "from run" },
 };
 
 /** The origin's id, read from its per-kind field (the union retired the old shared `ref`). */
-const originId = (origin: TodoOriginView): string =>
-  origin.kind === "field-report" ? origin.eventId : origin.intakeId;
+const originId = (origin: TodoOriginView): string => {
+  switch (origin.kind) {
+    case "field-report":
+      return origin.eventId;
+    case "intake":
+      return origin.intakeId;
+    case "run":
+      return origin.runId;
+  }
+};
+
+/**
+ * A `run` origin links back to its run's read-out as evidence (D5: the
+ * origin stamp exists so the transcript stays one click away). Only a
+ * bundle-scoped todo can build the link -- the read-out lives on the
+ * bundle's Models tab -- and run-origin todos always carry the run's own
+ * bundle, so the plain-chip fallback is for malformed history only.
+ */
+const originHref = (origin: TodoOriginView, bundle: string | undefined): string | undefined =>
+  origin.kind === "run" && bundle !== undefined ? bundleRunHref(bundle, origin.runId) : undefined;
 
 const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRecord) => void }> = ({
   todo,
@@ -96,14 +115,22 @@ const TodoRow: FC<{ todo: TodoRecord; pending: boolean; onToggle: (todo: TodoRec
               {todo.bundle}
             </span>
           )}
-          {todo.origin !== undefined && (
-            <span
-              title={`${ORIGIN_LABEL[todo.origin.kind].titlePrefix} ${originId(todo.origin)}`}
-              className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-            >
-              {ORIGIN_LABEL[todo.origin.kind].label}
-            </span>
-          )}
+          {todo.origin !== undefined &&
+            (() => {
+              const href = originHref(todo.origin, todo.bundle);
+              const title = `${ORIGIN_LABEL[todo.origin.kind].titlePrefix} ${originId(todo.origin)}`;
+              const chipClass =
+                "w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300";
+              return href !== undefined ? (
+                <Link href={href} title={title} className={`${chipClass} underline`}>
+                  {ORIGIN_LABEL[todo.origin.kind].label}
+                </Link>
+              ) : (
+                <span title={title} className={chipClass}>
+                  {ORIGIN_LABEL[todo.origin.kind].label}
+                </span>
+              );
+            })()}
         </div>
       )}
     </div>

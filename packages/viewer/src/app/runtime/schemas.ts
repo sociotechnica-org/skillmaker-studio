@@ -472,8 +472,10 @@ export class ChecklistItemView extends Schema.Class<ChecklistItemView>("Checklis
  * `"intake"` added issues #91/#92; reshaped to a per-kind-id union by the
  * 2026-07-17 data-model reconciliation, ruling R2): which upstream signal
  * opened this todo automatically, if any -- a field report (keyed by its
- * journal event's `eventId`) or an intake (keyed by the crate's
- * `intakeId`, salvage mining / the triage manifest's "what hurts").
+ * journal event's `eventId`), an intake (keyed by the crate's
+ * `intakeId`, salvage mining / the triage manifest's "what hurts"), or a
+ * run (keyed by the run's own `runId`, the read-out's "this run surfaced
+ * work" door -- 2026-07-21 simplification, D5).
  */
 export const TodoOriginFieldReportView = Schema.Struct({
   kind: Schema.Literal("field-report"),
@@ -485,7 +487,16 @@ export const TodoOriginIntakeView = Schema.Struct({
   intakeId: Schema.String,
 });
 
-export const TodoOriginView = Schema.Union([TodoOriginFieldReportView, TodoOriginIntakeView]);
+export const TodoOriginRunView = Schema.Struct({
+  kind: Schema.Literal("run"),
+  runId: Schema.String,
+});
+
+export const TodoOriginView = Schema.Union([
+  TodoOriginFieldReportView,
+  TodoOriginIntakeView,
+  TodoOriginRunView,
+]);
 export type TodoOriginView = typeof TodoOriginView.Type;
 
 /**
@@ -503,6 +514,8 @@ export type TodoOriginView = typeof TodoOriginView.Type;
 const TodoOriginViewWire = Schema.Union([
   TodoOriginFieldReportView,
   TodoOriginIntakeView,
+  // `run` postdates the reshape (D5), so it has no legacy `ref` form.
+  TodoOriginRunView,
   Schema.Struct({ kind: Schema.Literals(["field-report", "intake"]), ref: Schema.String }),
 ]);
 

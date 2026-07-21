@@ -291,3 +291,21 @@ export class TodoFromIntakeNotFoundError extends Schema.TaggedErrorClass<TodoFro
     intake: Schema.String,
   },
 ) {}
+
+/** `todo add --from-run <runId>` named a run id with no `run.started` event in the journal at all (2026-07-21 simplification, D5; mirrors `TodoFromReportEventNotFoundError`). */
+export class TodoFromRunNotFoundError extends Schema.TaggedErrorClass<TodoFromRunNotFoundError>()(
+  "TodoFromRunNotFoundError",
+  {
+    runId: Schema.String,
+  },
+) {}
+
+/** An explicit `--bundle` disagrees with the named run's own bundle (mirrors `TodoFromReportBundleMismatchError`). */
+export class TodoFromRunBundleMismatchError extends Schema.TaggedErrorClass<TodoFromRunBundleMismatchError>()(
+  "TodoFromRunBundleMismatchError",
+  {
+    runId: Schema.String,
+    bundle: Schema.String,
+    runBundle: Schema.String,
+  },
+) {}
