@@ -58,6 +58,21 @@ export interface AdoptOptions {
 
 const MANIFEST_FILENAME = "adopt-manifest.md";
 
+/**
+ * Discovery is restricted to the project directory, always (friction log
+ * entry #1, director ruling 2026-07-21: "it should restrict itself to the
+ * project directory only... always"). A `[path]` argument may narrow the
+ * sweep to a subtree of the workspace, but may never widen it to a parent
+ * dir, sibling dir, or home-directory registry -- returns undefined when
+ * the resolved path escapes the workspace root.
+ */
+const clampToWorkspace = (workspaceRoot: string, resolvedTarget: string): string | undefined =>
+  resolvedTarget === workspaceRoot ||
+  resolvedTarget.startsWith(`${workspaceRoot}/`) ||
+  resolvedTarget.startsWith(`${workspaceRoot}\\`)
+    ? resolvedTarget
+    : undefined;
+
 const renderEvidenceForHuman = (evidence: IntakeEvidence): string => {
   switch (evidence.kind) {
     case "hash-match":
@@ -88,7 +103,15 @@ export const runAdopt = Effect.fn("runAdopt")(function* (
   }
 
   const path = yield* Path;
-  const root = targetPath === undefined ? resolved.root : path.resolve(cwd, targetPath);
+  const root =
+    targetPath === undefined
+      ? resolved.root
+      : clampToWorkspace(resolved.root, path.resolve(cwd, targetPath));
+  if (root === undefined) {
+    return expectedFailure(
+      `skillmaker adopt: path is outside the workspace (${resolved.root}) -- adopt only scans inside the project directory\n`,
+    );
+  }
 
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
@@ -263,7 +286,15 @@ export const runAdoptTriage = Effect.fn("runAdoptTriage")(function* (
 
   const path = yield* Path;
   const fs = yield* FileSystem;
-  const root = targetPath === undefined ? resolved.root : path.resolve(cwd, targetPath);
+  const root =
+    targetPath === undefined
+      ? resolved.root
+      : clampToWorkspace(resolved.root, path.resolve(cwd, targetPath));
+  if (root === undefined) {
+    return expectedFailure(
+      `skillmaker adopt --triage: path is outside the workspace (${resolved.root}) -- adopt only scans inside the project directory\n`,
+    );
+  }
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
 
   const result = yield* triageWorkspace(resolved.root, root).pipe(Effect.provide(JournalLayer(journalPath)));
