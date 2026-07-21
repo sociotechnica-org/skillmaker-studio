@@ -190,6 +190,18 @@ const seedProducesPath = (srcRoot: string, destRoot: string, relPath: string): v
   }
 };
 
+/**
+ * Every path seeded into a station's sandbox: the read-only upstream context
+ * (`seeds`, friction #16 -- e.g. drafting sees the researching station's
+ * `research/`) plus the station's own `produces`. Seeding-only: copyback is
+ * still filtered to `produces` alone (`filterToProduces`), so a station can
+ * read its seeds but never write them back.
+ */
+const stationSeedPaths = (station: Station): ReadonlyArray<string> => [
+  ...(station.seeds ?? []),
+  ...station.produces,
+];
+
 /** Whether `relPath` (a changed sandbox path, POSIX-separated) falls under one of the station's `produces` entries -- a file match is exact, a directory match ("research/") is a prefix match. */
 const matchesProduces = (relPath: string, produces: ReadonlyArray<string>): boolean =>
   produces.some((entry) => {
@@ -322,6 +334,14 @@ export const buildStationPrompt = (input: BuildStationPromptInput): string => {
   );
   lines.push("Work directly in the current directory -- it is a sandbox seeded with the bundle's current source files.");
   lines.push("Do not touch any file outside of what this station produces.");
+
+  const seeds = input.station.seeds ?? [];
+  if (seeds.length > 0) {
+    lines.push("");
+    lines.push(
+      `Upstream context seeded into this sandbox (read it, do not modify it): ${seeds.join(", ")}.`,
+    );
+  }
 
   if (input.reviseNotes !== undefined && input.reviseNotes.trim().length > 0) {
     lines.push("");
@@ -464,7 +484,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
   const reviseNotes = latestReviseNotes(events, input.bundle, state);
   const prompt = buildStationPrompt({ bundle: input.bundle, state, station, designMd, reviseNotes });
 
-  // --- Sandbox: mkdtemp -> git init -> seed CURRENT source per `produces` -> install the station's skill. ---
+  // --- Sandbox: mkdtemp -> git init -> seed CURRENT source per `seeds` + `produces` (stationSeedPaths) -> install the station's skill. ---
   const sandboxDir = mkdtempSync(nodeJoin(tmpdir(), "skillmaker-station-"));
   const runId = input.runId ?? crypto.randomUUID();
   const runDir = path.join(bundleDir, "runs", runId);
@@ -475,7 +495,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
   try {
     Bun.spawnSync({ cmd: ["git", "init", "--quiet"], cwd: sandboxDir, stdout: "ignore", stderr: "ignore" });
 
-    for (const relPath of station.produces) {
+    for (const relPath of stationSeedPaths(station)) {
       seedProducesPath(bundleDir, sandboxDir, relPath);
     }
     // design.md is always seeded too, even when not itself in `produces` --
@@ -686,6 +706,7 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
 
 export const _internal = {
   seedProducesPath,
+  stationSeedPaths,
   matchesProduces,
   filterToProduces,
   snapshotFiles,

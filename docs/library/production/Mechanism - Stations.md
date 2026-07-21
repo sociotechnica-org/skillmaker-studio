@@ -44,11 +44,13 @@ diverge without breaking others (template provenance is recorded in the
   "schemaVersion": 1,
   "template": "default",           // provenance of the copy
   "stations": {
-    "researching": { "doer": "agent", "skill": "william/research-a-skill",
+    "researching": { "doer": "agent", "skill": "william-research-a-skill",
                      "produces": ["research/"], "review": true },
     "drafting":    { "doer": "agent", "skill": "william-draft-skill-md",
-                     "produces": ["design.md", "output/SKILL.md"], "review": true },
-    "evaluating":  { "doer": "agent", "produces": ["evals/", "runs/"], "review": true }
+                     "produces": ["design.md", "output/SKILL.md"],
+                     "seeds": ["research/"], "review": true },
+    "evaluating":  { "doer": "agent", "produces": ["evals/", "runs/"],
+                     "seeds": ["research/", "design.md", "output/"], "review": true }
   }
 }
 ```
@@ -57,7 +59,10 @@ A station's `skill` is a **bundle slug in the same workspace**: the station
 engine (`packages/core/src/StationEngine.ts`, `runStation`) resolves it to
 `skills/<skill-slug>/`, installs that bundle's `output/` into a temp sandbox
 as the agent's skill, seeds the sandbox with the current source files named
-by `produces`, launches the configured ACP provider, then copies changed
+by `seeds` + `produces` (`seeds` is read-only upstream context — e.g. the
+drafting station reads the researching station's `research/` — and is never
+copied back; copyback stays filtered to `produces` alone), launches the
+configured ACP provider, then copies changed
 files back and emits `review.requested` — landing the bundle in the
 `awaiting-review` substate ([[../runs/Mechanism - Review Pair]]). Only
 `doer: "agent"` stations run through the engine; a `"human"` doer is a
@@ -67,12 +72,15 @@ Launched via `skillmaker station run <slug>` (CLI:
 `packages/cli/src/commands/StationRun.ts`) or the viewer — never
 autonomously.
 
-Deviation from the shipped default worth knowing: the default template's
-`drafting` station names the real shipped skill `william-draft-skill-md`
-(bundle slug — slugs cannot contain `/`), while `researching` still carries
-the aspirational `william/research-a-skill` name, which is not a valid slug
-and not a shipped bundle — a placeholder, documented as such in a code
-comment in `Stations.ts`.
+Both agent stations with a `skill` now name real shipped bundles:
+`researching` names `william-research-a-skill` and `drafting` names
+`william-draft-skill-md` (bundle slugs — slugs cannot contain `/`). An
+earlier revision of this card noted `researching` carried a
+`william/research-a-skill` placeholder; that deviation is gone.
+
+Note: `stations.json` is a copy, so bundles created before `seeds` existed
+keep their old copies and are not auto-migrated — the `template` provenance
+field is how a divergent copy is recognized.
 
 Verified: `packages/core/src/Stations.ts` (`Station`/`StationsFile` schemas,
 `DEFAULT_STATIONS_TEMPLATE` with the exact shape above) and
