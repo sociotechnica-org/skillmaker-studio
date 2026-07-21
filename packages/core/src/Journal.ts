@@ -456,7 +456,10 @@ export class ReviewRequestedEvent extends Schema.Class<ReviewRequestedEvent>(
 
 /**
  * `approve` satisfies the forward guard; `revise` notes become the agent's
- * next instruction.
+ * next instruction. `notes` may ride along with EITHER decision (friction
+ * log 2026-07-21 #15, "LGTM with nits"): on `approve` they are commentary
+ * kept for the record -- `StationEngine.latestReviseNotes` injects notes
+ * into the next station prompt only when `decision === "revise"`.
  */
 export class ReviewResolvedEvent extends Schema.Class<ReviewResolvedEvent>(
   "ReviewResolvedEvent",
