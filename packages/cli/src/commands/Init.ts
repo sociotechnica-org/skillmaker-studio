@@ -4,10 +4,13 @@
  * no-op for that part, data-model.md §2.1, plan.md Phase 1), THEN finish the
  * job (docs/proposals/2026-07-20-install-simplification.md Phase A.5):
  *
- * 1. Sweep the repo (plus the usual out-of-tree spots — `~/.claude/skills/`,
- *    `~/.codex/skills/`, `~/.agents/skills/`) for pre-existing skills, via
- *    the SAME `adopt --triage` machinery `Triage.ts` already exposes — no
- *    new discovery code. A non-empty sweep writes `adopt-manifest.md` at the
+ * 1. Sweep the repo — and ONLY the repo — for pre-existing skills, via the
+ *    SAME `adopt --triage` machinery `Triage.ts` already exposes — no new
+ *    discovery code. The sweep is restricted to the project directory:
+ *    never parent dirs, sibling dirs, or home-directory registries like
+ *    `~/.claude/skills/` (friction log entry #1, director ruling
+ *    2026-07-21: "it should restrict itself to the project directory
+ *    only... always"). A non-empty sweep writes `adopt-manifest.md` at the
  *    workspace root, exactly like `adopt --triage` does, and tells the user
  *    about it.
  * 2. Detect which agent harness(es) this repo already carries
@@ -35,8 +38,6 @@ import {
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { homedir } from "node:os";
-import { join as nodeJoin } from "node:path";
 import { type CliResult, ok } from "../CliResult.ts";
 import { ensureGitattributes, ensureGitignore } from "../GitFiles.ts";
 import { SKILLMAKER_SKILL_MD } from "../SkillTemplate.ts";
@@ -45,80 +46,25 @@ export interface InitOptions {
   readonly json: boolean;
 }
 
-type ManifestRow = TriageWorkspaceResult["rows"][number];
-type SkippedRow = TriageWorkspaceResult["skipped"][number];
-
 /**
- * The "normal spots" a maker's existing skills live outside this repo
- * entirely (spec §Command Semantics: "`.claude/skills/`, `~/.claude/skills/`,
- * Codex's equivalents"). In-repo `.claude/skills/`, `.agents/skills/`, and
- * bare `SKILL.md` anywhere in the tree are already covered by sweeping
- * `root` itself (`Adopt.ts`'s `walk` never excludes `.claude`/`.agents`).
+ * Runs `Triage.ts`'s `triageWorkspace` over the project root and NOTHING
+ * else. In-repo `.claude/skills/`, `.agents/skills/`, and bare `SKILL.md`
+ * anywhere in the tree are all covered by sweeping `root` itself
+ * (`Adopt.ts`'s `walk` never excludes `.claude`/`.agents`).
  *
- * Reads `HOME`/`USERPROFILE` before falling back to `os.homedir()` --
- * `homedir()` resolves the OS's account home directory directly (on Bun,
- * observably ignoring `process.env.HOME` set after startup), so an
- * env-var override is the only way anything, including a test, can point
- * this sweep somewhere other than the real machine's home directory.
- */
-const homeSweepDirs = (): ReadonlyArray<string> => {
-  const home = process.env.HOME || process.env.USERPROFILE || homedir();
-  return [
-    nodeJoin(home, ".claude", "skills"),
-    nodeJoin(home, ".codex", "skills"),
-    nodeJoin(home, ".agents", "skills"),
-  ];
-};
-
-/**
- * Runs `Triage.ts`'s `triageWorkspace` over the repo root AND every
- * existing home-directory skill spot, merging the results into one
- * combined sweep (registry/evidence always computed against `root`'s own
- * journal, so a row found under `~/.claude/skills/` is checked against the
- * same corpus an in-repo row would be). Deduped by portable path in case a
- * home spot and the in-repo sweep somehow overlap.
+ * Deliberately NO out-of-tree sweep -- no parent dirs, no sibling dirs, no
+ * home-directory registries (`~/.claude/skills`, `~/.codex/skills`,
+ * `~/.agents/skills`). An earlier version swept those spots too and
+ * surprised users by "finding" their personal skill library in a fresh
+ * project (friction log entry #1; director ruling 2026-07-21: "it should
+ * restrict itself to the project directory only... always"). Do not
+ * reintroduce an out-of-tree sweep, flagged or otherwise.
  */
 const sweepExistingSkills = Effect.fn("Init.sweepExistingSkills")(function* (
   root: string,
   journalPath: string,
 ) {
-  const fs = yield* FileSystem;
-
-  const sweepRoots = [root];
-  for (const dir of homeSweepDirs()) {
-    if (dir === root || dir.startsWith(`${root}/`) || dir.startsWith(`${root}\\`)) {
-      // Already covered by sweeping root itself -- never double-sweep.
-      continue;
-    }
-    const exists = yield* fs.exists(dir).pipe(Effect.orElseSucceed(() => false));
-    if (exists) {
-      sweepRoots.push(dir);
-    }
-  }
-
-  const rows: ManifestRow[] = [];
-  const skipped: SkippedRow[] = [];
-  const warnings: string[] = [];
-  const manifests: TriageWorkspaceResult["manifests"][number][] = [];
-  const evalInfra: TriageWorkspaceResult["evalInfra"][number][] = [];
-  const seenPaths = new Set<string>();
-
-  for (const sweepRoot of sweepRoots) {
-    const result = yield* triageWorkspace(root, sweepRoot).pipe(Effect.provide(JournalLayer(journalPath)));
-    for (const row of result.rows) {
-      if (seenPaths.has(row.path)) {
-        continue;
-      }
-      seenPaths.add(row.path);
-      rows.push(row);
-    }
-    skipped.push(...result.skipped);
-    warnings.push(...result.warnings);
-    manifests.push(...result.manifests);
-    evalInfra.push(...result.evalInfra);
-  }
-
-  return { rows, skipped, warnings, manifests, evalInfra } satisfies TriageWorkspaceResult;
+  return yield* triageWorkspace(root).pipe(Effect.provide(JournalLayer(journalPath)));
 });
 
 const MANIFEST_FILENAME = "adopt-manifest.md";
@@ -239,15 +185,15 @@ const summarize = (input: SummarizeInput): CliResult => {
 
   if (input.manifestPath !== undefined && input.manifestSkippedExisting) {
     lines.push(
-      `skillmaker: found ${input.sweep.rows.length} existing skill(s) nearby -- ${input.manifestPath} already exists, left untouched`,
+      `skillmaker: found ${input.sweep.rows.length} existing skill(s) in this project -- ${input.manifestPath} already exists, left untouched`,
     );
     lines.push(`  (run "skillmaker adopt --triage" to regenerate it)`);
   } else if (input.manifestPath !== undefined) {
     lines.push(
-      `skillmaker: found ${input.sweep.rows.length} existing skill(s) nearby -- wrote ${input.manifestPath}`,
+      `skillmaker: found ${input.sweep.rows.length} existing skill(s) in this project -- wrote ${input.manifestPath}`,
     );
   } else if (input.sweep.skipped.length === 0) {
-    lines.push(`skillmaker: no existing skills found nearby (.claude/skills, .agents/skills, ~/.claude/skills, ~/.codex/skills, bare SKILL.md)`);
+    lines.push(`skillmaker: no existing skills found in this project (.claude/skills, .agents/skills, bare SKILL.md)`);
   }
   if (input.sweep.skipped.length > 0) {
     lines.push(`skillmaker: ${input.sweep.skipped.length} skill(s) already adopted, left untouched`);

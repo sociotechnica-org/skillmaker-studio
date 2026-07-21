@@ -4,14 +4,12 @@
  * sweeping for pre-existing skills, detecting agent harnesses, registering
  * the `/skillmaker` skill, and printing one explicit next action.
  *
- * `sweepExistingSkills` also checks a handful of home-directory spots
- * (`~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`) via
- * `os.homedir()`. To keep these tests deterministic regardless of what the
- * machine running them actually has under its real home directory, HOME
- * (and USERPROFILE, for completeness) are pointed at an empty temp dir for
- * the duration of each test -- `os.homedir()` reads those env vars, so this
- * neutralizes the home sweep without needing to touch `Init.ts`'s pure,
- * uninjected `homeSweepDirs()` helper.
+ * Discovery is restricted to the project directory, always (friction log
+ * entry #1, director ruling 2026-07-21): `sweepExistingSkills` must never
+ * look at parent dirs, sibling dirs, or home-directory registries like
+ * `~/.claude/skills`. HOME/USERPROFILE are still pointed at a temp dir per
+ * test so we can PROVE that -- by planting skills in the fake home and
+ * asserting the sweep does not find them.
  */
 import { BunServices } from "@effect/platform-bun";
 import { describe, expect, test } from "bun:test";
@@ -59,7 +57,7 @@ describe("runInit", () => {
     await withIsolatedHome(async (dir) => {
       const result = await runInitEffect(dir);
       expect(result.stdout).toContain(`skillmaker: initialized workspace at ${dir}`);
-      expect(result.stdout).toContain("no existing skills found nearby");
+      expect(result.stdout).toContain("no existing skills found in this project");
       expect(result.stdout).toContain("no agent harness detected");
       expect(result.stdout).toContain('→ run "skillmaker start" to open the board');
       expect(result.stdout).not.toContain("adopt-manifest.md");
@@ -89,7 +87,7 @@ describe("runInit", () => {
       );
 
       const result = await runInitEffect(dir);
-      expect(result.stdout).toContain("existing skill(s) nearby -- wrote");
+      expect(result.stdout).toContain("existing skill(s) in this project -- wrote");
       expect(result.stdout).toContain(`review ${join(dir, "adopt-manifest.md")}`);
       expect(result.stdout).toContain('then run "skillmaker adopt --from-manifest"');
 
@@ -160,7 +158,7 @@ describe("runInit", () => {
       // offer it back for adoption -- that file is owned by registerSkill,
       // not something the user brought in from elsewhere.
       const second = await runInitEffect(dir);
-      expect(second.stdout).toContain("no existing skills found nearby");
+      expect(second.stdout).toContain("no existing skills found in this project");
       expect(second.stdout).not.toContain("adopt-manifest.md");
       expect(second.stdout).toContain('→ run "skillmaker start" to open the board');
 
@@ -219,6 +217,111 @@ describe("runInit", () => {
       ]);
       expect(parsed.skillInstalls).toEqual([]);
       expect(parsed.nextAction).toBe('run "skillmaker start" to open the board');
+    });
+  });
+
+  test("director ruling 2026-07-21: skills in home-directory registries are NEVER swept", async () => {
+    await withIsolatedHome(async (dir, home) => {
+      // Plant skills in every home spot the old sweep used to visit.
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          for (const registry of [
+            path.join(home, ".claude", "skills"),
+            path.join(home, ".codex", "skills"),
+            path.join(home, ".agents", "skills"),
+          ]) {
+            yield* fs.makeDirectory(path.join(registry, "personal-skill"), { recursive: true });
+            yield* fs.writeFileString(
+              path.join(registry, "personal-skill", "SKILL.md"),
+              "---\nname: personal-skill\ndescription: lives outside the project\n---\nBody.\n",
+            );
+          }
+        }).pipe(Effect.provide(TestServices)),
+      );
+
+      const result = await runInitEffect(dir);
+      expect(result.stdout).toContain("no existing skills found in this project");
+      expect(result.stdout).not.toContain("adopt-manifest.md");
+      expect(result.stdout).not.toContain("personal-skill");
+
+      const manifestExists = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          return yield* fs.exists(path.join(dir, "adopt-manifest.md"));
+        }).pipe(Effect.provide(TestServices)),
+      );
+      expect(manifestExists).toBe(false);
+    });
+  });
+
+  test("director ruling 2026-07-21: skills in a parent directory are NEVER swept", async () => {
+    await withIsolatedHome(async (dir) => {
+      // The project is a subdirectory; its parent carries a skill that must
+      // stay invisible to init's sweep.
+      const project = join(dir, "project");
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          yield* fs.makeDirectory(project, { recursive: true });
+          yield* fs.makeDirectory(path.join(dir, "outside-skill"), { recursive: true });
+          yield* fs.writeFileString(
+            path.join(dir, "outside-skill", "SKILL.md"),
+            "---\nname: outside-skill\ndescription: lives in the parent dir\n---\nBody.\n",
+          );
+        }).pipe(Effect.provide(TestServices)),
+      );
+
+      const result = await runInitEffect(project);
+      expect(result.stdout).toContain(`skillmaker: initialized workspace at ${project}`);
+      expect(result.stdout).toContain("no existing skills found in this project");
+      expect(result.stdout).not.toContain("outside-skill");
+
+      const manifestExists = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          return yield* fs.exists(path.join(project, "adopt-manifest.md"));
+        }).pipe(Effect.provide(TestServices)),
+      );
+      expect(manifestExists).toBe(false);
+    });
+  });
+
+  test("skills inside the project ARE still found when home registries also have skills", async () => {
+    await withIsolatedHome(async (dir, home) => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          yield* fs.makeDirectory(path.join(dir, ".claude", "skills", "in-project"), { recursive: true });
+          yield* fs.writeFileString(
+            path.join(dir, ".claude", "skills", "in-project", "SKILL.md"),
+            "---\nname: in-project\ndescription: lives inside the project\n---\nBody.\n",
+          );
+          yield* fs.makeDirectory(path.join(home, ".claude", "skills", "personal-skill"), { recursive: true });
+          yield* fs.writeFileString(
+            path.join(home, ".claude", "skills", "personal-skill", "SKILL.md"),
+            "---\nname: personal-skill\ndescription: lives outside the project\n---\nBody.\n",
+          );
+        }).pipe(Effect.provide(TestServices)),
+      );
+
+      const result = await runInitEffect(dir);
+      expect(result.stdout).toContain("found 1 existing skill(s) in this project -- wrote");
+
+      const manifestContent = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const path = yield* Path;
+          return yield* fs.readFileString(path.join(dir, "adopt-manifest.md"));
+        }).pipe(Effect.provide(TestServices)),
+      );
+      expect(manifestContent).toContain("in-project");
+      expect(manifestContent).not.toContain("personal-skill");
     });
   });
 });
