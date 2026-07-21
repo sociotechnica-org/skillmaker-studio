@@ -256,11 +256,14 @@ export {
 export {
   openTodoFromReport,
   openTodoFromIntake,
+  openTodoFromRun,
   TODO_KIND_BY_OUTCOME,
   type OpenTodoFromReportInput,
   type OpenTodoFromReportResult,
   type OpenTodoFromIntakeInput,
   type OpenTodoFromIntakeResult,
+  type OpenTodoFromRunInput,
+  type OpenTodoFromRunResult,
 } from "./TodoFromReport.ts";
 export {
   receiveCrate,

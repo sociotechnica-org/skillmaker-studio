@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
 import { receiveCrate } from "../src/Receive.ts";
-import { openTodoFromIntake, openTodoFromReport, TODO_KIND_BY_OUTCOME } from "../src/TodoFromReport.ts";
+import {
+  openTodoFromIntake,
+  openTodoFromReport,
+  openTodoFromRun,
+  TODO_KIND_BY_OUTCOME,
+} from "../src/TodoFromReport.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
 const actor = Actor.make({ kind: "user", name: "test-user" });
@@ -306,6 +311,149 @@ describe("openTodoFromIntake (issue #91, salvage's work-order door)", () => {
         expect(result.todo.detail).toBe(
           "Fails on empty input.\nSource: an external contributor\nClaimed name: Salvaged Skill",
         );
+      }),
+    );
+  });
+});
+
+describe("openTodoFromRun (2026-07-21 simplification D5, run findings become work)", () => {
+  const appendRunStarted = (
+    runId: string,
+    overrides?: Partial<{
+      bundle: string;
+      kind: "eval" | "station";
+      station: string | null;
+      fixtureCase: string;
+    }>,
+  ) =>
+    Effect.gen(function* () {
+      const journal = yield* Journal;
+      yield* journal.append({
+        type: "run.started",
+        actor,
+        payload: {
+          run: {
+            schemaVersion: 1 as const,
+            id: runId,
+            bundle: overrides?.bundle ?? "demo-skill",
+            kind: overrides?.kind ?? ("eval" as const),
+            station: overrides?.station ?? null,
+            ...(overrides?.kind === "station"
+              ? {}
+              : { fixtureCase: overrides?.fixtureCase ?? "hard-case-conflicting-sections" }),
+            skillVersionHash: "sha256:abcdef0123456789",
+            provider: "claude-code",
+            model: "sonnet",
+            startedAt: "2026-07-21T10:00:00.000Z",
+            status: "completed" as const,
+            actor,
+          },
+        },
+      });
+    });
+
+  test("errors with TodoFromRunNotFoundError when no run.started event carries the run id", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+        const outcome = yield* openTodoFromRun({
+          ...baseInput,
+          runId: "does-not-exist",
+        }).pipe(Effect.provide(JournalLayer(journalPath)), Effect.flip);
+
+        expect(outcome._tag).toBe("TodoFromRunNotFoundError");
+      }),
+    );
+  });
+
+  test("errors with TodoFromRunBundleMismatchError when an explicit --bundle disagrees with the run's own", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+
+        const outcome = yield* Effect.gen(function* () {
+          yield* appendRunStarted("01RUN-MISMATCH");
+          return yield* openTodoFromRun({
+            ...baseInput,
+            runId: "01RUN-MISMATCH",
+            bundle: "other-skill",
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)), Effect.flip);
+
+        expect(outcome._tag).toBe("TodoFromRunBundleMismatchError");
+        if (outcome._tag === "TodoFromRunBundleMismatchError") {
+          expect(outcome.bundle).toBe("other-skill");
+          expect(outcome.runBundle).toBe("demo-skill");
+        }
+      }),
+    );
+  });
+
+  test("happy path: bundle/detail default from the run, kind defaults to task (no outcome to key off), origin stamps {kind: 'run', runId}", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+
+        const outcome = yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* appendRunStarted("01RUN-HAPPY");
+          const result = yield* openTodoFromRun({ ...baseInput, runId: "01RUN-HAPPY" });
+          const events = yield* journal.readAll();
+          return { result, events };
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        const { todo } = outcome.result;
+        expect(todo.bundle).toBe("demo-skill");
+        expect(todo.kind).toBe("task");
+        expect(todo.priority).toBe(30);
+        expect(todo.status).toBe("open");
+        expect(todo.detail).toBe(
+          "Surfaced by eval run 01RUN-HAPPY (fixture hard-case-conflicting-sections).\nProvider: claude-code / sonnet\nVersion: sha256:abcdef012345",
+        );
+        expect(todo.origin).toEqual({ kind: "run", runId: "01RUN-HAPPY" });
+
+        // Appends exactly one new event -- run.started was already there.
+        expect(outcome.events.filter((event) => event.type === "todo.opened")).toHaveLength(1);
+      }),
+    );
+  });
+
+  test("a station run's default detail names the station, not a fixture", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+
+        const result = yield* Effect.gen(function* () {
+          yield* appendRunStarted("01RUN-STATION", { kind: "station", station: "drafting" });
+          return yield* openTodoFromRun({ ...baseInput, runId: "01RUN-STATION" });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        expect(result.todo.detail).toContain("Surfaced by station run 01RUN-STATION (station drafting).");
+      }),
+    );
+  });
+
+  test("every default is overridable: explicit --kind/--bundle/--detail/--priority win", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const journalPath = `${dir}/.skillmaker/events.jsonl`;
+
+        const result = yield* Effect.gen(function* () {
+          yield* appendRunStarted("01RUN-OVERRIDE");
+          return yield* openTodoFromRun({
+            ...baseInput,
+            runId: "01RUN-OVERRIDE",
+            bundle: "demo-skill",
+            kind: "bug",
+            detail: "Custom detail.",
+            priority: 5,
+          });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        expect(result.todo.kind).toBe("bug");
+        expect(result.todo.detail).toBe("Custom detail.");
+        expect(result.todo.priority).toBe(5);
+        expect(result.todo.origin).toEqual({ kind: "run", runId: "01RUN-OVERRIDE" });
       }),
     );
   });

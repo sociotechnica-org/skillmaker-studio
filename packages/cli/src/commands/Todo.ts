@@ -14,9 +14,11 @@ import {
   JournalLayer,
   openTodoFromIntake,
   openTodoFromReport,
+  openTodoFromRun,
   Workspace,
   type OpenTodoFromIntakeResult,
   type OpenTodoFromReportResult,
+  type OpenTodoFromRunResult,
   type TodoKind,
   type TodoRecord,
   type TodoStatus,
@@ -49,10 +51,12 @@ export interface TodoAddOptions {
   readonly fromReport?: string;
   /** `--from-intake <intake-id>` (issue #91): opens the todo with kind/detail defaulted from the named `skill.received` crate -- the dock's salvage door's "work order into todos." */
   readonly fromIntake?: string;
+  /** `--from-run <run-id>` (2026-07-21 simplification, D5): opens the todo with bundle/detail defaulted from the named run, `origin: {kind: "run", runId}` stamped so the queue item links back to the transcript as evidence. */
+  readonly fromRun?: string;
 }
 
 const TODO_ADD_USAGE =
-  "Usage: skillmaker todo add <title> [--kind task|bug|improvement|eval] [--bundle <slug>] [--detail <text>] [--priority <n>] [--pin] [--from-report <event-id> | --from-intake <intake-id>]\n";
+  "Usage: skillmaker todo add <title> [--kind task|bug|improvement|eval] [--bundle <slug>] [--detail <text>] [--priority <n>] [--pin] [--from-report <event-id> | --from-intake <intake-id> | --from-run <run-id>]\n";
 
 export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
   cwd: string,
@@ -65,8 +69,11 @@ export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
 
   const hasFromReport = options.fromReport !== undefined && options.fromReport.trim().length > 0;
   const hasFromIntake = options.fromIntake !== undefined && options.fromIntake.trim().length > 0;
-  if (hasFromReport && hasFromIntake) {
-    return usageError(`skillmaker todo add: pass either --from-report or --from-intake, not both\n\n${TODO_ADD_USAGE}`);
+  const hasFromRun = options.fromRun !== undefined && options.fromRun.trim().length > 0;
+  if ([hasFromReport, hasFromIntake, hasFromRun].filter(Boolean).length > 1) {
+    return usageError(
+      `skillmaker todo add: pass at most one of --from-report, --from-intake, --from-run\n\n${TODO_ADD_USAGE}`,
+    );
   }
 
   if (options.kind !== undefined && !isTodoKind(options.kind)) {
@@ -190,6 +197,48 @@ export const runTodoAdd = Effect.fn("runTodoAdd")(function* (
     return summarizeFromIntake(outcome.result, intake, options.json);
   }
 
+  if (hasFromRun) {
+    const runId = (options.fromRun as string).trim();
+
+    const outcome = yield* openTodoFromRun({
+      title: trimmedTitle,
+      runId,
+      actor,
+      id,
+      created,
+      ...(explicitKind !== undefined ? { kind: explicitKind } : {}),
+      ...(options.bundle !== undefined ? { bundle: options.bundle } : {}),
+      ...(options.detail !== undefined ? { detail: options.detail } : {}),
+      ...(explicitPriority !== undefined ? { priority: explicitPriority } : {}),
+      ...(options.pin ? { pinned: true } : {}),
+    }).pipe(
+      Effect.provide(JournalLayer(journalPath)),
+      Effect.map((result) => ({ kind: "ok" as const, result })),
+      Effect.catchTag("TodoFromRunNotFoundError", (error) =>
+        Effect.succeed({ kind: "run_not_found" as const, runId: error.runId }),
+      ),
+      Effect.catchTag("TodoFromRunBundleMismatchError", (error) =>
+        Effect.succeed({
+          kind: "bundle_mismatch" as const,
+          runId: error.runId,
+          bundle: error.bundle,
+          runBundle: error.runBundle,
+        }),
+      ),
+    );
+
+    if (outcome.kind === "run_not_found") {
+      return expectedFailure(`skillmaker todo add: no such run "${outcome.runId}"\n`);
+    }
+    if (outcome.kind === "bundle_mismatch") {
+      return expectedFailure(
+        `skillmaker todo add: --bundle "${outcome.bundle}" disagrees with run "${outcome.runId}"'s bundle "${outcome.runBundle}"\n`,
+      );
+    }
+
+    return summarizeFromRun(outcome.result, runId, options.json);
+  }
+
   const kind: TodoKind = explicitKind ?? "task";
   const priority = explicitPriority ?? DEFAULT_PRIORITY_BY_KIND[kind];
 
@@ -236,6 +285,13 @@ const summarizeFromIntake = (result: OpenTodoFromIntakeResult, intake: string, j
     return ok(`${JSON.stringify({ status: "opened", id: result.todo.id, todo: result.todo })}\n`);
   }
   return ok(`skillmaker: opened todo ${result.todo.id} — ${result.todo.title} (from intake ${intake})\n`);
+};
+
+const summarizeFromRun = (result: OpenTodoFromRunResult, runId: string, json: boolean): CliResult => {
+  if (json) {
+    return ok(`${JSON.stringify({ status: "opened", id: result.todo.id, todo: result.todo })}\n`);
+  }
+  return ok(`skillmaker: opened todo ${result.todo.id} — ${result.todo.title} (from run ${runId})\n`);
 };
 
 // ---------------------------------------------------------------------------

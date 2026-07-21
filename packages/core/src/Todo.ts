@@ -48,7 +48,23 @@ export const TodoOriginIntake = Schema.Struct({
 });
 
 /**
- * A todo's optional provenance (issue #81, `"intake"` added issue #91;
+ * A todo's `run` provenance kind (2026-07-21 simplification proposal, D5
+ * "run findings become work"): which eval/station run surfaced the work
+ * this todo tracks. The run's ULID (= its `runs/<runId>/` directory name
+ * and `run.json.id`) is the thing being pointed at -- the transcript and
+ * artifacts under it are the todo's evidence. Deliberately NOT the
+ * `run.started` event id: every read surface (the read-out, `grade`,
+ * measurements) keys runs by run id, so provenance does too.
+ */
+export const TodoOriginRun = Schema.Struct({
+  kind: Schema.Literal("run"),
+  /** The run's id (`run.json.id`, the `runs/<runId>/` directory name). */
+  runId: Schema.String,
+});
+
+/**
+ * A todo's optional provenance (issue #81, `"intake"` added issue #91,
+ * `"run"` added by the 2026-07-21 simplification proposal's D5;
  * reshaped by the 2026-07-17 data-model reconciliation, ruling R2): which
  * upstream signal opened this todo automatically, if any. A discriminated
  * union with a distinct id field per kind -- `FixtureSource`'s exact shape
@@ -62,7 +78,7 @@ export const TodoOriginIntake = Schema.Struct({
  * Immutable like `source`: structurally absent from `TodoPatch`, so a
  * `todo.updated` patch can never retroactively stamp or change it.
  */
-export const TodoOrigin = Schema.Union([TodoOriginFieldReport, TodoOriginIntake]);
+export const TodoOrigin = Schema.Union([TodoOriginFieldReport, TodoOriginIntake, TodoOriginRun]);
 export type TodoOrigin = typeof TodoOrigin.Type;
 
 /**
@@ -76,8 +92,13 @@ const TodoOriginLegacyWire = Schema.Struct({
   ref: Schema.String,
 });
 
-/** Every origin shape a journal event may carry: the two current shapes, plus the retired `ref` overload. */
-const TodoOriginWire = Schema.Union([TodoOriginFieldReport, TodoOriginIntake, TodoOriginLegacyWire]);
+/** Every origin shape a journal event may carry: the three current shapes, plus the retired `ref` overload (which only ever spanned `field-report`/`intake` -- `run` postdates the reshape, so it has no legacy form). */
+const TodoOriginWire = Schema.Union([
+  TodoOriginFieldReport,
+  TodoOriginIntake,
+  TodoOriginRun,
+  TodoOriginLegacyWire,
+]);
 
 /**
  * READ SHIM (2026-07-17 data-model reconciliation, ruling R2). The journal
@@ -113,7 +134,8 @@ export const TodoOriginFromWire = TodoOriginWire.pipe(
  */
 export type TodoOriginRecord =
   | { readonly kind: "field-report"; readonly eventId: string }
-  | { readonly kind: "intake"; readonly intakeId: string };
+  | { readonly kind: "intake"; readonly intakeId: string }
+  | { readonly kind: "run"; readonly runId: string };
 
 export class Todo extends Schema.Class<Todo>("Todo")({
   /** "td-<ulid>". */

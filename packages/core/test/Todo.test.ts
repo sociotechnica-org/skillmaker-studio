@@ -31,6 +31,25 @@ describe("Todo.origin", () => {
     expect(decoded.origin).toEqual({ kind: "field-report", eventId: "evt-123" });
   });
 
+  test("round-trips a run origin (D5: run findings become work)", () => {
+    const todo = Todo.make({
+      id: "td-3",
+      kind: "task",
+      status: "open",
+      title: "Resolve the design conflict the run surfaced",
+      priority: 30,
+      created: "2026-07-21",
+      source: actor,
+      origin: { kind: "run", runId: "01RUN" },
+    });
+
+    const encoded = Schema.encodeSync(Todo)(todo);
+    expect(encoded.origin).toEqual({ kind: "run", runId: "01RUN" });
+
+    const decoded = Schema.decodeUnknownSync(Todo)(encoded);
+    expect(decoded.origin).toEqual({ kind: "run", runId: "01RUN" });
+  });
+
   test("is absent when the todo was opened by hand", () => {
     const todo = Todo.make({
       id: "td-2",

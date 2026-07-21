@@ -63,7 +63,7 @@ Commands:
   receive <path>          Receive an arriving skill crate at the dock: copy it to receiving/<intake-id>/ and record skill.received (§2.9, issue #90)
   route <intake-id>       Route a received crate through one of the five exit doors: --as return|new|upgrade|fork|salvage --reason <text> (§2.9, issue #91)
   book build              Render the Skillbook to a static site (§2.14)
-  todo add <title>        Open a new todo (--from-report <event-id> to seed it from a skill.field_report, issue #81)
+  todo add <title>        Open a new todo (--from-report <event-id> to seed it from a skill.field_report, issue #81; --from-run <run-id> to open it from an eval/station run's findings, D5)
   todo list               List todos (rebuilds the index first)
   todo done <id>          Mark a todo done
   todo start <id>         Mark a todo in-progress
@@ -120,6 +120,7 @@ Options:
   --context <name>  (fixture add) names a dossier.md Contexts entry this case exercises; optional, unvalidated (issue #94)
   --from-report <id>   (fixture harvest) the skill.field_report event id to harvest (required)
                     (todo add) the skill.field_report event id to seed the todo from (optional, issue #81); defaults --bundle/--kind/--detail from the report
+  --from-run <id>   (todo add) the run id whose findings this todo tracks (2026-07-21 simplification, D5); stamps origin {kind: "run", runId} and defaults --bundle/--detail from the run
   --fixture <case>  (run) the fixture case to run (required)
   --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"
   --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
@@ -162,6 +163,7 @@ const VALUE_FLAGS = new Set([
   "--risks",
   "--context",
   "--from-report",
+  "--from-run",
   "--fixture",
   "--provider",
   "--model",
@@ -456,6 +458,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         const priority = flagValue(argv, "--priority");
         const fromReport = flagValue(argv, "--from-report");
         const fromIntake = flagValue(argv, "--from-intake");
+        const fromRun = flagValue(argv, "--from-run");
         return yield* runTodoAdd(cwd, title, {
           json,
           kind,
@@ -465,6 +468,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
           pin: hasFlag(argv, "--pin"),
           fromReport,
           fromIntake,
+          fromRun,
         });
       }
       if (subcommand === "list") {

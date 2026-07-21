@@ -796,6 +796,20 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
     }
   }
 
+  if (eventInput.type === "todo.opened") {
+    // D5 (2026-07-21 simplification): a run-origin todo must point at a run
+    // that actually exists -- the origin is the todo's evidence link, and a
+    // dangling one would be a provenance lie. No status requirement: unlike
+    // grading, opening work from a run is verdict-orthogonal.
+    const origin = eventInput.payload.todo.origin;
+    if (origin?.kind === "run") {
+      const location = await findRunLocation(root, origin.runId);
+      if (location === undefined) {
+        return jsonResponse({ error: `no such run "${origin.runId}"` }, 409);
+      }
+    }
+  }
+
   if (eventInput.type === "todo.updated") {
     const events = await readJournalEvents(root);
     const current = foldTodos(events).get(eventInput.payload.id);

@@ -14,7 +14,8 @@
  */
 import { type FC, useEffect, useState } from "react";
 import { getBundleFile, postEvent } from "../runtime/api.ts";
-import type { EventView, RunStatus, RunVerdict } from "../runtime/schemas.ts";
+import { buildRunTodoPayload } from "../runtime/runTodoDraft.ts";
+import type { EventView, RunDetailRun, RunStatus, RunVerdict } from "../runtime/schemas.ts";
 import { useRunDetail } from "../runtime/useRunDetail.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -328,6 +329,107 @@ const GradingPanel: FC<{
 };
 
 // ---------------------------------------------------------------------------
+// Run findings become work (2026-07-21 simplification, D5)
+// ---------------------------------------------------------------------------
+
+/**
+ * The read-out's SECOND affordance, alongside grading: "this run surfaced
+ * work -> open a todo." A small form (title, optional note) that POSTs one
+ * `todo.opened` event with `origin: {kind: "run", runId}` stamped, so the
+ * queue item links back to this run's transcript as evidence (Ruling 4 of
+ * the 2026-07-20 restructure proposal: the grade judges the agent; the
+ * finding is a different judgment about a different object, and it must not
+ * evaporate when the grade lands). Verdict and disposition stay orthogonal:
+ * this panel renders for every run regardless of status or grade, opening a
+ * todo neither requires nor implies any verdict, and grading never requires
+ * a todo.
+ */
+const RunTodoPanel: FC<{ run: RunDetailRun }> = ({ run }) => {
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+  const [pending, setPending] = useState(false);
+  const [todoError, setTodoError] = useState<string | undefined>(undefined);
+  const [openedId, setOpenedId] = useState<string | undefined>(undefined);
+
+  // A different run (modal reused) resets local state.
+  useEffect(() => {
+    setTitle("");
+    setNote("");
+    setTodoError(undefined);
+    setOpenedId(undefined);
+  }, [run.id]);
+
+  const submit = (): void => {
+    const payload = buildRunTodoPayload({
+      run,
+      title,
+      note,
+      id: `td-${crypto.randomUUID()}`,
+      created: new Date().toISOString().slice(0, 10),
+    });
+    if (payload === undefined) return;
+    setPending(true);
+    setTodoError(undefined);
+    // Widened like GradingPanel's payload: PostEventInput carries a plain
+    // Record; the server's dry-decode is the real shape check.
+    const body: Record<string, unknown> = { todo: payload.todo };
+    postEvent({ type: "todo.opened", payload: body })
+      .then((result) => {
+        if (!result.ok) {
+          setTodoError(result.error);
+          return;
+        }
+        setOpenedId(payload.todo.id);
+        setTitle("");
+        setNote("");
+      })
+      .catch((cause: Error) => setTodoError(cause.message))
+      .finally(() => setPending(false));
+  };
+
+  return (
+    <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        This run surfaced work
+      </h4>
+      <p className="text-[10px] text-neutral-400">
+        Open a todo carrying this run as evidence -- independent of any grade.
+      </p>
+      <input
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        placeholder="What needs doing?"
+        className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+      />
+      <textarea
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="Note (optional)"
+        className="w-full rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+      />
+      {todoError !== undefined && (
+        <p className="rounded-md bg-red-100 px-2 py-1 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {todoError}
+        </p>
+      )}
+      {openedId !== undefined && (
+        <p className="rounded-md bg-emerald-100 px-2 py-1 text-xs text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+          Opened todo {openedId} -- it links back to this run.
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={pending || title.trim().length === 0}
+        onClick={submit}
+        className="rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+      >
+        Open a todo
+      </button>
+    </section>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Artifacts
 // ---------------------------------------------------------------------------
 
@@ -524,6 +626,8 @@ export const RunDetailModal: FC<{
                 Only completed runs are graded -- this run is &quot;{detail.run.status}&quot;.
               </p>
             )}
+
+            <RunTodoPanel run={detail.run} />
 
             <section className="flex flex-col gap-1">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">

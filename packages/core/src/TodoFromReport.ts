@@ -20,11 +20,14 @@ import {
   TodoFromReportBundleMismatchError,
   TodoFromReportEventNotFoundError,
   TodoFromReportNotFieldReportError,
+  TodoFromRunBundleMismatchError,
+  TodoFromRunNotFoundError,
 } from "./Errors.ts";
 import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
 import type { FieldReportOutcome, SkillReceivedEvent } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
 import { findReceivedEvent } from "./Receive.ts";
+import type { RunRecord } from "./Run.ts";
 import type { Todo, TodoKind } from "./Todo.ts";
 import { shortHash } from "./Versions.ts";
 
@@ -221,5 +224,102 @@ export const openTodoFromIntake = Effect.fn("TodoFromReport.openTodoFromIntake")
   yield* journal.append({ type: "todo.opened", actor: input.actor, payload: { todo } });
 
   const result: OpenTodoFromIntakeResult = { todo };
+  return result;
+});
+
+// ---------------------------------------------------------------------------
+// todo add --from-run (2026-07-21 simplification, D5: run findings become work)
+// ---------------------------------------------------------------------------
+
+export interface OpenTodoFromRunInput {
+  readonly title: string;
+  /** The run's id (`run.json.id`), `--from-run`'s value. */
+  readonly runId: string;
+  readonly actor: Actor;
+  readonly id: string;
+  readonly created: string;
+  /** `--bundle`, when the caller gave one explicitly -- errors if it disagrees with the run's own bundle (same rule as `openTodoFromReport`). */
+  readonly bundle?: string;
+  readonly kind?: TodoKind;
+  readonly detail?: string;
+  readonly priority?: number;
+  readonly pinned?: boolean;
+}
+
+export interface OpenTodoFromRunResult {
+  readonly todo: Todo;
+}
+
+/**
+ * `detail`'s default: what the run was -- fixture case (or station), provider/
+ * model, version under test -- so the todo names its evidence even off-screen.
+ * A run carries no prose the way a field report does; the transcript under
+ * `runs/<runId>/` is the testimony, and `origin` points straight at it.
+ */
+const defaultRunDetail = (run: RunRecord): string => {
+  const what =
+    run.kind === "station"
+      ? `Surfaced by station run ${run.id}${run.station !== null ? ` (station ${run.station})` : ""}.`
+      : `Surfaced by eval run ${run.id}${run.fixtureCase !== undefined ? ` (fixture ${run.fixtureCase})` : ""}.`;
+  const lines = [what, `Provider: ${run.provider}${run.model.length > 0 && run.model !== run.provider ? ` / ${run.model}` : ""}`];
+  lines.push(`Version: ${shortHash(run.skillVersionHash)}`);
+  return lines.join("\n");
+};
+
+/**
+ * Resolves `runId` against the journal's `run.started` events (unknown id ->
+ * `TodoFromRunNotFoundError`; an explicit `bundle` that disagrees with the
+ * run's own -> `TodoFromRunBundleMismatchError`), computes `bundle`/`detail`
+ * defaults (all overridable), stamps `origin: {kind: "run", runId}`, and
+ * appends `todo.opened` -- the third door in the "signal becomes work"
+ * pattern, after field reports (#81) and intake (#91). `kind` defaults to
+ * `"task"`: a run carries no `worked`/`failed`/`surprise` outcome to key off
+ * of, and its grading verdict is DELIBERATELY not consulted -- verdict and
+ * disposition stay orthogonal (D5's ruling: a pass can demand follow-up, a
+ * fail can demand nothing).
+ */
+export const openTodoFromRun = Effect.fn("TodoFromReport.openTodoFromRun")(function* (
+  input: OpenTodoFromRunInput,
+) {
+  const journal = yield* Journal;
+  const events = yield* journal.readAll();
+  const started = events.find(
+    (candidate) => candidate.type === "run.started" && candidate.payload.run.id === input.runId,
+  );
+  if (started === undefined || started.type !== "run.started") {
+    return yield* Effect.fail(TodoFromRunNotFoundError.make({ runId: input.runId }));
+  }
+  const run = started.payload.run;
+  if (input.bundle !== undefined && input.bundle !== run.bundle) {
+    return yield* Effect.fail(
+      TodoFromRunBundleMismatchError.make({
+        runId: input.runId,
+        bundle: input.bundle,
+        runBundle: run.bundle,
+      }),
+    );
+  }
+
+  const kind = input.kind ?? "task";
+  const priority = input.priority ?? DEFAULT_PRIORITY_BY_KIND[kind];
+  const detail = input.detail ?? defaultRunDetail(run);
+
+  const todo = {
+    id: input.id,
+    kind,
+    status: "open" as const,
+    title: input.title,
+    detail,
+    priority,
+    bundle: input.bundle ?? run.bundle,
+    created: input.created,
+    ...(input.pinned === true ? { pinned: true } : {}),
+    source: input.actor,
+    origin: { kind: "run" as const, runId: input.runId },
+  };
+
+  yield* journal.append({ type: "todo.opened", actor: input.actor, payload: { todo } });
+
+  const result: OpenTodoFromRunResult = { todo };
   return result;
 });
