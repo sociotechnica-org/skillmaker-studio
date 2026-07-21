@@ -107,7 +107,7 @@ export const nextChips = (input: {
 
   for (const row of input.riskCoverage) {
     if (row.coverage === "gap") {
-      chips.push({ key: `risk-${row.riskId}`, title: `Cover ${row.riskId}`, detail: `authored "gap" — no fixture buys it yet` });
+      chips.push({ key: `risk-${row.riskId}`, title: `Cover ${row.riskId}`, detail: `marked "gap" — no fixture covers it yet` });
     }
   }
 

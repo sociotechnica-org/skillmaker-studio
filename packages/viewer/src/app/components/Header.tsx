@@ -84,7 +84,7 @@ export const Header: FC<{ workspaceName: string | undefined; bundleCount: number
           <span className="skillmaker-logo" aria-hidden="true" />
           <span className="sr-only">{workspaceName ?? "Skillmaker Studio"} home</span>
           <span className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-            {bundleCount} {bundleCount === 1 ? "bundle" : "bundles"}
+            {bundleCount} {bundleCount === 1 ? "skill" : "skills"}
           </span>
         </Link>
       </div>

@@ -250,7 +250,7 @@ export const Queue: FC<{ bundleFilter: string | undefined }> = ({ bundleFilter }
             onChange={(event) => setNewBundle(event.target.value)}
             className="flex-1 rounded-md border border-neutral-300 p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
           >
-            <option value="">(no bundle)</option>
+            <option value="">(no skill)</option>
             {bundles.map((bundle) => (
               <option key={bundle.slug} value={bundle.slug}>
                 {bundle.slug}
@@ -286,7 +286,7 @@ export const Queue: FC<{ bundleFilter: string | undefined }> = ({ bundleFilter }
         ))}
         {visibleTodos.length === 0 && !loading && (
           <li className="text-[11px] text-neutral-400">
-            {bundleFilter !== undefined ? "No todos for this bundle." : "No todos yet."}
+            {bundleFilter !== undefined ? "No todos for this skill." : "No todos yet."}
           </li>
         )}
       </ul>

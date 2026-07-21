@@ -170,10 +170,10 @@ export const STAGES: ReadonlyArray<BundleStage> = [
  * map, consumed by the Board, the bundle Overview, and the Lab.
  */
 export const STAGE_LABEL: Record<BundleStage, string> = {
-  idea: "Frame",
+  idea: "Idea",
   researching: "Research",
   drafting: "Draft",
-  evaluating: "Proof",
+  evaluating: "Evals",
   published: "Publish",
 };
 
