@@ -107,16 +107,39 @@ placeholder unless the launcher moves there).
   delete and re-push the tag onto a commit that contains the fix (npm
   versions are immutable — a partial publish means the re-run's `npm
   publish` of an already-published package will 403/EPUBLISHCONFLICT).
+- **v0.4.0 — `npm publish` E404 on PUT means the token can't write the
+  scope, not that the package is missing.** The v0.4.0 run's `publish-npm`
+  failed with `404 Not Found - PUT
+  https://registry.npmjs.org/@skillmaker%2fcli-darwin-arm64` even though
+  that package exists at 0.3.0. npm answers 404 (not 403) when the auth
+  token lacks access to a scoped package, to avoid leaking existence.
+  Root cause context: v0.3.0's npm packages were published *manually* (the
+  tag run died on #125 before reaching npm), so `NPM_TOKEN` had never
+  actually been proven against the `@skillmaker` org — its first real use
+  was this failure. Fix is outside the repo: grant the token publish access
+  to the `@skillmaker` scope (or rotate to an automation token that has
+  it), then recover via manual publish from the run's `npm-*` artifacts or
+  a tag re-push. Until a tag run has published cleanly end-to-end, treat
+  the token as unverified — consider an `npm whoami`/dry-run check before
+  tagging.
+- **Release-tarball names carry build metadata.** `dist/VERSION` is
+  `<version>+<sha>`, and the tarball step uses it wholesale, so GitHub
+  Release assets are named like `skillmaker-0.4.0+cf95e0b-darwin-arm64.tar.gz`.
+  Cosmetic, but expect it when scripting downloads.
 - **npm `view` lag.** Freshly published versions can take a minute or two
   to appear; retry before concluding the publish failed.
 
 ## Verified vs. inferred
 
 Verified by execution or direct observation: the tag-only trigger, the
-single version touchpoint, the #125 failure and its fix, the
+single version touchpoint, the bump-PR → merge → tag-the-merge-commit flow
+(v0.4.0, run 29927633785), the #125 failure and its fix (the cd'd publish
+loop ran and reached npm at v0.4.0), the E404 scope-access failure, the
 failed-attempt-2 behavior and manual-publish recovery of v0.3.0 (run
-29789655443), npm state before/after.
+29789655443), the `+sha` asset naming, npm state before/after.
 
-Inferred from reading, not yet exercised: the EPUBLISHCONFLICT behavior on
-partial-publish recovery, and the `install.sh` fallback path (frozen by
-design; not part of this workflow).
+Inferred from reading, not yet exercised: a fully green `publish-npm` (no
+tag run has yet published to npm end-to-end; both v0.3.0 and v0.4.0 needed
+out-of-band recovery), the EPUBLISHCONFLICT behavior on partial-publish
+recovery, the npx smoke test against a CI-published version, and the
+`install.sh` fallback path (frozen by design; not part of this workflow).
