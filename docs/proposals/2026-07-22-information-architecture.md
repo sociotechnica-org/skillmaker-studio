@@ -122,6 +122,17 @@ The data layer already has the right shape (risk-map.md rows +
    the current dual-write: risk-map.md's Fixture column duplicating
    case.json.risks.)
 
+**Deferred (ruled 2026-07-22): multi-turn skill evals.** The run engine is
+single-turn; interactive skills can't be evaluated today (evidence: OUT-1
+"the quiz gate holds" is structurally unfillable; the partial-decomposition
+fixture had to amputate the quiz step to be testable). When demand pulls
+this in, the chosen direction is a **simulated user** — a fixture-supplied
+persona + facts brief, pinned like any model in the matrix — plus
+**hard invariants** graded deterministically from transcript + filesystem
+(e.g. "no ticket files before an approval message"), with the rubric part
+human-graded. Implemented as a fixture class; shares the multi-prompt ACP
+session capability D9's chat needs. Not before other things work well.
+
 ## D. Security (gates the desktop wager)
 
 Issue #137: run/station agents currently get every permission
@@ -172,4 +183,8 @@ decomposable into tracer-bullet issues:
 6. **Desktop wrap:** Tauri shell over the machine-level app; sqlite swap
    beneath (D7's separable risks, in that order).
 
-**Ruling:** _pending_
+**Ruling:** **Accepted** (Jess, 2026-07-22, after QAing the overnight
+Phase-1-precursor merges). Loop discipline amendment: the director QAs
+each landed change in the viewer as it ships; director feedback beyond
+the tickets is expected and flows into the friction log as the standing
+requirements channel.
