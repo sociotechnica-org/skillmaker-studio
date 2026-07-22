@@ -19,6 +19,8 @@
  * context (stderr, JSON-RPC code, a `likelyInfra` hint) for `RunEngine` to
  * decide `infra-error` vs `failed` (data-model.md §2.8).
  */
+import { realpathSync } from "node:fs";
+import { isAbsolute as pathIsAbsolute, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { Schema } from "effect";
 import { Effect } from "effect";
 import { CLAUDE_CODE_PROFILE, resolveModelLabel, type ProviderProfile } from "./ProviderProfile.ts";
@@ -96,7 +98,8 @@ function isNotification(msg: JsonRpcInbound): msg is JsonRpcNotification {
 /**
  * Every raw JSON-RPC message in wire order, tagged with a wall-clock
  * timestamp and direction. `"synthetic"` entries are runner-injected
- * commentary (currently: auto-approved permission decisions) clearly marked
+ * commentary (currently: `permission_decision` records carrying the policy's
+ * optionId, allowed/denied verdict, and reason -- issue #140) clearly marked
  * so a human reading `transcript.jsonl` later can tell real protocol traffic
  * from out-of-band decisions (spike/FINDINGS.md).
  */
@@ -194,6 +197,206 @@ const stderrLooksInfra = (stderr: string, extraSignatures: ReadonlyArray<string>
   [...INFRA_STDERR_SIGNATURES, ...extraSignatures].some((signature) => stderr.includes(signature));
 
 // ---------------------------------------------------------------------------
+// Permission policy (issue #140: deny-by-default for run/station agents)
+// ---------------------------------------------------------------------------
+
+interface PermissionOption {
+  readonly optionId: string;
+  readonly kind: string;
+}
+
+/**
+ * The outcome of a permission policy for one `session/request_permission`:
+ * which offered option to answer with, whether the net effect is an approval
+ * or a refusal, and a human-readable reason. Recorded verbatim in the
+ * transcript's synthetic `permission_decision` entry and surfaced through
+ * the engines' `permission-decision` progress events, so a denial is
+ * diagnosable from one run (issue #140).
+ */
+export interface PermissionDecision {
+  readonly optionId: string;
+  readonly decision: "allowed" | "denied";
+  readonly reason: string;
+}
+
+/**
+ * Decides one permission request. Must be deterministic: same request
+ * payload -> same decision (issue #140 acceptance criteria). Throwing means
+ * the request cannot be answered at all (e.g. the agent offered zero
+ * options); `AcpClient` then responds with a JSON-RPC error.
+ */
+export type PermissionPolicy = (params: unknown) => PermissionDecision;
+
+const extractPermissionOptions = (params: unknown): ReadonlyArray<PermissionOption> =>
+  params !== null && typeof params === "object" && "options" in params
+    ? ((params as { readonly options?: ReadonlyArray<PermissionOption> }).options ?? [])
+    : [];
+
+const pickApproveOption = (options: ReadonlyArray<PermissionOption>): PermissionOption => {
+  const preferred =
+    options.find((o) => o.kind === "allow_once") ??
+    options.find((o) => o.kind === "allow_always") ??
+    options[0];
+  if (!preferred) throw new Error("no permission options offered");
+  return preferred;
+};
+
+/**
+ * The reject/deny option per issue #140's decision: `reject_once` first,
+ * then `reject_always`, then anything whose kind mentions reject/deny.
+ * Returns undefined when the agent offered no refusal at all -- the caller
+ * must then fall back to the least-permissive offered option and record the
+ * compromise.
+ */
+const pickDenyOption = (options: ReadonlyArray<PermissionOption>): PermissionOption | undefined =>
+  options.find((o) => o.kind === "reject_once") ??
+  options.find((o) => o.kind === "reject_always") ??
+  options.find((o) => o.kind.includes("reject") || o.kind.includes("deny"));
+
+/** Least-permissive fallback when no reject/deny option exists: a one-shot approval over a standing one, else whatever came first. */
+const pickLeastPermissiveOption = (options: ReadonlyArray<PermissionOption>): PermissionOption => {
+  const preferred = options.find((o) => o.kind === "allow_once") ?? options[0];
+  if (!preferred) throw new Error("no permission options offered");
+  return preferred;
+};
+
+/**
+ * The pre-#140 behavior, kept as the `--permissive` escape hatch: approve
+ * every request via its most natural allow option. Decisions are still
+ * recorded (issue #140 acceptance criteria).
+ */
+export const permissiveApprovePolicy: PermissionPolicy = (params) => {
+  const option = pickApproveOption(extractPermissionOptions(params));
+  return {
+    optionId: option.optionId,
+    decision: "allowed",
+    reason: `permissive mode: auto-approved (option kind "${option.kind}")`,
+  };
+};
+
+/** Keys whose string values are treated as filesystem paths even when relative (resolved against the sandbox dir). */
+const PATH_LIKE_KEY = /(^|_)(path|file|dir|directory|cwd|destination|target|source)s?$/i;
+
+/** Keys whose string values are shell-command-shaped: scanned for absolute-path tokens rather than treated as one path. */
+const COMMAND_LIKE_KEY = /(^|_)(command|cmd|script)s?$/i;
+
+/** Absolute-path-shaped tokens inside a shell command string: `/...` or `~...`, delimited by whitespace/quotes/common shell metacharacters. */
+const COMMAND_PATH_TOKEN = /(?:^|[\s"'`=(<>|;&])((?:\/|~)[^\s"'`)<>|;&]*)/g;
+
+interface CandidatePath {
+  /** Where in the payload the path was found, for the decision's reason. */
+  readonly origin: string;
+  readonly value: string;
+}
+
+/** Recursively collects every path-shaped string in a permission-request payload. Purely syntactic -- never touches the filesystem. */
+const collectCandidatePaths = (value: unknown, key: string, origin: string, out: CandidatePath[]): void => {
+  if (typeof value === "string") {
+    if (COMMAND_LIKE_KEY.test(key)) {
+      for (const match of value.matchAll(COMMAND_PATH_TOKEN)) {
+        const token = match[1];
+        if (token !== undefined && token !== "/" && token !== "~") {
+          out.push({ origin, value: token });
+        }
+      }
+      return;
+    }
+    if (value.startsWith("/") || value.startsWith("~")) {
+      out.push({ origin, value });
+      return;
+    }
+    if (PATH_LIKE_KEY.test(key)) {
+      out.push({ origin, value });
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectCandidatePaths(item, key, `${origin}[${index}]`, out));
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [childKey, childValue] of Object.entries(value)) {
+      collectCandidatePaths(childValue, childKey, origin === "" ? childKey : `${origin}.${childKey}`, out);
+    }
+  }
+};
+
+/**
+ * The issue #140 default policy: a request whose every referenced path stays
+ * inside `sandboxDir` is allowed; any reference reaching outside it is
+ * denied. Policy inputs are exactly the sandbox dir path and the request
+ * payload (the issue's scope fence) -- no filesystem probing beyond one
+ * upfront `realpath` of the sandbox dir itself (macOS `/var` vs `/private/
+ * var` symlinking would otherwise misclassify in-sandbox paths), so the
+ * policy is deterministic across identical requests.
+ *
+ * Paths are found syntactically: `toolCall.locations[].path` and any other
+ * string in the payload that is absolute (`/...`), home-anchored (`~...`),
+ * or sits under a path-like key (those may be relative; they resolve against
+ * the sandbox cwd). Command-shaped strings are scanned for absolute-path
+ * tokens. `~` always counts as outside -- the operator's home is never the
+ * sandbox. A request referencing no paths at all is allowed: its cwd IS the
+ * sandbox, so a pathless effect stays inside it.
+ */
+export const makeSandboxPermissionPolicy = (sandboxDir: string): PermissionPolicy => {
+  const roots = [pathResolve(sandboxDir)];
+  try {
+    const real = realpathSync(sandboxDir);
+    if (!roots.includes(real)) roots.push(real);
+  } catch {
+    // Sandbox dir not resolvable (already gone?): keep the syntactic root.
+  }
+
+  const isInsideSandbox = (candidate: string): boolean => {
+    if (candidate.startsWith("~")) return false;
+    const resolved = pathResolve(roots[0] ?? sandboxDir, candidate);
+    return roots.some((root) => {
+      const rel = pathRelative(root, resolved);
+      return rel === "" || (!rel.startsWith("..") && !pathIsAbsolute(rel));
+    });
+  };
+
+  return (params) => {
+    const options = extractPermissionOptions(params);
+    const candidates: CandidatePath[] = [];
+    collectCandidatePaths(params, "", "", candidates);
+
+    const offending = candidates.filter((candidate) => !isInsideSandbox(candidate.value));
+    if (offending.length === 0) {
+      const option = pickApproveOption(options);
+      return {
+        optionId: option.optionId,
+        decision: "allowed",
+        reason:
+          candidates.length === 0
+            ? "no filesystem paths referenced; the session cwd is the sandbox"
+            : "every referenced path is inside the sandbox",
+      };
+    }
+
+    const summary = offending
+      .slice(0, 3)
+      .map((candidate) => `${candidate.value} (${candidate.origin})`)
+      .join(", ");
+    const suffix = offending.length > 3 ? ` and ${offending.length - 3} more` : "";
+    const why = `references path(s) outside the sandbox: ${summary}${suffix}`;
+
+    const denyOption = pickDenyOption(options);
+    if (denyOption !== undefined) {
+      return { optionId: denyOption.optionId, decision: "denied", reason: why };
+    }
+    // Issue #140's decision: no reject/deny option offered -> answer with
+    // the least-permissive option and record the compromise.
+    const fallback = pickLeastPermissiveOption(options);
+    return {
+      optionId: fallback.optionId,
+      decision: "allowed",
+      reason: `policy verdict was deny (${why}), but the agent offered no reject/deny option; compromised on least-permissive option kind "${fallback.kind}"`,
+    };
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Low-level client (Promise-based; see module doc for why)
 // ---------------------------------------------------------------------------
 
@@ -202,12 +405,14 @@ export interface AcpClientOptions {
   readonly env?: Readonly<Record<string, string>>;
   readonly onTranscript?: (entry: TranscriptEntry) => void;
   readonly promptTimeoutMs?: number;
-  readonly onPermissionRequest?: (params: unknown) => string;
-}
-
-interface PermissionOption {
-  readonly optionId: string;
-  readonly kind: string;
+  /**
+   * Decides every `session/request_permission`. Defaults to
+   * `permissiveApprovePolicy` for bare clients (a raw `AcpClient` has no
+   * sandbox to scope decisions to); `RunEngine`/`StationEngine` always pass
+   * `makeSandboxPermissionPolicy(sandboxDir)` unless the caller asked for
+   * `--permissive` (issue #140).
+   */
+  readonly permissionPolicy?: PermissionPolicy;
 }
 
 interface NewSessionResult {
@@ -362,13 +567,15 @@ export class AcpClient {
     try {
       let result: unknown;
       if (req.method === "session/request_permission") {
-        const optionId = this.decidePermission(req.params);
+        const decision = this.decidePermission(req.params);
         this.recordTranscript("synthetic", {
           type: "permission_decision",
           method: req.method,
-          optionId,
+          optionId: decision.optionId,
+          decision: decision.decision,
+          reason: decision.reason,
         });
-        result = { outcome: { outcome: "selected", optionId } };
+        result = { outcome: { outcome: "selected", optionId: decision.optionId } };
       } else {
         // We do not advertise fs/terminal client capabilities (see
         // initialize()), so the agent should not call fs/* or terminal/* on
@@ -382,18 +589,8 @@ export class AcpClient {
     }
   }
 
-  private decidePermission(params: unknown): string {
-    if (this.opts.onPermissionRequest) return this.opts.onPermissionRequest(params);
-    const options: ReadonlyArray<PermissionOption> =
-      params !== null && typeof params === "object" && "options" in params
-        ? ((params as { readonly options?: ReadonlyArray<PermissionOption> }).options ?? [])
-        : [];
-    const preferred =
-      options.find((o) => o.kind === "allow_once") ??
-      options.find((o) => o.kind === "allow_always") ??
-      options[0];
-    if (!preferred) throw new Error("no permission options offered");
-    return preferred.optionId;
+  private decidePermission(params: unknown): PermissionDecision {
+    return (this.opts.permissionPolicy ?? permissiveApprovePolicy)(params);
   }
 
   private sendResponseResult(id: JsonRpcId, result: unknown): void {
@@ -517,6 +714,8 @@ export interface AcpRunOptions {
    * from pre-Fix-1 behavior.
    */
   readonly requestedModel?: string;
+  /** Issue #140: the permission policy for this session. Defaults to `permissiveApprovePolicy` (the pre-#140 behavior); engines supply the deny-by-default sandbox policy. */
+  readonly permissionPolicy?: PermissionPolicy;
 }
 
 export interface AcpRunResult {
@@ -589,6 +788,7 @@ export const runAcpSession = (opts: AcpRunOptions): Effect.Effect<AcpRunResult, 
     command: opts.command,
     ...(opts.env !== undefined ? { env: opts.env } : {}),
     ...(opts.onTranscript !== undefined ? { onTranscript: opts.onTranscript } : {}),
+    ...(opts.permissionPolicy !== undefined ? { permissionPolicy: opts.permissionPolicy } : {}),
     promptTimeoutMs: opts.promptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS,
   });
 

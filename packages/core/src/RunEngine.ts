@@ -21,6 +21,8 @@ import {
   AcpProtocolError,
   AcpSpawnError,
   AcpTimeoutError,
+  makeSandboxPermissionPolicy,
+  permissiveApprovePolicy,
   runAcpSession,
   type TranscriptEntry,
 } from "./AcpClient.ts";
@@ -81,12 +83,21 @@ export interface RunFixtureInput {
    * must hand back an id synchronously). Defaults to a fresh `crypto.randomUUID()`.
    */
   readonly runId?: string;
+  /**
+   * Issue #140's escape hatch: `true` restores the pre-#140 approve-
+   * everything permission behavior (`skillmaker run --permissive`).
+   * Default (false/undefined) applies the deny-by-default sandbox policy:
+   * requests whose referenced paths stay inside the sandbox dir are
+   * allowed, anything reaching outside it is denied.
+   */
+  readonly permissive?: boolean;
 }
 
 export type RunProgressEvent =
   | { readonly type: "sandbox-ready" }
   | { readonly type: "session-update" }
-  | { readonly type: "permission-decision" }
+  /** One permission request decided by the policy (issue #140): the verdict plus its reason, mirrored from the transcript's synthetic `permission_decision` entry. */
+  | { readonly type: "permission-decision"; readonly decision: "allowed" | "denied"; readonly reason: string }
   | { readonly type: "install-warning"; readonly message: string }
   /** Fix F7: `didSkillActivate`'s transcript signal, surfaced for EVERY run (not just "trigger"-class fixtures) so CLI output always reports it. */
   | { readonly type: "done"; readonly status: RunStatus; readonly skillInvoked: boolean };
@@ -526,7 +537,12 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
         // running agent session.
       }
       if (entry.dir === "synthetic") {
-        input.onProgress?.({ type: "permission-decision" });
+        const message = entry.message as { readonly decision?: unknown; readonly reason?: unknown };
+        input.onProgress?.({
+          type: "permission-decision",
+          decision: message.decision === "denied" ? "denied" : "allowed",
+          reason: typeof message.reason === "string" ? message.reason : "",
+        });
       } else if (entry.dir === "recv") {
         input.onProgress?.({ type: "session-update" });
       }
@@ -544,6 +560,10 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
         ...(input.model !== undefined ? { requestedModel: input.model } : {}),
         onTranscript,
         providerProfile,
+        // Issue #140: deny-by-default sandbox policy unless the caller asked
+        // for the --permissive escape hatch.
+        permissionPolicy:
+          input.permissive === true ? permissiveApprovePolicy : makeSandboxPermissionPolicy(sandboxDir),
       }),
     );
 
