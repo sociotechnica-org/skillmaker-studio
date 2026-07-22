@@ -16,7 +16,7 @@
  * it never 404s the paperwork.
  */
 import type { FC } from "react";
-import { provenOnProviders } from "../runtime/cardGlance.ts";
+import { modelDisplayName, provenOnProviders } from "../runtime/cardGlance.ts";
 import { bundleHref, Link, shipBundleHref, trackHref, useRouter } from "../runtime/router.tsx";
 import { STAGE_BADGE_CLASS, STAGE_LABEL, type BundleStage, type SkillbookBundle } from "../runtime/schemas.ts";
 import { useSkillbook } from "../runtime/useSkillbook.ts";
@@ -362,8 +362,9 @@ export const SkillbookBundlePage: FC<{ slug: string }> = ({ slug }) => {
                 {bundle.measurements.map((measurement, i) => (
                   <tr key={i} className="border-t border-neutral-200 dark:border-neutral-800">
                     <td className="py-1 pr-3">{measurement.fixtureCase}</td>
-                    <td className="py-1 pr-3">
-                      {measurement.provider}/{measurement.model}
+                    {/* Model name only (#141): the blurb-stripped display form; hover exposes the exact full stored string. */}
+                    <td className="py-1 pr-3" title={`${measurement.provider}/${measurement.model}`}>
+                      {measurement.provider}/{modelDisplayName(measurement.model)}
                     </td>
                     <td className="py-1 pr-3 font-mono">{shortHash(measurement.versionHash)}</td>
                     <td className="py-1 pr-3">{measurement.n}</td>

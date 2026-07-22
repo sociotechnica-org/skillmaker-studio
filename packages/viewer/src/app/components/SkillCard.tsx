@@ -57,7 +57,7 @@ import {
   triggerRun,
   triggerStationRun,
 } from "../runtime/api.ts";
-import { coverageTally, formatCI, formatPassRate, nextChips, providerModelId, provenOnProviders } from "../runtime/cardGlance.ts";
+import { coverageTally, formatCI, formatPassRate, modelDisplayName, nextChips, providerModelId, provenOnProviders } from "../runtime/cardGlance.ts";
 import { formatDay, formatTimestamp } from "../runtime/dates.ts";
 import {
   bundleFileHref,
@@ -1895,7 +1895,7 @@ const MeasurementChips: FC<{
           cell.partial > 0 || cell.fail > 0 ? ` (${cell.partial} partial, ${cell.fail} fail)` : "";
         return (
           <span
-            key={providerLabel}
+            key={`${cell.provider}|${cell.model}`}
             title={`${cell.passes}/${cell.n} pass, ${cell.partial} partial, ${cell.fail} fail on ${providerLabel} at ${versionLabelFor(latestVersion, cell.versionHash)}`}
             className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
           >
@@ -2243,10 +2243,10 @@ const ModelsTab: FC<{
                   <tr key={measurementRowKey(cell)} className="border-t border-neutral-100 dark:border-neutral-800">
                     <td className="py-1 pr-2 font-mono">{cell.fixtureCase}</td>
                     <td className="py-1 pr-2 font-mono">{cell.provider}</td>
-                    {/* The pinned model id, visually accented (prototype `.pin`): the exact recorded string, never a marketing alias. */}
-                    <td className="py-1 pr-2 font-mono text-amber-700 dark:text-amber-400">
+                    {/* The pinned model NAME, visually accented (prototype `.pin`): the recorded string blurb-stripped for display (#141) -- hover exposes the exact full stored value. */}
+                    <td className="py-1 pr-2 font-mono text-amber-700 dark:text-amber-400" title={cell.model}>
                       {cell.model.length > 0 ? (
-                        cell.model
+                        modelDisplayName(cell.model)
                       ) : (
                         <span className="text-neutral-400" title="The run recorded no model id.">
                           (unrecorded)

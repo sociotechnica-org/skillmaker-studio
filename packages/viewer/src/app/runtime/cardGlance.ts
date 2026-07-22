@@ -34,9 +34,24 @@ export const formatPassRate = (rate: number): string => `${(rate * 100).toFixed(
 export const formatCI = (ci: readonly [number, number] | null): string =>
   ci === null ? "—" : `[${formatPassRate(ci[0])}, ${formatPassRate(ci[1])}]`;
 
-/** The exact display id for a measurement cell's provider(+model) -- never a marketing alias, always what the run recorded. */
-export const providerModelId = (cell: { readonly provider: string; readonly model: string }): string =>
-  cell.model.length > 0 && cell.model !== cell.provider ? `${cell.provider}/${cell.model}` : cell.provider;
+/**
+ * The compact display form of a stored model string (issue #141): the
+ * adapter's full display string may carry a marketing blurb after a "·"
+ * separator ("Opus 4.6 · Most capable for complex work") -- everything
+ * from the first "·" is dropped and the name trimmed. A string without
+ * the separator renders unchanged. Display-layer only: stored run/journal
+ * values are never rewritten, and run detail keeps the full string.
+ */
+export const modelDisplayName = (model: string): string => {
+  const separator = model.indexOf("·");
+  return separator === -1 ? model : model.slice(0, separator).trim();
+};
+
+/** The compact display id for a measurement cell's provider(+model) -- the recorded model NAME (blurb-stripped per #141), never a marketing alias. Cell identity/keys use the raw stored fields, not this. */
+export const providerModelId = (cell: { readonly provider: string; readonly model: string }): string => {
+  const model = modelDisplayName(cell.model);
+  return model.length > 0 && model !== cell.provider ? `${cell.provider}/${model}` : cell.provider;
+};
 
 /**
  * Providers (exact provider/model ids) with >=1 passing measurement at the

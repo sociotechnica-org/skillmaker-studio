@@ -8,6 +8,7 @@
  */
 import { shortHash, type MeasurementRecord } from "@skillmaker/core";
 import type { SkillbookBundle, SkillbookChangelogEntry, SkillbookData } from "./Skillbook.ts";
+import { modelDisplayName } from "./ModelDisplay.ts";
 
 export const escapeHtml = (text: string): string =>
   text
@@ -176,7 +177,7 @@ const measurementsTable = (measurements: ReadonlyArray<MeasurementRecord>): stri
     .map(
       (measurement) => `<tr>
         <td>${escapeHtml(measurement.fixtureCase)}</td>
-        <td>${escapeHtml(measurement.provider)}/${escapeHtml(measurement.model)}</td>
+        <td title="${escapeHtml(`${measurement.provider}/${measurement.model}`)}">${escapeHtml(measurement.provider)}/${escapeHtml(modelDisplayName(measurement.model))}</td>
         <td>${shortHash(measurement.versionHash, 8)}</td>
         <td>${measurement.n}</td>
         <td>${measurement.passes}/${measurement.n}</td>
