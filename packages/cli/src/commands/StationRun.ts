@@ -29,6 +29,8 @@ export interface StationRunOptions {
   readonly state?: string;
   readonly provider?: string;
   readonly timeout?: string;
+  /** Issue #140: `--permissive` restores the approve-everything permission behavior; default is the deny-by-default sandbox policy. */
+  readonly permissive: boolean;
 }
 
 const DEFAULT_PROVIDER = "claude-code";
@@ -43,7 +45,7 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
 ) {
   if (slug === undefined) {
     return usageError(
-      "skillmaker station run: missing <slug>\n\nUsage: skillmaker station run <slug> [--state <state>] [--provider <id>] [--timeout <seconds>]\n",
+      "skillmaker station run: missing <slug>\n\nUsage: skillmaker station run <slug> [--state <state>] [--provider <id>] [--timeout <seconds>] [--permissive]\n",
     );
   }
   let state: BundleStage | undefined;
@@ -85,6 +87,8 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
     readonly status?: string;
     readonly message?: string;
     readonly skillInvoked?: boolean;
+    readonly decision?: "allowed" | "denied";
+    readonly reason?: string;
   }): void => {
     if (event.type === "sandbox-ready") {
       process.stderr.write(`skillmaker station run: sandbox ready, starting "${provider}" session...\n`);
@@ -92,7 +96,10 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
       updateCount++;
       process.stderr.write(".");
     } else if (event.type === "permission-decision") {
-      process.stderr.write("\nskillmaker station run: auto-approved a permission request\n");
+      // Issue #140: every decision -- allowed or denied -- is visible with
+      // its reason, so a denial is diagnosable from one run.
+      const verdict = event.decision === "denied" ? "DENIED" : "allowed";
+      process.stderr.write(`\nskillmaker station run: permission ${verdict}: ${String(event.reason ?? "")}\n`);
     } else if (event.type === "install-warning") {
       process.stderr.write(`skillmaker station run: WARNING: ${String(event.message)}\n`);
     } else if (event.type === "done") {
@@ -115,6 +122,7 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
       provider,
       actor,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      permissive: options.permissive,
       onProgress,
     }).pipe(Effect.provide(JournalLayer(journalPath))),
   );

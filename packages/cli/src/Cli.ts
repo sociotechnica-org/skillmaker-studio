@@ -125,6 +125,7 @@ Options:
   --provider <id>   (run, station run) provider id from skillmaker.config.json; defaults to "claude-code"
   --model <id>      (run) model id from the provider's advertised session/new models.availableModels (e.g. "default", "sonnet", "haiku"); defaults to the provider's own default. Unknown ids are rejected with the advertised list.
   --timeout <s>     (run, station run) prompt timeout in seconds; defaults to 300
+  --permissive      (run, station run) approve every agent permission request (pre-#140 behavior); default denies any request reaching outside the sandbox dir
   --state <state>   (station run) the state to run a station for; defaults to the bundle's current stage
   --stage <stage>   (route) --as new/fork: explicit entry-stage override for the minted bundle (recorded as an honest override); omitted, the stage is derived from the crate's own observables (issue #115), same as bulk triage
   --verdict <v>     (grade) pass | fail | partial (required)
@@ -314,20 +315,22 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const provider = flagValue(argv, "--provider");
       const model = flagValue(argv, "--model");
       const timeout = flagValue(argv, "--timeout");
-      return yield* runRun(cwd, slug, { json, fixture, provider, model, timeout });
+      const permissive = hasFlag(argv, "--permissive");
+      return yield* runRun(cwd, slug, { json, fixture, provider, model, timeout, permissive });
     }
     case "station": {
       const subcommand = argv[1];
       if (subcommand !== "run") {
         return usageError(
-          `skillmaker: unknown "station" subcommand "${String(subcommand)}"\n\nUsage: skillmaker station run <slug> [--state <state>] [--provider <id>] [--timeout <seconds>]\n`,
+          `skillmaker: unknown "station" subcommand "${String(subcommand)}"\n\nUsage: skillmaker station run <slug> [--state <state>] [--provider <id>] [--timeout <seconds>] [--permissive]\n`,
         );
       }
       const slug = positionalAfter(argv, 2);
       const state = flagValue(argv, "--state");
       const provider = flagValue(argv, "--provider");
       const timeout = flagValue(argv, "--timeout");
-      return yield* runStationRun(cwd, slug, { json, state, provider, timeout });
+      const permissive = hasFlag(argv, "--permissive");
+      return yield* runStationRun(cwd, slug, { json, state, provider, timeout, permissive });
     }
     case "grade": {
       const [slug, runId] = twoPositionalsAfter(argv, 1);

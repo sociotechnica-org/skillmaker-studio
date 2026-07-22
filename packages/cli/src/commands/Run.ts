@@ -35,6 +35,8 @@ export interface RunOptions {
   /** Fix 1 (Phase 20 Story 2 friction log F1): `--model <id>`, threaded to `RunEngine.runFixture` as `requestedModel`. */
   readonly model?: string;
   readonly timeout?: string;
+  /** Issue #140: `--permissive` restores the approve-everything permission behavior; default is the deny-by-default sandbox policy. */
+  readonly permissive: boolean;
 }
 
 const DEFAULT_PROVIDER = "claude-code";
@@ -46,12 +48,12 @@ export const runRun = Effect.fn("runRun")(function* (
 ) {
   if (slug === undefined) {
     return usageError(
-      "skillmaker run: missing <slug>\n\nUsage: skillmaker run <slug> --fixture <case> [--provider <id>] [--timeout <seconds>]\n",
+      "skillmaker run: missing <slug>\n\nUsage: skillmaker run <slug> --fixture <case> [--provider <id>] [--timeout <seconds>] [--permissive]\n",
     );
   }
   if (options.fixture === undefined) {
     return usageError(
-      "skillmaker run: missing --fixture <case>\n\nUsage: skillmaker run <slug> --fixture <case> [--provider <id>] [--timeout <seconds>]\n",
+      "skillmaker run: missing --fixture <case>\n\nUsage: skillmaker run <slug> --fixture <case> [--provider <id>] [--timeout <seconds>] [--permissive]\n",
     );
   }
 
@@ -84,6 +86,8 @@ export const runRun = Effect.fn("runRun")(function* (
     readonly status?: string;
     readonly message?: string;
     readonly skillInvoked?: boolean;
+    readonly decision?: "allowed" | "denied";
+    readonly reason?: string;
   }): void => {
     if (event.type === "sandbox-ready") {
       process.stderr.write(`skillmaker run: sandbox ready, starting "${provider}" session...\n`);
@@ -91,7 +95,10 @@ export const runRun = Effect.fn("runRun")(function* (
       updateCount++;
       process.stderr.write(".");
     } else if (event.type === "permission-decision") {
-      process.stderr.write("\nskillmaker run: auto-approved a permission request\n");
+      // Issue #140: every decision -- allowed or denied -- is visible with
+      // its reason, so a denial is diagnosable from one run.
+      const verdict = event.decision === "denied" ? "DENIED" : "allowed";
+      process.stderr.write(`\nskillmaker run: permission ${verdict}: ${String(event.reason ?? "")}\n`);
     } else if (event.type === "install-warning") {
       process.stderr.write(`skillmaker run: WARNING: ${String(event.message)}\n`);
     } else if (event.type === "done") {
@@ -115,6 +122,7 @@ export const runRun = Effect.fn("runRun")(function* (
       actor,
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      permissive: options.permissive,
       onProgress,
     }).pipe(Effect.provide(JournalLayer(journalPath))),
   );

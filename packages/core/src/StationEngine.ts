@@ -31,6 +31,8 @@ import {
   AcpProtocolError,
   AcpSpawnError,
   AcpTimeoutError,
+  makeSandboxPermissionPolicy,
+  permissiveApprovePolicy,
   runAcpSession,
   type TranscriptEntry,
 } from "./AcpClient.ts";
@@ -73,12 +75,15 @@ export interface RunStationInput {
   readonly onProgress?: (event: StationProgressEvent) => void;
   /** Pre-generated run id, same rationale as `RunEngine.ts`'s `RunFixtureInput.runId`. */
   readonly runId?: string;
+  /** Issue #140's escape hatch (`skillmaker station run --permissive`): `true` restores the pre-#140 approve-everything behavior; default applies the deny-by-default sandbox policy, same as `RunEngine.ts`. */
+  readonly permissive?: boolean;
 }
 
 export type StationProgressEvent =
   | { readonly type: "sandbox-ready" }
   | { readonly type: "session-update" }
-  | { readonly type: "permission-decision" }
+  /** One permission request decided by the policy (issue #140), mirrored from the transcript's synthetic `permission_decision` entry. */
+  | { readonly type: "permission-decision"; readonly decision: "allowed" | "denied"; readonly reason: string }
   | { readonly type: "install-warning"; readonly message: string }
   /** Fix F7: `didSkillActivate`'s transcript signal, surfaced for every station run, same as RunEngine.ts. */
   | { readonly type: "done"; readonly status: RunStatus; readonly skillInvoked: boolean };
@@ -588,7 +593,12 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
         // running agent session (same policy as RunEngine.ts).
       }
       if (entry.dir === "synthetic") {
-        input.onProgress?.({ type: "permission-decision" });
+        const message = entry.message as { readonly decision?: unknown; readonly reason?: unknown };
+        input.onProgress?.({
+          type: "permission-decision",
+          decision: message.decision === "denied" ? "denied" : "allowed",
+          reason: typeof message.reason === "string" ? message.reason : "",
+        });
       } else if (entry.dir === "recv") {
         input.onProgress?.({ type: "session-update" });
       }
@@ -604,6 +614,9 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
         ...(input.timeoutMs !== undefined ? { promptTimeoutMs: input.timeoutMs } : {}),
         onTranscript,
         providerProfile,
+        // Issue #140: deny-by-default sandbox policy unless --permissive.
+        permissionPolicy:
+          input.permissive === true ? permissiveApprovePolicy : makeSandboxPermissionPolicy(sandboxDir),
       }),
     );
     void entryCount;

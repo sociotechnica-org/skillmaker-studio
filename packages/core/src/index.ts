@@ -191,6 +191,10 @@ export {
   type AcpRunResult,
   type TranscriptEntry,
   type JsonRpcId,
+  makeSandboxPermissionPolicy,
+  permissiveApprovePolicy,
+  type PermissionDecision,
+  type PermissionPolicy,
 } from "./AcpClient.ts";
 export {
   runFixture,

@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Effect } from "effect";
 import {
   AcpAuthError,
   AcpProtocolError,
   AcpSpawnError,
   AcpTimeoutError,
+  makeSandboxPermissionPolicy,
+  permissiveApprovePolicy,
   runAcpSession,
   stripClaudeCodeEnv,
+  type TranscriptEntry,
 } from "../src/AcpClient.ts";
 import { CLAUDE_CODE_PROFILE, CODEX_PROFILE } from "../src/ProviderProfile.ts";
 
@@ -371,6 +377,265 @@ describe("runAcpSession model selection (Fix 1: session/set_model; Fix 2: resolv
         // problem, distinct from auth/sandbox/connection faults.
         expect(result.failure.likelyInfra).toBe(false);
       }
+    }
+  }, 10_000);
+});
+
+// Issue #140: deny-by-default permission policy. Requests whose referenced
+// paths stay inside the sandbox dir are allowed; anything reaching outside is
+// denied; --permissive restores approve-everything. All decisions carry a
+// reason and are deterministic.
+describe("makeSandboxPermissionPolicy (issue #140: deny-by-default)", () => {
+  const sandbox = "/tmp/skillmaker-sandbox-xyz";
+  const policy = makeSandboxPermissionPolicy(sandbox);
+
+  const fullOptions = [
+    { optionId: "opt-allow", kind: "allow_once" },
+    { optionId: "opt-allow-always", kind: "allow_always" },
+    { optionId: "opt-reject", kind: "reject_once" },
+    { optionId: "opt-reject-always", kind: "reject_always" },
+  ];
+
+  const writeRequest = (path: string, options = fullOptions) => ({
+    sessionId: "s1",
+    toolCall: {
+      toolCallId: "tc-1",
+      kind: "edit",
+      title: `Write ${path}`,
+      locations: [{ path }],
+      rawInput: { file_path: path, content: "hello" },
+    },
+    options,
+  });
+
+  test("a write inside the sandbox dir is allowed, with a reason", () => {
+    const decision = policy(writeRequest(join(sandbox, "notes", "out.md")));
+    expect(decision.decision).toBe("allowed");
+    expect(decision.optionId).toBe("opt-allow");
+    expect(decision.reason).toContain("inside the sandbox");
+  });
+
+  test("a write outside the sandbox dir is denied via the reject_once option, naming the offending path", () => {
+    const decision = policy(writeRequest("/etc/hosts"));
+    expect(decision.decision).toBe("denied");
+    expect(decision.optionId).toBe("opt-reject");
+    expect(decision.reason).toContain("/etc/hosts");
+    expect(decision.reason).toContain("outside the sandbox");
+  });
+
+  test("a sibling directory sharing the sandbox's name as a prefix is outside (no naive startsWith containment)", () => {
+    const decision = policy(writeRequest(`${sandbox}-evil/file.txt`));
+    expect(decision.decision).toBe("denied");
+  });
+
+  test("a relative path under a path-like key that traverses out of the sandbox (../..) is denied", () => {
+    const decision = policy({
+      sessionId: "s1",
+      toolCall: {
+        toolCallId: "tc-2",
+        kind: "edit",
+        title: "Write a file",
+        locations: [],
+        rawInput: { file_path: "../../etc/cron.d/job", content: "x" },
+      },
+      options: fullOptions,
+    });
+    expect(decision.decision).toBe("denied");
+  });
+
+  test("a home-anchored path (~/...) is always outside the sandbox", () => {
+    const decision = policy(writeRequest("~/.ssh/authorized_keys"));
+    expect(decision.decision).toBe("denied");
+  });
+
+  test("a command string referencing an absolute path outside the sandbox is denied", () => {
+    const decision = policy({
+      sessionId: "s1",
+      toolCall: {
+        toolCallId: "tc-3",
+        kind: "execute",
+        title: "Run command",
+        locations: [],
+        rawInput: { command: "cat /etc/passwd > secrets.txt" },
+      },
+      options: fullOptions,
+    });
+    expect(decision.decision).toBe("denied");
+    expect(decision.reason).toContain("/etc/passwd");
+  });
+
+  test("a command referencing no paths at all is allowed (its cwd is the sandbox)", () => {
+    const decision = policy({
+      sessionId: "s1",
+      toolCall: {
+        toolCallId: "tc-4",
+        kind: "execute",
+        title: "Run command",
+        locations: [],
+        rawInput: { command: "git status" },
+      },
+      options: fullOptions,
+    });
+    expect(decision.decision).toBe("allowed");
+    expect(decision.optionId).toBe("opt-allow");
+  });
+
+  test("deny with no reject/deny option offered -> compromises on the least-permissive option and records the compromise in the reason", () => {
+    const decision = policy(
+      writeRequest("/etc/hosts", [
+        { optionId: "opt-allow-always", kind: "allow_always" },
+        { optionId: "opt-allow", kind: "allow_once" },
+      ]),
+    );
+    expect(decision.decision).toBe("allowed");
+    expect(decision.optionId).toBe("opt-allow");
+    expect(decision.reason).toContain("deny");
+    expect(decision.reason).toContain("no reject/deny option");
+  });
+
+  test("zero offered options throws (the client answers with a JSON-RPC error rather than inventing an option)", () => {
+    expect(() => policy({ sessionId: "s1", toolCall: { title: "x" }, options: [] })).toThrow(
+      "no permission options offered",
+    );
+  });
+
+  test("the policy is deterministic: identical requests produce identical decisions", () => {
+    const request = writeRequest("/etc/hosts");
+    expect(policy(request)).toEqual(policy(request));
+    const inside = writeRequest(join(sandbox, "a.md"));
+    expect(policy(inside)).toEqual(policy(inside));
+  });
+
+  test("a real (symlinked) sandbox dir still classifies its own resolved paths as inside (macOS /var vs /private/var)", () => {
+    const realSandbox = mkdtempSync(join(tmpdir(), "skillmaker-policy-test-"));
+    try {
+      const realPolicy = makeSandboxPermissionPolicy(realSandbox);
+      expect(realPolicy(writeRequest(join(realSandbox, "file.md"))).decision).toBe("allowed");
+      expect(realPolicy(writeRequest("/etc/hosts")).decision).toBe("denied");
+    } finally {
+      rmSync(realSandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("permissiveApprovePolicy (the --permissive escape hatch) approves even an outside-the-sandbox request, with a recorded reason", () => {
+    const decision = permissiveApprovePolicy(writeRequest("/etc/hosts"));
+    expect(decision.decision).toBe("allowed");
+    expect(decision.optionId).toBe("opt-allow");
+    expect(decision.reason).toContain("permissive");
+  });
+});
+
+// Issue #140 integration: the policy actually answers the wire request, and
+// the transcript's synthetic entry records optionId + decision + reason.
+describe("runAcpSession permission policy wiring (issue #140)", () => {
+  /** Fake adapter: sends one session/request_permission for a caller-chosen
+   * path during session/prompt, waits for the client's answer, then finishes
+   * the prompt with stopReason "chose:<optionId>" so the test can see which
+   * option actually went over the wire. */
+  const permissionAdapterScript = (requestedPath: string): string => `
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    let promptId = null;
+    rl.on("line", (line) => {
+      const msg = JSON.parse(line);
+      if (msg.method === "initialize") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\\n");
+      } else if (msg.method === "session/new") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } }) + "\\n");
+      } else if (msg.method === "session/prompt") {
+        promptId = msg.id;
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", id: 999, method: "session/request_permission",
+          params: {
+            sessionId: "s1",
+            toolCall: { toolCallId: "tc-1", kind: "edit", title: "Write file", locations: [{ path: ${JSON.stringify(requestedPath)} }], rawInput: { file_path: ${JSON.stringify(requestedPath)} } },
+            options: [
+              { optionId: "opt-allow", kind: "allow_once" },
+              { optionId: "opt-reject", kind: "reject_once" },
+            ],
+          },
+        }) + "\\n");
+      } else if (msg.id === 999 && msg.result) {
+        const chosen = msg.result.outcome && msg.result.outcome.optionId;
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: promptId, result: { stopReason: "chose:" + chosen } }) + "\\n");
+      }
+    });
+  `;
+
+  const runWithPolicy = async (sandbox: string, requestedPath: string) => {
+    const transcript: TranscriptEntry[] = [];
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", permissionAdapterScript(requestedPath)],
+          cwd: sandbox,
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+          onTranscript: (entry) => transcript.push(entry),
+          permissionPolicy: makeSandboxPermissionPolicy(sandbox),
+        }),
+      ),
+    );
+    const synthetic = transcript.filter((entry) => entry.dir === "synthetic");
+    return { result, synthetic };
+  };
+
+  test("an in-sandbox request is answered with the allow option, and the synthetic transcript entry records the allowed decision + reason", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "skillmaker-perm-wire-"));
+    try {
+      const { result, synthetic } = await runWithPolicy(sandbox, join(sandbox, "out.md"));
+      expect(result._tag).toBe("Success");
+      if (result._tag === "Success") expect(result.success.stopReason).toBe("chose:opt-allow");
+      expect(synthetic).toHaveLength(1);
+      const message = synthetic[0]?.message as { type: string; optionId: string; decision: string; reason: string };
+      expect(message.type).toBe("permission_decision");
+      expect(message.optionId).toBe("opt-allow");
+      expect(message.decision).toBe("allowed");
+      expect(message.reason).toContain("inside the sandbox");
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  test("an outside-the-sandbox request is answered with the reject option (the run continues; denial is not a crash), recorded as denied with its reason", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "skillmaker-perm-wire-"));
+    try {
+      const { result, synthetic } = await runWithPolicy(sandbox, "/etc/hosts");
+      // The session still completes -- a denial never kills the run.
+      expect(result._tag).toBe("Success");
+      if (result._tag === "Success") expect(result.success.stopReason).toBe("chose:opt-reject");
+      const message = synthetic[0]?.message as { optionId: string; decision: string; reason: string };
+      expect(message.optionId).toBe("opt-reject");
+      expect(message.decision).toBe("denied");
+      expect(message.reason).toContain("/etc/hosts");
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  test("no policy supplied -> the default still auto-approves (bare AcpClient callers keep the old behavior), recording the decision", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "skillmaker-perm-wire-"));
+    const transcript: TranscriptEntry[] = [];
+    try {
+      const result = await Effect.runPromise(
+        Effect.result(
+          runAcpSession({
+            command: ["node", "-e", permissionAdapterScript("/etc/hosts")],
+            cwd: sandbox,
+            prompt: "hello",
+            promptTimeoutMs: 5000,
+            onTranscript: (entry) => transcript.push(entry),
+          }),
+        ),
+      );
+      expect(result._tag).toBe("Success");
+      if (result._tag === "Success") expect(result.success.stopReason).toBe("chose:opt-allow");
+      const synthetic = transcript.filter((entry) => entry.dir === "synthetic");
+      const message = synthetic[0]?.message as { decision: string; reason: string };
+      expect(message.decision).toBe("allowed");
+      expect(message.reason).toContain("permissive");
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
     }
   }, 10_000);
 });
