@@ -203,3 +203,66 @@ was trying to do, what happened, how it felt.
   (D3). Also observed en route: the user wandered into a different tab
   (Track) and found the same card with different buttons — #118's "card
   belongs to every room," experienced live.
+
+## 2026-07-22 — the evals session
+
+- **#19 — Model strings carry marketing blurb.** "Opus 4.6 · Most capable
+  for complex work" everywhere a model is named — the ACP adapter's
+  display string stored/shown verbatim. Strip to name (+ exact id on
+  hover/detail).
+
+- **#20 — Transcript rendering: streaming chunks as separate lines.**
+  Agent prose arrives as token chunks; the read-out renders each chunk as
+  its own AGENT row with broken mid-sentence line breaks. Coalesce
+  consecutive same-role chunks into paragraphs.
+
+- **#21 — Markdown should render everywhere.** Generated files (tickets,
+  notes, responses) display as raw markdown. Anywhere the product shows
+  .md content, render it (with a raw toggle).
+
+- **#22 — A run can be graded repeatedly, silently.** The grading panel
+  offers a fresh grade on an already-graded run with no indication of the
+  existing verdict. Append-only journal makes regrade events fine; the UI
+  must show current verdict + "regrade" framing. VERIFY: do duplicate
+  grades double-count in measurement n? If so, stats bug, urgent.
+
+- **#23 — Run detail as popup modal.** Should nest into the skill page's
+  navigation (IA: skill → evals → fixture → run), not float.
+
+- **#24 — SECURITY: run/station agents get every permission
+  auto-approved.** `AcpClient.decidePermission` selects allow_once/
+  allow_always for ANY session/request_permission, unconditionally. The
+  sandbox isolates cwd + provider config dir (done carefully — Phase 20
+  credential fix) but the agent process runs as the operator with network
+  access and no OS confinement: functionally dangerously-skip-permissions
+  on the user's box. Fixture files, imported skills, and field-collected
+  specs are untrusted input flowing into an auto-approving agent (the
+  library's own Untrusted-Input Rule, unimplemented at the engine).
+  Needs: a real permission policy (deny-by-default outside sandbox?),
+  OS-level sandboxing options, and a desktop-app-facing design answer.
+
+- **#25 — Fixture files aren't viewable/editable in the UI.** The sandbox
+  artifacts browser exists, but the fixture's own files (prompt.md,
+  files/, answer key) can't be seen or edited where they're used —
+  direct-manipulation amendment applies (this is where eval authoring
+  lives).
+
+- **#26 — "Next, from what we already know" is a wall.** Derivable
+  suggestions (cover X, grow n, run on codex) listed exhaustively read as
+  noise. They should be collapsed into the Tasks queue model — mintable
+  as todos on demand, badge not list; the map itself should show what
+  needs doing by its gaps, not by prose enumeration.
+
+- **#27 — The risk table hides the claim.** Coverage table renders
+  Risk id / Coverage / Fixture but omits the DESCRIPTION column — the
+  claim text itself. "IN-1" means nothing without its sentence; the
+  description IS the row (claim-first IA). Also the section header
+  ("the authored axis, in its own words") survived the #14 sweep —
+  same self-narration disease.
+
+- **#28 (positive) — "this evals part of the product actually works!"**
+  Full loop exercised for real: version record → risk map → two fixtures
+  → ACP run → answer-key grading → measurement cell. The `invoked: no`
+  honesty flag caught a subtlety the director couldn't see from the
+  response ("I definitely couldn't tell"). The IA is wonky; the bones
+  are good.
