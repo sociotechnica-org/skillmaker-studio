@@ -90,6 +90,8 @@ export class RiskCoverageRecord extends Schema.Class<RiskCoverageRecord>("RiskCo
   riskId: Schema.String,
   /** Left as `Schema.String`, not a literal union, for the same reason as `FixtureRecord.class`. */
   family: Schema.String,
+  /** The authored claim sentence (issue #144). Optional so a pre-#144 payload still decodes; absent and `""` both render as an explicit "no description". */
+  description: Schema.optionalKey(Schema.String),
   coverage: CoverageValue,
   fixtureCase: Schema.optionalKey(Schema.String),
 }) {}

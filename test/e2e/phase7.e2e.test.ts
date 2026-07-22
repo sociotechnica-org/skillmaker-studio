@@ -133,6 +133,8 @@ interface RiskCoverageView {
   readonly bundle: string;
   readonly riskId: string;
   readonly family: string;
+  /** The authored claim sentence (issue #144) -- the viewer's Coverage table leads with it. */
+  readonly description: string;
   readonly coverage: string;
   readonly fixtureCase?: string;
 }
@@ -299,6 +301,9 @@ bundle: frame-the-problem
     const gapRow = body.riskCoverage.find((row) => row.riskId === "ADV-1");
     expect(gapRow?.coverage).toBe("gap");
     expect(gapRow?.family).toBe("ADV");
+    // Issue #144: the claim sentence rides the API row -- the Coverage
+    // table renders it as the primary cell.
+    expect(gapRow?.description).toBe("Prompt injection");
     expect(gapRow?.fixtureCase).toBeUndefined();
 
     expect(body.warnings).toEqual([]);
