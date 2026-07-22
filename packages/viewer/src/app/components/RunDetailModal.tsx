@@ -16,6 +16,7 @@ import { type FC, useEffect, useState } from "react";
 import { getBundleFile, postEvent } from "../runtime/api.ts";
 import { buildRunTodoPayload } from "../runtime/runTodoDraft.ts";
 import type { EventView, RunDetailRun, RunStatus, RunVerdict } from "../runtime/schemas.ts";
+import { renderTranscript, type TranscriptBlock } from "../runtime/transcriptCoalesce.ts";
 import { useRunDetail } from "../runtime/useRunDetail.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -43,99 +44,13 @@ const VERDICTS: ReadonlyArray<RunVerdict> = ["pass", "fail", "partial"];
 
 // ---------------------------------------------------------------------------
 // Transcript rendering
+//
+// Classification and streamed-chunk coalescing (issue #142) live in
+// runtime/transcriptCoalesce.ts -- a pure raw-lines -> blocks transform,
+// tested there without the DOM. This section only paints the blocks.
 // ---------------------------------------------------------------------------
 
-interface RenderedEntry {
-  /** Left-column tag: who/what this line is. */
-  readonly role: string;
-  /** One-line summary, always shown. */
-  readonly summary: string;
-  /** Full detail behind an expander; undefined = nothing to expand. */
-  readonly detail: string | undefined;
-  /** Visual treatment. */
-  readonly tone: "agent" | "prompt" | "tool" | "permission" | "protocol" | "malformed";
-}
-
-const asText = (content: unknown): string | undefined => {
-  if (isRecord(content) && content.type === "text" && typeof content.text === "string") {
-    return content.text;
-  }
-  return undefined;
-};
-
-const promptText = (params: unknown): string => {
-  if (isRecord(params) && Array.isArray(params.prompt)) {
-    const texts = params.prompt
-      .map(asText)
-      .filter((text): text is string => text !== undefined);
-    if (texts.length > 0) return texts.join("\n");
-  }
-  return "(prompt)";
-};
-
-/**
- * Classifies one raw transcript line ({t, dir, message} with a JSON-RPC
- * message) into a renderable entry. Everything unknown degrades to a
- * collapsed "protocol" one-liner -- never a blank hole, never a crash.
- */
-const renderEntry = (raw: unknown): RenderedEntry => {
-  if (!isRecord(raw)) {
-    return { role: "??", summary: String(raw), detail: undefined, tone: "malformed" };
-  }
-  if (raw.malformed === true) {
-    return {
-      role: "??",
-      summary: "malformed transcript line",
-      detail: typeof raw.raw === "string" ? raw.raw : JSON.stringify(raw),
-      tone: "malformed",
-    };
-  }
-
-  const dir = typeof raw.dir === "string" ? raw.dir : "";
-  const message = raw.message;
-  const json = JSON.stringify(message, null, 2);
-
-  if (dir === "synthetic") {
-    return {
-      role: "permission",
-      summary: "auto-approved permission decision (runner-injected)",
-      detail: json,
-      tone: "permission",
-    };
-  }
-
-  if (isRecord(message) && typeof message.method === "string") {
-    const method = message.method;
-    const params = message.params;
-
-    if (method === "session/request_permission") {
-      return { role: "permission", summary: "permission requested", detail: json, tone: "permission" };
-    }
-    if (method === "session/prompt") {
-      return { role: "prompt", summary: promptText(params), detail: json, tone: "prompt" };
-    }
-    if (method === "session/update" && isRecord(params) && isRecord(params.update)) {
-      const update = params.update;
-      const kind = typeof update.sessionUpdate === "string" ? update.sessionUpdate : "update";
-      if (kind === "agent_message_chunk") {
-        const text = asText(update.content);
-        return { role: "agent", summary: text ?? "(non-text chunk)", detail: text === undefined ? json : undefined, tone: "agent" };
-      }
-      if (kind === "tool_call" || kind === "tool_call_update") {
-        const title = typeof update.title === "string" ? update.title : kind;
-        return { role: "tool", summary: title, detail: json, tone: "tool" };
-      }
-      return { role: "update", summary: kind, detail: json, tone: "protocol" };
-    }
-    return { role: dir === "send" ? "client" : "adapter", summary: method, detail: json, tone: "protocol" };
-  }
-
-  // A JSON-RPC response (result/error, no method).
-  const label = isRecord(message) && "error" in message ? "error response" : "response";
-  return { role: dir === "send" ? "client" : "adapter", summary: label, detail: json, tone: "protocol" };
-};
-
-const ENTRY_TONE_CLASS: Record<RenderedEntry["tone"], string> = {
+const ENTRY_TONE_CLASS: Record<TranscriptBlock["tone"], string> = {
   agent: "text-neutral-800 dark:text-neutral-200",
   prompt: "text-neutral-800 dark:text-neutral-200",
   tool: "text-neutral-600 dark:text-neutral-400",
@@ -144,7 +59,7 @@ const ENTRY_TONE_CLASS: Record<RenderedEntry["tone"], string> = {
   malformed: "text-red-700 dark:text-red-400",
 };
 
-const TranscriptEntryRow: FC<{ entry: RenderedEntry }> = ({ entry }) => {
+const TranscriptEntryRow: FC<{ entry: TranscriptBlock }> = ({ entry }) => {
   const roleTag = (
     <span className="mr-2 inline-block w-20 shrink-0 text-right font-mono text-[10px] uppercase text-neutral-400 dark:text-neutral-500">
       {entry.role}
@@ -600,8 +515,8 @@ export const RunDetailModal: FC<{
                 <p className="text-[11px] text-neutral-400">No transcript.</p>
               ) : (
                 <div className="max-h-80 overflow-y-auto rounded-md border border-neutral-200 py-1 dark:border-neutral-800">
-                  {detail.transcript.map((raw, index) => (
-                    <TranscriptEntryRow key={index} entry={renderEntry(raw)} />
+                  {renderTranscript(detail.transcript).map((block, index) => (
+                    <TranscriptEntryRow key={index} entry={block} />
                   ))}
                 </div>
               )}
