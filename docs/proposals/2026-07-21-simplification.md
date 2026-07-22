@@ -115,6 +115,19 @@ allowed; the graded read-out shows the evidence state at that version ("not
 yet measured" / pass rates) and the publish is stamped with it. Honesty
 without friction.
 
+**D4c — the stage enum (Jess, 2026-07-22), amending this ruling's "ladder
+ends at Draft" clause:** the stored ladder is **unchanged** —
+`idea → researching → drafting → evaluating → published` (+`archived`,
+also unchanged for now). Only `published`'s *meaning* changes: **a version
+of this skill has been written to its installed location** — it is live in
+service. It is a durable resting state: the user iterates on new drafts
+and evals *within* it without the installed skill.md changing until they
+publish again (each publish soft-gate-stamped per D4b). Eval work and new
+drafts never move the stage; entry states become honest — created in
+Studio enters at `idea`, adopted in place enters at `published` (its
+skill.md is already installed). No migration, no frozen values, no display
+remap beyond D3's renames.
+
 ## D5 — Run findings become work
 
 Ruling 4 as proposed, unchanged: `TodoOrigin` gains `{kind: "run", runId}`;
