@@ -203,6 +203,8 @@ export interface RiskCoverageRecord {
   readonly bundle: string;
   readonly riskId: string;
   readonly family: string;
+  /** The authored claim sentence (risk-map.md's Description column); `""` when the author left the cell blank. */
+  readonly description: string;
   readonly coverage: CoverageValue;
   readonly fixtureCase?: string;
 }
@@ -296,6 +298,8 @@ interface RiskCoverageRow {
   readonly bundle: string;
   readonly risk_id: string;
   readonly family: string;
+  /** `null` only when reading a pre-#144 studio.db that predates the column -- the next rebuild backfills it. */
+  readonly description: string | null;
   readonly coverage: string;
   readonly fixture_case: string | null;
 }
@@ -568,6 +572,7 @@ const rowToRiskCoverageRecord = (row: RiskCoverageRow): Effect.Effect<RiskCovera
       bundle: row.bundle,
       riskId: row.risk_id,
       family: row.family,
+      description: row.description ?? "",
       coverage: row.coverage,
       ...(row.fixture_case !== null ? { fixtureCase: row.fixture_case } : {}),
     };
@@ -697,6 +702,7 @@ const createSchema = (db: Database): void => {
       bundle TEXT NOT NULL,
       risk_id TEXT NOT NULL,
       family TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
       coverage TEXT NOT NULL,
       fixture_case TEXT
     )
@@ -1168,13 +1174,14 @@ export const layer = (
           }
 
           const insertRiskCoverage = db.query(
-            "INSERT INTO risk_coverage (bundle, risk_id, family, coverage, fixture_case) VALUES ($bundle, $riskId, $family, $coverage, $fixtureCase)",
+            "INSERT INTO risk_coverage (bundle, risk_id, family, description, coverage, fixture_case) VALUES ($bundle, $riskId, $family, $description, $coverage, $fixtureCase)",
           );
           for (const row of riskCoverageRecords) {
             insertRiskCoverage.run({
               $bundle: row.bundle,
               $riskId: row.riskId,
               $family: row.family,
+              $description: row.description,
               $coverage: row.coverage,
               $fixtureCase: row.fixtureCase ?? null,
             });

@@ -460,12 +460,14 @@ bundle: frame-the-problem
               bundle: "frame-the-problem",
               riskId: "ADV-1",
               family: "ADV",
+              description: "Prompt injection",
               coverage: "gap",
             },
             {
               bundle: "frame-the-problem",
               riskId: "IN-1",
               family: "IN",
+              description: "Empty/thin input",
               coverage: "covered",
               fixtureCase: "refusal-thin-input",
             },
@@ -606,6 +608,41 @@ bundle: frame-the-problem
           const index = yield* IndexService;
           const result = yield* index.rebuild();
           expect(result.warnings.some((w) => w.includes("does-not-exist"))).toBe(true);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  // Issue #144: the claim sentence survives the index round trip -- the
+  // viewer's Coverage table leads with it -- and an empty Description cell
+  // comes back as `""` (the display's explicit "no description" state),
+  // never dropped and never null.
+  test("risk-map descriptions round-trip through the index; an empty cell is ''", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "claims" });
+
+        yield* fs.writeFileString(
+          path.join(dir, "skills", "claims", "evals", "risk-map.md"),
+          `| Risk | Description | Coverage | Fixture |
+|---|---|---|---|
+| IN-1 | Empty/thin input | ● covered | — |
+| RE-1 | | ○ gap | — |
+`,
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const coverage = yield* index.listRiskCoverage("claims");
+          expect(coverage.map((row) => [row.riskId, row.description])).toEqual([
+            ["IN-1", "Empty/thin input"],
+            ["RE-1", ""],
+          ]);
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );

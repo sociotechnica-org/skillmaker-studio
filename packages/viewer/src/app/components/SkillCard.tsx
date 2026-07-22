@@ -1817,7 +1817,20 @@ const CoverageTab: FC<{
                   .filter((row) => row.family === family)
                   .map((row) => (
                     <tr key={row.riskId} className="border-t border-neutral-100 dark:border-neutral-800">
-                      <td className="py-1 pr-2 font-mono">{row.riskId}</td>
+                      {/* The claim sentence leads the row (issue #144): the
+                          description IS the row -- "IN-1" means nothing to a
+                          reader who has never seen the ids, so the id shrinks
+                          to a small handle beside its sentence. An empty
+                          Description cell renders an explicit "no
+                          description", never a blank. */}
+                      <td className="w-full py-1 pr-2">
+                        {row.description === undefined || row.description === "" ? (
+                          <span className="italic text-neutral-400">no description</span>
+                        ) : (
+                          <span className="text-neutral-700 dark:text-neutral-200">{row.description}</span>
+                        )}{" "}
+                        <span className="whitespace-nowrap font-mono text-[10px] text-neutral-400">{row.riskId}</span>
+                      </td>
                       <td className="py-1 pr-2">
                         <span
                           className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${COVERAGE_PILL_CLASS[row.coverage]}`}
