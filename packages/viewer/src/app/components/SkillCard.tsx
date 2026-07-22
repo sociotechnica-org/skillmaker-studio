@@ -91,6 +91,7 @@ import {
 } from "../runtime/schemas.ts";
 import { useBundleDetail } from "../runtime/useBundleDetail.ts";
 import { useBundleFileContent } from "../runtime/useBundleFileContent.ts";
+import { FileContentView } from "./Markdown.tsx";
 import { useFixtureDetail } from "../runtime/useFixtureDetail.ts";
 import { useWorkspace } from "../runtime/useWorkspace.ts";
 import { nextAction, nextStageOf } from "../runtime/nextAction.ts";
@@ -1464,9 +1465,13 @@ const InstructionsTab: FC<{
         </p>
       )}
       {!loading && fileError === undefined && content !== undefined && content.length > 0 && (
-        <pre className="max-h-[36rem] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-canvas/50 p-3 font-mono text-xs leading-relaxed text-neutral-800 dark:text-neutral-200">
-          {content}
-        </pre>
+        // SKILL.md renders as formatted markdown with a Raw toggle (#143).
+        <FileContentView
+          path={path}
+          content={content}
+          preClassName="max-h-[36rem] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-canvas/50 p-3 font-mono text-xs leading-relaxed text-neutral-800 dark:text-neutral-200"
+          renderedClassName="max-h-[36rem] overflow-auto rounded-md border border-border bg-canvas/50 p-3"
+        />
       )}
     </section>
   );
@@ -1516,9 +1521,16 @@ const FilesTab: FC<{ slug: string; files: ReadonlyArray<string>; initialFile: st
         </p>
       )}
       {!loading && fileError === undefined && (
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800">
-          {content !== undefined && content.length > 0 ? content : "(empty)"}
-        </pre>
+        // .md files (design.md, review-panel artifact deep-links) render as
+        // formatted markdown with a Raw toggle (#143); other files keep the
+        // plain <pre> exactly as before.
+        <FileContentView
+          key={selected}
+          path={selected ?? ""}
+          content={content ?? ""}
+          preClassName="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800"
+          renderedClassName="max-h-96 overflow-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-800"
+        />
       )}
     </section>
   );
