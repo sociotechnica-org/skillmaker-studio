@@ -22,6 +22,7 @@ import { Effect } from "effect";
 import { Path } from "effect/Path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { type CliResult, expectedFailure, infraError, ok, usageError } from "../CliResult.ts";
+import { modelDisplayName } from "../ModelDisplay.ts";
 
 export interface StationRunOptions {
   readonly json: boolean;
@@ -158,7 +159,8 @@ const summarize = (slug: string, result: RunStationResult, json: boolean): CliRe
     : [
         `skillmaker station run: ${result.status} (${slug}, station "${result.state}", run ${result.runId})`,
         `  skill:     ${result.skill}`,
-        `  model:     ${result.model || "(unknown)"}`,
+        // Model NAME only (#141): the JSON payload above and run.json keep the full stored string.
+        `  model:     ${result.model ? modelDisplayName(result.model) : "(unknown)"}`,
         `  installed: ${result.skillInstalled ? "yes" : "NO -- naked agent, see warning above"}`,
         `  invoked:   ${result.skillInvoked ? "yes (transcript shows the skill was used)" : "no (transcript shows no evidence the skill was used)"}`,
         `  changed:   ${result.changedPaths.length === 0 ? "(none)" : result.changedPaths.join(", ")}`,

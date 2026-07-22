@@ -3,6 +3,7 @@ import {
   coverageTally,
   formatCI,
   formatPassRate,
+  modelDisplayName,
   nextChips,
   provenOnProviders,
   providerModelId,
@@ -53,6 +54,19 @@ describe("formatPassRate / formatCI (one display policy, chips and table alike)"
   });
 });
 
+describe("modelDisplayName (#141: display-layer blurb strip)", () => {
+  test("everything from the first '·' separator is dropped, trimmed", () => {
+    expect(modelDisplayName("Opus 4.6 · Most capable for complex work")).toBe("Opus 4.6");
+    expect(modelDisplayName("Opus 4.6·blurb")).toBe("Opus 4.6");
+    expect(modelDisplayName("A · b · c")).toBe("A");
+  });
+
+  test("a model string without a separator renders unchanged", () => {
+    expect(modelDisplayName("gpt-5.6-sol[xhigh]")).toBe("gpt-5.6-sol[xhigh]");
+    expect(modelDisplayName("")).toBe("");
+  });
+});
+
 describe("providerModelId", () => {
   test("provider/model when a model id is recorded; provider alone otherwise -- always the exact recorded strings", () => {
     expect(providerModelId({ provider: "claude-code", model: "gpt-5.6-sol[xhigh]" })).toBe(
@@ -60,6 +74,14 @@ describe("providerModelId", () => {
     );
     expect(providerModelId({ provider: "claude-code", model: "" })).toBe("claude-code");
     expect(providerModelId({ provider: "claude-code", model: "claude-code" })).toBe("claude-code");
+  });
+
+  test("the compact id strips the adapter's marketing blurb (#141)", () => {
+    expect(
+      providerModelId({ provider: "claude-code", model: "Opus 4.6 · Most capable for complex work" }),
+    ).toBe("claude-code/Opus 4.6");
+    // A blurb-only difference from the provider name still collapses to the provider alone.
+    expect(providerModelId({ provider: "claude-code", model: "claude-code · Fast" })).toBe("claude-code");
   });
 });
 

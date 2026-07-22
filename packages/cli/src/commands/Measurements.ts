@@ -22,6 +22,7 @@ import {
 } from "@skillmaker/core";
 import { Effect } from "effect";
 import { type CliResult, expectedFailure, ok, usageError } from "../CliResult.ts";
+import { modelDisplayName } from "../ModelDisplay.ts";
 
 export interface MeasurementsOptions {
   readonly json: boolean;
@@ -109,10 +110,15 @@ const summarize = (
     return ok("skillmaker: no measurements yet (no graded, completed runs for this bundle)\n");
   }
 
+  // Model NAME only (#141): the table strips the adapter blurb; the JSON branch above keeps the full stored string.
+  const providerCell = (m: (typeof measurements)[number]): string => {
+    const model = modelDisplayName(m.model);
+    return model !== "" && model !== m.provider ? `${m.provider}/${model}` : m.provider;
+  };
   const rows = measurements.map((m) => ({
     fixture: m.fixtureCase,
     version: versionLabel(byHash.get(m.versionHash) ?? { hash: m.versionHash }),
-    provider: m.model !== "" && m.model !== m.provider ? `${m.provider}/${m.model}` : m.provider,
+    provider: providerCell(m),
     n: String(m.n),
     // Fix 3 (F5): pass rate stays PASS-ONLY (passes / n) -- partial and fail
     // both count toward `n`'s denominator but never this numerator. Shown

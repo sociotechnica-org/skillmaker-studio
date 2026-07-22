@@ -26,6 +26,7 @@ import { Effect } from "effect";
 import { Path } from "effect/Path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { type CliResult, expectedFailure, infraError, ok, usageError } from "../CliResult.ts";
+import { modelDisplayName } from "../ModelDisplay.ts";
 
 export interface RunOptions {
   readonly json: boolean;
@@ -161,7 +162,8 @@ const summarize = (slug: string, result: RunFixtureResult, json: boolean): CliRe
     : [
         `skillmaker run: ${result.status} (${slug}, run ${result.runId})`,
         `  version:   ${result.skillVersionHash}${result.autoRecordedVersion ? " (auto-recorded before this run)" : ""}`,
-        `  model:     ${result.model || "(unknown)"}`,
+        // Model NAME only (#141): the JSON payload above and run.json keep the full stored string.
+        `  model:     ${result.model ? modelDisplayName(result.model) : "(unknown)"}`,
         `  skill:     ${result.skillInstalled ? "installed" : "NOT INSTALLED (naked agent -- see warning above)"}`,
         `  invoked:   ${result.skillInvoked ? "yes (transcript shows the skill was used)" : "no (transcript shows no evidence the skill was used)"}`,
         `  artifacts: ${result.artifacts.length === 0 ? "(none)" : result.artifacts.join(", ")}`,
