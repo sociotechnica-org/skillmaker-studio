@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "skillmaker-dev-release",
+  "name": "Skillmaker Dev Release",
+  "oneLiner": "Maintainer workflow for cutting a skillmaker-studio release: version bump, tag, release.yml, npm verification.",
+  "tags": ["meta", "process", "release"],
+  "created": "2026-07-22",
+  "targets": [
+    "claude-code"
+  ]
+}
