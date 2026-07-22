@@ -18,6 +18,7 @@ import { buildRunTodoPayload } from "../runtime/runTodoDraft.ts";
 import type { EventView, RunDetailRun, RunStatus, RunVerdict } from "../runtime/schemas.ts";
 import { renderTranscript, type TranscriptBlock } from "../runtime/transcriptCoalesce.ts";
 import { useRunDetail } from "../runtime/useRunDetail.ts";
+import { FileContentView } from "./Markdown.tsx";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -437,9 +438,16 @@ const ArtifactViewer: FC<{ slug: string; runId: string; artifacts: ReadonlyArray
         </p>
       )}
       {selected !== undefined && content !== undefined && (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800">
-          {content.length > 0 ? content : "(empty)"}
-        </pre>
+        // Markdown artifacts (response.md, sandbox SKILL.md copies) render
+        // formatted with a Raw toggle (#143); everything else keeps the
+        // plain <pre> unchanged.
+        <FileContentView
+          key={selected}
+          path={selected}
+          content={content}
+          preClassName="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-200 p-2 text-[11px] dark:border-neutral-800"
+          renderedClassName="max-h-64 overflow-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-800"
+        />
       )}
     </div>
   );
