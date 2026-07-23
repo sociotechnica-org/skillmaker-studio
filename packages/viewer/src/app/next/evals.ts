@@ -195,3 +195,20 @@ export const groupClaimsByFamily = (
   }
   return order.map((family) => ({ family, claims: byFamily.get(family) ?? [] }));
 };
+
+/**
+ * The "Run all fixtures" button's honest label while dispatch is in
+ * flight (wire: GET /api/bundles/:slug/runs-active). A run-all sweep's
+ * progress ("running N of M…", N = the fixture currently running) beats a
+ * bare active count; any other active run still reads "running…" so the
+ * button never invites a doomed dispatch (the server 409s a busy bundle).
+ */
+export const runAllButtonLabel = (
+  runAll: { readonly completed: number; readonly total: number } | null,
+  activeCount: number,
+): string =>
+  runAll !== null
+    ? `running ${Math.min(runAll.completed + 1, runAll.total)} of ${runAll.total}…`
+    : activeCount > 0
+      ? "running…"
+      : "Run all fixtures";

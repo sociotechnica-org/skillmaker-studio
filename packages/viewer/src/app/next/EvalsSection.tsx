@@ -23,8 +23,10 @@ import {
   claimStatusInScope,
   groupClaimsByFamily,
   modelChipsForClaim,
+  runAllButtonLabel,
   runsForFixture,
 } from "./evals.ts";
+import { useRunDispatch } from "./runsApi.ts";
 import type { ModelChip, ModelChipStatus, VersionScope } from "./evals.ts";
 import { Button, CLAIM_DOT, FADE_R } from "./ui.tsx";
 import type { Claim, EvalRun, EvalsData, SkillPage } from "./types.ts";
@@ -107,6 +109,11 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
   const [gapErrors, setGapErrors] = useState<Readonly<Record<string, string>>>({});
 
   const models = evals === null ? [] : bundleModels(evals.measurements);
+
+  // Fixture-run dispatch (same engine as `skillmaker run`): inert without a
+  // server. `anyActive` disables "Run all" -- the server 409s a busy bundle.
+  const runs = useRunDispatch(evals?.slug ?? "");
+  const anyActive = runs.activeFixtures.size > 0 || runs.runAll !== null;
 
   const ensureFixtureGlance = (data: EvalsData, caseName: string): void => {
     setFixtureGlances((current) => {
@@ -239,9 +246,15 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
         )}
         <div className="flex shrink-0 gap-2">
           <Button label="New claim" />
-          <Button label="Run all fixtures" primary />
+          <Button
+            label={runAllButtonLabel(runs.runAll, runs.activeFixtures.size)}
+            primary
+            disabled={evals === null || anyActive}
+            onClick={runs.runAllFixtures}
+          />
         </div>
       </div>
+      {runs.error !== null && <p className="pt-1 text-right text-xs text-rose-700">{runs.error}</p>}
 
       <div className="mt-1 space-y-2">
         {groupClaimsByFamily(page.claims).map((group) => (
@@ -304,6 +317,8 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
                           <FixtureBlock
                             key={caseName}
                             caseName={caseName}
+                            running={runs.activeFixtures.has(caseName)}
+                            onRun={() => runs.runFixture(caseName)}
                             glance={fixtureGlances[caseName]}
                             runs={runsForFixture(evals.runs, caseName)}
                             runGlances={runGlances}
@@ -333,6 +348,8 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
 
 function FixtureBlock({
   caseName,
+  running,
+  onRun,
   glance,
   runs,
   runGlances,
@@ -341,6 +358,9 @@ function FixtureBlock({
   onToggleRun,
 }: {
   readonly caseName: string;
+  /** True while this fixture has a dispatched run in flight (running or queued). */
+  readonly running: boolean;
+  readonly onRun: () => void;
   readonly glance: Lazy<FixtureGlance> | undefined;
   readonly runs: ReadonlyArray<EvalRun>;
   readonly runGlances: Readonly<Record<string, Lazy<RunGlance>>>;
@@ -354,6 +374,18 @@ function FixtureBlock({
     <div>
       <div className="flex items-center gap-2 text-xs">
         <span className="font-mono text-ink">{caseName}</span>
+        {running ? (
+          <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-800">running…</span>
+        ) : (
+          <button
+            type="button"
+            onClick={onRun}
+            title={`Run fixture ${caseName} (same engine as skillmaker run)`}
+            className="rounded border border-border px-1 text-[10px] text-ink-muted hover:text-ink"
+          >
+            ▸ Run
+          </button>
+        )}
         {glance !== undefined && glance.state === "ready" && (
           <>
             {glance.value.fixtureClass !== null && (

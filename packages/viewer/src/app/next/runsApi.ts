@@ -72,6 +72,7 @@ export interface RunDispatch {
   readonly runAllFixtures: () => void;
 }
 
+/** `slug` may be `""` when the shell runs on placeholders (no server) -- the hook then stays fully inert. */
 export function useRunDispatch(slug: string): RunDispatch {
   const [status, setStatus] = useState<RunsActive>({ active: [], runAll: null });
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +87,7 @@ export function useRunDispatch(slug: string): RunDispatch {
   }, []);
 
   const poll = useCallback(async () => {
+    if (slug.length === 0) return;
     try {
       const next = await fetchRunsActive(slug);
       if (!alive.current) return;
@@ -110,6 +112,7 @@ export function useRunDispatch(slug: string): RunDispatch {
 
   const dispatch = useCallback(
     async (send: () => Promise<string | null>) => {
+      if (slug.length === 0) return;
       const failure = await send();
       if (!alive.current) return;
       setError(failure);
@@ -118,7 +121,7 @@ export function useRunDispatch(slug: string): RunDispatch {
         void poll();
       }
     },
-    [poll],
+    [poll, slug],
   );
 
   const runFixture = useCallback((fixture: string) => void dispatch(() => postRun(slug, fixture)), [dispatch, slug]);
