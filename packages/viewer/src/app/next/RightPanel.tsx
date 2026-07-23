@@ -1,5 +1,6 @@
 /** Right panel: Files (bundle browser + in-panel viewer) and Chat (the per-skill agent session). */
 import { useCallback, useState } from "react";
+import { usePanelResize } from "./hooks.ts";
 import { FileContentView } from "../components/Markdown.tsx";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "./api.ts";
 import { BUNDLE_FILES } from "./data.ts";
@@ -105,6 +106,9 @@ function FilesTab({
   const fetcher = useCallback(() => fetchBundleFiles(skill), [skill]);
   const files = useApiData(fetcher, FILES_FALLBACK);
   const tree = buildTree(files);
+  // The tree column hugs the window's right edge, so the "right"-side
+  // resize math (innerWidth - clientX) holds here too. Persisted.
+  const treeCol = usePanelResize("right", "sm-next-treew", 208, 140, 420);
 
   // No file selected: the tree fills the panel.
   if (selected === null) {
@@ -132,13 +136,21 @@ function FilesTab({
         <div className="min-w-0 flex-1 overflow-y-auto p-3">
           <FileViewer skill={skill} path={selected} />
         </div>
-        {/* collapsible tree column */}
+        {/* collapsible, drag-resizable tree column */}
         <div
-          className={`shrink-0 overflow-hidden border-border transition-[width] duration-200 ease-out ${
-            treeOpen ? "w-52 border-l" : "w-0"
-          }`}
+          className={`relative shrink-0 overflow-hidden border-border ${
+            treeCol.dragging ? "" : "transition-[width] duration-200 ease-out"
+          } ${treeOpen ? "border-l" : ""}`}
+          style={{ width: treeOpen ? treeCol.width : 0 }}
         >
-          <div className="h-full w-52 overflow-y-auto px-1 py-2 text-sm">
+          {treeOpen && (
+            <div
+              className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize hover:bg-amber-400/40"
+              onMouseDown={treeCol.onDragStart}
+              title="Drag to resize"
+            />
+          )}
+          <div className="h-full overflow-y-auto px-1 py-2 text-sm" style={{ width: treeCol.width }}>
             <DirChildren dir={tree} depth={0} selected={selected} onSelect={onSelect} />
           </div>
         </div>
@@ -227,7 +239,7 @@ function FileViewer({ skill, path }: { readonly skill: string; readonly path: st
     <FileContentView
       path={path}
       content={content}
-      preClassName="whitespace-pre-wrap break-words rounded border border-border bg-surface p-3 text-xs shadow-sm"
+      preClassName="whitespace-pre-wrap break-words text-xs leading-relaxed [font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace]"
       renderedClassName="rounded border border-border bg-surface p-3 text-sm shadow-sm"
     />
   );
