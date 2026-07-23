@@ -13,8 +13,9 @@
  * `astro dev` where `/api/*` is absent, so `useApiData` falls back to the
  * caller-supplied placeholder constants on any fetch/decode failure.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getBundleDetail, getBundleFile, getCatalog, getFixtureDetail, getState, getTodos } from "../runtime/api.ts";
+import { useJournalTick } from "./liveRefresh.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
 import type { BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
 import { claimFixtureCases, promptSummary, unclaimedFixtureCases } from "./evals.ts";
@@ -269,31 +270,44 @@ export const fetchRunGlance = async (slug: string, runId: string): Promise<RunGl
  * placeholder constants) while loading AND on any failure -- the shell
  * never breaks when the server is absent. Pass a module-level `fetcher`
  * (stable identity) so the effect runs once per mount.
+ *
+ * Both hooks also refetch when the shared journal tick bumps
+ * (./liveRefresh.ts: one debounced SSE subscription per page), so new
+ * runs, stage changes, and todos appear without a manual refresh. A
+ * tick-driven refetch is quiet: current data stays on screen while the
+ * fresh response loads, and a transient failure never demotes live data.
  */
 /** Like useApiData, but distinguishes loading / live / error so views can
  * avoid the placeholder flash: show nothing while loading, placeholders
  * only when the server is absent, and honest empty states when live. */
 export function useApiStatus<T>(fetcher: () => Promise<T>): { readonly data?: T; readonly status: "loading" | "live" | "error" } {
+  const tick = useJournalTick();
   const [state, setState] = useState<{ readonly data?: T; readonly status: "loading" | "live" | "error" }>({ status: "loading" });
+  const lastFetcher = useRef<(() => Promise<T>) | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
-    setState({ status: "loading" });
+    // A tick with the same fetcher is a background refresh: keep what's
+    // on screen. A new fetcher (e.g. slug change) starts from loading.
+    const isRefresh = lastFetcher.current === fetcher;
+    lastFetcher.current = fetcher;
+    if (!isRefresh) setState({ status: "loading" });
     fetcher().then(
       (value) => {
         if (!cancelled) setState({ data: value, status: "live" });
       },
       () => {
-        if (!cancelled) setState({ status: "error" });
+        if (!cancelled) setState((prev) => (isRefresh && prev.status === "live" ? prev : { status: "error" }));
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [fetcher]);
+  }, [fetcher, tick]);
   return state;
 }
 
 export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
+  const tick = useJournalTick();
   const [data, setData] = useState<T | undefined>(undefined);
 
   useEffect(() => {
@@ -303,13 +317,14 @@ export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
         if (!cancelled) setData(value);
       },
       () => {
-        // Server absent or wire mismatch: stay on the placeholders.
+        // Server absent or wire mismatch: stay on the placeholders
+        // (or on the last good data if a refresh fails transiently).
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [fetcher]);
+  }, [fetcher, tick]);
 
   return data ?? fallback;
 }
