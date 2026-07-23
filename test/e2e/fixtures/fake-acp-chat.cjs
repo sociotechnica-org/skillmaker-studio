@@ -24,6 +24,17 @@
  *   cancelled".
  * - A prompt containing "HANG" never finishes its turn until a
  *   `session/cancel` arrives -> then answers `stopReason: "cancelled"`.
+ * - MODELS (mirroring `claude-code-acp@0.16.2`'s real shape): `initialize`
+ *   advertises `promptCapabilities: {image: true}`; `session/new` lists two
+ *   `availableModels` with `currentModelId: "fake-chat-model"`; a
+ *   `session/set_model` request switches the current model AND emits an
+ *   agent chunk `"model set: <modelId>"` so tests can assert the switch
+ *   crossed the wire (including the model-at-start call right after
+ *   session/new).
+ * - IMAGES: prompt content blocks of `{type: "image", data, mimeType}` are
+ *   acknowledged inside the echoed turn text as
+ *   `[image <mimeType> <decoded-bytes>b]` -- proof the block arrived
+ *   intact, decodable, and in order.
  *
  * Env: FAKE_CHAT_STATE_DIR (required) -- where session history files live.
  * CI-safe, deterministic, no auth required.
@@ -70,6 +81,13 @@ const chunk = (sessionId, role, text) => {
     },
   });
 };
+
+const AVAILABLE_MODELS = [
+  { modelId: "fake-chat-model", name: "Fake Chat Model", description: "The fake default" },
+  { modelId: "fake-chat-model-pro", name: "Fake Chat Model Pro", description: "The fake heavyweight" },
+];
+let currentModelId = "fake-chat-model";
+const MODELS_STATE = () => ({ currentModelId, availableModels: AVAILABLE_MODELS });
 
 let sessionId = null;
 let turnCount = 0;
@@ -150,7 +168,7 @@ rl.on("line", (line) => {
       result: {
         protocolVersion: 1,
         agentInfo: { name: "fake-acp-chat" },
-        agentCapabilities: { loadSession: true },
+        agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
       },
     });
     return;
@@ -158,12 +176,32 @@ rl.on("line", (line) => {
 
   if (msg.method === "session/new") {
     sessionId = `fake-chat-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    currentModelId = "fake-chat-model";
     writeHistory(sessionId, { turns: [] });
     send({
       jsonrpc: "2.0",
       id: msg.id,
-      result: { sessionId, models: { currentModelId: "fake-chat-model" } },
+      result: { sessionId, models: MODELS_STATE() },
     });
+    return;
+  }
+
+  if (msg.method === "session/set_model") {
+    const requested = msg.params && msg.params.modelId;
+    const known = AVAILABLE_MODELS.some((m) => m.modelId === requested);
+    if (!known) {
+      send({
+        jsonrpc: "2.0",
+        id: msg.id,
+        error: { code: -32602, message: `unknown model id ${String(requested)}` },
+      });
+      return;
+    }
+    currentModelId = requested;
+    // Announce over the stream so tests can observe the switch (whether at
+    // session start or mid-session).
+    if (sessionId) chunk(sessionId, "agent", `model set: ${requested}`);
+    send({ jsonrpc: "2.0", id: msg.id, result: {} });
     return;
   }
 
@@ -185,7 +223,7 @@ rl.on("line", (line) => {
       chunk(sessionId, "user", turn.user);
       chunk(sessionId, "agent", turn.agent);
     }
-    send({ jsonrpc: "2.0", id: msg.id, result: null });
+    send({ jsonrpc: "2.0", id: msg.id, result: { models: MODELS_STATE() } });
     return;
   }
 
@@ -199,13 +237,20 @@ rl.on("line", (line) => {
   }
 
   if (msg.method === "session/prompt") {
-    const promptText =
-      msg.params && Array.isArray(msg.params.prompt)
-        ? msg.params.prompt
-            .filter((p) => p && p.type === "text" && typeof p.text === "string")
-            .map((p) => p.text)
-            .join("\n")
-        : "";
+    const parts =
+      msg.params && Array.isArray(msg.params.prompt) ? msg.params.prompt : [];
+    const promptText = parts
+      .map((p) => {
+        if (p && p.type === "text" && typeof p.text === "string") return p.text;
+        if (p && p.type === "image" && typeof p.data === "string" && typeof p.mimeType === "string") {
+          // Acknowledge the image block with its DECODED size -- proof the
+          // base64 payload crossed the wire intact.
+          return `[image ${p.mimeType} ${Buffer.from(p.data, "base64").length}b]`;
+        }
+        return null;
+      })
+      .filter((part) => part !== null)
+      .join("\n");
 
     if (promptText.includes("HANG")) {
       hangingTurn = { promptRequestId: msg.id };

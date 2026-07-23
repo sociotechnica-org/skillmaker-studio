@@ -131,6 +131,27 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 
+/**
+ * Decodes a chat message's `images` field: absent -> `[]`, a well-shaped
+ * array -> the attachments, anything else -> `undefined` (a 400). Size and
+ * mime-type admission stays with the manager (validateChatImage), so the
+ * cap lives in ONE place.
+ */
+const decodeChatImages = (
+  raw: unknown,
+): ReadonlyArray<{ readonly data: string; readonly mimeType: string; readonly name?: string }> | undefined => {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return undefined;
+  const out: Array<{ readonly data: string; readonly mimeType: string; readonly name?: string }> = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) return undefined;
+    const { data, mimeType, name } = entry as { data?: unknown; mimeType?: unknown; name?: unknown };
+    if (typeof data !== "string" || typeof mimeType !== "string") return undefined;
+    out.push({ data, mimeType, ...(typeof name === "string" ? { name } : {}) });
+  }
+  return out;
+};
+
 const runIndexEffect = <A>(
   root: string,
   program: Effect.Effect<A, unknown, IndexService>,
@@ -2404,12 +2425,20 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
       // Chat surface (D9): per-skill agent sessions. Explicit-start flow:
       //   GET  /api/chat/:skill/state       session + provider + resumable snapshot
-      //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume" } -> spawn/resume
-      //   POST /api/chat/:skill/message     { text } -> one prompt turn (409 while running)
+      //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume", model?, effort? } -> spawn/resume
+      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn (409 while running)
+      //   POST /api/chat/:skill/model       { model, effort? } -> mid-session model change (between turns)
       //   POST /api/chat/:skill/permission  { requestId, optionId, decision } -> answer a pending ask
       //   POST /api/chat/:skill/cancel      cancel the in-flight turn
       //   POST /api/chat/:skill/end         close the live session (stays resumable)
       //   GET  /api/chat/:skill/stream      SSE: buffered replay + live updates
+      // Provider capability catalog for the grouped model picker: models per
+      // provider (learned from the adapters via a cached one-shot probe),
+      // effort levels, and image support. See ChatSessionManager.providersCatalog.
+      if (pathname === "/api/chat/providers" && request.method === "GET") {
+        return jsonResponse({ providers: await chatManager.providersCatalog() });
+      }
+
       if (pathname.startsWith("/api/chat/")) {
         const chatSegments = pathname
           .slice("/api/chat/".length)
@@ -2446,18 +2475,36 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           if (provider === undefined) {
             return jsonResponse({ error: "session requires a provider (one of the configured provider ids)" }, 400);
           }
-          const started = await chatManager.startSession(chatSkill, provider, mode);
+          const started = await chatManager.startSession(chatSkill, provider, mode, {
+            ...(typeof body.model === "string" && body.model.length > 0 ? { model: body.model } : {}),
+            ...(typeof body.effort === "string" && body.effort.length > 0 ? { effort: body.effort } : {}),
+          });
           return started.ok
             ? jsonResponse({ state: started.state })
             : jsonResponse({ error: started.error }, started.status);
         }
         if (chatAction === "message") {
           const text = typeof body.text === "string" ? body.text.trim() : "";
-          if (text.length === 0) {
-            return jsonResponse({ error: "message requires non-empty text" }, 400);
+          const images = decodeChatImages(body.images);
+          if (images === undefined) {
+            return jsonResponse({ error: "images must be an array of {data (base64), mimeType, name?}" }, 400);
           }
-          const sent = await chatManager.sendMessage(chatSkill, text);
+          if (text.length === 0 && images.length === 0) {
+            return jsonResponse({ error: "message requires non-empty text or at least one image" }, 400);
+          }
+          const sent = await chatManager.sendMessage(chatSkill, text, images);
           return sent.ok ? jsonResponse({ accepted: true }, 202) : jsonResponse({ error: sent.error }, sent.status);
+        }
+        if (chatAction === "model") {
+          const model = typeof body.model === "string" ? body.model.trim() : "";
+          const effort = typeof body.effort === "string" && body.effort.length > 0 ? body.effort : undefined;
+          if (model.length === 0) {
+            return jsonResponse({ error: "model requires a non-empty model id" }, 400);
+          }
+          const changed = await chatManager.setModel(chatSkill, model, effort);
+          return changed.ok
+            ? jsonResponse({ state: changed.state })
+            : jsonResponse({ error: changed.error }, changed.status);
         }
         if (chatAction === "permission") {
           const requestId = typeof body.requestId === "string" ? body.requestId : "";

@@ -153,10 +153,16 @@ export default function NextShell() {
           {center.kind === "new-skill" && (
             <NewSkillLauncher
               project={center.project}
-              onCreated={(slug, provider, message) => {
+              onCreated={(slug, provider, message, model, effort) => {
                 // The launcher disappears; the conversation continues in the
                 // right panel (session started with this very message).
-                setChatIntro({ slug, provider, message });
+                setChatIntro({
+                  slug,
+                  provider,
+                  message,
+                  ...(model !== undefined ? { model } : {}),
+                  ...(effort !== undefined ? { effort } : {}),
+                });
                 setCenter({ kind: "skill", project: center.project, slug });
                 setRightOpen(true);
               }}

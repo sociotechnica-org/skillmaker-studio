@@ -219,6 +219,22 @@ export {
   type ChatPermissionAsk,
 } from "./ChatSession.ts";
 export {
+  parseModelId,
+  composeModelId,
+  providerTitle,
+  readImageCapability,
+  mapProviderCatalog,
+  fallbackCatalogEntry,
+  base64ByteSize,
+  validateChatImage,
+  buildPromptBlocks,
+  MAX_CHAT_IMAGE_BYTES,
+  type ChatCatalogModel,
+  type ChatProviderCatalogEntry,
+  type ChatImageAttachment,
+  type ChatPromptBlock,
+} from "./ChatCapabilities.ts";
+export {
   runFixture,
   RunPreconditionError,
   FAILURE_CLASSIFICATION_TABLE,
