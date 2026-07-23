@@ -14,9 +14,10 @@
  * caller-supplied placeholder constants on any fetch/decode failure.
  */
 import { useEffect, useState } from "react";
-import { getBundleDetail, getBundleFile, getCatalog, getState, getTodos } from "../runtime/api.ts";
+import { getBundleDetail, getBundleFile, getCatalog, getFixtureDetail, getState, getTodos } from "../runtime/api.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
 import type { BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
+import { claimFixtureCases, promptSummary, unclaimedFixtureCases } from "./evals.ts";
 import type { BundleFile, Claim, ClaimStatus, Project, Skill, SkillPage, Stage, Task } from "./types.ts";
 
 /**
@@ -131,12 +132,15 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
     detail.measurements.filter((m) => m.passes > 0).map((m) => m.fixtureCase),
   );
   const claims: ReadonlyArray<Claim> = detail.riskCoverage.map((r) => {
+    // `case.json.risks` is the join (IA §C rule 2); the authored risk-map
+    // column is a fallback while the dual-write still exists.
+    const fixtureCases = claimFixtureCases(r.riskId, detail.fixtures, r.fixtureCase);
     const status: ClaimStatus =
       r.coverage === "gap"
         ? "gap"
         : r.coverage === "partial"
           ? "partial"
-          : r.fixtureCase !== undefined && measuredPass.has(r.fixtureCase)
+          : fixtureCases.some((c) => measuredPass.has(c))
             ? "proven"
             : "unmeasured";
     return {
@@ -144,7 +148,8 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       family: FAMILY_NAMES[r.family] ?? r.family,
       sentence: r.description !== undefined && r.description.length > 0 ? r.description : "(no description)",
       status,
-      fixtures: r.fixtureCase === undefined ? 0 : 1,
+      fixtures: fixtureCases.length,
+      fixtureCases,
     };
   });
 
@@ -162,6 +167,28 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
     provenOn: provenModels.length === 0 ? "none yet" : provenModels.join(", "),
     coverage: `${coveredCount} of ${detail.riskCoverage.length} claims`,
     claims,
+    evals: {
+      slug,
+      latestVersionHash: latestVersion?.hash ?? null,
+      runs: detail.runs.map((run) => ({
+        id: run.id,
+        fixtureCase: run.fixtureCase ?? null,
+        versionHash: run.versionHash,
+        provider: run.provider,
+        model: modelDisplayName(run.model),
+        startedAt: run.startedAt,
+        status: run.status,
+        verdict: run.verdict ?? null,
+      })),
+      measurements: detail.measurements.map((m) => ({
+        fixtureCase: m.fixtureCase,
+        versionHash: m.versionHash,
+        model: modelDisplayName(m.model),
+        n: m.n,
+        passes: m.passes,
+      })),
+      unclaimed: unclaimedFixtureCases(detail.fixtures, detail.riskCoverage.map((r) => r.riskId)),
+    },
     events: detail.events.slice(0, 5).map((e) => ({
       type: e.type,
       at: new Date(e.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
@@ -188,6 +215,53 @@ export const fetchBundleFile = async (slug: string, path: string): Promise<strin
   const body = (await response.json()) as { content?: unknown };
   if (typeof body.content !== "string") throw new Error("file: malformed response");
   return body.content;
+};
+
+/** What the claim accordion shows per fixture: prompt summary + answer-key presence (IA §C rule 2). */
+export type FixtureGlance = {
+  readonly summary: string | null;
+  readonly hasAnswerKey: boolean;
+  readonly checkCount: number;
+  readonly fixtureClass: string | null;
+};
+
+/** `GET /api/bundles/:slug/fixtures/:case` -> the accordion's fixture line. Fetched lazily on first claim expand. */
+export const fetchFixtureGlance = async (slug: string, caseName: string): Promise<FixtureGlance> => {
+  const detail = await getFixtureDetail(slug, caseName);
+  return {
+    summary: promptSummary(detail),
+    hasAnswerKey: detail.grading !== null && detail.grading.answerKey !== null && detail.grading.answerKey.trim().length > 0,
+    checkCount: detail.grading?.checks.length ?? 0,
+    fixtureClass: detail.class,
+  };
+};
+
+/** The run-row facts only `GET /runs/:runId` carries: the invoked flag (IA §C rule 3) + artifact names. */
+export type RunGlance = {
+  /** `true`/`false` = the wire's `skillInvoked` verdict; `null` = the server didn't say (older server). */
+  readonly skillInvoked: boolean | null;
+  readonly artifacts: ReadonlyArray<string>;
+};
+
+/**
+ * Raw read of `GET /api/bundles/:slug/runs/:runId` for the invoked chip:
+ * `skillInvoked` rides the response top-level, OUTSIDE the decoded
+ * `RunDetailResponse` schema (the epistemic core, today CLI-only), so this
+ * reads the body directly -- same raw-fetch precedent as
+ * `fetchBundleFiles`. The transcript is deliberately not returned.
+ */
+export const fetchRunGlance = async (slug: string, runId: string): Promise<RunGlance> => {
+  const response = await fetch(
+    `/api/bundles/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`,
+  );
+  if (!response.ok) throw new Error(`run: ${response.status}`);
+  const body = (await response.json()) as { skillInvoked?: unknown; artifacts?: unknown };
+  return {
+    skillInvoked: typeof body.skillInvoked === "boolean" ? body.skillInvoked : null,
+    artifacts: Array.isArray(body.artifacts)
+      ? body.artifacts.filter((a): a is string => typeof a === "string")
+      : [],
+  };
 };
 
 /**
