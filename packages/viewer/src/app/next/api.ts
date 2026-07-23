@@ -17,9 +17,10 @@ import { useEffect, useRef, useState } from "react";
 import { getBundleDetail, getBundleFile, getCatalog, getFixtureDetail, getState, getTodos } from "../runtime/api.ts";
 import { useJournalTick } from "./liveRefresh.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
-import type { BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
+import { latestReviewOutcome, pendingReview } from "../runtime/reviewPanel.ts";
+import type { BundleDetailResponse, BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
 import { claimFixtureCases, promptSummary, unclaimedFixtureCases } from "./evals.ts";
-import type { BundleFile, Claim, ClaimStatus, Project, Skill, SkillPage, Stage, Task } from "./types.ts";
+import type { BundleFile, Claim, ClaimStatus, Project, Skill, SkillLoop, SkillPage, Stage, Task, WireStage } from "./types.ts";
 
 /**
  * Wire stage -> this shell's display `Stage`. Deliberately NOT the runtime's
@@ -34,11 +35,12 @@ export const STAGE_FROM_WIRE: Record<BundleStage, Stage> = {
   published: "Published",
 };
 
-/** One catalog row -> a board/sidebar `Skill`. */
+/** One catalog row -> a board/sidebar `Skill`. `substate` is optional on the wire (pre-substate servers) -- absent means no dot, never an invented one. */
 export const toSkill = (entry: CatalogEntry): Skill => ({
   slug: entry.slug,
   stage: STAGE_FROM_WIRE[entry.stage],
   oneLiner: entry.oneLiner,
+  awaitingReview: entry.substate === "awaiting-review",
 });
 
 /**
@@ -105,6 +107,43 @@ export const fetchTasks = async (): Promise<ReadonlyArray<Task>> => {
   return toTasks(response.todos);
 };
 
+/** A wire state string -> `WireStage`, or undefined for anything unrecognized (never invents a stage). */
+export const asWireStage = (value: string | undefined): WireStage | undefined =>
+  value === "idea" || value === "researching" || value === "drafting" || value === "evaluating" || value === "published"
+    ? value
+    : undefined;
+
+/**
+ * Bundle detail -> the Skill page's production-loop facts. The pending
+ * review is derived by the shared `reviewPanel` fold (#130 rules binding:
+ * labeled by the state that REQUESTED it, never the current stage); this
+ * mapper only carries the facts -- the card builds its own display copy in
+ * the next shell's stage vocabulary.
+ */
+export const toLoop = (detail: BundleDetailResponse): SkillLoop => {
+  const pending = pendingReview(detail.events, detail.bundle.stage);
+  const outcome = latestReviewOutcome(detail.events, detail.bundle.stage);
+  return {
+    slug: detail.bundle.slug,
+    stage: detail.bundle.stage,
+    substate: detail.bundle.substate,
+    approvedForForward: detail.guardStatus.approvedForForward,
+    gateApproved: detail.guardStatus.gateApproved,
+    pending:
+      pending === undefined
+        ? undefined
+        : {
+            requestedState: asWireStage(pending.requestedState),
+            question: pending.question,
+            artifacts: pending.artifacts,
+          },
+    outcome:
+      outcome === undefined
+        ? undefined
+        : { decision: outcome.decision, at: outcome.at, notes: outcome.notes },
+  };
+};
+
 const FAMILY_NAMES: Record<string, string> = {
   IN: "Input",
   RE: "Reasoning",
@@ -161,6 +200,7 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
   const coveredCount = detail.riskCoverage.filter((r) => r.coverage !== "gap").length;
 
   return {
+    loop: toLoop(detail),
     instructions,
     stage: STAGE_FROM_WIRE[detail.bundle.stage],
     versionShort: latestVersion === undefined ? null : latestVersion.hash.replace(/^sha256:/, "").slice(0, 8),

@@ -7,6 +7,8 @@ export type Skill = {
   readonly slug: string;
   readonly stage: Stage;
   readonly oneLiner: string;
+  /** True when the bundle sits in the awaiting-review substate -- the sidebar's attention dot. Absent on placeholder data and pre-substate servers. */
+  readonly awaitingReview?: boolean;
 };
 
 /** A project is a directory that contains skills (IA §A). */
@@ -75,8 +77,45 @@ export type EvalsData = {
   readonly unclaimed: ReadonlyArray<string>;
 };
 
+/** Wire-vocabulary stage names (core's `BundleStage`), needed by the loop surfaces' payloads. */
+export type WireStage = "idea" | "researching" | "drafting" | "evaluating" | "published";
+
+/** The pending review, as the review card renders it (#130: named for the REQUESTING station's state, never the current stage). */
+export type PendingReviewView = {
+  /** The wire state that requested the review -- whose work this is. Undefined when the capped event window lost the request. */
+  readonly requestedState: WireStage | undefined;
+  readonly question: string | undefined;
+  /** Produced-file paths named by the request, rendered as a plain list. */
+  readonly artifacts: ReadonlyArray<string>;
+};
+
+/** The latest review outcome for the current stage's work -- stays visible after acting (#130). */
+export type ReviewOutcomeView = {
+  readonly decision: "approve" | "revise";
+  /** ISO timestamp, verbatim from the journal -- formatted at render time. */
+  readonly at: string;
+  readonly notes: string | undefined;
+};
+
+/**
+ * The Skill page's production-loop facts: wire stage/substate, the guard
+ * bits, and the derived review views. `null` on placeholder data (plain
+ * astro dev) -- the review card and advance controls are then hidden.
+ */
+export type SkillLoop = {
+  readonly slug: string;
+  readonly stage: WireStage;
+  readonly substate: "working" | "awaiting-review";
+  readonly approvedForForward: boolean;
+  readonly gateApproved: boolean;
+  readonly pending: PendingReviewView | undefined;
+  readonly outcome: ReviewOutcomeView | undefined;
+};
+
 /** Everything the Skill page renders (wire: GET /api/bundles/:slug + instructions file). */
 export type SkillPage = {
+  /** Production-loop facts (review card + advance controls); `null` on placeholders. */
+  readonly loop: SkillLoop | null;
   readonly instructions: string | null;
   readonly stage: Stage;
   readonly versionShort: string | null;
@@ -93,7 +132,9 @@ export type SkillPage = {
 export type CenterView =
   | { readonly kind: "board" }
   | { readonly kind: "tasks" }
-  | { readonly kind: "skill"; readonly project: string; readonly slug: string };
+  | { readonly kind: "skill"; readonly project: string; readonly slug: string }
+  /** The chat-first new-skill launcher, centered in the center column (ruled 2026-07-23). */
+  | { readonly kind: "new-skill"; readonly project: string };
 
 /** One entry of a bundle's file tree (GET /api/bundles/:slug/files). */
 export type BundleFile = {

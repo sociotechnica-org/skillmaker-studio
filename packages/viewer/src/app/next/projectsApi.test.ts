@@ -9,8 +9,8 @@ describe("decodeProjectsResponse", () => {
           name: "skillmaker-studio",
           path: "~/Documents/code/skillmaker-studio",
           skills: [
-            { slug: "to-tickets", stage: "evaluating", oneLiner: "Decompose scope into tickets" },
-            { slug: "release-notes", stage: "idea", oneLiner: "Draft release notes" },
+            { slug: "to-tickets", stage: "evaluating", substate: "awaiting-review", oneLiner: "Decompose scope into tickets" },
+            { slug: "release-notes", stage: "idea", substate: "working", oneLiner: "Draft release notes" },
             { slug: "book-builder", stage: "researching", oneLiner: "" },
             { slug: "pr-writer", stage: "drafting", oneLiner: "Write PR descriptions" },
             { slug: "shipper", stage: "published", oneLiner: "Ship it" },
@@ -23,11 +23,13 @@ describe("decodeProjectsResponse", () => {
         name: "skillmaker-studio",
         path: "~/Documents/code/skillmaker-studio",
         skills: [
-          { slug: "to-tickets", stage: "Evals", oneLiner: "Decompose scope into tickets" },
-          { slug: "release-notes", stage: "Idea", oneLiner: "Draft release notes" },
-          { slug: "book-builder", stage: "Research", oneLiner: "" },
-          { slug: "pr-writer", stage: "Drafting", oneLiner: "Write PR descriptions" },
-          { slug: "shipper", stage: "Published", oneLiner: "Ship it" },
+          // Only an explicit awaiting-review earns the attention dot; a
+          // missing substate (older server) decodes as false, never invented.
+          { slug: "to-tickets", stage: "Evals", oneLiner: "Decompose scope into tickets", awaitingReview: true },
+          { slug: "release-notes", stage: "Idea", oneLiner: "Draft release notes", awaitingReview: false },
+          { slug: "book-builder", stage: "Research", oneLiner: "", awaitingReview: false },
+          { slug: "pr-writer", stage: "Drafting", oneLiner: "Write PR descriptions", awaitingReview: false },
+          { slug: "shipper", stage: "Published", oneLiner: "Ship it", awaitingReview: false },
         ],
       },
     ]);
@@ -67,7 +69,9 @@ describe("decodeProjectsResponse", () => {
         "not-a-project",
       ],
     });
-    expect(decoded).toEqual([{ name: "ok", path: "/ok", skills: [{ slug: "good", stage: "Idea", oneLiner: "g" }] }]);
+    expect(decoded).toEqual([
+      { name: "ok", path: "/ok", skills: [{ slug: "good", stage: "Idea", oneLiner: "g", awaitingReview: false }] },
+    ]);
   });
 
   test("returns null (keep the placeholder) for non-conforming payloads", () => {

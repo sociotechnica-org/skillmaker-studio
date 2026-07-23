@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fetchTasks, useApiData } from "./api.ts";
 import { PROJECTS, TASKS } from "./data.ts";
 import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, PlusIcon, TasksIcon } from "./icons.tsx";
+import { usePresence } from "./presence.ts";
 import { fetchProjects } from "./projectsApi.ts";
 import { FADE_R, StageBadge } from "./ui.tsx";
 import type { CenterView, Project } from "./types.ts";
@@ -25,6 +26,17 @@ export function Sidebar({
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
   const tasks = useApiData(fetchTasks, TASKS);
   const openTaskCount = tasks.filter((t) => t.state === "open").length;
+
+  // Presence sweep, bounded to the rows actually on screen: open projects'
+  // visible skills only (presence.ts documents the cost discipline).
+  const visibleSlugs = projects.flatMap((project) =>
+    (openProjects[project.name] ?? false)
+      ? ((showAll[project.name] ?? false) ? project.skills : project.skills.slice(0, VISIBLE_SKILLS)).map(
+          (skill) => skill.slug,
+        )
+      : [],
+  );
+  const runningSlugs = usePresence(visibleSlugs);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,9 +94,11 @@ export function Sidebar({
             open={openProjects[project.name] ?? false}
             expanded={showAll[project.name] ?? false}
             center={center}
+            running={runningSlugs}
             onToggle={() => setOpenProjects({ ...openProjects, [project.name]: !(openProjects[project.name] ?? false) })}
             onToggleExpanded={() => setShowAll({ ...showAll, [project.name]: !(showAll[project.name] ?? false) })}
             onOpenSkill={(slug) => onNavigate({ kind: "skill", project: project.name, slug })}
+            onNewSkill={() => onNavigate({ kind: "new-skill", project: project.name })}
           />
         ))}
       </div>
@@ -140,17 +154,22 @@ function ProjectSection({
   open,
   expanded,
   center,
+  running,
   onToggle,
   onToggleExpanded,
   onOpenSkill,
+  onNewSkill,
 }: {
   readonly project: Project;
   readonly open: boolean;
   readonly expanded: boolean;
   readonly center: CenterView;
+  /** Slugs with something running right now (presence sweep). */
+  readonly running: ReadonlySet<string>;
   readonly onToggle: () => void;
   readonly onToggleExpanded: () => void;
   readonly onOpenSkill: (slug: string) => void;
+  readonly onNewSkill: () => void;
 }) {
   const visible = expanded ? project.skills : project.skills.slice(0, VISIBLE_SKILLS);
   const hidden = project.skills.length - VISIBLE_SKILLS;
@@ -173,6 +192,7 @@ function ProjectSection({
           type="button"
           className="shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
           title="New skill · import"
+          onClick={onNewSkill}
         >
           <PlusIcon />
         </button>
@@ -195,7 +215,18 @@ function ProjectSection({
                 }`}
               >
                 <span className={`min-w-0 flex-1 ${FADE_R}`}>{skill.slug}</span>
+                {/* attention dot: the bundle awaits review (subtle, left of the badge) */}
+                {skill.awaitingReview === true && (
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Awaiting review" />
+                )}
                 <StageBadge stage={skill.stage} />
+                {/* row-right spinner: an active run or a chat turn in flight */}
+                {running.has(skill.slug) && (
+                  <span
+                    className="h-3 w-3 shrink-0 animate-spin rounded-full border border-amber-500 border-t-transparent"
+                    title="Running"
+                  />
+                )}
               </button>
             );
           })}

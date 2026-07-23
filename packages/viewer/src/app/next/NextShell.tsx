@@ -17,7 +17,8 @@
 import { useState } from "react";
 import { usePanelResize } from "./hooks.ts";
 import { CollapseIcon, ExpandIcon, OverviewIcon, PanelLeftIcon, PanelRightIcon } from "./icons.tsx";
-import { RightPanel } from "./RightPanel.tsx";
+import { NewSkillLauncher } from "./NewSkillLauncher.tsx";
+import { RightPanel, type ChatIntro } from "./RightPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { IconButton } from "./ui.tsx";
 import { BoardView, OverviewCard, SkillView, TasksView } from "./views.tsx";
@@ -29,6 +30,9 @@ export default function NextShell() {
   const [center, setCenter] = useState<CenterView>({ kind: "skill", project: "skills", slug: "to-tickets" });
   const [overviewOpen, setOverviewOpen] = useState(true);
   const [overviewOverlay, setOverviewOverlay] = useState(false);
+  // Set by the new-skill launcher: the chat panel starts a session for this
+  // skill whose first prompt is the launcher's message, then clears it.
+  const [chatIntro, setChatIntro] = useState<ChatIntro | null>(null);
 
   const left = usePanelResize("left", "sm-next-leftw", 256, 180, 440);
   // The right panel may eat almost everything: the center keeps ~300px.
@@ -41,7 +45,8 @@ export default function NextShell() {
   const onSkillPage = center.kind === "skill";
   const rightShown = onSkillPage && rightOpen;
   const expanded = rightShown && rightExpanded;
-  const title = center.kind === "board" ? "Board" : center.kind === "tasks" ? "Tasks" : center.slug;
+  const title =
+    center.kind === "board" ? "Board" : center.kind === "tasks" ? "Tasks" : center.kind === "new-skill" ? "New skill" : center.slug;
 
   // Overview rules: with the right panel CLOSED, the overview is an
   // in-layout column (persists, content slides over). With the right panel
@@ -123,7 +128,9 @@ export default function NextShell() {
         <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3">
           {!sidebarOpen && <span className="w-7 shrink-0" />}
           <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
-            {center.kind === "skill" && <span className="font-display text-sm text-ink-muted">{center.project} /</span>}
+            {(center.kind === "skill" || center.kind === "new-skill") && (
+              <span className="font-display text-sm text-ink-muted">{center.project} /</span>
+            )}
             <span className="font-display text-sm">{title}</span>
             {onSkillPage && <span className="text-ink-muted">···</span>}
           </div>
@@ -143,6 +150,19 @@ export default function NextShell() {
           {center.kind === "board" && <BoardView onOpenSkill={(project, slug) => setCenter({ kind: "skill", project, slug })} />}
           {center.kind === "tasks" && <TasksView />}
           {center.kind === "skill" && <SkillView slug={center.slug} overviewOpen={overviewShown} />}
+          {center.kind === "new-skill" && (
+            <NewSkillLauncher
+              project={center.project}
+              onCreated={(slug, provider, message) => {
+                // The launcher disappears; the conversation continues in the
+                // right panel (session started with this very message).
+                setChatIntro({ slug, provider, message });
+                setCenter({ kind: "skill", project: center.project, slug });
+                setRightOpen(true);
+              }}
+              onAdopted={(slug) => setCenter({ kind: "skill", project: center.project, slug })}
+            />
+          )}
         </main>
       </div>
 
@@ -161,7 +181,14 @@ export default function NextShell() {
           />
         )}
         <div className="h-full" style={expanded ? undefined : { width: right.width }}>
-          {onSkillPage && <RightPanel skill={center.slug} width={expanded ? 9999 : right.width} />}
+          {onSkillPage && (
+            <RightPanel
+              skill={center.slug}
+              width={expanded ? 9999 : right.width}
+              intro={chatIntro !== null && chatIntro.slug === center.slug ? chatIntro : null}
+              onIntroConsumed={() => setChatIntro(null)}
+            />
+          )}
         </div>
       </aside>
     </div>

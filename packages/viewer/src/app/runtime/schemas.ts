@@ -587,6 +587,8 @@ export class CatalogEntry extends Schema.Class<CatalogEntry>("CatalogEntry")({
   oneLiner: Schema.String,
   tags: Schema.Array(Schema.String),
   stage: BundleStage,
+  /** Awaiting-review presence for the sidebar's attention dot (next shell). Optional so a pre-substate server payload still decodes. */
+  substate: Schema.optionalKey(BundleSubstate),
   archived: Schema.Boolean,
   drift: Drift,
   latestVersion: Schema.NullOr(

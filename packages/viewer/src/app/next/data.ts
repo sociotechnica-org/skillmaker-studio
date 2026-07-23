@@ -56,6 +56,9 @@ export const BUNDLE_FILES: ReadonlyArray<string> = [
 
 /** Placeholder Skill page until the API answers (or when it's absent). */
 export const SKILL_PAGE: SkillPage = {
+  // Placeholder mode has no live loop facts: the review card and advance
+  // controls stay hidden entirely (serverless astro dev posture).
+  loop: null,
   instructions: "Decompose an already-decided scope into vertical-slice implementation tickets…",
   stage: "Evals",
   versionShort: "811e4580",
