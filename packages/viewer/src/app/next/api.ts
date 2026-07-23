@@ -14,9 +14,10 @@
  * caller-supplied placeholder constants on any fetch/decode failure.
  */
 import { useEffect, useState } from "react";
-import { getCatalog, getState, getTodos } from "../runtime/api.ts";
+import { getBundleDetail, getBundleFile, getCatalog, getState, getTodos } from "../runtime/api.ts";
+import { modelDisplayName } from "../runtime/cardGlance.ts";
 import type { BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
-import type { BundleFile, Project, Skill, Stage, Task } from "./types.ts";
+import type { BundleFile, Claim, ClaimStatus, Project, Skill, SkillPage, Stage, Task } from "./types.ts";
 
 /**
  * Wire stage -> this shell's display `Stage`. Deliberately NOT the runtime's
@@ -100,6 +101,72 @@ export const fetchProjects = async (): Promise<ReadonlyArray<Project>> => {
 export const fetchTasks = async (): Promise<ReadonlyArray<Task>> => {
   const response = await getTodos(false);
   return toTasks(response.todos);
+};
+
+const FAMILY_NAMES: Record<string, string> = {
+  IN: "Input",
+  RE: "Reasoning",
+  OUT: "Output",
+  ADV: "Adversarial",
+  CHN: "Chain",
+};
+
+/**
+ * `GET /api/bundles/:slug` (+ the instructions file) -> the Skill page.
+ * Claim status is honest about the coverage-vs-validation split: an
+ * authored "covered" row only shows `proven` when a measurement actually
+ * passed for its fixture; otherwise it renders `unmeasured`.
+ */
+export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
+  const detail = await getBundleDetail(slug);
+  const instructions =
+    detail.instructionsPath === null
+      ? null
+      : await getBundleFile(slug, detail.instructionsPath).then(
+          (f) => f.content,
+          () => null,
+        );
+
+  const measuredPass = new Set(
+    detail.measurements.filter((m) => m.passes > 0).map((m) => m.fixtureCase),
+  );
+  const claims: ReadonlyArray<Claim> = detail.riskCoverage.map((r) => {
+    const status: ClaimStatus =
+      r.coverage === "gap"
+        ? "gap"
+        : r.coverage === "partial"
+          ? "partial"
+          : r.fixtureCase !== undefined && measuredPass.has(r.fixtureCase)
+            ? "proven"
+            : "unmeasured";
+    return {
+      id: r.riskId,
+      family: FAMILY_NAMES[r.family] ?? r.family,
+      sentence: r.description !== undefined && r.description.length > 0 ? r.description : "(no description)",
+      status,
+      fixtures: r.fixtureCase === undefined ? 0 : 1,
+    };
+  });
+
+  const latestVersion = detail.versions.at(-1);
+  const provenModels = [
+    ...new Set(detail.measurements.filter((m) => m.passes > 0).map((m) => modelDisplayName(m.model))),
+  ];
+  const coveredCount = detail.riskCoverage.filter((r) => r.coverage !== "gap").length;
+
+  return {
+    instructions,
+    stage: STAGE_FROM_WIRE[detail.bundle.stage],
+    versionShort: latestVersion === undefined ? null : latestVersion.hash.replace(/^sha256:/, "").slice(0, 8),
+    drift: detail.bundle.drift.replace(/-/g, " "),
+    provenOn: provenModels.length === 0 ? "none yet" : provenModels.join(", "),
+    coverage: `${coveredCount} of ${detail.riskCoverage.length} claims`,
+    claims,
+    events: detail.events.slice(0, 5).map((e) => ({
+      type: e.type,
+      at: new Date(e.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    })),
+  };
 };
 
 /** `GET /api/bundles/:slug/files` -> the bundle's readable file tree. */

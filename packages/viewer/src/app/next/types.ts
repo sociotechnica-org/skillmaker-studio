@@ -30,10 +30,22 @@ export type ClaimStatus = "proven" | "partial" | "unmeasured" | "gap";
 /** A row of the claim-first evals tree (IA §C). */
 export type Claim = {
   readonly id: string;
-  readonly family: "Input" | "Reasoning" | "Output" | "Adversarial" | "Chain";
+  readonly family: string;
   readonly sentence: string;
   readonly status: ClaimStatus;
   readonly fixtures: number;
+};
+
+/** Everything the Skill page renders (wire: GET /api/bundles/:slug + instructions file). */
+export type SkillPage = {
+  readonly instructions: string | null;
+  readonly stage: Stage;
+  readonly versionShort: string | null;
+  readonly drift: string;
+  readonly provenOn: string;
+  readonly coverage: string;
+  readonly claims: ReadonlyArray<Claim>;
+  readonly events: ReadonlyArray<{ readonly type: string; readonly at: string }>;
 };
 
 /** What the center column is showing. */

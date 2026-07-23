@@ -3,7 +3,7 @@
  * API wiring lands (each constant's consumer swaps to live data without
  * changing component shape).
  */
-import type { Claim, Project, Task } from "./types.ts";
+import type { Claim, Project, SkillPage, Task } from "./types.ts";
 
 export const PROJECTS: ReadonlyArray<Project> = [
   {
@@ -53,3 +53,19 @@ export const BUNDLE_FILES: ReadonlyArray<string> = [
   "evals/fixtures/vague-scope-refusal/",
   "evals/fixtures/partial-decomposition/",
 ];
+
+/** Placeholder Skill page until the API answers (or when it's absent). */
+export const SKILL_PAGE: SkillPage = {
+  instructions: "Decompose an already-decided scope into vertical-slice implementation tickets…",
+  stage: "Evals",
+  versionShort: "811e4580",
+  drift: "in sync",
+  provenOn: "Opus 4.6 (1 claim)",
+  coverage: "2 of 5 claims",
+  claims: CLAIMS,
+  events: [
+    { type: "run.graded", at: "yesterday" },
+    { type: "station drafting completed", at: "2d ago" },
+    { type: "bundle.created", at: "2d ago" },
+  ],
+};

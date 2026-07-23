@@ -112,9 +112,9 @@ export default function NextShell() {
 
       {/* center column — hidden entirely while the right panel is expanded */}
       <div className={`relative flex min-w-0 flex-col ${expanded ? "hidden" : "flex-1"}`}>
-        {onSkillPage && overviewOverlay && (
+        {center.kind === "skill" && overviewOverlay && (
           <div data-overview-overlay className="absolute right-[10px] top-[54px] z-30">
-            <OverviewCard elevated />
+            <OverviewCard slug={center.slug} elevated />
           </div>
         )}
         <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3">
@@ -139,7 +139,7 @@ export default function NextShell() {
         <main className="relative flex-1 overflow-y-auto">
           {center.kind === "board" && <BoardView onOpenSkill={(project, slug) => setCenter({ kind: "skill", project, slug })} />}
           {center.kind === "tasks" && <TasksView />}
-          {center.kind === "skill" && <SkillView overviewOpen={overviewShown} />}
+          {center.kind === "skill" && <SkillView slug={center.slug} overviewOpen={overviewShown} />}
         </main>
       </div>
 

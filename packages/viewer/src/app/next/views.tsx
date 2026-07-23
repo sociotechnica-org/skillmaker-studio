@@ -1,8 +1,17 @@
 /** Center-column views: Board, Tasks, and the Skill page. */
-import { fetchProjects, fetchTasks, useApiData } from "./api.ts";
-import { CLAIMS, PROJECTS, TASKS } from "./data.ts";
+import { useCallback } from "react";
+import { MarkdownContent } from "../components/Markdown.tsx";
+import { fetchProjects, fetchSkillPage, fetchTasks, useApiData } from "./api.ts";
+import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
 import { STAGES } from "./types.ts";
 import { Button, CLAIM_DOT, FADE_R, STAGE_TINT } from "./ui.tsx";
+import type { SkillPage } from "./types.ts";
+
+/** One fetch per skill page, shared by content, overview column, and overlay. */
+export function useSkillPage(slug: string): SkillPage {
+  const fetcher = useCallback(() => fetchSkillPage(slug), [slug]);
+  return useApiData(fetcher, SKILL_PAGE);
+}
 
 export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: string, slug: string) => void }) {
   const projects = useApiData(fetchProjects, PROJECTS);
@@ -56,14 +65,15 @@ export function TasksView() {
   );
 }
 
-export function OverviewCard({ elevated }: { readonly elevated?: boolean }) {
+export function OverviewCard({ slug, elevated }: { readonly slug: string; readonly elevated?: boolean }) {
+  const page = useSkillPage(slug);
   return (
     <div className={`w-56 rounded border border-border bg-surface p-3 text-sm ${elevated ? "shadow-xl" : "shadow-md"}`}>
-      <div className="flex justify-between"><span className="text-ink-muted">Stage</span><span className="rounded bg-amber-100 px-1.5 text-xs text-amber-800">Evals</span></div>
-      <div className="flex justify-between pt-1"><span className="text-ink-muted">Version</span><span className="font-mono text-xs">811e4580</span></div>
-      <div className="flex justify-between pt-1"><span className="text-ink-muted">Drift</span><span className="text-xs">in sync</span></div>
-      <div className="flex justify-between pt-1"><span className="text-ink-muted">Proven on</span><span className="text-xs">Opus 4.6 (1 claim)</span></div>
-      <div className="flex justify-between pt-1"><span className="text-ink-muted">Coverage</span><span className="text-xs">2 of 5 claims</span></div>
+      <div className="flex justify-between"><span className="text-ink-muted">Stage</span><span className={`rounded px-1.5 text-xs ${STAGE_TINT[page.stage]}`}>{page.stage}</span></div>
+      <div className="flex justify-between pt-1"><span className="text-ink-muted">Version</span><span className="font-mono text-xs">{page.versionShort ?? "none"}</span></div>
+      <div className="flex justify-between pt-1"><span className="text-ink-muted">Drift</span><span className="text-xs">{page.drift}</span></div>
+      <div className="flex justify-between pt-1"><span className="text-ink-muted">Proven on</span><span className="text-xs">{page.provenOn}</span></div>
+      <div className="flex justify-between pt-1"><span className="text-ink-muted">Coverage</span><span className="text-xs">{page.coverage}</span></div>
       <div className="pt-2"><Button label="Publish this version" primary /></div>
     </div>
   );
@@ -73,31 +83,37 @@ export function OverviewCard({ elevated }: { readonly elevated?: boolean }) {
  * The Skill page: content column + the overview column, which occupies
  * layout space and slides/grows in from the right (content slides over).
  */
-export function SkillView({ overviewOpen }: { readonly overviewOpen: boolean }) {
+export function SkillView({ slug, overviewOpen }: { readonly slug: string; readonly overviewOpen: boolean }) {
+  const page = useSkillPage(slug);
   return (
     <div className="flex">
       <div className="min-w-0 flex-1">
         <div className="mx-auto max-w-3xl p-6">
-          <SkillContent />
+          <SkillContent page={page} />
         </div>
       </div>
       <div className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${overviewOpen ? "w-[244px]" : "w-0"}`}>
         <div className="sticky top-0 mr-[10px] mt-[10px]">
-          <OverviewCard />
+          <OverviewCard slug={slug} />
         </div>
       </div>
     </div>
   );
 }
 
-function SkillContent() {
+function SkillContent({ page }: { readonly page: SkillPage }) {
   return (
     <>
       <section>
         <h2 className="font-display text-lg text-ink-muted">Instructions</h2>
         <div className="mt-1 rounded border border-border bg-surface p-3 text-sm shadow-sm">
-          <p className="text-ink-muted">Live SKILL.md, rendered.</p>
-          <p className="pt-1">Decompose an already-decided scope into vertical-slice implementation tickets…</p>
+          {page.instructions === null ? (
+            <p className="text-ink-muted">No SKILL.md yet.</p>
+          ) : (
+            <div className="max-h-72 overflow-y-auto">
+              <MarkdownContent markdown={page.instructions} />
+            </div>
+          )}
           <div className="pt-2"><Button label="Open in Files" /></div>
         </div>
       </section>
@@ -111,13 +127,13 @@ function SkillContent() {
           </div>
         </div>
         <div className="mt-1 space-y-1">
-          {CLAIMS.map((c) => (
+          {page.claims.map((c) => (
             <div key={c.id} className="rounded border border-border bg-surface px-3 py-2 shadow-sm">
               <div className="flex items-center gap-2 text-sm">
                 <span title={c.status}>{CLAIM_DOT[c.status]}</span>
                 <span className="flex-1">{c.sentence}</span>
                 <span className="font-mono text-[10px] text-ink-muted">{c.id}</span>
-                <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted">Opus 4.6: {c.status}</span>
+                <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted">{c.status}</span>
               </div>
               <div className="pl-6 text-xs text-ink-muted">
                 {c.fixtures > 0 ? (
@@ -136,7 +152,12 @@ function SkillContent() {
       <section className="pt-5">
         <h2 className="font-display text-lg text-ink-muted">Activity</h2>
         <div className="mt-1 rounded border border-border bg-surface p-3 text-xs text-ink-muted shadow-sm">
-          run.graded Pass · yesterday — station drafting completed · 2d ago — bundle.created · 2d ago
+          {page.events.map((e, i) => (
+            <span key={`${e.type}-${i}`}>
+              {i > 0 && " — "}
+              {e.type} · {e.at}
+            </span>
+          ))}
         </div>
       </section>
     </>
