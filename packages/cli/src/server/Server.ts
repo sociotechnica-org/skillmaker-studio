@@ -56,7 +56,8 @@ import {
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, resolve as resolvePath, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, extname, join, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { loadSkillbook } from "../Skillbook.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
@@ -649,6 +650,44 @@ const handleCatalog = async (root: string): Promise<Response> =>
       return jsonResponse({ entries });
     }),
   );
+
+/**
+ * Display-shortens an absolute path with `~` when it sits under the given
+ * home directory. Pure (home is a parameter) so it is unit-testable; the
+ * route passes `homedir()`.
+ */
+export const shortenHomePath = (path: string, home: string): string => {
+  if (home.length === 0) return path;
+  if (path === home) return "~";
+  return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+};
+
+/**
+ * `GET /api/projects` -- the next shell's sidebar Projects tree (IA doc
+ * 2026-07-22 §A). The real machine-level project registry (`~/.skillmaker`)
+ * arrives in a later phase; TODAY the server knows exactly one project --
+ * the workspace it is running for -- so this returns a one-element array.
+ * The ARRAY shape is the contract: when the registry lands, this endpoint
+ * grows more elements and the client changes not at all. Skills are the
+ * workspace's non-archived bundles off ONE `rebuild()` (`listBundleRecords`),
+ * in the server's own stage vocabulary (`idea`...`published`) -- display
+ * labels are the viewer's business.
+ */
+const handleProjects = async (root: string, config: WorkspaceConfig): Promise<Response> => {
+  const bundles = await listBundleRecords(root);
+  const skills = bundles
+    .filter((bundle) => !bundle.archived)
+    .map((bundle) => ({ slug: bundle.slug, stage: bundle.stage, oneLiner: bundle.oneLiner }));
+  return jsonResponse({
+    projects: [
+      {
+        name: config.name.length > 0 ? config.name : basename(root),
+        path: shortenHomePath(root, homedir()),
+        skills,
+      },
+    ],
+  });
+};
 
 type AppendVersionOutcome =
   | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }
@@ -1981,6 +2020,14 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return await handleIntake(root);
         } catch (cause) {
           return jsonResponse({ error: `could not list intake: ${String(cause)}` }, 500);
+        }
+      }
+
+      if (pathname === "/api/projects") {
+        try {
+          return await handleProjects(root, config);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list projects: ${String(cause)}` }, 500);
         }
       }
 
