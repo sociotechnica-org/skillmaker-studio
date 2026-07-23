@@ -1,7 +1,7 @@
 /** Right panel: Files (bundle browser + in-panel viewer) and Chat (the per-skill agent session). */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePanelResize } from "./hooks.ts";
-import { FileContentView } from "../components/Markdown.tsx";
+import { FileContentView, MarkdownContent } from "../components/Markdown.tsx";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "./api.ts";
 import { useChatSession, type ChatState } from "./chatApi.ts";
 import { chatItemsFromEvents, pickPermissionChoices, type ChatItem } from "./chatModel.ts";
@@ -401,27 +401,19 @@ const fmtTime = (iso: string): string => {
  */
 function StartChooser({
   state,
+  provider,
   onStart,
 }: {
   readonly state: ChatState;
+  readonly provider: string;
   readonly onStart: (provider: string, mode: "new" | "resume") => void;
 }) {
-  const [provider, setProvider] = useState(state.defaultProvider ?? state.providers[0] ?? "");
   const resumable = state.resumable.find((entry) => entry.provider === provider);
   return (
     <div className="px-3 pt-4 text-sm">
-      <div className="pb-1 text-xs uppercase tracking-widest text-ink-muted">agent</div>
-      <select
-        className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-        value={provider}
-        onChange={(e) => setProvider(e.target.value)}
-      >
-        {state.providers.map((id) => (
-          <option key={id} value={id}>
-            {id}
-          </option>
-        ))}
-      </select>
+      <p className="text-ink-muted">
+        Start a session with <span className="font-display">{provider}</span> — or pick a different agent below.
+      </p>
       <div className="flex gap-2 pt-3">
         {resumable && (
           <button
@@ -465,6 +457,7 @@ function PlaceholderConversation() {
 function ChatTab({ skill }: { readonly skill: string }) {
   const chat = useChatSession(skill);
   const [draft, setDraft] = useState("");
+  const [pickedProvider, setPickedProvider] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const items = chatItemsFromEvents(chat.events);
@@ -484,6 +477,13 @@ function ChatTab({ skill }: { readonly skill: string }) {
     setDraft("");
   };
 
+  const provider =
+    active?.provider ??
+    pickedProvider ??
+    chat.state?.defaultProvider ??
+    chat.state?.providers[0] ??
+    "claude-code";
+
   const statusLine =
     active === null
       ? undefined
@@ -493,10 +493,10 @@ function ChatTab({ skill }: { readonly skill: string }) {
     <div className="relative flex-1 overflow-hidden">
       {/* messages scroll behind the floating input; bottom padding keeps the
           last message reachable above it */}
-      <div ref={scrollRef} className="h-full overflow-y-auto px-3 pb-24 text-sm">
+      <div ref={scrollRef} className="h-full overflow-y-auto px-6 pb-28 text-sm">
         {!chat.available && <PlaceholderConversation />}
         {chat.available && chat.state !== undefined && active === null && (
-          <StartChooser state={chat.state} onStart={chat.start} />
+          <StartChooser state={chat.state} provider={provider} onStart={chat.start} />
         )}
         {chat.available && statusLine !== undefined && (
           <div className="pt-2 font-display text-xs text-ink-muted" title={active?.model ?? undefined}>
@@ -533,10 +533,10 @@ function ChatTab({ skill }: { readonly skill: string }) {
         )}
         {chat.actionError && <p className="pt-2 text-xs text-red-600">{chat.actionError}</p>}
       </div>
-      {/* floating input — no footer container, hovers over the text */}
-      <div className="absolute inset-x-2 bottom-2">
+      {/* floating compose box — input on top, agent selector + send bottom-right */}
+      <div className="absolute inset-x-2 bottom-2 rounded-xl border border-border bg-surface/95 shadow-lg backdrop-blur-sm focus-within:border-amber-300">
         <input
-          className="w-full rounded-xl border border-border bg-surface/95 px-3 py-2.5 text-sm shadow-lg outline-none backdrop-blur-sm focus:border-amber-300 disabled:opacity-60"
+          className="w-full bg-transparent px-3 pb-1 pt-2.5 text-sm outline-none disabled:opacity-60"
           placeholder={canSend || !chat.available ? "What should we do?" : active === null ? "Choose an agent to start" : "Agent is working…"}
           value={draft}
           disabled={chat.available && !canSend}
@@ -548,6 +548,33 @@ function ChatTab({ skill }: { readonly skill: string }) {
             }
           }}
         />
+        <div className="flex items-center justify-end gap-1.5 px-2 pb-1.5">
+          <select
+            className="max-w-[45%] cursor-pointer truncate bg-transparent text-xs text-ink-muted outline-none hover:text-ink disabled:cursor-default"
+            value={provider}
+            disabled={active !== null}
+            title={active !== null ? "Active session's agent" : "Agent for the next session"}
+            onChange={(e) => setPickedProvider(e.target.value)}
+          >
+            {(chat.state?.providers ?? [provider]).map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-600 text-white shadow hover:bg-amber-700 disabled:opacity-35"
+            title="Send"
+            disabled={chat.available && !canSend}
+            onClick={sendDraft}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <line x1="8" y1="13" x2="8" y2="3.5" />
+              <path d="M4 7.5L8 3.5l4 4" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
