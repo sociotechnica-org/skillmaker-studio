@@ -34,12 +34,20 @@ const decodeStage = (value: unknown): Stage => {
 
 const decodeSkill = (value: unknown): Skill | null => {
   if (typeof value !== "object" || value === null) return null;
-  const raw = value as { readonly slug?: unknown; readonly stage?: unknown; readonly oneLiner?: unknown };
+  const raw = value as {
+    readonly slug?: unknown;
+    readonly stage?: unknown;
+    readonly substate?: unknown;
+    readonly oneLiner?: unknown;
+  };
   if (typeof raw.slug !== "string" || raw.slug.length === 0) return null;
   return {
     slug: raw.slug,
     stage: decodeStage(raw.stage),
     oneLiner: typeof raw.oneLiner === "string" ? raw.oneLiner : "",
+    // The attention dot: only an explicit awaiting-review earns one -- an
+    // absent/unknown substate (older server) stays dotless, never invented.
+    awaitingReview: raw.substate === "awaiting-review",
   };
 };
 

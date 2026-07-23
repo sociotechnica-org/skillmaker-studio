@@ -4,6 +4,7 @@ import { MarkdownContent } from "../components/Markdown.tsx";
 import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from "./api.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
 import { EvalsSection } from "./EvalsSection.tsx";
+import { ReviewSurface } from "./ReviewSurface.tsx";
 import { STAGES } from "./types.ts";
 import { Button, FADE_R, STAGE_TINT } from "./ui.tsx";
 import type { SkillPage } from "./types.ts";
@@ -111,6 +112,10 @@ function SkillContent({ page }: { readonly page: SkillPage }) {
   const [tab, setTab] = useState<"instructions" | "evals">("instructions");
   return (
     <>
+      {/* production-loop surfaces: advance controls + the pinned review card,
+          ABOVE the tab pills (ruled 2026-07-23). Hidden on placeholder data. */}
+      {page.loop !== null && <ReviewSurface loop={page.loop} />}
+
       {/* center tab selector — pill for active, quiet text for the rest */}
       <div className="flex items-center gap-1 pb-4">
         {(

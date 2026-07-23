@@ -12,9 +12,31 @@ import type { BundleFile } from "./types.ts";
 
 type PanelTab = "files" | "chat";
 
+/**
+ * Hand-off from the new-skill launcher: start a session with `provider`
+ * whose FIRST prompt is `message` (the session manager's preamble already
+ * names the skill). The start API takes no initial message, so the ChatTab
+ * starts the session and sends the message the moment the agent is ready.
+ */
+export type ChatIntro = {
+  readonly slug: string;
+  readonly provider: string;
+  readonly message: string;
+};
+
 const FILES_FALLBACK: ReadonlyArray<BundleFile> = BUNDLE_FILES.map((path) => ({ path, size: 0 }));
 
-export function RightPanel({ skill, width }: { readonly skill: string; readonly width: number }) {
+export function RightPanel({
+  skill,
+  width,
+  intro = null,
+  onIntroConsumed,
+}: {
+  readonly skill: string;
+  readonly width: number;
+  readonly intro?: ChatIntro | null;
+  readonly onIntroConsumed?: () => void;
+}) {
   const [tab, setTab] = useState<PanelTab>("chat");
   // Files state lives here (not in FilesTab) so switching tabs keeps it.
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -64,7 +86,7 @@ export function RightPanel({ skill, width }: { readonly skill: string; readonly 
           onSelect={selectFile}
         />
       ) : (
-        <ChatTab skill={skill} />
+        <ChatTab skill={skill} intro={intro} onIntroConsumed={onIntroConsumed} />
       )}
     </div>
   );
@@ -456,7 +478,15 @@ function PlaceholderConversation() {
   );
 }
 
-function ChatTab({ skill }: { readonly skill: string }) {
+function ChatTab({
+  skill,
+  intro = null,
+  onIntroConsumed,
+}: {
+  readonly skill: string;
+  readonly intro?: ChatIntro | null;
+  readonly onIntroConsumed?: () => void;
+}) {
   const chat = useChatSession(skill);
   const [draft, setDraft] = useState("");
   const [pickedProvider, setPickedProvider] = useState<string | null>(null);
@@ -465,6 +495,27 @@ function ChatTab({ skill }: { readonly skill: string }) {
   const items = chatItemsFromEvents(chat.events);
   const active = chat.state?.active ?? null;
   const canSend = chat.available && active !== null && active.status === "ready";
+
+  // Launcher hand-off: start the session, then send the first prompt the
+  // moment the agent reports ready. Each step fires at most once.
+  const introStep = useRef<"start" | "send" | "done">("start");
+  useEffect(() => {
+    if (intro === null || intro.slug !== skill || !chat.available || chat.state === undefined) return;
+    if (introStep.current === "start") {
+      introStep.current = "send";
+      if (active === null) {
+        chat.start(intro.provider, "new");
+        return;
+      }
+      // A session already exists (e.g. remount mid-hand-off): skip the
+      // start and just deliver the first prompt when it's ready.
+    }
+    if (introStep.current === "send" && active !== null && active.status === "ready") {
+      introStep.current = "done";
+      chat.send(intro.message);
+      onIntroConsumed?.();
+    }
+  }, [intro, skill, chat, active, onIntroConsumed]);
 
   // Keep the newest message in view as the stream grows.
   useEffect(() => {

@@ -34,6 +34,8 @@ import {
   runFixture,
   runStation,
   scanFixtures,
+  slugify,
+  walk,
   Workspace,
   WorkspaceLayer,
   type Actor,
@@ -59,7 +61,7 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { loadSkillbook } from "../Skillbook.ts";
 import { ChatSessionManager } from "./ChatSessions.ts";
@@ -625,6 +627,9 @@ const handleCatalog = async (root: string): Promise<Response> =>
           oneLiner: bundle.oneLiner,
           tags: bundle.tags,
           stage: bundle.stage,
+          // The sidebar's attention dot: awaiting-review is presence data,
+          // already on the folded record -- copied through, never derived here.
+          substate: bundle.substate,
           archived: bundle.archived,
           drift: bundle.drift,
           latestVersion:
@@ -681,7 +686,7 @@ const handleProjects = async (root: string, config: WorkspaceConfig): Promise<Re
   const bundles = await listBundleRecords(root);
   const skills = bundles
     .filter((bundle) => !bundle.archived)
-    .map((bundle) => ({ slug: bundle.slug, stage: bundle.stage, oneLiner: bundle.oneLiner }));
+    .map((bundle) => ({ slug: bundle.slug, stage: bundle.stage, substate: bundle.substate, oneLiner: bundle.oneLiner }));
   return jsonResponse({
     projects: [
       {
@@ -1388,6 +1393,43 @@ const handleAdopt = async (root: string, request: Request): Promise<Response> =>
     });
   } catch (cause) {
     return jsonResponse({ error: `could not adopt: ${String(cause)}` }, 500);
+  }
+};
+
+/**
+ * `GET /api/adopt/candidates` -- the new-skill launcher's "Import one of
+ * these?" rows: the SAME read-only discovery sweep `adopt --triage` runs
+ * (core's `walk`, issue #92), workspace-clamped by construction -- it only
+ * ever walks `root`, never a caller-supplied path. Never writes anything: a
+ * candidate is a SKILL.md whose directory carries no `bundle.json` yet
+ * (i.e. not adopted). `slug` is the PROVISIONAL slug an adopt would assign
+ * -- the directory basename slugified, `-2`-suffixed on collision, in the
+ * same sorted order `adoptWorkspace` iterates -- a preview, not a
+ * reservation.
+ */
+const handleAdoptCandidates = async (root: string): Promise<Response> => {
+  try {
+    const result = await Effect.runPromise(walk(root).pipe(Effect.provide(BunServices.layer)));
+    const used = new Set(result.existingSlugs);
+    const candidates: Array<{ path: string; slug: string }> = [];
+    for (const skillMdPath of result.skillMdFiles) {
+      const dir = dirname(skillMdPath);
+      if (existsSync(join(dir, "bundle.json"))) {
+        continue; // already adopted
+      }
+      const base = slugify(basename(dir));
+      let slug = base;
+      let n = 2;
+      while (used.has(slug)) {
+        slug = `${base}-${n}`;
+        n += 1;
+      }
+      used.add(slug);
+      candidates.push({ path: relative(root, skillMdPath), slug });
+    }
+    return jsonResponse({ candidates });
+  } catch (cause) {
+    return jsonResponse({ error: `could not list adopt candidates: ${String(cause)}` }, 500);
   }
 };
 
@@ -2237,6 +2279,13 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         } catch (cause) {
           return jsonResponse({ error: `could not list todos: ${String(cause)}` }, 500);
         }
+      }
+
+      if (pathname === "/api/adopt/candidates") {
+        if (request.method !== "GET") {
+          return jsonResponse({ error: "candidates requires GET" }, 405);
+        }
+        return handleAdoptCandidates(root);
       }
 
       if (pathname === "/api/adopt") {
