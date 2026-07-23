@@ -1,7 +1,7 @@
 /** Center-column views: Board, Tasks, and the Skill page. */
 import { useCallback, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
-import { fetchProjects, fetchSkillPage, fetchTasks, useApiData } from "./api.ts";
+import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from "./api.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
 import { STAGES } from "./types.ts";
 import { Button, CLAIM_DOT, FADE_R, STAGE_TINT } from "./ui.tsx";
@@ -46,10 +46,16 @@ export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: str
 }
 
 export function TasksView() {
-  const tasks = useApiData(fetchTasks, TASKS);
+  const { data, status } = useApiStatus(fetchTasks);
+  // Placeholders only when the server is absent — never flash them at a
+  // live server that's about to answer (possibly with an empty list).
+  const tasks = status === "error" ? TASKS : (data ?? []);
   return (
     <div className="p-6">
       <h1 className="pb-4 font-display text-2xl">Tasks</h1>
+      {status === "live" && tasks.length === 0 && (
+        <p className="text-sm text-ink-muted">No open tasks.</p>
+      )}
       <div className="max-w-2xl space-y-2">
         {tasks.map((t) => (
           <div key={t.title} className="flex items-center justify-between rounded border border-border bg-surface p-3 shadow-sm">

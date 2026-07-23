@@ -196,6 +196,29 @@ export const fetchBundleFile = async (slug: string, path: string): Promise<strin
  * never breaks when the server is absent. Pass a module-level `fetcher`
  * (stable identity) so the effect runs once per mount.
  */
+/** Like useApiData, but distinguishes loading / live / error so views can
+ * avoid the placeholder flash: show nothing while loading, placeholders
+ * only when the server is absent, and honest empty states when live. */
+export function useApiStatus<T>(fetcher: () => Promise<T>): { readonly data?: T; readonly status: "loading" | "live" | "error" } {
+  const [state, setState] = useState<{ readonly data?: T; readonly status: "loading" | "live" | "error" }>({ status: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
+    fetcher().then(
+      (value) => {
+        if (!cancelled) setState({ data: value, status: "live" });
+      },
+      () => {
+        if (!cancelled) setState({ status: "error" });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [fetcher]);
+  return state;
+}
+
 export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
   const [data, setData] = useState<T | undefined>(undefined);
 

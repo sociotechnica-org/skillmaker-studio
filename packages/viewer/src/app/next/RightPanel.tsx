@@ -486,11 +486,6 @@ function ChatTab({ skill }: { readonly skill: string }) {
     chat.state?.providers[0] ??
     "claude-code";
 
-  const statusLine =
-    active === null
-      ? undefined
-      : `${active.provider} · ${active.status === "running" ? "running" : active.status}${active.resumed ? " · resumed" : ""}${active.resumeFallback !== undefined ? " · resume failed, fresh session" : ""}`;
-
   return (
     <div className="relative flex-1 overflow-hidden">
       {/* messages scroll behind the floating input; bottom padding keeps the
@@ -499,11 +494,6 @@ function ChatTab({ skill }: { readonly skill: string }) {
         {!chat.available && <PlaceholderConversation />}
         {chat.available && chat.state !== undefined && active === null && (
           <StartChooser state={chat.state} provider={provider} onStart={chat.start} />
-        )}
-        {chat.available && statusLine !== undefined && (
-          <div className="pt-2 font-display text-xs text-ink-muted" title={active?.model ?? undefined}>
-            {statusLine}
-          </div>
         )}
         {chat.available && active !== null && active.status === "starting" && (
           <p className="pt-3 text-ink-muted">Starting the agent…</p>
@@ -538,7 +528,7 @@ function ChatTab({ skill }: { readonly skill: string }) {
       {/* floating compose box — input on top, agent selector + send bottom-right */}
       <div className="absolute inset-x-2 bottom-2 rounded-xl border border-border bg-surface/95 shadow-lg backdrop-blur-sm focus-within:border-amber-300">
         <input
-          className="w-full bg-transparent px-3 pb-1 pt-2.5 text-sm outline-none disabled:opacity-60"
+          className="w-full bg-transparent px-4 pb-1.5 pt-3.5 text-sm outline-none disabled:opacity-60"
           placeholder={canSend || !chat.available ? "What should we do?" : active === null ? "Choose an agent to start" : "Agent is working…"}
           value={draft}
           disabled={chat.available && !canSend}
@@ -550,7 +540,7 @@ function ChatTab({ skill }: { readonly skill: string }) {
             }
           }}
         />
-        <div className="flex items-center justify-end gap-1.5 px-2 pb-1.5">
+        <div className="flex items-center justify-end gap-2 px-3 pb-3">
           <select
             className="max-w-[45%] cursor-pointer truncate bg-transparent text-xs text-ink-muted outline-none hover:text-ink disabled:cursor-default"
             value={provider}
