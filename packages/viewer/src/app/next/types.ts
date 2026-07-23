@@ -34,8 +34,45 @@ export type Claim = {
   readonly sentence: string;
   readonly status: ClaimStatus;
   readonly fixtures: number;
-  /** The claim's fixture case name, when it has one -- what the row's "Run" affordance dispatches. */
-  readonly fixtureCase?: string;
+  /** The fixture cases probing this claim (`case.json.risks` is the join, IA §C rule 2). */
+  readonly fixtureCases: ReadonlyArray<string>;
+};
+
+export type RunVerdict = "pass" | "fail" | "partial";
+
+/** One eval run row for the tree (wire: BundleDetailResponse.runs). `model` is already blurb-stripped for display (#141). */
+export type EvalRun = {
+  readonly id: string;
+  readonly fixtureCase: string | null;
+  readonly versionHash: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly startedAt: string;
+  readonly status: string;
+  readonly verdict: RunVerdict | null;
+};
+
+/** One measurement cell for the model-chip column (wire: BundleDetailResponse.measurements). `model` is blurb-stripped for display. */
+export type EvalMeasurement = {
+  readonly fixtureCase: string;
+  readonly versionHash: string;
+  readonly model: string;
+  readonly n: number;
+  readonly passes: number;
+};
+
+/**
+ * The Evals tree's live data beyond the claim rows themselves -- all from
+ * the one bundle-detail fetch. `null` when the shell runs on placeholders
+ * (no server), in which case the tree renders claims-only, inert.
+ */
+export type EvalsData = {
+  readonly slug: string;
+  readonly latestVersionHash: string | null;
+  readonly runs: ReadonlyArray<EvalRun>;
+  readonly measurements: ReadonlyArray<EvalMeasurement>;
+  /** Fixtures whose `risks` name no known claim -- evidence without a claim (IA §C rule 2). */
+  readonly unclaimed: ReadonlyArray<string>;
 };
 
 /** Everything the Skill page renders (wire: GET /api/bundles/:slug + instructions file). */
@@ -47,6 +84,8 @@ export type SkillPage = {
   readonly provenOn: string;
   readonly coverage: string;
   readonly claims: ReadonlyArray<Claim>;
+  /** Live tree data (runs/measurements/versions); `null` on placeholders. */
+  readonly evals: EvalsData | null;
   readonly events: ReadonlyArray<{ readonly type: string; readonly at: string }>;
 };
 
