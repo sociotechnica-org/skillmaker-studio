@@ -29,7 +29,8 @@ export function usePanelResize(
   storageKey: string,
   fallback: number,
   min: number,
-  max: number,
+  /** Static bound, or a getter for viewport-dependent bounds. */
+  max: number | (() => number),
 ): PanelResize {
   const [width, setWidth] = useState(() => loadStoredWidth(storageKey, fallback));
   const [dragging, setDragging] = useState(false);
@@ -41,7 +42,8 @@ export function usePanelResize(
       setDragging(true);
       const move = (ev: MouseEvent) => {
         const raw = side === "left" ? ev.clientX : window.innerWidth - ev.clientX;
-        const w = clamp(raw, min, max);
+        const hi = typeof max === "function" ? max() : max;
+        const w = clamp(raw, min, hi);
         latest.current = w;
         setWidth(w);
       };

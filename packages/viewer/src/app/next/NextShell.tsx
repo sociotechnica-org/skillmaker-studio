@@ -31,7 +31,10 @@ export default function NextShell() {
   const [overviewOverlay, setOverviewOverlay] = useState(false);
 
   const left = usePanelResize("left", "sm-next-leftw", 256, 180, 440);
-  const right = usePanelResize("right", "sm-next-rightw", 320, 240, 560);
+  // The right panel may eat almost everything: the center keeps ~300px.
+  const right = usePanelResize("right", "sm-next-rightw", 320, 240, () =>
+    Math.max(340, window.innerWidth - 300 - (sidebarOpen ? left.width : 0)),
+  );
   const dragging = left.dragging || right.dragging;
 
   const [rightExpanded, setRightExpanded] = useState(false);
@@ -111,7 +114,7 @@ export default function NextShell() {
       </aside>
 
       {/* center column — hidden entirely while the right panel is expanded */}
-      <div className={`relative flex min-w-0 flex-col ${expanded ? "hidden" : "flex-1"}`}>
+      <div className={`relative flex min-w-[300px] flex-col ${expanded ? "hidden" : "flex-1"}`}>
         {center.kind === "skill" && overviewOverlay && (
           <div data-overview-overlay className="absolute right-[10px] top-[54px] z-30">
             <OverviewCard slug={center.slug} elevated />
