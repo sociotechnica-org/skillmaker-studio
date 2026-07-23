@@ -1,6 +1,6 @@
 /**
- * The next shell (IA doc §B, ruled 2026-07-22): one app, many projects,
- * skill at the center. Layout rules encoded here:
+ * The Skillmaker Studio shell (IA doc §B, ruled 2026-07-22): one app, many
+ * projects, skill at the center. Layout rules encoded here:
  *
  * - Three sections: left sidebar · center column · right panel. The side
  *   sections run full height with "implied" borderless top rows; only the
