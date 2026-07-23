@@ -1,5 +1,5 @@
 /** Center-column views: Board, Tasks, and the Skill page. */
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
 import { fetchProjects, fetchSkillPage, fetchTasks, useApiData } from "./api.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
@@ -102,10 +102,32 @@ export function SkillView({ slug, overviewOpen }: { readonly slug: string; reado
 }
 
 function SkillContent({ page }: { readonly page: SkillPage }) {
+  const [tab, setTab] = useState<"instructions" | "evals">("instructions");
   return (
     <>
+      {/* center tab selector — pill for active, quiet text for the rest */}
+      <div className="flex items-center gap-1 pb-4">
+        {(
+          [
+            { id: "instructions", label: "Instructions" },
+            { id: "evals", label: "Evals" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`rounded-full px-3 py-1 font-display text-sm ${
+              tab === t.id ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "instructions" && (
       <section>
-        <h2 className="font-display text-lg text-ink-muted">Instructions</h2>
         <div className="mt-1 rounded border border-border bg-surface p-3 text-sm shadow-sm">
           {page.instructions === null ? (
             <p className="text-ink-muted">No SKILL.md yet.</p>
@@ -117,10 +139,11 @@ function SkillContent({ page }: { readonly page: SkillPage }) {
           <div className="pt-2"><Button label="Open in Files" /></div>
         </div>
       </section>
+      )}
 
-      <section className="pt-5">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-lg text-ink-muted">Evals</h2>
+      {tab === "evals" && (
+      <section>
+        <div className="flex items-center justify-end">
           <div className="flex gap-2">
             <Button label="New claim" />
             <Button label="Run all fixtures" primary />
@@ -148,6 +171,7 @@ function SkillContent({ page }: { readonly page: SkillPage }) {
           ))}
         </div>
       </section>
+      )}
 
       <section className="pt-5">
         <h2 className="font-display text-lg text-ink-muted">Activity</h2>
