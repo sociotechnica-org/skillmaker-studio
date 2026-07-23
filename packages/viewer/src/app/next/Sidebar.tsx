@@ -1,9 +1,10 @@
 /** Left sidebar: global views (Board, Tasks) + the Projects → skills spine. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PROJECTS, TASKS } from "./data.ts";
 import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, PlusIcon, TasksIcon } from "./icons.tsx";
+import { fetchProjects } from "./projectsApi.ts";
 import { FADE_R, StageBadge } from "./ui.tsx";
-import type { CenterView } from "./types.ts";
+import type { CenterView, Project } from "./types.ts";
 
 const VISIBLE_SKILLS = 5;
 
@@ -14,11 +15,27 @@ export function Sidebar({
   readonly center: CenterView;
   readonly onNavigate: (view: CenterView) => void;
 }) {
+  // Placeholder until the live fetch lands; astro dev without the API keeps
+  // rendering data.ts's PROJECTS (fetchProjects resolves null there).
+  const [projects, setProjects] = useState<ReadonlyArray<Project>>(PROJECTS);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(PROJECTS.map((p) => [p.name, true])),
   );
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
   const openTaskCount = TASKS.filter((t) => t.state === "open").length;
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchProjects().then((live) => {
+      if (cancelled || live === null || live.length === 0) return;
+      setProjects(live);
+      // Live projects start expanded, same default the placeholder gets.
+      setOpenProjects(Object.fromEntries(live.map((p) => [p.name, true])));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -56,7 +73,7 @@ export function Sidebar({
             <PlusIcon />
           </button>
         </div>
-        {PROJECTS.map((project) => (
+        {projects.map((project) => (
           <ProjectSection
             key={project.name}
             project={project}
@@ -125,7 +142,7 @@ function ProjectSection({
   onToggleExpanded,
   onOpenSkill,
 }: {
-  readonly project: (typeof PROJECTS)[number];
+  readonly project: Project;
   readonly open: boolean;
   readonly expanded: boolean;
   readonly center: CenterView;
