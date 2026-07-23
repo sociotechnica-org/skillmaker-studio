@@ -200,7 +200,7 @@ const stderrLooksInfra = (stderr: string, extraSignatures: ReadonlyArray<string>
 // Permission policy (issue #140: deny-by-default for run/station agents)
 // ---------------------------------------------------------------------------
 
-interface PermissionOption {
+export interface PermissionOption {
   readonly optionId: string;
   readonly kind: string;
 }
@@ -220,19 +220,43 @@ export interface PermissionDecision {
 }
 
 /**
- * Decides one permission request. Must be deterministic: same request
- * payload -> same decision (issue #140 acceptance criteria). Throwing means
- * the request cannot be answered at all (e.g. the agent offered zero
- * options); `AcpClient` then responds with a JSON-RPC error.
+ * A policy may also answer "cancelled" -- the ACP `RequestPermissionOutcome`
+ * for a request that became moot (the turn was cancelled, the session is
+ * closing) rather than being decided. Run/station policies never produce
+ * this; interactive chat policies (D9) do, when a pending browser-forwarded
+ * request is torn down before a human answers it.
  */
-export type PermissionPolicy = (params: unknown) => PermissionDecision;
+export interface PermissionCancelled {
+  readonly cancelled: true;
+  readonly reason: string;
+}
 
-const extractPermissionOptions = (params: unknown): ReadonlyArray<PermissionOption> =>
+export type PermissionPolicyResult = PermissionDecision | PermissionCancelled;
+
+export const isPermissionCancelled = (
+  result: PermissionPolicyResult,
+): result is PermissionCancelled => "cancelled" in result && result.cancelled;
+
+/**
+ * Decides one permission request. Run/station policies (issue #140) are
+ * deterministic and synchronous: same request payload -> same decision.
+ * Interactive policies (the chat surface, D9) may return a Promise that
+ * settles only when a human answers -- `AcpClient` awaits it and holds the
+ * JSON-RPC response open meanwhile, exactly how ACP expects
+ * `session/request_permission` to behave. Throwing/rejecting means the
+ * request cannot be answered at all (e.g. the agent offered zero options);
+ * `AcpClient` then responds with a JSON-RPC error.
+ */
+export type PermissionPolicy = (
+  params: unknown,
+) => PermissionPolicyResult | Promise<PermissionPolicyResult>;
+
+export const extractPermissionOptions = (params: unknown): ReadonlyArray<PermissionOption> =>
   params !== null && typeof params === "object" && "options" in params
     ? ((params as { readonly options?: ReadonlyArray<PermissionOption> }).options ?? [])
     : [];
 
-const pickApproveOption = (options: ReadonlyArray<PermissionOption>): PermissionOption => {
+export const pickApproveOption = (options: ReadonlyArray<PermissionOption>): PermissionOption => {
   const preferred =
     options.find((o) => o.kind === "allow_once") ??
     options.find((o) => o.kind === "allow_always") ??
@@ -283,7 +307,7 @@ const COMMAND_LIKE_KEY = /(^|_)(command|cmd|script)s?$/i;
 /** Absolute-path-shaped tokens inside a shell command string: `/...` or `~...`, delimited by whitespace/quotes/common shell metacharacters. */
 const COMMAND_PATH_TOKEN = /(?:^|[\s"'`=(<>|;&])((?:\/|~)[^\s"'`)<>|;&]*)/g;
 
-interface CandidatePath {
+export interface CandidatePath {
   /** Where in the payload the path was found, for the decision's reason. */
   readonly origin: string;
   readonly value: string;
@@ -338,30 +362,47 @@ const collectCandidatePaths = (value: unknown, key: string, origin: string, out:
  * sandbox. A request referencing no paths at all is allowed: its cwd IS the
  * sandbox, so a pathless effect stays inside it.
  */
-export const makeSandboxPermissionPolicy = (sandboxDir: string): PermissionPolicy => {
-  const roots = [pathResolve(sandboxDir)];
+/**
+ * The path-scoping core shared by the sandbox policy below and the chat
+ * surface's project-dir policy (`ChatSession.ts`): every path-shaped string
+ * in `params` that does NOT stay inside `rootDir`, with the same syntactic
+ * collection rules and realpath tolerance `makeSandboxPermissionPolicy` has
+ * always used. Empty result = the request's every referenced path stays
+ * inside `rootDir` (or it references no paths at all).
+ */
+export const permissionPathsOutside = (
+  rootDir: string,
+  params: unknown,
+): ReadonlyArray<CandidatePath> => {
+  const roots = [pathResolve(rootDir)];
   try {
-    const real = realpathSync(sandboxDir);
+    const real = realpathSync(rootDir);
     if (!roots.includes(real)) roots.push(real);
   } catch {
-    // Sandbox dir not resolvable (already gone?): keep the syntactic root.
+    // Root dir not resolvable (already gone?): keep the syntactic root.
   }
 
-  const isInsideSandbox = (candidate: string): boolean => {
+  const isInsideRoot = (candidate: string): boolean => {
     if (candidate.startsWith("~")) return false;
-    const resolved = pathResolve(roots[0] ?? sandboxDir, candidate);
+    const resolved = pathResolve(roots[0] ?? rootDir, candidate);
     return roots.some((root) => {
       const rel = pathRelative(root, resolved);
       return rel === "" || (!rel.startsWith("..") && !pathIsAbsolute(rel));
     });
   };
 
+  const candidates: CandidatePath[] = [];
+  collectCandidatePaths(params, "", "", candidates);
+  return candidates.filter((candidate) => !isInsideRoot(candidate.value));
+};
+
+export const makeSandboxPermissionPolicy = (sandboxDir: string): PermissionPolicy => {
   return (params) => {
     const options = extractPermissionOptions(params);
     const candidates: CandidatePath[] = [];
     collectCandidatePaths(params, "", "", candidates);
 
-    const offending = candidates.filter((candidate) => !isInsideSandbox(candidate.value));
+    const offending = permissionPathsOutside(sandboxDir, params);
     if (offending.length === 0) {
       const option = pickApproveOption(options);
       return {
@@ -404,6 +445,14 @@ export interface AcpClientOptions {
   readonly command: ReadonlyArray<string>;
   readonly env?: Readonly<Record<string, string>>;
   readonly onTranscript?: (entry: TranscriptEntry) => void;
+  /**
+   * Structured observer for inbound JSON-RPC notifications (`session/update`
+   * lands here). `onTranscript` already sees the same frames as raw wire
+   * entries; this exists for callers (the chat surface) that want the
+   * method/params split without re-parsing transcript entries. Never affects
+   * control flow.
+   */
+  readonly onNotification?: (method: string, params: unknown) => void;
   readonly promptTimeoutMs?: number;
   /**
    * Decides every `session/request_permission`. Defaults to
@@ -437,6 +486,11 @@ export class AcpClient {
 
   getStderr(): string {
     return this.stderrChunks.join("");
+  }
+
+  /** The adapter subprocess pid, once spawned. Long-lived callers (chat) record it for best-effort orphan cleanup after a server crash. */
+  getPid(): number | undefined {
+    return this.proc?.pid;
   }
 
   /** Spawn the adapter subprocess and start the ndjson read loop. Does NOT perform `initialize` — call that after. */
@@ -558,7 +612,9 @@ export class AcpClient {
     }
 
     if (isNotification(msg)) {
-      // session/update lands here; the caller observes it via onTranscript.
+      // session/update lands here; the caller observes it via onTranscript
+      // and (structured) via onNotification.
+      this.opts.onNotification?.(msg.method, msg.params);
       return;
     }
   }
@@ -567,15 +623,25 @@ export class AcpClient {
     try {
       let result: unknown;
       if (req.method === "session/request_permission") {
-        const decision = this.decidePermission(req.params);
-        this.recordTranscript("synthetic", {
-          type: "permission_decision",
-          method: req.method,
-          optionId: decision.optionId,
-          decision: decision.decision,
-          reason: decision.reason,
-        });
-        result = { outcome: { outcome: "selected", optionId: decision.optionId } };
+        const decision = await this.decidePermission(req.params);
+        if (isPermissionCancelled(decision)) {
+          this.recordTranscript("synthetic", {
+            type: "permission_decision",
+            method: req.method,
+            decision: "cancelled",
+            reason: decision.reason,
+          });
+          result = { outcome: { outcome: "cancelled" } };
+        } else {
+          this.recordTranscript("synthetic", {
+            type: "permission_decision",
+            method: req.method,
+            optionId: decision.optionId,
+            decision: decision.decision,
+            reason: decision.reason,
+          });
+          result = { outcome: { outcome: "selected", optionId: decision.optionId } };
+        }
       } else {
         // We do not advertise fs/terminal client capabilities (see
         // initialize()), so the agent should not call fs/* or terminal/* on
@@ -589,7 +655,7 @@ export class AcpClient {
     }
   }
 
-  private decidePermission(params: unknown): PermissionDecision {
+  private decidePermission(params: unknown): PermissionPolicyResult | Promise<PermissionPolicyResult> {
     return (this.opts.permissionPolicy ?? permissiveApprovePolicy)(params);
   }
 
@@ -645,6 +711,36 @@ export class AcpClient {
 
   async newSession(cwd: string, mcpServers: ReadonlyArray<unknown> = []): Promise<NewSessionResult> {
     return this.request("session/new", { cwd, mcpServers });
+  }
+
+  /**
+   * ACP `session/load` -- resume a provider-persisted session. Only valid
+   * when `initialize`'s result advertised `agentCapabilities.loadSession:
+   * true` (the spec forbids calling it otherwise). The agent replays the
+   * whole prior conversation as `session/update` notifications
+   * (`user_message_chunk` / `agent_message_chunk`) BEFORE answering this
+   * request, so a caller streaming updates sees history arrive first.
+   */
+  async loadSession(sessionId: string, cwd: string, mcpServers: ReadonlyArray<unknown> = []): Promise<unknown> {
+    return this.request("session/load", { sessionId, cwd, mcpServers });
+  }
+
+  /**
+   * ACP `session/cancel` -- a NOTIFICATION (no response): asks the agent to
+   * stop the in-flight turn. The turn's `session/prompt` then resolves with
+   * `stopReason: "cancelled"`.
+   */
+  cancel(sessionId: string): void {
+    const msg = { jsonrpc: "2.0" as const, method: "session/cancel", params: { sessionId } };
+    this.recordTranscript("send", msg);
+    this.writeRaw(msg);
+  }
+
+  /** Resolves when the adapter subprocess exits (never rejects). For long-lived callers (chat) that must observe an adapter dying mid-session. */
+  async exited(): Promise<number | null> {
+    if (!this.proc) return null;
+    await this.proc.exited;
+    return this.proc.exitCode;
   }
 
   /**
@@ -729,7 +825,8 @@ export interface AcpRunResult {
 
 const DEFAULT_PROMPT_TIMEOUT_MS = 300_000;
 
-const classify = (err: unknown, stderr: string, providerProfile: ProviderProfile): AcpError => {
+/** Classifies any error thrown while driving an `AcpClient` into the typed `AcpError` union (spike/FINDINGS.md's infra-vs-task table). Shared with `ChatSession.ts`, which drives the same client long-lived. */
+export const classifyAcpFailure = (err: unknown, stderr: string, providerProfile: ProviderProfile): AcpError => {
   if (err instanceof InfraFault) {
     if (err.reason === "spawn") {
       return AcpSpawnError.make({ message: err.message, stderr });
@@ -824,7 +921,7 @@ export const runAcpSession = (opts: AcpRunOptions): Effect.Effect<AcpRunResult, 
         stderr: client.getStderr(),
       };
     },
-    catch: (err) => classify(err, client.getStderr(), providerProfile),
+    catch: (err) => classifyAcpFailure(err, client.getStderr(), providerProfile),
   });
 
   return attempt.pipe(Effect.ensuring(Effect.promise(() => client.close())));

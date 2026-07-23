@@ -60,6 +60,7 @@ import { homedir } from "node:os";
 import { basename, extname, join, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { loadSkillbook } from "../Skillbook.ts";
+import { ChatSessionManager } from "./ChatSessions.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
 
@@ -1994,6 +1995,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
   const watcherHandle: JournalWatcherHandle = watchJournal(journalPath, broadcaster.onJournalChange);
   const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);
+  const chatManager = new ChatSessionManager({ root, config });
 
   const server = Bun.serve({
     port,
@@ -2183,6 +2185,82 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         return broadcaster.response();
       }
 
+      // Chat surface (D9): per-skill agent sessions. Explicit-start flow:
+      //   GET  /api/chat/:skill/state       session + provider + resumable snapshot
+      //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume" } -> spawn/resume
+      //   POST /api/chat/:skill/message     { text } -> one prompt turn (409 while running)
+      //   POST /api/chat/:skill/permission  { requestId, optionId, decision } -> answer a pending ask
+      //   POST /api/chat/:skill/cancel      cancel the in-flight turn
+      //   POST /api/chat/:skill/end         close the live session (stays resumable)
+      //   GET  /api/chat/:skill/stream      SSE: buffered replay + live updates
+      if (pathname.startsWith("/api/chat/")) {
+        const chatSegments = pathname
+          .slice("/api/chat/".length)
+          .split("/")
+          .filter((segment) => segment.length > 0);
+        const chatSkill = chatSegments[0] !== undefined ? decodeURIComponent(chatSegments[0]) : undefined;
+        const chatAction = chatSegments[1];
+        if (chatSkill === undefined || chatSegments.length !== 2 || chatAction === undefined) {
+          return jsonResponse({ error: "chat routes are /api/chat/:skill/<state|session|message|permission|cancel|end|stream>" }, 404);
+        }
+
+        if (chatAction === "state" && request.method === "GET") {
+          return jsonResponse(chatManager.state(chatSkill));
+        }
+        if (chatAction === "stream" && request.method === "GET") {
+          return chatManager.streamResponse(chatSkill);
+        }
+        if (request.method !== "POST") {
+          return jsonResponse({ error: `${chatAction} requires POST` }, 405);
+        }
+
+        let chatBody: unknown = {};
+        try {
+          const raw = await request.text();
+          chatBody = raw.length > 0 ? JSON.parse(raw) : {};
+        } catch {
+          return jsonResponse({ error: "request body must be JSON" }, 400);
+        }
+        const body = typeof chatBody === "object" && chatBody !== null ? (chatBody as Record<string, unknown>) : {};
+
+        if (chatAction === "session") {
+          const provider = typeof body.provider === "string" ? body.provider : undefined;
+          const mode = body.mode === "resume" ? "resume" : "new";
+          if (provider === undefined) {
+            return jsonResponse({ error: "session requires a provider (one of the configured provider ids)" }, 400);
+          }
+          const started = await chatManager.startSession(chatSkill, provider, mode);
+          return started.ok
+            ? jsonResponse({ state: started.state })
+            : jsonResponse({ error: started.error }, started.status);
+        }
+        if (chatAction === "message") {
+          const text = typeof body.text === "string" ? body.text.trim() : "";
+          if (text.length === 0) {
+            return jsonResponse({ error: "message requires non-empty text" }, 400);
+          }
+          const sent = await chatManager.sendMessage(chatSkill, text);
+          return sent.ok ? jsonResponse({ accepted: true }, 202) : jsonResponse({ error: sent.error }, sent.status);
+        }
+        if (chatAction === "permission") {
+          const requestId = typeof body.requestId === "string" ? body.requestId : "";
+          const optionId = typeof body.optionId === "string" ? body.optionId : "";
+          const decision = body.decision === "denied" ? "denied" : "allowed";
+          if (requestId.length === 0 || optionId.length === 0) {
+            return jsonResponse({ error: "permission requires requestId and optionId" }, 400);
+          }
+          const answered = chatManager.answerPermission(chatSkill, requestId, optionId, decision);
+          return answered.ok ? jsonResponse({ ok: true }) : jsonResponse({ error: answered.error }, answered.status);
+        }
+        if (chatAction === "cancel") {
+          return jsonResponse(chatManager.cancelTurn(chatSkill));
+        }
+        if (chatAction === "end") {
+          return jsonResponse(await chatManager.endSession(chatSkill));
+        }
+        return jsonResponse({ error: `unknown chat action "${chatAction}"` }, 404);
+      }
+
       if (pathname.startsWith("/api/")) {
         return jsonResponse({ error: `unknown endpoint ${pathname}` }, 404);
       }
@@ -2196,6 +2274,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
     stop: async () => {
       clearInterval(heartbeat);
       watcherHandle.close();
+      await chatManager.stop();
       await server.stop(true);
     },
   };
