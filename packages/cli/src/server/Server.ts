@@ -5,6 +5,7 @@
  * client hits same-origin `/api/*` paths.
  */
 import {
+  adoptWorkspace,
   bundleForEvent,
   checkTransition,
   computeBundleHashes,
@@ -29,6 +30,7 @@ import {
   listUndisposedCrates,
   parseDossier,
   publishBundle,
+  recordSkillVersion,
   runFixture,
   runStation,
   scanFixtures,
@@ -57,7 +59,7 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, extname, join, resolve as resolvePath, sep } from "node:path";
+import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { loadSkillbook } from "../Skillbook.ts";
 import { ChatSessionManager } from "./ChatSessions.ts";
@@ -1256,6 +1258,139 @@ const handleCreateBundle = async (root: string, request: Request): Promise<Respo
   }
 };
 
+interface AdoptRequestBody {
+  readonly path?: unknown;
+}
+
+/**
+ * `POST /api/adopt` -- the shell's "Import existing SKILL.md" door
+ * (agent-first parity: the SAME core pipeline as `skillmaker adopt`,
+ * Adopt.ts -- registry tripwire, `adoptWorkspace`, then the identical
+ * journal writes: `bundle.created` (+ `bundle.archived` for a deprecated
+ * pathname) and an initial `skill.version_recorded` labeled "adopted").
+ *
+ * v1 scope (D1/D2 rulings): single-path, in-place adopt only -- no dock
+ * machinery. `path` is project-relative and may name either a `SKILL.md`
+ * file or a directory to sweep; it is clamped to the workspace exactly as
+ * the CLI's `clampToWorkspace` does (friction log entry #1, director ruling
+ * 2026-07-21: adopt only ever scans inside the project directory). The
+ * response mirrors `skillmaker adopt --json`'s report shape -- honest about
+ * skipped (already adopted) and challenged (evidence-bearing arrivals that
+ * belong at the receiving dock) candidates rather than silently stamping
+ * them.
+ */
+const handleAdopt = async (root: string, request: Request): Promise<Response> => {
+  let body: AdoptRequestBody = {};
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    try {
+      body = JSON.parse(rawText) as AdoptRequestBody;
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+  }
+  if (body.path !== undefined && typeof body.path !== "string") {
+    return jsonResponse({ error: "path must be a string (project-relative)" }, 400);
+  }
+  const requestedPath = body.path;
+
+  let target = root;
+  if (requestedPath !== undefined && requestedPath.length > 0) {
+    const resolved = resolvePath(root, requestedPath);
+    // Same clamp as the CLI's `clampToWorkspace`: a path may narrow the
+    // sweep to a subtree, never widen it past the workspace root.
+    if (resolved !== root && !resolved.startsWith(`${root}${sep}`)) {
+      return jsonResponse(
+        { error: `path is outside the workspace (${root}) -- adopt only scans inside the project directory` },
+        400,
+      );
+    }
+    if (!existsSync(resolved)) {
+      return jsonResponse({ error: `no such path "${requestedPath}" in this workspace` }, 404);
+    }
+    if (statSync(resolved).isFile()) {
+      if (basename(resolved) !== "SKILL.md") {
+        return jsonResponse(
+          { error: `"${requestedPath}" is not a SKILL.md -- point at a SKILL.md file or a directory containing one` },
+          400,
+        );
+      }
+      target = dirname(resolved);
+    } else {
+      target = resolved;
+    }
+  }
+
+  try {
+    // The registry/paperwork tripwire (issue #92), same as plain
+    // `skillmaker adopt`: evidence-bearing candidates are challenged in the
+    // report, never silently adopted.
+    const events = await readJournalEvents(root);
+    const registry = await runIndexEffect(root, gatherIntakeRegistry(events));
+
+    const report = await Effect.runPromise(
+      adoptWorkspace(target, { registry }).pipe(Effect.provide(BunServices.layer)),
+    );
+
+    // Hashes are computed outside the journal effect (they only need the
+    // filesystem); the journal writes then mirror Adopt.ts's exactly.
+    const hashesBySlug = new Map<string, { designHash: string; outputHash: string }>();
+    for (const skill of report.adopted) {
+      hashesBySlug.set(
+        skill.slug,
+        await Effect.runPromise(computeBundleHashes(skill.dir, "in-place").pipe(Effect.provide(BunServices.layer))),
+      );
+    }
+
+    const actor = await Effect.runPromise(resolveUserActor());
+    await runJournalEffect(
+      root,
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+        for (const skill of report.adopted) {
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: `bundle.created:${skill.slug}`,
+            payload: { bundle: skill.slug },
+          });
+          if (skill.lifecycle === "deprecated") {
+            yield* journal.append({
+              type: "bundle.archived",
+              actor,
+              idempotencyKey: `bundle.archived:${skill.slug}`,
+              payload: { bundle: skill.slug },
+            });
+          }
+          const hashes = hashesBySlug.get(skill.slug);
+          if (hashes !== undefined) {
+            yield* recordSkillVersion(skill.slug, actor, hashes.designHash, hashes.outputHash, {
+              label: "adopted",
+            });
+          }
+        }
+      }),
+    );
+
+    // The CLI's `--json` report shape (Adopt.ts `summarize`), verbatim.
+    return jsonResponse({
+      found: report.found,
+      adopted: report.adopted.map((skill) => ({
+        slug: skill.slug,
+        path: skill.relativePath,
+        lifecycle: skill.lifecycle,
+        generated: skill.generated,
+        warnings: skill.warnings,
+      })),
+      skipped: report.skipped,
+      challenged: report.challenged.map((c) => ({ path: c.relativePath, evidence: c.evidence })),
+      warnings: report.warnings,
+    });
+  } catch (cause) {
+    return jsonResponse({ error: `could not adopt: ${String(cause)}` }, 500);
+  }
+};
+
 /** `runs/<runId>/artifacts/<nonempty>` -- Phase 9's run-detail artifact viewer. */
 const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 
@@ -2102,6 +2237,13 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         } catch (cause) {
           return jsonResponse({ error: `could not list todos: ${String(cause)}` }, 500);
         }
+      }
+
+      if (pathname === "/api/adopt") {
+        if (request.method !== "POST") {
+          return jsonResponse({ error: "adopt requires POST" }, 405);
+        }
+        return handleAdopt(root, request);
       }
 
       if (pathname.startsWith("/api/bundles/")) {
