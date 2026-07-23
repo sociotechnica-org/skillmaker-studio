@@ -80,7 +80,6 @@ export function OverviewCard({ slug, elevated }: { readonly slug: string; readon
       <div className="flex justify-between pt-1"><span className="text-ink-muted">Drift</span><span className="text-xs">{page.drift}</span></div>
       <div className="flex justify-between pt-1"><span className="text-ink-muted">Proven on</span><span className="text-xs">{page.provenOn}</span></div>
       <div className="flex justify-between pt-1"><span className="text-ink-muted">Coverage</span><span className="text-xs">{page.coverage}</span></div>
-      <div className="pt-2"><Button label="Publish this version" primary /></div>
     </div>
   );
 }
