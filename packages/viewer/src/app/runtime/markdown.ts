@@ -14,6 +14,8 @@
  * Supported subset: ATX headings, paragraphs, unordered/ordered lists,
  * fenced code, pipe tables, blockquotes; inline code/strong/emphasis/links
  * (links only with an allowlisted scheme -- everything else stays text).
+ * Leading YAML frontmatter and HTML comments are hidden from rendered
+ * output (`stripHiddenMarkdown`); raw views show the original untouched.
  */
 
 export type InlineNode =
@@ -144,6 +146,74 @@ export const parseInline = (text: string): ReadonlyArray<InlineNode> => {
 
 const TABLE_SEPARATOR = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
+const FRONTMATTER_DELIMITER = /^---\s*$/;
+
+/**
+ * Pre-pass for RENDERED views only: drop a leading YAML frontmatter block
+ * (`--- ... ---` starting on line 1) and HTML comments (`<!-- ... -->`,
+ * multi-line included) so agent metadata never renders as prose soup. The
+ * Raw toggle bypasses the parser entirely, so the original text is intact.
+ *
+ * Deliberate edges:
+ * - frontmatter is stripped only when the closing `---` exists; a lone
+ *   opening delimiter renders as-is rather than eating the document;
+ * - `---` lines past the top of the document are untouched;
+ * - fenced code blocks are skipped, so `<!-- -->` in code samples survives;
+ * - an unclosed `<!--` comments out the remainder, matching HTML.
+ */
+export const stripHiddenMarkdown = (markdown: string): string => {
+  let lines = markdown.split("\n");
+
+  if (FRONTMATTER_DELIMITER.test(lines[0] ?? "")) {
+    const close = lines.findIndex((line, i) => i > 0 && FRONTMATTER_DELIMITER.test(line));
+    if (close !== -1) lines = lines.slice(close + 1);
+  }
+
+  const out: Array<string> = [];
+  let inFence = false;
+  let inComment = false;
+  for (const line of lines) {
+    if (!inComment && line.trim().startsWith("```")) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+
+    let rest = line;
+    let kept = "";
+    while (rest.length > 0) {
+      if (inComment) {
+        const end = rest.indexOf("-->");
+        if (end === -1) {
+          rest = "";
+        } else {
+          rest = rest.slice(end + 3);
+          inComment = false;
+        }
+      } else {
+        const start = rest.indexOf("<!--");
+        if (start === -1) {
+          kept += rest;
+          rest = "";
+        } else {
+          kept += rest.slice(0, start);
+          rest = rest.slice(start + 4);
+          inComment = true;
+        }
+      }
+    }
+    // A line that was ONLY comment vanishes entirely (no stray blank line);
+    // partial removals keep whatever text remains.
+    if (kept.length > 0 || line.trim().length === 0) out.push(kept);
+  }
+
+  return out.join("\n");
+};
+
 const splitTableRow = (line: string): ReadonlyArray<string> => {
   let row = line.trim();
   if (row.startsWith("|")) row = row.slice(1);
@@ -153,7 +223,7 @@ const splitTableRow = (line: string): ReadonlyArray<string> => {
 
 /** Parse a full markdown document into blocks. Never throws; unknown syntax degrades to paragraphs. */
 export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> => {
-  const lines = markdown.split("\n");
+  const lines = stripHiddenMarkdown(markdown).split("\n");
   const blocks: Array<MarkdownBlock> = [];
 
   let inCode = false;
