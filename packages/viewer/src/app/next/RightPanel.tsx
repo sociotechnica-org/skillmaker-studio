@@ -327,7 +327,9 @@ function AgentMessage({ text, sentAt, status }: { readonly text: string; readonl
   return (
     <div className="group pt-3">
       {status && <div className="pb-0.5 font-display text-xs text-ink-muted">{status}</div>}
-      <p className={`whitespace-pre-wrap ${status ? "text-ink-muted" : ""}`}>{text}</p>
+      <div className={status ? "text-ink-muted" : ""}>
+        <MarkdownContent markdown={text} />
+      </div>
       <MessageMeta text={text} sentAt={sentAt} align="left" />
     </div>
   );
