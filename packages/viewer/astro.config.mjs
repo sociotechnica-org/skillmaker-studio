@@ -30,6 +30,7 @@ const devSpaFallback = () => ({
 });
 
 export default defineConfig({
+  devToolbar: { enabled: false },
   integrations: [react()],
   vite: {
     plugins: [tailwindcss(), devSpaFallback()],

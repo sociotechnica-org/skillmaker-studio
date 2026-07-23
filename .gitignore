@@ -41,3 +41,7 @@ npm/cli-linux-x64/bin/
 npm/cli-linux-x64/viewer-dist/
 # dist/npm/ (build-npm-packages.sh's output) is already covered by dist/*
 # above; noted here for discoverability.
+
+# agent worktrees + finder noise
+.claude/worktrees/
+.DS_Store

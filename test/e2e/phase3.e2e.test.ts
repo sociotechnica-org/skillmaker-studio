@@ -117,7 +117,7 @@ describe("skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     const html = await response.text();
-    expect(html).toContain("id=\"app-root\"");
+    expect(html).toContain("astro-island");
     expect(html).toContain("Skillmaker Studio");
   });
 
@@ -125,7 +125,7 @@ describe("skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)", () => {
     const response = await fetch(`${baseUrl}/some/client/route`);
     expect(response.status).toBe(200);
     const html = await response.text();
-    expect(html).toContain("id=\"app-root\"");
+    expect(html).toContain("astro-island");
   });
 
   test("path traversal via the encoded-slash bypass is rejected with 404", async () => {

@@ -42,6 +42,8 @@ export interface StartE2eServerOptions {
   /** argv for one attempt at the given port, e.g. `(port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"]`. */
   readonly command: (port: number) => ReadonlyArray<string>;
   readonly cwd: string;
+  /** Extra env for the spawned server, merged over the test process's env. Explicit because relying on `process.env` mutations propagating through Bun.spawn's default inheritance has proven flaky. */
+  readonly env?: Readonly<Record<string, string>>;
   /** Backstop deadline per attempt (see the header: readiness normally arrives in well under a second). */
   readonly timeoutMs?: number;
 }
@@ -79,6 +81,7 @@ export const startE2eServer = async (options: StartE2eServerOptions): Promise<St
       cwd: options.cwd,
       stdout: "pipe",
       stderr: "pipe",
+      ...(options.env !== undefined ? { env: { ...process.env, ...options.env } } : {}),
     });
 
     // Drained continuously so a chatty server can never block on a full

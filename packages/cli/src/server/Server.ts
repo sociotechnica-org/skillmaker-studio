@@ -5,6 +5,7 @@
  * client hits same-origin `/api/*` paths.
  */
 import {
+  adoptWorkspace,
   bundleForEvent,
   checkTransition,
   computeBundleHashes,
@@ -29,9 +30,12 @@ import {
   listUndisposedCrates,
   parseDossier,
   publishBundle,
+  recordSkillVersion,
   runFixture,
   runStation,
   scanFixtures,
+  slugify,
+  walk,
   Workspace,
   WorkspaceLayer,
   type Actor,
@@ -56,9 +60,12 @@ import {
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, resolve as resolvePath, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, extname, join, relative, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
 import { loadSkillbook } from "../Skillbook.ts";
+import { ChatSessionManager } from "./ChatSessions.ts";
+import { createRunDispatchHandlers } from "./RunDispatch.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
 
@@ -123,6 +130,27 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     status,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
+
+/**
+ * Decodes a chat message's `images` field: absent -> `[]`, a well-shaped
+ * array -> the attachments, anything else -> `undefined` (a 400). Size and
+ * mime-type admission stays with the manager (validateChatImage), so the
+ * cap lives in ONE place.
+ */
+const decodeChatImages = (
+  raw: unknown,
+): ReadonlyArray<{ readonly data: string; readonly mimeType: string; readonly name?: string }> | undefined => {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return undefined;
+  const out: Array<{ readonly data: string; readonly mimeType: string; readonly name?: string }> = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) return undefined;
+    const { data, mimeType, name } = entry as { data?: unknown; mimeType?: unknown; name?: unknown };
+    if (typeof data !== "string" || typeof mimeType !== "string") return undefined;
+    out.push({ data, mimeType, ...(typeof name === "string" ? { name } : {}) });
+  }
+  return out;
+};
 
 const runIndexEffect = <A>(
   root: string,
@@ -620,6 +648,9 @@ const handleCatalog = async (root: string): Promise<Response> =>
           oneLiner: bundle.oneLiner,
           tags: bundle.tags,
           stage: bundle.stage,
+          // The sidebar's attention dot: awaiting-review is presence data,
+          // already on the folded record -- copied through, never derived here.
+          substate: bundle.substate,
           archived: bundle.archived,
           drift: bundle.drift,
           latestVersion:
@@ -649,6 +680,44 @@ const handleCatalog = async (root: string): Promise<Response> =>
       return jsonResponse({ entries });
     }),
   );
+
+/**
+ * Display-shortens an absolute path with `~` when it sits under the given
+ * home directory. Pure (home is a parameter) so it is unit-testable; the
+ * route passes `homedir()`.
+ */
+export const shortenHomePath = (path: string, home: string): string => {
+  if (home.length === 0) return path;
+  if (path === home) return "~";
+  return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+};
+
+/**
+ * `GET /api/projects` -- the next shell's sidebar Projects tree (IA doc
+ * 2026-07-22 §A). The real machine-level project registry (`~/.skillmaker`)
+ * arrives in a later phase; TODAY the server knows exactly one project --
+ * the workspace it is running for -- so this returns a one-element array.
+ * The ARRAY shape is the contract: when the registry lands, this endpoint
+ * grows more elements and the client changes not at all. Skills are the
+ * workspace's non-archived bundles off ONE `rebuild()` (`listBundleRecords`),
+ * in the server's own stage vocabulary (`idea`...`published`) -- display
+ * labels are the viewer's business.
+ */
+const handleProjects = async (root: string, config: WorkspaceConfig): Promise<Response> => {
+  const bundles = await listBundleRecords(root);
+  const skills = bundles
+    .filter((bundle) => !bundle.archived)
+    .map((bundle) => ({ slug: bundle.slug, stage: bundle.stage, substate: bundle.substate, oneLiner: bundle.oneLiner }));
+  return jsonResponse({
+    projects: [
+      {
+        name: config.name.length > 0 ? config.name : basename(root),
+        path: shortenHomePath(root, homedir()),
+        skills,
+      },
+    ],
+  });
+};
 
 type AppendVersionOutcome =
   | { readonly kind: "ok"; readonly status: "appended" | "already_appended" }
@@ -1215,6 +1284,176 @@ const handleCreateBundle = async (root: string, request: Request): Promise<Respo
   }
 };
 
+interface AdoptRequestBody {
+  readonly path?: unknown;
+}
+
+/**
+ * `POST /api/adopt` -- the shell's "Import existing SKILL.md" door
+ * (agent-first parity: the SAME core pipeline as `skillmaker adopt`,
+ * Adopt.ts -- registry tripwire, `adoptWorkspace`, then the identical
+ * journal writes: `bundle.created` (+ `bundle.archived` for a deprecated
+ * pathname) and an initial `skill.version_recorded` labeled "adopted").
+ *
+ * v1 scope (D1/D2 rulings): single-path, in-place adopt only -- no dock
+ * machinery. `path` is project-relative and may name either a `SKILL.md`
+ * file or a directory to sweep; it is clamped to the workspace exactly as
+ * the CLI's `clampToWorkspace` does (friction log entry #1, director ruling
+ * 2026-07-21: adopt only ever scans inside the project directory). The
+ * response mirrors `skillmaker adopt --json`'s report shape -- honest about
+ * skipped (already adopted) and challenged (evidence-bearing arrivals that
+ * belong at the receiving dock) candidates rather than silently stamping
+ * them.
+ */
+const handleAdopt = async (root: string, request: Request): Promise<Response> => {
+  let body: AdoptRequestBody = {};
+  const rawText = await request.text();
+  if (rawText.length > 0) {
+    try {
+      body = JSON.parse(rawText) as AdoptRequestBody;
+    } catch {
+      return jsonResponse({ error: "invalid JSON body" }, 400);
+    }
+  }
+  if (body.path !== undefined && typeof body.path !== "string") {
+    return jsonResponse({ error: "path must be a string (project-relative)" }, 400);
+  }
+  const requestedPath = body.path;
+
+  let target = root;
+  if (requestedPath !== undefined && requestedPath.length > 0) {
+    const resolved = resolvePath(root, requestedPath);
+    // Same clamp as the CLI's `clampToWorkspace`: a path may narrow the
+    // sweep to a subtree, never widen it past the workspace root.
+    if (resolved !== root && !resolved.startsWith(`${root}${sep}`)) {
+      return jsonResponse(
+        { error: `path is outside the workspace (${root}) -- adopt only scans inside the project directory` },
+        400,
+      );
+    }
+    if (!existsSync(resolved)) {
+      return jsonResponse({ error: `no such path "${requestedPath}" in this workspace` }, 404);
+    }
+    if (statSync(resolved).isFile()) {
+      if (basename(resolved) !== "SKILL.md") {
+        return jsonResponse(
+          { error: `"${requestedPath}" is not a SKILL.md -- point at a SKILL.md file or a directory containing one` },
+          400,
+        );
+      }
+      target = dirname(resolved);
+    } else {
+      target = resolved;
+    }
+  }
+
+  try {
+    // The registry/paperwork tripwire (issue #92), same as plain
+    // `skillmaker adopt`: evidence-bearing candidates are challenged in the
+    // report, never silently adopted.
+    const events = await readJournalEvents(root);
+    const registry = await runIndexEffect(root, gatherIntakeRegistry(events));
+
+    const report = await Effect.runPromise(
+      adoptWorkspace(target, { registry }).pipe(Effect.provide(BunServices.layer)),
+    );
+
+    // Hashes are computed outside the journal effect (they only need the
+    // filesystem); the journal writes then mirror Adopt.ts's exactly.
+    const hashesBySlug = new Map<string, { designHash: string; outputHash: string }>();
+    for (const skill of report.adopted) {
+      hashesBySlug.set(
+        skill.slug,
+        await Effect.runPromise(computeBundleHashes(skill.dir, "in-place").pipe(Effect.provide(BunServices.layer))),
+      );
+    }
+
+    const actor = await Effect.runPromise(resolveUserActor());
+    await runJournalEffect(
+      root,
+      Effect.gen(function* () {
+        const journal = yield* Journal;
+        for (const skill of report.adopted) {
+          yield* journal.append({
+            type: "bundle.created",
+            actor,
+            idempotencyKey: `bundle.created:${skill.slug}`,
+            payload: { bundle: skill.slug },
+          });
+          if (skill.lifecycle === "deprecated") {
+            yield* journal.append({
+              type: "bundle.archived",
+              actor,
+              idempotencyKey: `bundle.archived:${skill.slug}`,
+              payload: { bundle: skill.slug },
+            });
+          }
+          const hashes = hashesBySlug.get(skill.slug);
+          if (hashes !== undefined) {
+            yield* recordSkillVersion(skill.slug, actor, hashes.designHash, hashes.outputHash, {
+              label: "adopted",
+            });
+          }
+        }
+      }),
+    );
+
+    // The CLI's `--json` report shape (Adopt.ts `summarize`), verbatim.
+    return jsonResponse({
+      found: report.found,
+      adopted: report.adopted.map((skill) => ({
+        slug: skill.slug,
+        path: skill.relativePath,
+        lifecycle: skill.lifecycle,
+        generated: skill.generated,
+        warnings: skill.warnings,
+      })),
+      skipped: report.skipped,
+      challenged: report.challenged.map((c) => ({ path: c.relativePath, evidence: c.evidence })),
+      warnings: report.warnings,
+    });
+  } catch (cause) {
+    return jsonResponse({ error: `could not adopt: ${String(cause)}` }, 500);
+  }
+};
+
+/**
+ * `GET /api/adopt/candidates` -- the new-skill launcher's "Import one of
+ * these?" rows: the SAME read-only discovery sweep `adopt --triage` runs
+ * (core's `walk`, issue #92), workspace-clamped by construction -- it only
+ * ever walks `root`, never a caller-supplied path. Never writes anything: a
+ * candidate is a SKILL.md whose directory carries no `bundle.json` yet
+ * (i.e. not adopted). `slug` is the PROVISIONAL slug an adopt would assign
+ * -- the directory basename slugified, `-2`-suffixed on collision, in the
+ * same sorted order `adoptWorkspace` iterates -- a preview, not a
+ * reservation.
+ */
+const handleAdoptCandidates = async (root: string): Promise<Response> => {
+  try {
+    const result = await Effect.runPromise(walk(root).pipe(Effect.provide(BunServices.layer)));
+    const used = new Set(result.existingSlugs);
+    const candidates: Array<{ path: string; slug: string }> = [];
+    for (const skillMdPath of result.skillMdFiles) {
+      const dir = dirname(skillMdPath);
+      if (existsSync(join(dir, "bundle.json"))) {
+        continue; // already adopted
+      }
+      const base = slugify(basename(dir));
+      let slug = base;
+      let n = 2;
+      while (used.has(slug)) {
+        slug = `${base}-${n}`;
+        n += 1;
+      }
+      used.add(slug);
+      candidates.push({ path: relative(root, skillMdPath), slug });
+    }
+    return jsonResponse({ candidates });
+  } catch (cause) {
+    return jsonResponse({ error: `could not list adopt candidates: ${String(cause)}` }, 500);
+  }
+};
+
 /** `runs/<runId>/artifacts/<nonempty>` -- Phase 9's run-detail artifact viewer. */
 const RUN_ARTIFACT_PATH = /^runs\/[^/]+\/artifacts\/.+$/;
 
@@ -1227,7 +1466,7 @@ const RUN_RESPONSE_PATH = /^runs\/[^/]+\/response\.md$/;
  * `listReviewableBundleFiles`'s enumeration, so the two stay in sync by
  * construction rather than by hand.
  */
-const REVIEWABLE_SUBDIRS = ["research", "output"] as const;
+const REVIEWABLE_SUBDIRS = ["research", "output", "evals"] as const;
 
 /**
  * An in-place bundle's reviewable top-level files (seam pass over #108/
@@ -1274,6 +1513,42 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
  * `listReviewableBundleFiles` lists for an in-place bundle stay servable --
  * the two must cover the same subtree or the Files tab lists dead links.
  */
+/**
+ * `GET /api/bundles/:slug/files` -- the Files tab's tree: every bundle file
+ * the file endpoint can actually serve (same allowlist, so the tree never
+ * contains a dead link). `runs/` is deliberately excluded from the tree --
+ * run artifacts stay reachable through run detail; listing every run file
+ * here would flood the panel.
+ */
+const handleBundleFiles = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+): Promise<Response> => {
+  const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
+  if (!existsSync(bundleDir) || !statSync(bundleDir).isDirectory()) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  const files: Array<{ path: string; size: number }> = [];
+  const walk = (dir: string, rel: string): void => {
+    for (const name of readdirSync(dir).sort()) {
+      const abs = join(dir, name);
+      const relPath = rel.length === 0 ? name : `${rel}/${name}`;
+      const st = statSync(abs);
+      if (st.isDirectory()) {
+        // Never descend into runs/ (excluded from the tree) or dotdirs.
+        if (rel.length === 0 && (name === "runs" || name.startsWith("."))) continue;
+        walk(abs, relPath);
+      } else if (st.isFile() && isAllowedBundleFilePath(relPath)) {
+        files.push({ path: relPath, size: st.size });
+      }
+    }
+  };
+  walk(bundleDir, "");
+  return jsonResponse({ slug, files });
+};
+
 const handleBundleFile = async (
   root: string,
   config: WorkspaceConfig,
@@ -1893,6 +2168,14 @@ const serveStatic = async (viewerDist: string, pathname: string): Promise<Respon
     return direct;
   }
 
+  // Directory index: a path that maps to a built page directory (astro
+  // emits pages as <route>/index.html, e.g. /next) serves that page rather
+  // than falling through to the SPA.
+  const dirIndex = tryFile(join(resolved, "index.html"));
+  if (dirIndex !== undefined) {
+    return dirIndex;
+  }
+
   // SPA fallback: any non-/api path without a real file falls back to
   // index.html, UNLESS it looks like a real asset request (has a file
   // extension) that's simply missing -- that stays a 404.
@@ -1911,6 +2194,11 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
 
   const watcherHandle: JournalWatcherHandle = watchJournal(journalPath, broadcaster.onJournalChange);
   const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);
+  const chatManager = new ChatSessionManager({ root, config });
+  // Fixture-run dispatch (run / run-all / runs-active): the UI's door onto
+  // the SAME RunEngine path as `skillmaker run` -- see RunDispatch.ts for
+  // the concurrency (cap 2, FIFO queue) and orphan-safety choices.
+  const runDispatch = createRunDispatchHandlers({ root, config });
 
   const server = Bun.serve({
     port,
@@ -1984,6 +2272,14 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         }
       }
 
+      if (pathname === "/api/projects") {
+        try {
+          return await handleProjects(root, config);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list projects: ${String(cause)}` }, 500);
+        }
+      }
+
       if (pathname === "/api/catalog") {
         try {
           return await handleCatalog(root);
@@ -2006,6 +2302,20 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         }
       }
 
+      if (pathname === "/api/adopt/candidates") {
+        if (request.method !== "GET") {
+          return jsonResponse({ error: "candidates requires GET" }, 405);
+        }
+        return handleAdoptCandidates(root);
+      }
+
+      if (pathname === "/api/adopt") {
+        if (request.method !== "POST") {
+          return jsonResponse({ error: "adopt requires POST" }, 405);
+        }
+        return handleAdopt(root, request);
+      }
+
       if (pathname.startsWith("/api/bundles/")) {
         const rest = pathname.slice("/api/bundles/".length);
         const segments = rest.split("/").filter((segment) => segment.length > 0);
@@ -2016,6 +2326,13 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             return jsonResponse({ error: "record-version requires POST" }, 405);
           }
           return handleRecordVersion(root, config, slug, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "files") {
+          if (request.method !== "GET") {
+            return jsonResponse({ error: "files requires GET" }, 405);
+          }
+          return handleBundleFiles(root, config, slug);
         }
 
         if (slug !== undefined && segments.length === 2 && segments[1] === "file") {
@@ -2058,6 +2375,27 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return handleTriggerRun(root, config, slug, caseName, request);
         }
 
+        if (slug !== undefined && segments.length === 2 && segments[1] === "run") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "run requires POST" }, 405);
+          }
+          return runDispatch.handleRun(slug, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "run-all") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "run-all requires POST" }, 405);
+          }
+          return runDispatch.handleRunAll(slug, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "runs-active") {
+          if (request.method !== "GET") {
+            return jsonResponse({ error: "runs-active requires GET" }, 405);
+          }
+          return runDispatch.handleRunsActive(slug);
+        }
+
         if (slug !== undefined && segments.length === 2 && segments[1] === "publish") {
           if (request.method !== "POST") {
             return jsonResponse({ error: "publish requires POST" }, 405);
@@ -2085,6 +2423,108 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         return broadcaster.response();
       }
 
+      // Chat surface (D9): per-skill agent sessions. Explicit-start flow:
+      //   GET  /api/chat/:skill/state       session + provider + resumable snapshot
+      //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume", model?, effort? } -> spawn/resume
+      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn (409 while running)
+      //   POST /api/chat/:skill/model       { model, effort? } -> mid-session model change (between turns)
+      //   POST /api/chat/:skill/permission  { requestId, optionId, decision } -> answer a pending ask
+      //   POST /api/chat/:skill/cancel      cancel the in-flight turn
+      //   POST /api/chat/:skill/end         close the live session (stays resumable)
+      //   GET  /api/chat/:skill/stream      SSE: buffered replay + live updates
+      // Provider capability catalog for the grouped model picker: models per
+      // provider (learned from the adapters via a cached one-shot probe),
+      // effort levels, and image support. See ChatSessionManager.providersCatalog.
+      if (pathname === "/api/chat/providers" && request.method === "GET") {
+        return jsonResponse({ providers: await chatManager.providersCatalog() });
+      }
+
+      if (pathname.startsWith("/api/chat/")) {
+        const chatSegments = pathname
+          .slice("/api/chat/".length)
+          .split("/")
+          .filter((segment) => segment.length > 0);
+        const chatSkill = chatSegments[0] !== undefined ? decodeURIComponent(chatSegments[0]) : undefined;
+        const chatAction = chatSegments[1];
+        if (chatSkill === undefined || chatSegments.length !== 2 || chatAction === undefined) {
+          return jsonResponse({ error: "chat routes are /api/chat/:skill/<state|session|message|permission|cancel|end|stream>" }, 404);
+        }
+
+        if (chatAction === "state" && request.method === "GET") {
+          return jsonResponse(chatManager.state(chatSkill));
+        }
+        if (chatAction === "stream" && request.method === "GET") {
+          return chatManager.streamResponse(chatSkill);
+        }
+        if (request.method !== "POST") {
+          return jsonResponse({ error: `${chatAction} requires POST` }, 405);
+        }
+
+        let chatBody: unknown = {};
+        try {
+          const raw = await request.text();
+          chatBody = raw.length > 0 ? JSON.parse(raw) : {};
+        } catch {
+          return jsonResponse({ error: "request body must be JSON" }, 400);
+        }
+        const body = typeof chatBody === "object" && chatBody !== null ? (chatBody as Record<string, unknown>) : {};
+
+        if (chatAction === "session") {
+          const provider = typeof body.provider === "string" ? body.provider : undefined;
+          const mode = body.mode === "resume" ? "resume" : "new";
+          if (provider === undefined) {
+            return jsonResponse({ error: "session requires a provider (one of the configured provider ids)" }, 400);
+          }
+          const started = await chatManager.startSession(chatSkill, provider, mode, {
+            ...(typeof body.model === "string" && body.model.length > 0 ? { model: body.model } : {}),
+            ...(typeof body.effort === "string" && body.effort.length > 0 ? { effort: body.effort } : {}),
+          });
+          return started.ok
+            ? jsonResponse({ state: started.state })
+            : jsonResponse({ error: started.error }, started.status);
+        }
+        if (chatAction === "message") {
+          const text = typeof body.text === "string" ? body.text.trim() : "";
+          const images = decodeChatImages(body.images);
+          if (images === undefined) {
+            return jsonResponse({ error: "images must be an array of {data (base64), mimeType, name?}" }, 400);
+          }
+          if (text.length === 0 && images.length === 0) {
+            return jsonResponse({ error: "message requires non-empty text or at least one image" }, 400);
+          }
+          const sent = await chatManager.sendMessage(chatSkill, text, images);
+          return sent.ok ? jsonResponse({ accepted: true }, 202) : jsonResponse({ error: sent.error }, sent.status);
+        }
+        if (chatAction === "model") {
+          const model = typeof body.model === "string" ? body.model.trim() : "";
+          const effort = typeof body.effort === "string" && body.effort.length > 0 ? body.effort : undefined;
+          if (model.length === 0) {
+            return jsonResponse({ error: "model requires a non-empty model id" }, 400);
+          }
+          const changed = await chatManager.setModel(chatSkill, model, effort);
+          return changed.ok
+            ? jsonResponse({ state: changed.state })
+            : jsonResponse({ error: changed.error }, changed.status);
+        }
+        if (chatAction === "permission") {
+          const requestId = typeof body.requestId === "string" ? body.requestId : "";
+          const optionId = typeof body.optionId === "string" ? body.optionId : "";
+          const decision = body.decision === "denied" ? "denied" : "allowed";
+          if (requestId.length === 0 || optionId.length === 0) {
+            return jsonResponse({ error: "permission requires requestId and optionId" }, 400);
+          }
+          const answered = chatManager.answerPermission(chatSkill, requestId, optionId, decision);
+          return answered.ok ? jsonResponse({ ok: true }) : jsonResponse({ error: answered.error }, answered.status);
+        }
+        if (chatAction === "cancel") {
+          return jsonResponse(chatManager.cancelTurn(chatSkill));
+        }
+        if (chatAction === "end") {
+          return jsonResponse(await chatManager.endSession(chatSkill));
+        }
+        return jsonResponse({ error: `unknown chat action "${chatAction}"` }, 404);
+      }
+
       if (pathname.startsWith("/api/")) {
         return jsonResponse({ error: `unknown endpoint ${pathname}` }, 404);
       }
@@ -2098,6 +2538,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
     stop: async () => {
       clearInterval(heartbeat);
       watcherHandle.close();
+      await chatManager.stop();
       await server.stop(true);
     },
   };

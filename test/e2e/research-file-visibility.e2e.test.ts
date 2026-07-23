@@ -76,8 +76,12 @@ describe("research file visibility over HTTP", () => {
     const response = await fetch(`${baseUrl}/api/bundles/demo-skill`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { files: ReadonlyArray<string> };
-    expect(body.files).toEqual(["design.md", "research/notes.md", "output/SKILL.md"]);
+    // evals/ joined the reviewable allowlist for the next shell's Files tab
+    // (ui/shell-blockout); the scaffolded risk-map.md now rides along after
+    // the design -> research -> output pipeline ordering.
+    expect(body.files).toEqual(["design.md", "research/notes.md", "output/SKILL.md", "evals/risk-map.md"]);
     expect(body.files).not.toContain("research/.gitkeep");
+    expect(body.files).not.toContain("evals/fixtures/.gitkeep");
   });
 
   test("the traversal guard the allowlist exists for still holds", async () => {

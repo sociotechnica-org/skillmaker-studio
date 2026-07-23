@@ -53,6 +53,19 @@ describe("FileContentView", () => {
     expect(html).toContain(">Raw<");
   });
 
+  test("rendered view hides frontmatter and comments; the content prop stays the exact original for the Raw toggle", () => {
+    const content = "---\nname: mapper\n---\n<!-- hidden note -->\n# Mapper";
+    const html = renderToStaticMarkup(
+      <FileContentView path="SKILL.md" content={content} preClassName="pre-style" />,
+    );
+    expect(html).toContain("<h1");
+    expect(html).not.toContain("name: mapper");
+    expect(html).not.toContain("hidden note");
+    // Raw mode is the same <pre>{content}</pre> as the plain branch -- the
+    // string is passed through untouched (stripping happens only inside
+    // parseMarkdown), so raw stays lossless by construction.
+  });
+
   test("non-.md paths keep the plain <pre> with no toggle", () => {
     const content = '{"not": "markdown", "heading": "# nope"}';
     const html = renderToStaticMarkup(

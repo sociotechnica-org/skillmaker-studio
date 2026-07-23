@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "subscriptionId": "host:claude-code:default:frame-the-problem",
+  "connectionId": "host:claude-code:default",
+  "owner": {
+    "kind": "process",
+    "host": "claude-code",
+    "process": "monitor"
+  },
+  "match": [
+    {
+      "type": "play.requested",
+      "reason": "play-requested"
+    },
+    {
+      "type": "play.human_input_requested",
+      "reason": "play-human_input_requested"
+    },
+    {
+      "type": "play.human_input_resolved",
+      "reason": "play-human_input_resolved"
+    },
+    {
+      "type": "play.completed",
+      "reason": "play-completed"
+    }
+  ],
+  "delivery": {
+    "host": "claude-code",
+    "mode": "plugin-monitor"
+  },
+  "wake": {
+    "includeMatchedEvent": true,
+    "includeProjectedState": true,
+    "maxContextEvents": 20
+  },
+  "createdAt": "2026-07-21T15:01:48.379Z",
+  "updatedAt": "2026-07-21T15:01:48.379Z"
+}
