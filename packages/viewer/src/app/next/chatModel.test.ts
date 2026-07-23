@@ -1,6 +1,7 @@
 /** chatModel.ts: SSE chat events -> renderable items (D9). */
 import { describe, expect, test } from "bun:test";
 import { chatItemsFromEvents, permissionOptions, pickPermissionChoices } from "./chatModel.ts";
+import { parseMarkdown } from "../runtime/markdown.ts";
 
 const update = (updateBody: Record<string, unknown>) => ({
   type: "update",
@@ -29,6 +30,32 @@ describe("chatItemsFromEvents", () => {
       { kind: "user", text: "thanks", t: "2026-07-23T09:01:00.000Z" },
       { kind: "agent", text: "Done.", t: "2026-07-23T10:00:00.000Z" },
     ]);
+  });
+
+  test("chunks that split a markdown TABLE mid-line coalesce byte-exactly into one item that parses to a single table", () => {
+    // Real-world artifact check: chunk boundaries landing mid-table must not
+    // corrupt the markdown. The joiner may not inject separators or touch
+    // newlines -- the coalesced text is the exact concatenation, and the
+    // parser must see ONE table with all rows.
+    const chunks = [
+      "Results so far:\n\n| Skill | Sta",
+      "tus |\n| --- ",
+      "| --- |\n| alpha | pas",
+      "s |\n| beta ",
+      "| fail |\n",
+    ];
+    const items = chatItemsFromEvents(chunks.map(agentChunk));
+    expect(items).toHaveLength(1);
+    const item = items[0];
+    if (item === undefined || item.kind !== "agent") throw new Error("expected one agent item");
+    expect(item.text).toBe(chunks.join(""));
+
+    const blocks = parseMarkdown(item.text);
+    expect(blocks.map((b) => b.kind)).toEqual(["paragraph", "table"]);
+    const table = blocks[1];
+    if (table === undefined || table.kind !== "table") throw new Error("expected a table block");
+    expect(table.header).toHaveLength(2);
+    expect(table.rows).toHaveLength(2);
   });
 
   test("a resumed session's replay (user_message_chunk / agent_message_chunk) renders as alternating messages", () => {
