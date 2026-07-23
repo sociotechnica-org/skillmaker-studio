@@ -97,3 +97,36 @@ export function HelpIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+/** Diagonal arrow out of a corner — expand the panel to full width. */
+export function ExpandIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <path d="M9.5 2.5h4v4" />
+      <line x1="13.5" y1="2.5" x2="9" y2="7" />
+      <path d="M6.5 13.5h-4v-4" />
+      <line x1="2.5" y1="13.5" x2="7" y2="9" />
+    </svg>
+  );
+}
+
+/** Diagonal arrows into the center — collapse the expanded panel. */
+export function CollapseIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <path d="M7 3v4H3" />
+      <line x1="7" y1="7" x2="2.5" y2="2.5" />
+      <path d="M9 13V9h4" />
+      <line x1="9" y1="9" x2="13.5" y2="13.5" />
+    </svg>
+  );
+}
+
+/** Folder — toggles the file-browser column inside the panel. */
+export function FolderIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <path d="M1.5 4.5a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z" />
+    </svg>
+  );
+}

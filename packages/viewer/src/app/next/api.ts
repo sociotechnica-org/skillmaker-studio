@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import { getCatalog, getState, getTodos } from "../runtime/api.ts";
 import type { BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
-import type { Project, Skill, Stage, Task } from "./types.ts";
+import type { BundleFile, Project, Skill, Stage, Task } from "./types.ts";
 
 /**
  * Wire stage -> this shell's display `Stage`. Deliberately NOT the runtime's
@@ -100,6 +100,27 @@ export const fetchProjects = async (): Promise<ReadonlyArray<Project>> => {
 export const fetchTasks = async (): Promise<ReadonlyArray<Task>> => {
   const response = await getTodos(false);
   return toTasks(response.todos);
+};
+
+/** `GET /api/bundles/:slug/files` -> the bundle's readable file tree. */
+export const fetchBundleFiles = async (slug: string): Promise<ReadonlyArray<BundleFile>> => {
+  const response = await fetch(`/api/bundles/${encodeURIComponent(slug)}/files`);
+  if (!response.ok) throw new Error(`files: ${response.status}`);
+  const body = (await response.json()) as { files?: ReadonlyArray<{ path?: unknown; size?: unknown }> };
+  return (body.files ?? [])
+    .filter((f): f is { path: string; size: number } => typeof f.path === "string" && typeof f.size === "number")
+    .filter((f) => !f.path.endsWith("/.gitkeep"));
+};
+
+/** `GET /api/bundles/:slug/file?path=` -> one file's content. */
+export const fetchBundleFile = async (slug: string, path: string): Promise<string> => {
+  const response = await fetch(
+    `/api/bundles/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`,
+  );
+  if (!response.ok) throw new Error(`file: ${response.status}`);
+  const body = (await response.json()) as { content?: unknown };
+  if (typeof body.content !== "string") throw new Error("file: malformed response");
+  return body.content;
 };
 
 /**

@@ -41,3 +41,9 @@ export type CenterView =
   | { readonly kind: "board" }
   | { readonly kind: "tasks" }
   | { readonly kind: "skill"; readonly project: string; readonly slug: string };
+
+/** One entry of a bundle's file tree (GET /api/bundles/:slug/files). */
+export type BundleFile = {
+  readonly path: string;
+  readonly size: number;
+};

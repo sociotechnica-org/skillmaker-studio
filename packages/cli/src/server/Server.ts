@@ -1266,7 +1266,7 @@ const RUN_RESPONSE_PATH = /^runs\/[^/]+\/response\.md$/;
  * `listReviewableBundleFiles`'s enumeration, so the two stay in sync by
  * construction rather than by hand.
  */
-const REVIEWABLE_SUBDIRS = ["research", "output"] as const;
+const REVIEWABLE_SUBDIRS = ["research", "output", "evals"] as const;
 
 /**
  * An in-place bundle's reviewable top-level files (seam pass over #108/
@@ -1313,6 +1313,42 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
  * `listReviewableBundleFiles` lists for an in-place bundle stay servable --
  * the two must cover the same subtree or the Files tab lists dead links.
  */
+/**
+ * `GET /api/bundles/:slug/files` -- the Files tab's tree: every bundle file
+ * the file endpoint can actually serve (same allowlist, so the tree never
+ * contains a dead link). `runs/` is deliberately excluded from the tree --
+ * run artifacts stay reachable through run detail; listing every run file
+ * here would flood the panel.
+ */
+const handleBundleFiles = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+): Promise<Response> => {
+  const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
+  if (!existsSync(bundleDir) || !statSync(bundleDir).isDirectory()) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  const files: Array<{ path: string; size: number }> = [];
+  const walk = (dir: string, rel: string): void => {
+    for (const name of readdirSync(dir).sort()) {
+      const abs = join(dir, name);
+      const relPath = rel.length === 0 ? name : `${rel}/${name}`;
+      const st = statSync(abs);
+      if (st.isDirectory()) {
+        // Never descend into runs/ (excluded from the tree) or dotdirs.
+        if (rel.length === 0 && (name === "runs" || name.startsWith("."))) continue;
+        walk(abs, relPath);
+      } else if (st.isFile() && isAllowedBundleFilePath(relPath)) {
+        files.push({ path: relPath, size: st.size });
+      }
+    }
+  };
+  walk(bundleDir, "");
+  return jsonResponse({ slug, files });
+};
+
 const handleBundleFile = async (
   root: string,
   config: WorkspaceConfig,
@@ -2071,6 +2107,13 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             return jsonResponse({ error: "record-version requires POST" }, 405);
           }
           return handleRecordVersion(root, config, slug, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "files") {
+          if (request.method !== "GET") {
+            return jsonResponse({ error: "files requires GET" }, 405);
+          }
+          return handleBundleFiles(root, config, slug);
         }
 
         if (slug !== undefined && segments.length === 2 && segments[1] === "file") {

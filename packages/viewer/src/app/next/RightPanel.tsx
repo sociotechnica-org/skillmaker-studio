@@ -1,17 +1,32 @@
-/** Right panel: Files (bundle browser) and Chat (the per-skill agent session). */
-import { useState } from "react";
+/** Right panel: Files (bundle browser + in-panel viewer) and Chat (the per-skill agent session). */
+import { useCallback, useState } from "react";
+import { FileContentView } from "../components/Markdown.tsx";
+import { fetchBundleFile, fetchBundleFiles, useApiData } from "./api.ts";
 import { BUNDLE_FILES } from "./data.ts";
-import { FADE_R } from "./ui.tsx";
+import { ChevronIcon, FolderIcon } from "./icons.tsx";
+import { FADE_R, IconButton } from "./ui.tsx";
+import type { BundleFile } from "./types.ts";
 
 type PanelTab = "files" | "chat";
 
-export function RightPanel() {
+const FILES_FALLBACK: ReadonlyArray<BundleFile> = BUNDLE_FILES.map((path) => ({ path, size: 0 }));
+
+export function RightPanel({ skill, width }: { readonly skill: string; readonly width: number }) {
   const [tab, setTab] = useState<PanelTab>("chat");
+  // Files state lives here (not in FilesTab) so switching tabs keeps it.
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [treeOpen, setTreeOpen] = useState(true);
+  // At narrow panel widths the split leaves no room to read: selecting a
+  // file tucks the tree away (the folder button brings it back).
+  const selectFile = (path: string | null) => {
+    setSelectedFile(path);
+    if (path !== null && width < 420) setTreeOpen(false);
+  };
 
   return (
     <div className="flex h-full flex-col">
-      {/* implied top section — no bottom border; the fixed corner toggle
-          overlays the right edge of this row */}
+      {/* implied top section — no bottom border; the fixed corner toggles
+          overlay the right edge of this row */}
       <div className="flex h-11 shrink-0 items-center gap-1 px-2">
         {(["files", "chat"] as const).map((t) => (
           <button
@@ -26,30 +41,199 @@ export function RightPanel() {
           </button>
         ))}
         <span className="flex-1" />
-        <span className="w-7 shrink-0" />
+        {tab === "files" && selectedFile !== null && (
+          <IconButton
+            active={treeOpen}
+            onClick={() => setTreeOpen(!treeOpen)}
+            title={treeOpen ? "Hide file browser" : "Show file browser"}
+          >
+            <FolderIcon />
+          </IconButton>
+        )}
+        {/* clearance: the fixed corner toggles overlay this corner */}
+        <span className="w-16 shrink-0" />
       </div>
-      {tab === "files" ? <FilesTab /> : <ChatTab />}
+      {tab === "files" ? (
+        <FilesTab
+          skill={skill}
+          selected={selectedFile}
+          treeOpen={treeOpen}
+          onSelect={selectFile}
+        />
+      ) : (
+        <ChatTab />
+      )}
     </div>
   );
 }
 
-function FilesTab() {
+// ------------------------------------------------------------------ files
+
+type TreeDir = { readonly name: string; readonly path: string; readonly dirs: TreeDir[]; readonly files: BundleFile[] };
+
+/** Builds a nested directory tree from the endpoint's flat path list. */
+function buildTree(files: ReadonlyArray<BundleFile>): TreeDir {
+  const root: TreeDir = { name: "", path: "", dirs: [], files: [] };
+  for (const file of files) {
+    const segments = file.path.split("/");
+    let node = root;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const dirPath = segments.slice(0, i + 1).join("/");
+      let next = node.dirs.find((d) => d.path === dirPath);
+      if (next === undefined) {
+        next = { name: segments[i] ?? "", path: dirPath, dirs: [], files: [] };
+        node.dirs.push(next);
+      }
+      node = next;
+    }
+    node.files.push(file);
+  }
+  return root;
+}
+
+function FilesTab({
+  skill,
+  selected,
+  treeOpen,
+  onSelect,
+}: {
+  readonly skill: string;
+  readonly selected: string | null;
+  readonly treeOpen: boolean;
+  readonly onSelect: (path: string | null) => void;
+}) {
+  const fetcher = useCallback(() => fetchBundleFiles(skill), [skill]);
+  const files = useApiData(fetcher, FILES_FALLBACK);
+  const tree = buildTree(files);
+
+  // No file selected: the tree fills the panel.
+  if (selected === null) {
+    return (
+      <div className="flex-1 overflow-y-auto px-2 pb-4 text-sm">
+        <DirChildren dir={tree} depth={0} selected={selected} onSelect={onSelect} />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex-1 overflow-y-auto px-3 text-sm">
-      <div className="pb-1 text-xs uppercase tracking-widest text-ink-muted">bundle</div>
-      {BUNDLE_FILES.map((f) => (
-        <button
-          key={f}
-          type="button"
-          className={`block w-full rounded px-2 py-0.5 text-left text-ink-muted hover:bg-surface/60 ${FADE_R}`}
-          title={f}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* breadcrumb: skill › dirs › file */}
+      <div className={`flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5 text-xs ${FADE_R}`}>
+        <span className="text-ink-muted">{skill}</span>
+        {selected.split("/").map((segment, i, all) => (
+          <span key={`${segment}-${i}`} className="flex items-center gap-1 whitespace-nowrap">
+            <span className="text-ink-muted">›</span>
+            <span className={i === all.length - 1 ? "font-display" : "text-ink-muted"}>{segment}</span>
+          </span>
+        ))}
+      </div>
+      <div className="flex min-h-0 flex-1">
+        {/* file content */}
+        <div className="min-w-0 flex-1 overflow-y-auto p-3">
+          <FileViewer skill={skill} path={selected} />
+        </div>
+        {/* collapsible tree column */}
+        <div
+          className={`shrink-0 overflow-hidden border-border transition-[width] duration-200 ease-out ${
+            treeOpen ? "w-52 border-l" : "w-0"
+          }`}
         >
-          {f}
-        </button>
-      ))}
+          <div className="h-full w-52 overflow-y-auto px-1 py-2 text-sm">
+            <DirChildren dir={tree} depth={0} selected={selected} onSelect={onSelect} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
+
+function DirSection({
+  dir,
+  depth,
+  selected,
+  onSelect,
+}: {
+  readonly dir: TreeDir;
+  readonly depth: number;
+  readonly selected: string | null;
+  readonly onSelect: (path: string | null) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`flex w-full items-center gap-1 rounded py-0.5 text-left text-ink-muted hover:bg-surface/60 ${FADE_R}`}
+        style={{ paddingLeft: 6 + depth * 12 }}
+        title={dir.path}
+      >
+        <span className="shrink-0">
+          <ChevronIcon open={open} />
+        </span>
+        <span className={`min-w-0 flex-1 ${FADE_R}`}>{dir.name}</span>
+      </button>
+      {open && <DirChildren dir={dir} depth={depth + 1} selected={selected} onSelect={onSelect} />}
+    </div>
+  );
+}
+
+function DirChildren({
+  dir,
+  depth,
+  selected,
+  onSelect,
+}: {
+  readonly dir: TreeDir;
+  readonly depth: number;
+  readonly selected: string | null;
+  readonly onSelect: (path: string | null) => void;
+}) {
+  return (
+    <>
+      {dir.dirs.map((d) => (
+        <DirSection key={d.path} dir={d} depth={depth} selected={selected} onSelect={onSelect} />
+      ))}
+      {dir.files.map((f) => {
+        const name = f.path.split("/").pop() ?? f.path;
+        const active = f.path === selected;
+        return (
+          <button
+            key={f.path}
+            type="button"
+            onClick={() => onSelect(f.path)}
+            className={`block w-full rounded py-0.5 pr-1 text-left ${FADE_R} ${
+              active ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:bg-surface/60"
+            }`}
+            style={{ paddingLeft: 20 + depth * 12 }}
+            title={f.path}
+          >
+            {name}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+function FileViewer({ skill, path }: { readonly skill: string; readonly path: string }) {
+  const fetcher = useCallback(() => fetchBundleFile(skill, path), [skill, path]);
+  const content = useApiData(fetcher, null);
+
+  if (content === null) {
+    return <p className="text-sm text-ink-muted">Loading…</p>;
+  }
+  return (
+    <FileContentView
+      path={path}
+      content={content}
+      preClassName="whitespace-pre-wrap break-words rounded border border-border bg-surface p-3 text-xs shadow-sm"
+      renderedClassName="rounded border border-border bg-surface p-3 text-sm shadow-sm"
+    />
+  );
+}
+
+// ------------------------------------------------------------------- chat
 
 type ChatMessage =
   | { readonly role: "agent"; readonly text: string; readonly sentAt: string; readonly status?: string }

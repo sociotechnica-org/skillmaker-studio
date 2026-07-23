@@ -16,7 +16,7 @@
  */
 import { useState } from "react";
 import { usePanelResize } from "./hooks.ts";
-import { OverviewIcon, PanelLeftIcon, PanelRightIcon } from "./icons.tsx";
+import { CollapseIcon, ExpandIcon, OverviewIcon, PanelLeftIcon, PanelRightIcon } from "./icons.tsx";
 import { RightPanel } from "./RightPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { IconButton } from "./ui.tsx";
@@ -34,8 +34,10 @@ export default function NextShell() {
   const right = usePanelResize("right", "sm-next-rightw", 320, 240, 560);
   const dragging = left.dragging || right.dragging;
 
+  const [rightExpanded, setRightExpanded] = useState(false);
   const onSkillPage = center.kind === "skill";
   const rightShown = onSkillPage && rightOpen;
+  const expanded = rightShown && rightExpanded;
   const title = center.kind === "board" ? "Board" : center.kind === "tasks" ? "Tasks" : center.slug;
 
   // Overview rules: with the right panel CLOSED, the overview is an
@@ -68,6 +70,16 @@ export default function NextShell() {
       >
         <PanelLeftIcon />
       </IconButton>
+      {rightShown && (
+        <IconButton
+          active={rightExpanded}
+          onClick={() => setRightExpanded(!rightExpanded)}
+          title={rightExpanded ? "Restore layout" : "Expand panel"}
+          className="absolute right-10 top-2 z-20"
+        >
+          {rightExpanded ? <CollapseIcon /> : <ExpandIcon />}
+        </IconButton>
+      )}
       {onSkillPage && (
         <IconButton
           active={rightOpen}
@@ -98,8 +110,8 @@ export default function NextShell() {
         )}
       </aside>
 
-      {/* center column */}
-      <div className="relative flex min-w-0 flex-1 flex-col">
+      {/* center column — hidden entirely while the right panel is expanded */}
+      <div className={`relative flex min-w-0 flex-col ${expanded ? "hidden" : "flex-1"}`}>
         {onSkillPage && overviewOverlay && (
           <div data-overview-overlay className="absolute right-[10px] top-[54px] z-30">
             <OverviewCard elevated />
@@ -133,20 +145,20 @@ export default function NextShell() {
 
       {/* right panel — skill pages only; slides, resizable */}
       <aside
-        className={`relative shrink-0 overflow-hidden border-border bg-paper ${
-          right.dragging ? "" : "transition-[width] duration-200 ease-out"
-        } ${rightShown ? "border-l" : ""}`}
-        style={{ width: rightShown ? right.width : 0 }}
+        className={`relative overflow-hidden border-border bg-paper ${
+          right.dragging || expanded ? "" : "transition-[width] duration-200 ease-out"
+        } ${rightShown ? "border-l" : ""} ${expanded ? "flex-1" : "shrink-0"}`}
+        style={expanded ? undefined : { width: rightShown ? right.width : 0 }}
       >
-        {rightShown && (
+        {rightShown && !expanded && (
           <div
             className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize hover:bg-amber-400/40"
             onMouseDown={right.onDragStart}
             title="Drag to resize"
           />
         )}
-        <div className="h-full" style={{ width: right.width }}>
-          <RightPanel />
+        <div className="h-full" style={expanded ? undefined : { width: right.width }}>
+          {onSkillPage && <RightPanel skill={center.slug} width={expanded ? 9999 : right.width} />}
         </div>
       </aside>
     </div>
