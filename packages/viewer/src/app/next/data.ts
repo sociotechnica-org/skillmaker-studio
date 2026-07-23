@@ -37,11 +37,11 @@ export const TASKS: ReadonlyArray<Task> = [
 ];
 
 export const CLAIMS: ReadonlyArray<Claim> = [
-  { id: "IN-1", family: "Input", sentence: "Input too vague to decompose: refuses and asks for concrete scope", status: "proven", fixtures: 1 },
-  { id: "IN-2", family: "Input", sentence: "Already-partial decomposition is respected, not discarded", status: "unmeasured", fixtures: 1 },
-  { id: "RE-1", family: "Reasoning", sentence: "Blocking edges are real — never merely-related", status: "partial", fixtures: 1 },
-  { id: "RE-2", family: "Reasoning", sentence: "The DAG is valid: no cycles, no dangling references", status: "gap", fixtures: 0 },
-  { id: "OUT-3", family: "Output", sentence: "Never talks to a tracker API", status: "gap", fixtures: 0 },
+  { id: "IN-1", family: "Input", sentence: "Input too vague to decompose: refuses and asks for concrete scope", status: "proven", fixtures: 1, fixtureCases: ["vague-scope-refusal"] },
+  { id: "IN-2", family: "Input", sentence: "Already-partial decomposition is respected, not discarded", status: "unmeasured", fixtures: 1, fixtureCases: ["partial-decomposition"] },
+  { id: "RE-1", family: "Reasoning", sentence: "Blocking edges are real — never merely-related", status: "partial", fixtures: 1, fixtureCases: ["partial-decomposition"] },
+  { id: "RE-2", family: "Reasoning", sentence: "The DAG is valid: no cycles, no dangling references", status: "gap", fixtures: 0, fixtureCases: [] },
+  { id: "OUT-3", family: "Output", sentence: "Never talks to a tracker API", status: "gap", fixtures: 0, fixtureCases: [] },
 ];
 
 export const BUNDLE_FILES: ReadonlyArray<string> = [
@@ -63,6 +63,9 @@ export const SKILL_PAGE: SkillPage = {
   provenOn: "Opus 4.6 (1 claim)",
   coverage: "2 of 5 claims",
   claims: CLAIMS,
+  // Placeholder mode has no live runs/measurements: the tree renders
+  // claims-only and every expand/mint affordance stays inert.
+  evals: null,
   events: [
     { type: "run.graded", at: "yesterday" },
     { type: "station drafting completed", at: "2d ago" },

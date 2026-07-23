@@ -3,8 +3,9 @@ import { useCallback, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
 import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from "./api.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
+import { EvalsSection } from "./EvalsSection.tsx";
 import { STAGES } from "./types.ts";
-import { Button, CLAIM_DOT, FADE_R, STAGE_TINT } from "./ui.tsx";
+import { Button, FADE_R, STAGE_TINT } from "./ui.tsx";
 import type { SkillPage } from "./types.ts";
 
 /** One fetch per skill page, shared by content, overview column, and overlay. */
@@ -146,37 +147,7 @@ function SkillContent({ page }: { readonly page: SkillPage }) {
       </section>
       )}
 
-      {tab === "evals" && (
-      <section>
-        <div className="flex items-center justify-end">
-          <div className="flex gap-2">
-            <Button label="New claim" />
-            <Button label="Run all fixtures" primary />
-          </div>
-        </div>
-        <div className="mt-1 space-y-1">
-          {page.claims.map((c) => (
-            <div key={c.id} className="rounded border border-border bg-surface px-3 py-2 shadow-sm">
-              <div className="flex items-center gap-2 text-sm">
-                <span title={c.status}>{CLAIM_DOT[c.status]}</span>
-                <span className="flex-1">{c.sentence}</span>
-                <span className="font-mono text-[10px] text-ink-muted">{c.id}</span>
-                <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted">{c.status}</span>
-              </div>
-              <div className="pl-6 text-xs text-ink-muted">
-                {c.fixtures > 0 ? (
-                  `${c.fixtures} fixture · expand ▸`
-                ) : (
-                  <button type="button" className="underline hover:text-ink" title="Mints a task">
-                    no fixture — add to Tasks
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      )}
+      {tab === "evals" && <EvalsSection page={page} />}
 
       <section className="pt-5">
         <h2 className="font-display text-lg text-ink-muted">Activity</h2>
