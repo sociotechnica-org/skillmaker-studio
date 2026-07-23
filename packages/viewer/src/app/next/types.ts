@@ -34,6 +34,8 @@ export type Claim = {
   readonly sentence: string;
   readonly status: ClaimStatus;
   readonly fixtures: number;
+  /** The claim's fixture case name, when it has one -- what the row's "Run" affordance dispatches. */
+  readonly fixtureCase?: string;
 };
 
 /** Everything the Skill page renders (wire: GET /api/bundles/:slug + instructions file). */

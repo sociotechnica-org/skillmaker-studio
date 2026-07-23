@@ -145,6 +145,7 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       sentence: r.description !== undefined && r.description.length > 0 ? r.description : "(no description)",
       status,
       fixtures: r.fixtureCase === undefined ? 0 : 1,
+      ...(r.fixtureCase !== undefined ? { fixtureCase: r.fixtureCase } : {}),
     };
   });
 

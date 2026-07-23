@@ -35,21 +35,24 @@ export function Button({
   primary,
   onClick,
   title,
+  disabled,
 }: {
   readonly label: string;
   readonly primary?: boolean;
   readonly onClick?: () => void;
   readonly title?: string;
+  readonly disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
+      disabled={disabled}
       className={
         primary
-          ? "rounded bg-amber-600 px-3 py-1.5 font-display text-sm text-white shadow hover:bg-amber-700"
-          : "rounded border border-border bg-surface px-3 py-1.5 font-display text-sm text-ink-muted hover:text-ink"
+          ? "rounded bg-amber-600 px-3 py-1.5 font-display text-sm text-white shadow hover:bg-amber-700 disabled:cursor-default disabled:bg-amber-600/50 disabled:hover:bg-amber-600/50"
+          : "rounded border border-border bg-surface px-3 py-1.5 font-display text-sm text-ink-muted hover:text-ink disabled:cursor-default disabled:opacity-60 disabled:hover:text-ink-muted"
       }
     >
       {label}

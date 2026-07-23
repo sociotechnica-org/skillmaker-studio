@@ -2,6 +2,7 @@
 import { useCallback, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
 import { fetchProjects, fetchSkillPage, fetchTasks, useApiData } from "./api.ts";
+import { useRunDispatch } from "./runsApi.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
 import { STAGES } from "./types.ts";
 import { Button, CLAIM_DOT, FADE_R, STAGE_TINT } from "./ui.tsx";
@@ -89,7 +90,7 @@ export function SkillView({ slug, overviewOpen }: { readonly slug: string; reado
     <div className="flex">
       <div className="min-w-0 flex-1">
         <div className="mx-auto max-w-3xl p-6">
-          <SkillContent page={page} />
+          <SkillContent slug={slug} page={page} />
         </div>
       </div>
       <div className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${overviewOpen ? "w-[244px]" : "w-0"}`}>
@@ -101,8 +102,16 @@ export function SkillView({ slug, overviewOpen }: { readonly slug: string; reado
   );
 }
 
-function SkillContent({ page }: { readonly page: SkillPage }) {
+function SkillContent({ slug, page }: { readonly slug: string; readonly page: SkillPage }) {
   const [tab, setTab] = useState<"instructions" | "evals">("instructions");
+  const runs = useRunDispatch(slug);
+  const anyActive = runs.activeFixtures.size > 0 || runs.runAll !== null;
+  const runAllLabel =
+    runs.runAll !== null
+      ? `running ${Math.min(runs.runAll.completed + 1, runs.runAll.total)} of ${runs.runAll.total}…`
+      : anyActive
+        ? "running…"
+        : "Run all fixtures";
   return (
     <>
       {/* center tab selector — pill for active, quiet text for the rest */}
@@ -146,9 +155,10 @@ function SkillContent({ page }: { readonly page: SkillPage }) {
         <div className="flex items-center justify-end">
           <div className="flex gap-2">
             <Button label="New claim" />
-            <Button label="Run all fixtures" primary />
+            <Button label={runAllLabel} primary disabled={anyActive} onClick={runs.runAllFixtures} />
           </div>
         </div>
+        {runs.error !== null && <p className="pt-1 text-right text-xs text-red-700">{runs.error}</p>}
         <div className="mt-1 space-y-1">
           {page.claims.map((c) => (
             <div key={c.id} className="rounded border border-border bg-surface px-3 py-2 shadow-sm">
@@ -159,7 +169,23 @@ function SkillContent({ page }: { readonly page: SkillPage }) {
                 <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted">{c.status}</span>
               </div>
               <div className="pl-6 text-xs text-ink-muted">
-                {c.fixtures > 0 ? (
+                {c.fixtureCase !== undefined ? (
+                  <>
+                    {`${c.fixtures} fixture · expand ▸ · `}
+                    {runs.activeFixtures.has(c.fixtureCase) ? (
+                      <span>running…</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="underline hover:text-ink"
+                        title={`Run fixture ${c.fixtureCase}`}
+                        onClick={() => c.fixtureCase !== undefined && runs.runFixture(c.fixtureCase)}
+                      >
+                        Run
+                      </button>
+                    )}
+                  </>
+                ) : c.fixtures > 0 ? (
                   `${c.fixtures} fixture · expand ▸`
                 ) : (
                   <button type="button" className="underline hover:text-ink" title="Mints a task">
