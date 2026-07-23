@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "connectionId": "host:claude-code:default",
+  "cursorId": "host:claude-code:default",
+  "owner": {
+    "kind": "process",
+    "host": "claude-code",
+    "process": "monitor"
+  },
+  "delivery": {
+    "host": "claude-code",
+    "mode": "plugin-monitor"
+  },
+  "pid": 23499,
+  "startedAt": "2026-07-21T15:42:11.414Z",
+  "updatedAt": "2026-07-21T15:42:11.414Z",
+  "expiresAt": "2026-07-21T15:42:26.414Z"
+}

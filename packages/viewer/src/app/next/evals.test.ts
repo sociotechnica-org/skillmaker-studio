@@ -8,6 +8,7 @@ import {
   groupClaimsByFamily,
   modelChipsForClaim,
   promptSummary,
+  runAllButtonLabel,
   runsForFixture,
   unclaimedFixtureCases,
 } from "./evals.ts";
@@ -215,5 +216,22 @@ describe("groupClaimsByFamily", () => {
     const groups = groupClaimsByFamily([claim("IN-1", "Input"), claim("RE-1", "Reasoning"), claim("IN-2", "Input")]);
     expect(groups.map((g) => g.family)).toEqual(["Input", "Reasoning"]);
     expect(groups[0]?.claims.map((c) => c.id)).toEqual(["IN-1", "IN-2"]);
+  });
+});
+
+describe("runAllButtonLabel", () => {
+  test("idle: the plain call to action", () => {
+    expect(runAllButtonLabel(null, 0)).toBe("Run all fixtures");
+  });
+
+  test("run-all sweep: N is the fixture currently running, capped at the total", () => {
+    expect(runAllButtonLabel({ completed: 0, total: 3 }, 1)).toBe("running 1 of 3…");
+    expect(runAllButtonLabel({ completed: 2, total: 3 }, 1)).toBe("running 3 of 3…");
+    // The last completion may briefly linger before the sweep clears: never "4 of 3".
+    expect(runAllButtonLabel({ completed: 3, total: 3 }, 0)).toBe("running 3 of 3…");
+  });
+
+  test("single runs active without a sweep: a quiet running state", () => {
+    expect(runAllButtonLabel(null, 2)).toBe("running…");
   });
 });

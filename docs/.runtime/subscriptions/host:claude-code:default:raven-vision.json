@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "subscriptionId": "host:claude-code:default:raven-vision",
+  "connectionId": "host:claude-code:default",
+  "owner": {
+    "kind": "process",
+    "host": "claude-code",
+    "process": "monitor"
+  },
+  "match": [
+    {
+      "type": "raven.vision.source_attached",
+      "reason": "raven-vision-source_attached"
+    },
+    {
+      "type": "raven.vision.drafting_requested",
+      "reason": "raven-vision-drafting_requested"
+    },
+    {
+      "type": "raven.vision.slot.approved",
+      "reason": "raven-vision-slot-approved"
+    },
+    {
+      "type": "raven.vision.slot.skipped",
+      "reason": "raven-vision-slot-skipped"
+    }
+  ],
+  "delivery": {
+    "host": "claude-code",
+    "mode": "plugin-monitor"
+  },
+  "wake": {
+    "includeMatchedEvent": true,
+    "includeProjectedState": true,
+    "maxContextEvents": 20
+  },
+  "createdAt": "2026-07-21T15:01:48.320Z",
+  "updatedAt": "2026-07-21T15:01:48.320Z"
+}

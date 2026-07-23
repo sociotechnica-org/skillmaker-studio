@@ -61,6 +61,7 @@ import { basename, extname, join, resolve as resolvePath, sep } from "node:path"
 import { resolveUserActor } from "../ActorResolver.ts";
 import { loadSkillbook } from "../Skillbook.ts";
 import { ChatSessionManager } from "./ChatSessions.ts";
+import { createRunDispatchHandlers } from "./RunDispatch.ts";
 import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
 
@@ -1996,6 +1997,10 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
   const watcherHandle: JournalWatcherHandle = watchJournal(journalPath, broadcaster.onJournalChange);
   const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);
   const chatManager = new ChatSessionManager({ root, config });
+  // Fixture-run dispatch (run / run-all / runs-active): the UI's door onto
+  // the SAME RunEngine path as `skillmaker run` -- see RunDispatch.ts for
+  // the concurrency (cap 2, FIFO queue) and orphan-safety choices.
+  const runDispatch = createRunDispatchHandlers({ root, config });
 
   const server = Bun.serve({
     port,
@@ -2156,6 +2161,27 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             return jsonResponse({ error: "missing fixture case" }, 404);
           }
           return handleTriggerRun(root, config, slug, caseName, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "run") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "run requires POST" }, 405);
+          }
+          return runDispatch.handleRun(slug, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "run-all") {
+          if (request.method !== "POST") {
+            return jsonResponse({ error: "run-all requires POST" }, 405);
+          }
+          return runDispatch.handleRunAll(slug, request);
+        }
+
+        if (slug !== undefined && segments.length === 2 && segments[1] === "runs-active") {
+          if (request.method !== "GET") {
+            return jsonResponse({ error: "runs-active requires GET" }, 405);
+          }
+          return runDispatch.handleRunsActive(slug);
         }
 
         if (slug !== undefined && segments.length === 2 && segments[1] === "publish") {
