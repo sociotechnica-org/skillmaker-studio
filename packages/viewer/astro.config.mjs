@@ -19,11 +19,6 @@ const devSpaFallback = () => ({
       const url = req.url ?? "/";
       const pathname = url.split("?")[0] ?? "/";
       const isApi = pathname.startsWith("/api/");
-      // /next is a real Astro page (the next-shell block-out), not an SPA route.
-      if (pathname === "/next" || pathname.startsWith("/next/")) {
-        next();
-        return;
-      }
       const isViteInternal = pathname.startsWith("/@") || pathname.startsWith("/src/");
       const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(pathname);
       if (!isApi && !isViteInternal && !hasFileExtension && pathname !== "/") {

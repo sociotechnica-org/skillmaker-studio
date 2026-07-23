@@ -500,6 +500,82 @@ function RunDetailBlock({
           Artifacts: <span className="font-mono">{artifacts.join(", ")}</span>
         </p>
       )}
+      <GradePanel run={run} />
+    </div>
+  );
+}
+
+/**
+ * Grading, in the shell (the old app's run modal was the only grading
+ * surface; the root swap retires it). Honest regrade framing per the #22
+ * ruling: a graded run never presents as ungraded — the current verdict
+ * leads and the action reads as a regrade. Every submission is a new
+ * `run.graded` event; the fold keeps history, latest wins.
+ */
+function GradePanel({ run }: { readonly run: EvalRun }) {
+  const [verdict, setVerdict] = useState<"pass" | "fail" | null>(null);
+  const [notes, setNotes] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const submit = (v: "pass" | "fail") => {
+    setVerdict(v);
+    setPending(true);
+    setError(null);
+    const payload: Record<string, unknown> = {
+      id: run.id,
+      verdict: v,
+      ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}),
+    };
+    postEvent({ type: "run.graded", payload })
+      .then((result) => {
+        if (!result.ok) setError(result.error);
+        else setDone(true);
+      })
+      .catch((cause: Error) => setError(cause.message))
+      .finally(() => setPending(false));
+  };
+
+  const graded = run.verdict !== null;
+  return (
+    <div className="mt-2 border-t border-border pt-2">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="text-ink-muted">
+          {done && verdict !== null
+            ? `Graded: ${verdict}`
+            : graded
+              ? `Graded: ${run.verdict} —`
+              : "Grade this run:"}
+        </span>
+        {!done && (
+          <>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => submit("pass")}
+              className="rounded border border-border bg-surface px-2 py-0.5 font-display hover:bg-emerald-50 disabled:opacity-50"
+            >
+              {graded ? "Regrade pass" : "Pass"}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => submit("fail")}
+              className="rounded border border-border bg-surface px-2 py-0.5 font-display hover:bg-rose-50 disabled:opacity-50"
+            >
+              {graded ? "Regrade fail" : "Fail"}
+            </button>
+            <input
+              className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-0.5 text-[11px] outline-none focus:border-amber-300"
+              placeholder="Notes (optional)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </>
+        )}
+      </div>
+      {error !== null && <p className="pt-1 text-[10px] text-rose-700">{error}</p>}
     </div>
   );
 }

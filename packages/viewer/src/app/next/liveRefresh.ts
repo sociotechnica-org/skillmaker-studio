@@ -49,7 +49,12 @@ export interface Debounced {
 export const createTrailingDebounce = (
   emit: () => void,
   { debounceMs = DEBOUNCE_MS, maxWaitMs = MAX_WAIT_MS }: { readonly debounceMs?: number; readonly maxWaitMs?: number } = {},
-  timers: DebounceTimers = globalThis,
+  // globalThis's clearTimeout overloads don't narrow to (handle: unknown);
+  // bind the two functions into the injectable shape instead.
+  timers: DebounceTimers = {
+    setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+    clearTimeout: (handle) => globalThis.clearTimeout(handle as Parameters<typeof globalThis.clearTimeout>[0]),
+  },
 ): Debounced => {
   let trailing: unknown;
   let maxWait: unknown;
