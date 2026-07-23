@@ -1932,6 +1932,14 @@ const serveStatic = async (viewerDist: string, pathname: string): Promise<Respon
     return direct;
   }
 
+  // Directory index: a path that maps to a built page directory (astro
+  // emits pages as <route>/index.html, e.g. /next) serves that page rather
+  // than falling through to the SPA.
+  const dirIndex = tryFile(join(resolved, "index.html"));
+  if (dirIndex !== undefined) {
+    return dirIndex;
+  }
+
   // SPA fallback: any non-/api path without a real file falls back to
   // index.html, UNLESS it looks like a real asset request (has a file
   // extension) that's simply missing -- that stays a 404.
