@@ -24,11 +24,18 @@
  * installed in the user's project or personal config dir.
  */
 import {
+  AcpClient,
+  composeModelId,
+  fallbackCatalogEntry,
   makeChatPermissionPolicy,
+  mapProviderCatalog,
   resolveProviderProfile,
   seedProviderAuth,
   startChatSession,
+  validateChatImage,
+  type ChatImageAttachment,
   type ChatPermissionAnswer,
+  type ChatProviderCatalogEntry,
   type ChatSessionHandle,
   type WorkspaceConfig,
 } from "@skillmaker/core";
@@ -45,6 +52,9 @@ import { join } from "node:path";
 const IDLE_REAP_MS = 15 * 60 * 1000;
 const REAP_CHECK_MS = 60 * 1000;
 
+/** Per-provider budget for the capability probe (spawn + initialize + session/new). Adapters that can't answer in this window fall back to a bare provider-name catalog entry. */
+const PROBE_TIMEOUT_MS = 45_000;
+
 /** Skillmaker's own helper skills (William material), injected via the agent home -- resolved from the studio workspace's skillsDir when present, silently skipped when absent (a user project without the William bundles still chats fine, just without the helpers). */
 const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
 
@@ -55,6 +65,10 @@ const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"
 interface PersistedSession {
   readonly providerSessionId: string;
   readonly updatedAt: string;
+  /** BASE model id (bracket-free) the session last ran with, so resume restores it (composed with `effort` for the wire). */
+  readonly model?: string;
+  /** Effort level (codex reasoning effort); absent for providers without an effort door (claude-code). */
+  readonly effort?: string;
 }
 
 /** skill -> provider -> persisted session. Per (skill, provider), so switching provider keeps the other provider's session resumable. */
@@ -83,7 +97,12 @@ const readSessionStore = (path: string): SessionStore => {
           typeof session.providerSessionId === "string" &&
           typeof session.updatedAt === "string"
         ) {
-          entry[provider] = { providerSessionId: session.providerSessionId, updatedAt: session.updatedAt };
+          entry[provider] = {
+            providerSessionId: session.providerSessionId,
+            updatedAt: session.updatedAt,
+            ...(typeof session.model === "string" && session.model.length > 0 ? { model: session.model } : {}),
+            ...(typeof session.effort === "string" && session.effort.length > 0 ? { effort: session.effort } : {}),
+          };
         }
       }
       if (Object.keys(entry).length > 0) out[skill] = entry;
@@ -189,6 +208,12 @@ export interface ChatActiveState {
   readonly resumed: boolean;
   readonly resumeFallback?: string;
   readonly model?: string;
+  /** BASE model id in effect (bracket-free), when a model was chosen or the adapter reported one. */
+  readonly modelId?: string;
+  /** Effort level in effect (codex only). */
+  readonly effort?: string;
+  /** Set when a requested model could not be applied -- the session runs on the adapter's default. */
+  readonly modelFallback?: string;
 }
 
 export interface ChatStateResponse {
@@ -200,6 +225,8 @@ export interface ChatStateResponse {
     readonly provider: string;
     readonly providerSessionId: string;
     readonly updatedAt: string;
+    readonly model?: string;
+    readonly effort?: string;
   }>;
   readonly lastError?: string;
 }
@@ -207,7 +234,13 @@ export interface ChatStateResponse {
 /** One SSE event on `/api/chat/:skill/stream`. The buffer replays from session start on (re)connect, so a mid-session page reload rebuilds the live conversation; HISTORY of a resumed session arrives as replayed `update` events (the provider's session/load replay). */
 export type ChatStreamEvent =
   | { readonly type: "state"; readonly state: ChatStateResponse }
-  | { readonly type: "user_message"; readonly text: string; readonly t: string }
+  | {
+      readonly type: "user_message";
+      readonly text: string;
+      readonly t: string;
+      /** Image attachments (base64 + mimeType) sent with the message; the panel renders thumbnails from these on live delivery AND buffer replay. */
+      readonly images?: ReadonlyArray<ChatImageAttachment>;
+    }
   | { readonly type: "update"; readonly update: unknown; readonly t: string }
   | { readonly type: "permission_request"; readonly id: string; readonly params: unknown; readonly t: string }
   | {
@@ -234,6 +267,10 @@ interface LiveChat {
   readonly provider: string;
   status: ChatStatus;
   handle: ChatSessionHandle | undefined;
+  /** BASE model id in effect (bracket-free) -- what start/setModel chose, persisted for resume. */
+  modelId: string | undefined;
+  /** Effort level in effect (codex only). */
+  effort: string | undefined;
   /** Everything streamed since this session spawned; replayed to each new SSE subscriber. */
   readonly events: ChatStreamEvent[];
   readonly subscribers: Set<(event: ChatStreamEvent) => void>;
@@ -253,6 +290,8 @@ export class ChatSessionManager {
   private readonly sessionsPath: string;
   private readonly livePath: string;
   private store: SessionStore;
+  /** Per-process cache of the provider capability probe (see providersCatalog). */
+  private catalogPromise: Promise<ReadonlyArray<ChatProviderCatalogEntry>> | undefined;
   private readonly live = new Map<string, LiveChat>();
   private readonly lastErrors = new Map<string, string>();
   private readonly reapTimer: ReturnType<typeof setInterval>;
@@ -278,9 +317,20 @@ export class ChatSessionManager {
     );
   }
 
-  private recordSession(skill: string, provider: string, providerSessionId: string): void {
+  private recordSession(
+    skill: string,
+    provider: string,
+    providerSessionId: string,
+    model?: string,
+    effort?: string,
+  ): void {
     const bySkill = { ...(this.store[skill] ?? {}) };
-    bySkill[provider] = { providerSessionId, updatedAt: new Date().toISOString() };
+    bySkill[provider] = {
+      providerSessionId,
+      updatedAt: new Date().toISOString(),
+      ...(model !== undefined ? { model } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+    };
     this.store = { ...this.store, [skill]: bySkill };
     this.persistStore();
   }
@@ -353,6 +403,71 @@ export class ChatSessionManager {
     return Object.keys(this.config.providers);
   }
 
+  /**
+   * The per-provider model/effort/image catalog for the compose bar's
+   * grouped model picker (`GET /api/chat/providers`).
+   *
+   * What is knowable PRE-session vs POST (2026-07 adapter spike): ACP
+   * `initialize` alone yields only `promptCapabilities` (image support);
+   * the MODEL LIST arrives on `session/new`'s `models` state -- neither
+   * shipped adapter enumerates models sessionlessly. So the probe spawns
+   * each configured adapter once, runs initialize + session/new (in the
+   * project root, same agent-home env the real chat uses), reads the
+   * catalog, and closes. A THROWAWAY provider-side session is the probe's
+   * unavoidable cost; nothing is prompted and no session id is persisted.
+   * Results are CACHED per server process (the ruled design); a provider
+   * whose probe fails (adapter missing, auth absent, timeout) degrades to
+   * a bare-provider-name entry with `probed: false` -- the UI then offers
+   * the provider without model choice, never a fabricated list.
+   */
+  providersCatalog(): Promise<ReadonlyArray<ChatProviderCatalogEntry>> {
+    this.catalogPromise ??= this.probeCatalog();
+    return this.catalogPromise;
+  }
+
+  private async probeCatalog(): Promise<ReadonlyArray<ChatProviderCatalogEntry>> {
+    const entries: ChatProviderCatalogEntry[] = [];
+    for (const provider of this.providerIds()) {
+      entries.push(await this.probeProvider(provider));
+    }
+    return entries;
+  }
+
+  private async probeProvider(provider: string): Promise<ChatProviderCatalogEntry> {
+    const command = this.config.providers[provider]?.command;
+    if (command === undefined || command.length === 0) {
+      return fallbackCatalogEntry(provider, "no adapter command configured");
+    }
+    const providerProfile = resolveProviderProfile(provider);
+    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);
+    const client = new AcpClient({
+      command,
+      env: { [providerProfile.configDirEnvVar]: home },
+      // The probe never prompts, so no tool permission should ever arrive;
+      // if one somehow does, denial is the only safe answer for a session
+      // nobody is watching.
+      permissionPolicy: () => ({ cancelled: true, reason: "capability probe -- no interactive session" }),
+    });
+    const probe = (async () => {
+      await client.spawn();
+      const init = await client.initialize();
+      const session = await client.newSession(this.root);
+      return mapProviderCatalog(provider, init, session);
+    })();
+    try {
+      return await Promise.race([
+        probe,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`probe timed out after ${String(PROBE_TIMEOUT_MS)}ms`)), PROBE_TIMEOUT_MS),
+        ),
+      ]);
+    } catch (err) {
+      return fallbackCatalogEntry(provider, err instanceof Error ? err.message : String(err));
+    } finally {
+      void client.close();
+    }
+  }
+
   state(skill: string): ChatStateResponse {
     const providers = this.providerIds();
     const chat = this.live.get(skill);
@@ -363,6 +478,8 @@ export class ChatSessionManager {
         provider,
         providerSessionId: session.providerSessionId,
         updatedAt: session.updatedAt,
+        ...(session.model !== undefined ? { model: session.model } : {}),
+        ...(session.effort !== undefined ? { effort: session.effort } : {}),
       }))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const lastError = this.lastErrors.get(skill);
@@ -382,6 +499,11 @@ export class ChatSessionManager {
                 ? { resumeFallback: chat.handle.resumeFallback }
                 : {}),
               ...(chat.handle?.model != null ? { model: chat.handle.model } : {}),
+              ...(chat.modelId !== undefined ? { modelId: chat.modelId } : {}),
+              ...(chat.effort !== undefined ? { effort: chat.effort } : {}),
+              ...(chat.handle?.modelFallback !== undefined
+                ? { modelFallback: chat.handle.modelFallback }
+                : {}),
             },
       resumable,
       ...(lastError !== undefined ? { lastError } : {}),
@@ -458,6 +580,7 @@ export class ChatSessionManager {
     skill: string,
     provider: string,
     mode: "new" | "resume",
+    choice: { readonly model?: string; readonly effort?: string } = {},
   ): Promise<{ readonly ok: true; readonly state: ChatStateResponse } | { readonly ok: false; readonly status: number; readonly error: string }> {
     if (this.config.providers[provider] === undefined) {
       return {
@@ -474,16 +597,25 @@ export class ChatSessionManager {
       await this.closeChat(existing, "replaced by a new session");
     }
 
-    const resumeSessionId = mode === "resume" ? this.store[skill]?.[provider]?.providerSessionId : undefined;
+    const persisted = mode === "resume" ? this.store[skill]?.[provider] : undefined;
+    const resumeSessionId = persisted?.providerSessionId;
     if (mode === "resume" && resumeSessionId === undefined) {
       return { ok: false, status: 400, error: `no resumable ${provider} session recorded for "${skill}"` };
     }
+
+    // Model/effort choice: an explicit pick wins; a resume with no explicit
+    // pick restores what the session record carries (the ruled resume
+    // behavior); otherwise the adapter's default rules.
+    const chosenModel = choice.model ?? persisted?.model;
+    const chosenEffort = choice.effort ?? (choice.model === undefined ? persisted?.effort : undefined);
 
     const chat: LiveChat = {
       skill,
       provider,
       status: "starting",
       handle: undefined,
+      modelId: chosenModel,
+      effort: chosenEffort,
       events: [],
       subscribers: new Set(),
       pendingPermissions: new Map(),
@@ -504,6 +636,9 @@ export class ChatSessionManager {
           cwd: this.root,
           env: { [providerProfile.configDirEnvVar]: home },
           ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
+          ...(chosenModel !== undefined
+            ? { modelId: composeModelId(chosenModel, chosenEffort) }
+            : {}),
           providerProfile,
           onUpdate: (update) => {
             chat.lastActivityAt = Date.now();
@@ -538,7 +673,13 @@ export class ChatSessionManager {
 
     chat.handle = outcome.success;
     chat.status = "ready";
-    this.recordSession(skill, provider, outcome.success.sessionId);
+    if (outcome.success.modelFallback !== undefined) {
+      // The chosen model could not be applied: the session runs on the
+      // adapter's default -- report and persist THAT honestly.
+      chat.modelId = undefined;
+      chat.effort = undefined;
+    }
+    this.recordSession(skill, provider, outcome.success.sessionId, chat.modelId, chat.effort);
     this.persistLiveAdapters();
     this.broadcastState(chat);
     return { ok: true, state: this.state(skill) };
@@ -553,6 +694,7 @@ export class ChatSessionManager {
   async sendMessage(
     skill: string,
     text: string,
+    images: ReadonlyArray<ChatImageAttachment> = [],
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly status: number; readonly error: string }> {
     const chat = this.live.get(skill);
     if (chat === undefined || chat.handle === undefined) {
@@ -560,6 +702,10 @@ export class ChatSessionManager {
     }
     if (chat.status === "running") {
       return { ok: false, status: 409, error: "a turn is already running for this session" };
+    }
+    for (const image of images) {
+      const problem = validateChatImage(image);
+      if (problem !== undefined) return { ok: false, status: 413, error: problem };
     }
 
     const isFirstPrompt = !chat.events.some((event) => event.type === "user_message");
@@ -570,13 +716,18 @@ export class ChatSessionManager {
 
     chat.status = "running";
     chat.lastActivityAt = Date.now();
-    this.broadcast(chat, { type: "user_message", text, t: new Date().toISOString() });
+    this.broadcast(chat, {
+      type: "user_message",
+      text,
+      t: new Date().toISOString(),
+      ...(images.length > 0 ? { images } : {}),
+    });
     this.broadcastState(chat);
 
     const handle = chat.handle;
     // Detached: the HTTP response returns immediately; the turn streams
     // over SSE (same detached-run shape as handleTriggerRun).
-    void Effect.runPromise(Effect.result(handle.prompt(promptText))).then((outcome) => {
+    void Effect.runPromise(Effect.result(handle.prompt(promptText, images))).then((outcome) => {
       chat.lastActivityAt = Date.now();
       if (outcome._tag === "Success") {
         this.broadcast(chat, {
@@ -584,7 +735,7 @@ export class ChatSessionManager {
           stopReason: outcome.success.stopReason,
           t: new Date().toISOString(),
         });
-        this.recordSession(skill, chat.provider, handle.sessionId);
+        this.recordSession(skill, chat.provider, handle.sessionId, chat.modelId, chat.effort);
       } else {
         this.broadcast(chat, {
           type: "error",
@@ -598,6 +749,38 @@ export class ChatSessionManager {
       }
     });
     return { ok: true };
+  }
+
+  /**
+   * Mid-session model change: ACP `session/set_model` on the live session
+   * (both shipped adapters honor it -- claude switches immediately, codex
+   * applies it to the next turn). Only between turns; a running turn keeps
+   * its model. The record persists so a later resume restores the choice.
+   */
+  async setModel(
+    skill: string,
+    model: string,
+    effort?: string,
+  ): Promise<{ readonly ok: true; readonly state: ChatStateResponse } | { readonly ok: false; readonly status: number; readonly error: string }> {
+    const chat = this.live.get(skill);
+    if (chat === undefined || chat.handle === undefined) {
+      return { ok: false, status: 409, error: `no active chat session for "${skill}"` };
+    }
+    if (chat.status !== "ready") {
+      return { ok: false, status: 409, error: "the model can only change between turns" };
+    }
+    const outcome = await Effect.runPromise(
+      Effect.result(chat.handle.setModel(composeModelId(model, effort))),
+    );
+    if (outcome._tag === "Failure") {
+      return { ok: false, status: 502, error: String(outcome.failure) };
+    }
+    chat.modelId = model;
+    chat.effort = effort;
+    chat.lastActivityAt = Date.now();
+    this.recordSession(skill, chat.provider, chat.handle.sessionId, model, effort);
+    this.broadcastState(chat);
+    return { ok: true, state: this.state(skill) };
   }
 
   /** ACP `session/cancel` for the in-flight turn; the running prompt then ends with `stopReason: "cancelled"` through the normal turn_ended path. */

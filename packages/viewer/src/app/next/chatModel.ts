@@ -31,8 +31,20 @@ export type ChatStreamEventWire = Record<string, unknown>;
 
 // -- Render items -----------------------------------------------------------
 
+/** An image attached to a sent user message (base64 + mime type, straight off the `user_message` stream event). */
+export interface ChatItemImage {
+  readonly data: string;
+  readonly mimeType: string;
+  readonly name?: string;
+}
+
 export type ChatItem =
-  | { readonly kind: "user"; readonly text: string; readonly t: string }
+  | {
+      readonly kind: "user";
+      readonly text: string;
+      readonly t: string;
+      readonly images?: ReadonlyArray<ChatItemImage>;
+    }
   | { readonly kind: "agent"; readonly text: string; readonly t: string }
   | {
       readonly kind: "tool";
@@ -50,6 +62,21 @@ export type ChatItem =
       readonly t: string;
     }
   | { readonly kind: "error"; readonly message: string; readonly t: string };
+
+/** The images array off a `user_message` event, tolerantly decoded (malformed entries drop, never crash the panel). */
+const decodeItemImages = (raw: unknown): ReadonlyArray<ChatItemImage> => {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatItemImage[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry) || typeof entry.data !== "string" || typeof entry.mimeType !== "string") continue;
+    out.push({
+      data: entry.data,
+      mimeType: entry.mimeType,
+      ...(typeof entry.name === "string" ? { name: entry.name } : {}),
+    });
+  }
+  return out;
+};
 
 const asText = (content: unknown): string | undefined =>
   isRecord(content) && content.type === "text" && typeof content.text === "string"
@@ -132,7 +159,13 @@ export const chatItemsFromEvents = (events: ReadonlyArray<unknown>): ReadonlyArr
     const t = eventTime(raw);
 
     if (raw.type === "user_message" && typeof raw.text === "string") {
-      items.push({ kind: "user", text: raw.text, t });
+      const images = decodeItemImages(raw.images);
+      items.push({
+        kind: "user",
+        text: raw.text,
+        t,
+        ...(images.length > 0 ? { images } : {}),
+      });
       continue;
     }
 

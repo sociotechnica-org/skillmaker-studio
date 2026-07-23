@@ -133,6 +133,50 @@ describe("chatItemsFromEvents", () => {
   });
 });
 
+describe("user_message image attachments", () => {
+  test("well-formed images ride on the user item; malformed entries drop; absent stays absent", () => {
+    const items = chatItemsFromEvents([
+      {
+        type: "user_message",
+        text: "look at these",
+        t: "2026-07-23T09:00:00.000Z",
+        images: [
+          { data: "aGVsbG8=", mimeType: "image/png", name: "shot.png" },
+          { data: 42, mimeType: "image/png" }, // malformed: drops
+          { data: "d29ybGQ=", mimeType: "image/jpeg" },
+        ],
+      },
+      { type: "user_message", text: "no images here", t: "2026-07-23T09:01:00.000Z" },
+    ]);
+    expect(items).toEqual([
+      {
+        kind: "user",
+        text: "look at these",
+        t: "2026-07-23T09:00:00.000Z",
+        images: [
+          { data: "aGVsbG8=", mimeType: "image/png", name: "shot.png" },
+          { data: "d29ybGQ=", mimeType: "image/jpeg" },
+        ],
+      },
+      { kind: "user", text: "no images here", t: "2026-07-23T09:01:00.000Z" },
+    ]);
+  });
+
+  test("an image-only message (empty text) still renders as a user item", () => {
+    const items = chatItemsFromEvents([
+      {
+        type: "user_message",
+        text: "",
+        t: "2026-07-23T09:00:00.000Z",
+        images: [{ data: "aGVsbG8=", mimeType: "image/png" }],
+      },
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.kind).toBe("user");
+    if (items[0]?.kind === "user") expect(items[0].images).toHaveLength(1);
+  });
+});
+
 describe("permission option helpers", () => {
   test("permissionOptions reads well-formed options and drops malformed ones", () => {
     const options = permissionOptions({

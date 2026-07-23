@@ -39,6 +39,7 @@ afterEach(async () => {
 
 interface StartOverrides {
   readonly resumeSessionId?: string;
+  readonly modelId?: string;
   readonly onUpdate?: (update: unknown) => void;
   readonly ask?: (request: { readonly params: unknown }) => Promise<ChatPermissionAnswer | "cancelled">;
   readonly onAdapterExit?: (code: number | null) => void;
@@ -55,6 +56,7 @@ const start = async (overrides: StartOverrides = {}): Promise<ChatSessionHandle>
       overrides.ask ?? (() => Promise.resolve({ optionId: "opt-reject-once", decision: "denied" })),
     ),
     ...(overrides.resumeSessionId !== undefined ? { resumeSessionId: overrides.resumeSessionId } : {}),
+    ...(overrides.modelId !== undefined ? { modelId: overrides.modelId } : {}),
     ...(overrides.onAdapterExit !== undefined ? { onAdapterExit: overrides.onAdapterExit } : {}),
   };
   const handle = await Effect.runPromise(startChatSession(options));
@@ -79,7 +81,46 @@ describe("startChatSession", () => {
     expect(handle.resumed).toBe(false);
     expect(handle.resumeFallback).toBeUndefined();
     expect(handle.loadSessionSupported).toBe(true);
-    expect(handle.model).toBe("fake-chat-model");
+    // The fake now lists availableModels with descriptions (mirroring the
+    // real adapters), and extractModel resolves the current id to its
+    // DESCRIPTION per resolveModelLabel (Phase 20 F2) -- the wire id stays
+    // available as handle.modelId.
+    expect(handle.model).toBe("The fake default");
+    expect(handle.modelId).toBe("fake-chat-model");
+  });
+
+  test("applies a caller-chosen model at start via session/set_model, and switches mid-session", async () => {
+    const updates: unknown[] = [];
+    const handle = await start({ modelId: "fake-chat-model-pro", onUpdate: (u) => updates.push(u) });
+    // The fake announces every set_model as an agent chunk.
+    expect(agentText(updates)).toContain("model set: fake-chat-model-pro");
+    expect(handle.modelId).toBe("fake-chat-model-pro");
+
+    await Effect.runPromise(handle.setModel("fake-chat-model"));
+    expect(agentText(updates)).toContain("model set: fake-chat-model");
+    expect(handle.modelId).toBe("fake-chat-model");
+  });
+
+  test("an unknown model at start degrades to the adapter default with modelFallback set (never a refused session)", async () => {
+    const handle = await start({ modelId: "no-such-model" });
+    expect(handle.modelFallback).toContain("no-such-model");
+    expect(handle.modelId).toBe("fake-chat-model");
+    // The session still works.
+    const turn = await Effect.runPromise(handle.prompt("hello"));
+    expect(turn.stopReason).toBe("end_turn");
+  });
+
+  test("prompt with image attachments sends ACP image content blocks (decoded size acknowledged by the fake)", async () => {
+    const updates: unknown[] = [];
+    const handle = await start({ onUpdate: (u) => updates.push(u) });
+    const png = Buffer.from("fake image bytes").toString("base64");
+    const turn = await Effect.runPromise(
+      handle.prompt("describe this", [{ data: png, mimeType: "image/png", name: "x.png" }]),
+    );
+    expect(turn.stopReason).toBe("end_turn");
+    const text = agentText(updates);
+    expect(text).toContain("describe this");
+    expect(text).toContain(`[image image/png ${String(Buffer.from(png, "base64").length)}b]`);
   });
 
   test("drives MULTIPLE prompt turns over one session, streaming updates for each", async () => {

@@ -758,12 +758,19 @@ export class AcpClient {
     await this.request("session/set_model", { sessionId, modelId });
   }
 
-  async prompt(sessionId: string, text: string): Promise<{ readonly stopReason: string }> {
-    return this.request(
-      "session/prompt",
-      { sessionId, prompt: [{ type: "text", text }] },
-      this.opts.promptTimeoutMs,
-    );
+  /**
+   * ACP `session/prompt`. A plain string sends one text block (the
+   * historical shape every call site uses); an array sends the given
+   * content blocks verbatim -- the chat surface's image path (`{type:
+   * "image", data: <base64>, mimeType}`, accepted by both shipped adapters
+   * per their `promptCapabilities.image: true`).
+   */
+  async prompt(
+    sessionId: string,
+    input: string | ReadonlyArray<{ readonly type: string; readonly [key: string]: unknown }>,
+  ): Promise<{ readonly stopReason: string }> {
+    const prompt = typeof input === "string" ? [{ type: "text", text: input }] : input;
+    return this.request("session/prompt", { sessionId, prompt }, this.opts.promptTimeoutMs);
   }
 
   async close(): Promise<void> {

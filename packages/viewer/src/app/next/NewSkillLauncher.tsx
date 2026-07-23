@@ -18,8 +18,10 @@
  */
 import { useEffect, useState } from "react";
 import { getCatalog } from "../runtime/api.ts";
+import { fetchProvidersCatalog, type ChatProviderCatalog } from "./chatApi.ts";
 import { deriveSlug, fetchAdoptCandidates, fetchProviders, type AdoptCandidate } from "./launcher.ts";
 import { adoptSkill, createSkill } from "./loopApi.ts";
+import { defaultSelection, ModelPicker, type ModelSelection } from "./ModelPicker.tsx";
 import { FADE_R } from "./ui.tsx";
 
 export function NewSkillLauncher({
@@ -28,14 +30,15 @@ export function NewSkillLauncher({
   onAdopted,
 }: {
   readonly project: string;
-  /** A skill was created from a first message: navigate + start the chat with it. */
-  readonly onCreated: (slug: string, provider: string, message: string) => void;
+  /** A skill was created from a first message: navigate + start the chat with it (model implies the provider; absent -> provider default). */
+  readonly onCreated: (slug: string, provider: string, message: string, model?: string, effort?: string) => void;
   /** An existing SKILL.md was imported: navigate to it. */
   readonly onAdopted: (slug: string) => void;
 }) {
   const [message, setMessage] = useState("");
   const [providers, setProviders] = useState<ReadonlyArray<string> | null | undefined>(undefined);
-  const [provider, setProvider] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<ReadonlyArray<ChatProviderCatalog> | null>(null);
+  const [picked, setPicked] = useState<ModelSelection | null>(null);
   const [candidates, setCandidates] = useState<ReadonlyArray<AdoptCandidate>>([]);
   const [takenSlugs, setTakenSlugs] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -45,12 +48,19 @@ export function NewSkillLauncher({
   const serverless = providers === null;
   const canSend = !serverless && providers !== undefined && !busy && message.trim().length > 0;
 
+  // The grouped model pick (provider-implied); falls back to the first
+  // provider when the catalog is absent or still probing.
+  const selection: ModelSelection | undefined =
+    picked ?? defaultSelection(catalog, providers ?? []) ?? undefined;
+
   useEffect(() => {
     let cancelled = false;
     void fetchProviders().then((list) => {
       if (cancelled) return;
       setProviders(list);
-      if (list !== null && list.length > 0) setProvider((current) => current ?? list[0] ?? null);
+    });
+    void fetchProvidersCatalog().then((entries) => {
+      if (!cancelled) setCatalog(entries);
     });
     void fetchAdoptCandidates().then((rows) => {
       if (!cancelled && rows !== null) setCandidates(rows);
@@ -71,7 +81,7 @@ export function NewSkillLauncher({
   const send = async () => {
     const text = message.trim();
     if (text.length === 0 || busy || serverless || providers === undefined) return;
-    const chosenProvider = provider ?? providers[0] ?? "claude-code";
+    const chosenProvider = selection?.provider ?? providers[0] ?? "claude-code";
     setBusy(true);
     setError(null);
     const slug = deriveSlug(text, takenSlugs);
@@ -81,7 +91,7 @@ export function NewSkillLauncher({
       setError(result.error);
       return;
     }
-    onCreated(result.slug, chosenProvider, text);
+    onCreated(result.slug, chosenProvider, text, selection?.model, selection?.effort);
   };
 
   const importCandidate = async (candidate: AdoptCandidate) => {
@@ -127,23 +137,24 @@ export function NewSkillLauncher({
             }}
           />
           <div className="flex items-center justify-end gap-2 px-3 pb-3">
-            <select
-              className="max-w-[45%] cursor-pointer truncate bg-transparent text-xs text-ink-muted outline-none hover:text-ink disabled:cursor-default"
-              value={provider ?? ""}
-              disabled={serverless || busy || providers === undefined || providers.length === 0}
-              title="Agent for the new skill's session"
-              onChange={(event) => setProvider(event.target.value)}
-            >
-              {(providers ?? []).length === 0 ? (
-                <option value="">agent</option>
-              ) : (
-                (providers ?? []).map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))
-              )}
-            </select>
+            {selection !== undefined ? (
+              <ModelPicker
+                catalog={catalog}
+                providers={providers ?? []}
+                selection={selection}
+                onChange={setPicked}
+                disabled={serverless || busy}
+              />
+            ) : (
+              <select
+                className="max-w-[45%] cursor-default truncate bg-transparent text-xs text-ink-muted outline-none"
+                value=""
+                disabled
+                title="Model for the new skill's session"
+              >
+                <option value="">model</option>
+              </select>
+            )}
             <button
               type="button"
               className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-600 text-white shadow hover:bg-amber-700 disabled:opacity-35"

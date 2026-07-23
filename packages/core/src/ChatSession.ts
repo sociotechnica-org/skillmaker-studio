@@ -44,6 +44,7 @@ import {
   type PermissionPolicyResult,
   type TranscriptEntry,
 } from "./AcpClient.ts";
+import { buildPromptBlocks, type ChatImageAttachment } from "./ChatCapabilities.ts";
 import { CLAUDE_CODE_PROFILE, type ProviderProfile } from "./ProviderProfile.ts";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,17 @@ export interface ChatSessionOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** A previously persisted provider session id to resume via `session/load`. Absent -> always a fresh session. */
   readonly resumeSessionId?: string;
+  /**
+   * A WIRE model id to apply right after the session opens (new or
+   * resumed), via ACP `session/set_model` -- for codex this is the
+   * bracketed `model[effort]` form (see ChatCapabilities.composeModelId).
+   * Applying at start IS the protocol's model-at-start door: neither
+   * shipped adapter takes a model in `session/new` params, but both honor
+   * `set_model` before the first prompt. A failed set_model degrades to
+   * the adapter's default with `modelFallback` set -- an open chat on the
+   * default model beats a refused session.
+   */
+  readonly modelId?: string;
   /** Every `session/update` notification's params, streamed as it arrives (including `session/load`'s history replay). */
   readonly onUpdate: (update: unknown) => void;
   /** Decides every `session/request_permission` -- typically `makeChatPermissionPolicy`. */
@@ -162,10 +174,19 @@ export interface ChatSessionHandle {
   readonly loadSessionSupported: boolean;
   /** `session/new`'s advertised model, provider-resolved; null when unavailable. */
   readonly model: string | null;
+  /** The wire model id in effect: the requested `modelId` when set_model succeeded, else the adapter's own current id (or null). */
+  readonly modelId: string | null;
+  /** Set when a requested `modelId` could NOT be applied (set_model failed); the session runs on the adapter's default and this says why. */
+  readonly modelFallback: string | undefined;
   /** Adapter subprocess pid, for best-effort orphan cleanup bookkeeping. */
   readonly pid: number | undefined;
-  /** Sends one prompt turn; resolves with the turn's stop reason. Fails with `ChatBusyError` if a turn is in flight, `ChatClosedError` after close/adapter death. */
-  readonly prompt: (text: string) => Effect.Effect<{ readonly stopReason: string }, ChatSessionError>;
+  /** Sends one prompt turn (optionally with image attachments as ACP image content blocks); resolves with the turn's stop reason. Fails with `ChatBusyError` if a turn is in flight, `ChatClosedError` after close/adapter death. */
+  readonly prompt: (
+    text: string,
+    images?: ReadonlyArray<ChatImageAttachment>,
+  ) => Effect.Effect<{ readonly stopReason: string }, ChatSessionError>;
+  /** Mid-session ACP `session/set_model` (both shipped adapters honor it; codex takes the bracketed `model[effort]` form). Rejects while a turn is in flight. */
+  readonly setModel: (modelId: string) => Effect.Effect<void, ChatSessionError>;
   /** ACP `session/cancel` for the in-flight turn (no-op when idle): the running `prompt` then resolves with `stopReason: "cancelled"`. */
   readonly cancel: () => void;
   /** True while a prompt turn is in flight. */
@@ -218,12 +239,22 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
       let resumed = false;
       let resumeFallback: string | undefined;
       let model: string | null = null;
+      let currentModelId: string | null = null;
+
+      const readWireModelId = (session: unknown): string | null => {
+        if (typeof session !== "object" || session === null) return null;
+        const models = (session as { readonly models?: { readonly currentModelId?: unknown } }).models;
+        return typeof models?.currentModelId === "string" ? models.currentModelId : null;
+      };
 
       if (opts.resumeSessionId !== undefined && loadSessionSupported) {
         try {
-          await client.loadSession(opts.resumeSessionId, opts.cwd);
+          const loaded = await client.loadSession(opts.resumeSessionId, opts.cwd);
           sessionId = opts.resumeSessionId;
           resumed = true;
+          // Both shipped adapters return the models state on session/load
+          // too (same shape as session/new) -- read it tolerantly.
+          currentModelId = readWireModelId(loaded);
         } catch (loadErr) {
           // A dead/expired/unknown session id is an expected lifecycle
           // event (provider session stores get pruned), not a fault:
@@ -232,6 +263,7 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
           const session = await client.newSession(opts.cwd);
           sessionId = session.sessionId;
           model = providerProfile.extractModel(session);
+          currentModelId = readWireModelId(session);
         }
       } else {
         if (opts.resumeSessionId !== undefined) {
@@ -240,9 +272,29 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
         const session = await client.newSession(opts.cwd);
         sessionId = session.sessionId;
         model = providerProfile.extractModel(session);
+        currentModelId = readWireModelId(session);
       }
 
-      return { sessionId, resumed, resumeFallback, loadSessionSupported, model };
+      // Model-at-start: apply the caller's choice via session/set_model
+      // right after the session opens (there is no model param in
+      // session/new -- see ChatCapabilities.ts). A failure degrades to the
+      // adapter's default, honestly reported.
+      let modelFallback: string | undefined;
+      if (opts.modelId !== undefined && opts.modelId !== currentModelId) {
+        try {
+          await client.setModel(sessionId, opts.modelId);
+          currentModelId = opts.modelId;
+          model = opts.modelId;
+        } catch (setErr) {
+          modelFallback = `session/set_model(${opts.modelId}) failed (${setErr instanceof Error ? setErr.message : String(setErr)}); the session runs on the adapter's default model`;
+        }
+      } else if (opts.modelId !== undefined) {
+        // Already the adapter's current model -- nothing to do, but the
+        // handle should still report the requested id as in effect.
+        model = model ?? opts.modelId;
+      }
+
+      return { sessionId, resumed, resumeFallback, loadSessionSupported, model, currentModelId, modelFallback };
     },
     catch: (err) => classifyAcpFailure(err, client.getStderr(), providerProfile),
   }).pipe(
@@ -251,28 +303,48 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
   );
 
   let inFlight = false;
+  let liveModelId = established.currentModelId;
 
-  const prompt = Effect.fn("ChatSession.prompt")(function* (text: string) {
+  const failIfUnavailable = (): ChatClosedError | ChatBusyError | undefined => {
     if (closed || adapterDied) {
-      return yield* Effect.fail(
-        ChatClosedError.make({
-          message: adapterDied ? "the adapter process exited" : "the chat session is closed",
-          adapterExited: adapterDied,
-        }),
-      );
+      return ChatClosedError.make({
+        message: adapterDied ? "the adapter process exited" : "the chat session is closed",
+        adapterExited: adapterDied,
+      });
     }
     if (inFlight) {
-      return yield* Effect.fail(
-        ChatBusyError.make({ message: "a prompt turn is already in flight for this session" }),
-      );
+      return ChatBusyError.make({ message: "a prompt turn is already in flight for this session" });
     }
+    return undefined;
+  };
+
+  const prompt = Effect.fn("ChatSession.prompt")(function* (
+    text: string,
+    images: ReadonlyArray<ChatImageAttachment> = [],
+  ) {
+    const unavailable = failIfUnavailable();
+    if (unavailable !== undefined) return yield* Effect.fail(unavailable);
     inFlight = true;
     return yield* Effect.tryPromise({
-      try: () => client.prompt(established.sessionId, text),
+      try: () =>
+        client.prompt(
+          established.sessionId,
+          images.length === 0 ? text : buildPromptBlocks(text, images),
+        ),
       catch: (err) => classifyAcpFailure(err, client.getStderr(), providerProfile),
     }).pipe(Effect.ensuring(Effect.sync(() => {
       inFlight = false;
     })));
+  });
+
+  const setModel = Effect.fn("ChatSession.setModel")(function* (modelId: string) {
+    const unavailable = failIfUnavailable();
+    if (unavailable !== undefined) return yield* Effect.fail(unavailable);
+    yield* Effect.tryPromise({
+      try: () => client.setModel(established.sessionId, modelId),
+      catch: (err) => classifyAcpFailure(err, client.getStderr(), providerProfile),
+    });
+    liveModelId = modelId;
   });
 
   const close = async (): Promise<void> => {
@@ -287,8 +359,13 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
     resumeFallback: established.resumeFallback,
     loadSessionSupported: established.loadSessionSupported,
     model: established.model,
+    get modelId() {
+      return liveModelId;
+    },
+    modelFallback: established.modelFallback,
     pid: client.getPid(),
     prompt,
+    setModel,
     cancel: () => {
       if (!closed && !adapterDied) client.cancel(established.sessionId);
     },
