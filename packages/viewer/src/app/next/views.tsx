@@ -1,9 +1,11 @@
 /** Center-column views: Board, Tasks, and the Skill page. */
+import { fetchProjects, fetchTasks, useApiData } from "./api.ts";
 import { CLAIMS, PROJECTS, TASKS } from "./data.ts";
 import { STAGES } from "./types.ts";
 import { Button, CLAIM_DOT, FADE_R, STAGE_TINT } from "./ui.tsx";
 
 export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: string, slug: string) => void }) {
+  const projects = useApiData(fetchProjects, PROJECTS);
   return (
     <div className="p-6">
       <h1 className="pb-4 font-display text-2xl">Board</h1>
@@ -11,7 +13,7 @@ export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: str
         {STAGES.map((stage) => (
           <div key={stage} className="rounded border border-border bg-paper p-2">
             <div className={`mb-2 inline-block rounded px-2 py-0.5 font-display text-xs ${STAGE_TINT[stage]}`}>{stage}</div>
-            {PROJECTS.flatMap((p) =>
+            {projects.flatMap((p) =>
               p.skills
                 .filter((s) => s.stage === stage)
                 .map((s) => (
@@ -35,11 +37,12 @@ export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: str
 }
 
 export function TasksView() {
+  const tasks = useApiData(fetchTasks, TASKS);
   return (
     <div className="p-6">
       <h1 className="pb-4 font-display text-2xl">Tasks</h1>
       <div className="max-w-2xl space-y-2">
-        {TASKS.map((t) => (
+        {tasks.map((t) => (
           <div key={t.title} className="flex items-center justify-between rounded border border-border bg-surface p-3 shadow-sm">
             <div className="min-w-0">
               <div className={`text-sm ${FADE_R}`}>{t.title}</div>

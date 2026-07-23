@@ -1,5 +1,6 @@
 /** Left sidebar: global views (Board, Tasks) + the Projects → skills spine. */
 import { useState } from "react";
+import { fetchTasks, useApiData } from "./api.ts";
 import { PROJECTS, TASKS } from "./data.ts";
 import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, PlusIcon, TasksIcon } from "./icons.tsx";
 import { FADE_R, StageBadge } from "./ui.tsx";
@@ -18,7 +19,8 @@ export function Sidebar({
     Object.fromEntries(PROJECTS.map((p) => [p.name, true])),
   );
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
-  const openTaskCount = TASKS.filter((t) => t.state === "open").length;
+  const tasks = useApiData(fetchTasks, TASKS);
+  const openTaskCount = tasks.filter((t) => t.state === "open").length;
 
   return (
     <div className="flex h-full flex-col">
