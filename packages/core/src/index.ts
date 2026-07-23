@@ -195,7 +195,26 @@ export {
   permissiveApprovePolicy,
   type PermissionDecision,
   type PermissionPolicy,
+  type PermissionPolicyResult,
+  type PermissionCancelled,
+  type PermissionOption,
+  isPermissionCancelled,
+  extractPermissionOptions,
+  permissionPathsOutside,
+  pickApproveOption,
+  classifyAcpFailure,
 } from "./AcpClient.ts";
+export {
+  startChatSession,
+  makeChatPermissionPolicy,
+  ChatBusyError,
+  ChatClosedError,
+  type ChatSessionError,
+  type ChatSessionHandle,
+  type ChatSessionOptions,
+  type ChatPermissionAnswer,
+  type ChatPermissionAsk,
+} from "./ChatSession.ts";
 export {
   runFixture,
   RunPreconditionError,

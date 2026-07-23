@@ -146,7 +146,7 @@ export default function NextShell() {
           />
         )}
         <div className="h-full" style={{ width: right.width }}>
-          <RightPanel />
+          <RightPanel skill={center.kind === "skill" ? center.slug : ""} />
         </div>
       </aside>
     </div>

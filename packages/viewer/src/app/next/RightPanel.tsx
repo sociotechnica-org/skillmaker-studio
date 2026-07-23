@@ -1,11 +1,13 @@
 /** Right panel: Files (bundle browser) and Chat (the per-skill agent session). */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useChatSession, type ChatState } from "./chatApi.ts";
+import { chatItemsFromEvents, pickPermissionChoices, type ChatItem } from "./chatModel.ts";
 import { BUNDLE_FILES } from "./data.ts";
 import { FADE_R } from "./ui.tsx";
 
 type PanelTab = "files" | "chat";
 
-export function RightPanel() {
+export function RightPanel({ skill }: { readonly skill: string }) {
   const [tab, setTab] = useState<PanelTab>("chat");
 
   return (
@@ -28,7 +30,7 @@ export function RightPanel() {
         <span className="flex-1" />
         <span className="w-7 shrink-0" />
       </div>
-      {tab === "files" ? <FilesTab /> : <ChatTab />}
+      {tab === "files" ? <FilesTab /> : <ChatTab skill={skill} />}
     </div>
   );
 }
@@ -55,6 +57,7 @@ type ChatMessage =
   | { readonly role: "agent"; readonly text: string; readonly sentAt: string; readonly status?: string }
   | { readonly role: "user"; readonly text: string; readonly sentAt: string };
 
+/** Placeholder conversation — rendered ONLY when the chat API is absent (plain astro dev). */
 const CONVERSATION: ReadonlyArray<ChatMessage> = [
   { role: "agent", text: "Research is approved. Want me to start drafting, or is there anything in the notes you want changed first?", sentAt: "Jul 23, 9:38 AM" },
   { role: "user", text: "go ahead and draft", sentAt: "Jul 23, 9:41 AM" },
@@ -114,7 +117,7 @@ function UserMessage({ text, sentAt }: { readonly text: string; readonly sentAt:
   return (
     <div className="group flex flex-col items-end pt-3">
       <div className="max-w-[85%] rounded-xl bg-amber-50 px-3 py-2 shadow-sm">
-        <p>{text}</p>
+        <p className="whitespace-pre-wrap">{text}</p>
       </div>
       <div className="self-stretch">
         <MessageMeta text={text} sentAt={sentAt} align="right" />
@@ -128,31 +131,226 @@ function AgentMessage({ text, sentAt, status }: { readonly text: string; readonl
   return (
     <div className="group pt-3">
       {status && <div className="pb-0.5 font-display text-xs text-ink-muted">{status}</div>}
-      <p className={status ? "text-ink-muted" : ""}>{text}</p>
+      <p className={`whitespace-pre-wrap ${status ? "text-ink-muted" : ""}`}>{text}</p>
       <MessageMeta text={text} sentAt={sentAt} align="left" />
     </div>
   );
 }
 
-function ChatTab() {
+/** A tool call as a simple collapsed one-line chip — deliberately unstyled beyond the minimum (the director iterates on chips live later). */
+function ToolChip({ title, status }: { readonly title: string; readonly status: string }) {
+  return (
+    <div className="mt-2 flex items-center gap-2 rounded border border-border bg-surface/60 px-2 py-1 text-xs text-ink-muted" title={`${title} — ${status}`}>
+      <span className="truncate">{title}</span>
+      <span className="ml-auto shrink-0">{status}</span>
+    </div>
+  );
+}
+
+/** An out-of-project permission request, inline in the conversation. Approve/deny answers the agent. */
+function PermissionCard({
+  item,
+  onAnswer,
+}: {
+  readonly item: Extract<ChatItem, { kind: "permission" }>;
+  readonly onAnswer: (requestId: string, optionId: string, decision: "allowed" | "denied") => void;
+}) {
+  const { approve, deny } = pickPermissionChoices(item.options);
+  if (item.resolved !== undefined) {
+    return (
+      <div className="mt-2 rounded border border-border bg-surface/60 px-2 py-1 text-xs text-ink-muted">
+        {item.title} — {item.resolved.outcome}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2 text-sm shadow-sm">
+      <div className="pb-0.5 font-display text-xs uppercase tracking-widest text-ink-muted">permission</div>
+      <p className="pb-2">{item.title}</p>
+      <div className="flex gap-2">
+        {approve && (
+          <button
+            type="button"
+            className="rounded bg-amber-200 px-2 py-1 text-xs hover:bg-amber-300"
+            onClick={() => onAnswer(item.id, approve.optionId, "allowed")}
+          >
+            Approve
+          </button>
+        )}
+        {deny && (
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-1 text-xs hover:bg-surface"
+            onClick={() => onAnswer(item.id, deny.optionId, "denied")}
+          >
+            Deny
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const fmtTime = (iso: string): string => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+};
+
+/**
+ * Pre-session state (ruled): no session spawns implicitly. The user picks
+ * the agent (provider) and — when a resumable session exists for that
+ * provider — whether to resume or start fresh. Deliberately minimal and
+ * self-contained so it can relocate to a settings surface later.
+ */
+function StartChooser({
+  state,
+  onStart,
+}: {
+  readonly state: ChatState;
+  readonly onStart: (provider: string, mode: "new" | "resume") => void;
+}) {
+  const [provider, setProvider] = useState(state.defaultProvider ?? state.providers[0] ?? "");
+  const resumable = state.resumable.find((entry) => entry.provider === provider);
+  return (
+    <div className="px-3 pt-4 text-sm">
+      <div className="pb-1 text-xs uppercase tracking-widest text-ink-muted">agent</div>
+      <select
+        className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+        value={provider}
+        onChange={(e) => setProvider(e.target.value)}
+      >
+        {state.providers.map((id) => (
+          <option key={id} value={id}>
+            {id}
+          </option>
+        ))}
+      </select>
+      <div className="flex gap-2 pt-3">
+        {resumable && (
+          <button
+            type="button"
+            className="rounded bg-amber-200 px-2.5 py-1.5 text-xs hover:bg-amber-300"
+            title={`Resume the session from ${fmtTime(resumable.updatedAt)}`}
+            onClick={() => onStart(provider, "resume")}
+          >
+            Resume ({fmtTime(resumable.updatedAt)})
+          </button>
+        )}
+        <button
+          type="button"
+          className={`rounded px-2.5 py-1.5 text-xs ${resumable ? "border border-border hover:bg-surface" : "bg-amber-200 hover:bg-amber-300"}`}
+          disabled={provider.length === 0}
+          onClick={() => onStart(provider, "new")}
+        >
+          {resumable ? "Start fresh" : "Start"}
+        </button>
+      </div>
+      {state.lastError && <p className="pt-3 text-xs text-red-600">{state.lastError}</p>}
+    </div>
+  );
+}
+
+/** The placeholder conversation, unchanged — shown only when the API is absent. */
+function PlaceholderConversation() {
+  return (
+    <>
+      {CONVERSATION.map((m, i) =>
+        m.role === "user" ? (
+          <UserMessage key={i} text={m.text} sentAt={m.sentAt} />
+        ) : (
+          <AgentMessage key={i} text={m.text} sentAt={m.sentAt} status={m.status} />
+        ),
+      )}
+    </>
+  );
+}
+
+function ChatTab({ skill }: { readonly skill: string }) {
+  const chat = useChatSession(skill);
+  const [draft, setDraft] = useState("");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const items = chatItemsFromEvents(chat.events);
+  const active = chat.state?.active ?? null;
+  const canSend = chat.available && active !== null && active.status === "ready";
+
+  // Keep the newest message in view as the stream grows.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [items.length, active?.status]);
+
+  const sendDraft = () => {
+    const text = draft.trim();
+    if (text.length === 0 || !canSend) return;
+    chat.send(text);
+    setDraft("");
+  };
+
+  const statusLine =
+    active === null
+      ? undefined
+      : `${active.provider} · ${active.status === "running" ? "running" : active.status}${active.resumed ? " · resumed" : ""}${active.resumeFallback !== undefined ? " · resume failed, fresh session" : ""}`;
+
   return (
     <div className="relative flex-1 overflow-hidden">
       {/* messages scroll behind the floating input; bottom padding keeps the
           last message reachable above it */}
-      <div className="h-full overflow-y-auto px-3 pb-24 text-sm">
-        {CONVERSATION.map((m, i) =>
-          m.role === "user" ? (
-            <UserMessage key={i} text={m.text} sentAt={m.sentAt} />
-          ) : (
-            <AgentMessage key={i} text={m.text} sentAt={m.sentAt} status={m.status} />
-          ),
+      <div ref={scrollRef} className="h-full overflow-y-auto px-3 pb-24 text-sm">
+        {!chat.available && <PlaceholderConversation />}
+        {chat.available && chat.state !== undefined && active === null && (
+          <StartChooser state={chat.state} onStart={chat.start} />
         )}
+        {chat.available && statusLine !== undefined && (
+          <div className="pt-2 font-display text-xs text-ink-muted" title={active?.model ?? undefined}>
+            {statusLine}
+          </div>
+        )}
+        {chat.available && active !== null && active.status === "starting" && (
+          <p className="pt-3 text-ink-muted">Starting the agent…</p>
+        )}
+        {chat.available &&
+          items.map((item, i) => {
+            if (item.kind === "user") return <UserMessage key={i} text={item.text} sentAt={fmtTime(item.t)} />;
+            if (item.kind === "agent") return <AgentMessage key={i} text={item.text} sentAt={fmtTime(item.t)} />;
+            if (item.kind === "tool") return <ToolChip key={item.toolCallId} title={item.title} status={item.status} />;
+            if (item.kind === "permission")
+              return <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />;
+            return (
+              <div key={i} className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+                {item.message}
+              </div>
+            );
+          })}
+        {chat.available && active !== null && active.status === "running" && (
+          <div className="flex items-center gap-2 pt-3 text-xs text-ink-muted">
+            <span>running…</span>
+            <button
+              type="button"
+              className="rounded border border-border px-1.5 py-0.5 hover:bg-surface"
+              onClick={chat.cancelTurn}
+            >
+              Stop
+            </button>
+          </div>
+        )}
+        {chat.actionError && <p className="pt-2 text-xs text-red-600">{chat.actionError}</p>}
       </div>
       {/* floating input — no footer container, hovers over the text */}
       <div className="absolute inset-x-2 bottom-2">
         <input
-          className="w-full rounded-xl border border-border bg-surface/95 px-3 py-2.5 text-sm shadow-lg outline-none backdrop-blur-sm focus:border-amber-300"
-          placeholder="What should we do?"
+          className="w-full rounded-xl border border-border bg-surface/95 px-3 py-2.5 text-sm shadow-lg outline-none backdrop-blur-sm focus:border-amber-300 disabled:opacity-60"
+          placeholder={canSend || !chat.available ? "What should we do?" : active === null ? "Choose an agent to start" : "Agent is working…"}
+          value={draft}
+          disabled={chat.available && !canSend}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              sendDraft();
+            }
+          }}
         />
       </div>
     </div>

@@ -8,10 +8,13 @@ import {
   AcpProtocolError,
   AcpSpawnError,
   AcpTimeoutError,
+  isPermissionCancelled,
   makeSandboxPermissionPolicy,
   permissiveApprovePolicy,
   runAcpSession,
   stripClaudeCodeEnv,
+  type PermissionDecision,
+  type PermissionPolicy,
   type TranscriptEntry,
 } from "../src/AcpClient.ts";
 import { CLAUDE_CODE_PROFILE, CODEX_PROFILE } from "../src/ProviderProfile.ts";
@@ -387,7 +390,18 @@ describe("runAcpSession model selection (Fix 1: session/set_model; Fix 2: resolv
 // reason and are deterministic.
 describe("makeSandboxPermissionPolicy (issue #140: deny-by-default)", () => {
   const sandbox = "/tmp/skillmaker-sandbox-xyz";
-  const policy = makeSandboxPermissionPolicy(sandbox);
+  const sandboxPolicy = makeSandboxPermissionPolicy(sandbox);
+  // Run/station policies are synchronous and never answer "cancelled" --
+  // those widenings exist for the chat surface's interactive policy (D9).
+  // Narrow once here so every assertion below reads decision fields directly.
+  const sync = (policyFn: PermissionPolicy) => (params: unknown): PermissionDecision => {
+    const result = policyFn(params);
+    if (result instanceof Promise || isPermissionCancelled(result)) {
+      throw new Error("policy unexpectedly returned an async/cancelled result");
+    }
+    return result;
+  };
+  const policy = sync(sandboxPolicy);
 
   const fullOptions = [
     { optionId: "opt-allow", kind: "allow_once" },
@@ -509,7 +523,7 @@ describe("makeSandboxPermissionPolicy (issue #140: deny-by-default)", () => {
   test("a real (symlinked) sandbox dir still classifies its own resolved paths as inside (macOS /var vs /private/var)", () => {
     const realSandbox = mkdtempSync(join(tmpdir(), "skillmaker-policy-test-"));
     try {
-      const realPolicy = makeSandboxPermissionPolicy(realSandbox);
+      const realPolicy = sync(makeSandboxPermissionPolicy(realSandbox));
       expect(realPolicy(writeRequest(join(realSandbox, "file.md"))).decision).toBe("allowed");
       expect(realPolicy(writeRequest("/etc/hosts")).decision).toBe("denied");
     } finally {
@@ -518,7 +532,7 @@ describe("makeSandboxPermissionPolicy (issue #140: deny-by-default)", () => {
   });
 
   test("permissiveApprovePolicy (the --permissive escape hatch) approves even an outside-the-sandbox request, with a recorded reason", () => {
-    const decision = permissiveApprovePolicy(writeRequest("/etc/hosts"));
+    const decision = sync(permissiveApprovePolicy)(writeRequest("/etc/hosts"));
     expect(decision.decision).toBe("allowed");
     expect(decision.optionId).toBe("opt-allow");
     expect(decision.reason).toContain("permissive");
