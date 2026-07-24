@@ -2,10 +2,11 @@
 import { useEffect, useState } from "react";
 import { fetchTasks, useApiData } from "./api.ts";
 import { PROJECTS, TASKS } from "./data.ts";
-import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, PlusIcon, TasksIcon } from "./icons.tsx";
+import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, MoonIcon, PlusIcon, SunIcon, TasksIcon } from "./icons.tsx";
 import { usePresence } from "./presence.ts";
 import { fetchProjects } from "./projectsApi.ts";
-import { FADE_R, StageBadge } from "./ui.tsx";
+import { applyTheme, currentTheme, type Theme } from "./theme.ts";
+import { FADE_R, IconButton, StageBadge } from "./ui.tsx";
 import type { CenterView, Project } from "./types.ts";
 
 const VISIBLE_SKILLS = 5;
@@ -116,8 +117,32 @@ export function Sidebar({
         <a href="#" className="rounded p-1.5 text-ink-muted hover:bg-surface hover:text-ink" title="Docs">
           <HelpIcon />
         </a>
+        <ThemeToggle />
       </div>
     </div>
+  );
+}
+
+/** Sun/moon switch between the parchment and the manuscript at night.
+ * The pre-paint script in index.astro applied the saved/OS theme already;
+ * we read the DOM after mount (SSR renders neither icon confidently). */
+function ThemeToggle() {
+  const [theme, setTheme] = useState<Theme | null>(null);
+  useEffect(() => {
+    setTheme(currentTheme());
+  }, []);
+  if (theme === null) return <span className="h-7 w-7" />;
+  const next: Theme = theme === "dark" ? "light" : "dark";
+  return (
+    <IconButton
+      title={next === "dark" ? "Switch to dark mode" : "Switch to light mode"}
+      onClick={() => {
+        applyTheme(next);
+        setTheme(next);
+      }}
+    >
+      {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+    </IconButton>
   );
 }
 
