@@ -20,7 +20,7 @@ name: Release
 # A.4): each matrix job assembles its `@skillmaker/cli-<platform>-<arch>`
 # package (scripts/build-npm-packages.sh) alongside its tarball, and
 # publish-npm publishes those plus the skillmaker-studio wrapper -- skipped
-# gracefully if the NPM_TOKEN secret isn't configured.
+# via trusted publishing (OIDC) -- no NPM_TOKEN secret involved.
 
 on:
   push:
@@ -137,41 +137,19 @@ jobs:
           files: artifacts/*.tar.gz
           generate_release_notes: true
 
-  # The `secrets` context isn't available in a job-level `if:` (actionlint
-  # rejects it outright, and an invalid expression there fails the whole
-  # workflow file to parse -- not just this job -- so a plain
-  # `if: ${{ secrets.NPM_TOKEN != '' }}` on publish-npm would silently kill
-  # even the tarball release). Standard indirection: a step CAN read a
-  # secret (via `env:`), so compute the presence check there and expose it
-  # as a job output; publish-npm's `if:` then only ever reads
-  # `needs.*.outputs`, which IS allowed.
-  check-npm-token:
-    runs-on: ubuntu-latest
-    outputs:
-      has-token: ${{ steps.check.outputs.has-token }}
-    steps:
-      - name: Check whether NPM_TOKEN is configured
-        id: check
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -eu
-          if [ -n "${NPM_TOKEN:-}" ]; then
-            echo "has-token=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "has-token=false" >>"$GITHUB_OUTPUT"
-          fi
-
   # Publishes the zero-install npm door (Phase A.4): the two platform
   # packages built above plus the skillmaker-studio wrapper that resolves
-  # between them. Gated on the NPM_TOKEN repo secret actually being set --
-  # if it's absent (e.g. this repo hasn't been granted npm publish access
-  # yet), this job is skipped rather than failing the release, so tagging a
-  # release never blocks on npm credentials existing.
+  # between them.
   publish-npm:
-    needs: [build-macos-arm64, build-linux-x64, check-npm-token]
+    needs: [build-macos-arm64, build-linux-x64]
     runs-on: ubuntu-latest
-    if: needs.check-npm-token.outputs.has-token == 'true'
+    # Trusted publishing (OIDC): npm authenticates via a per-run token minted
+    # against this repo+workflow's registered trusted publisher -- no
+    # NPM_TOKEN secret, no 2FA prompt, provenance attached. (GATs lose
+    # direct publish ~Jan 2027 per the 2026-07-08 npm changelog.)
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -190,8 +168,12 @@ jobs:
           ls -l pkgs/cli-darwin-arm64/bin pkgs/cli-linux-x64/bin pkgs/skillmaker-studio/bin
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Ensure npm supports trusted publishing (OIDC needs npm >= 11.5)
+        run: |
+          npm install -g npm@latest
+          npm --version
       - name: Publish platform + wrapper packages
         run: |
           set -eu
@@ -203,5 +185,3 @@ jobs:
             echo "==> npm publish ${dir}"
             (cd "${dir}" && npm publish --access public)
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
