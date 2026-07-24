@@ -1,118 +1,93 @@
 # Skillmaker Studio
 
-**Design, evaluate, and ship agent skills — with receipts.**
+**Build, evaluate, and maintain agent skills.**
 
-A skill's research, design thinking, eval fixtures, and run records are the
-durable asset (a **Skill Bundle**); `SKILL.md` is an *output* — produced,
-versioned, and measured, not the thing itself.
+One app, many projects. A project is a directory that contains skills; the
+skill is the primary object — everything else in the Studio is a view of
+skills or an action on one. Skills, their eval fixtures, and their run
+records live as files in your project, git-tracked and cloneable with
+their evidence.
 
 [![CI](https://github.com/sociotechnica-org/skillmaker-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/sociotechnica-org/skillmaker-studio/actions/workflows/ci.yml)
 
-## Why
-
-Anyone can paste a SKILL.md of unknown pedigree. Skillmaker skills come with
-documented reasoning (a design doc that explains *why* the skill is shaped
-the way it is), a human-gated production history, and measured evidence —
-pass rates per fixture, per provider, pinned to the exact version they
-exercised. Coverage and validation never merge: "a fixture exists" and "it
-passes at rate r over n runs" stay separate facts, honestly displayed.
-
-## Quickstart
+## Getting started
 
 ```sh
-curl -fsSL https://skillmaker.studio/install.sh | sh   # macOS arm64 + Linux x64
-
-# in any git repo that should hold skills
-skillmaker init                 # config + journal + skills/
-skillmaker new my-first-skill   # scaffold a Skill Bundle
-skillmaker start                # board + bundle detail at localhost:4323
+cd your-project        # any directory that holds (or should hold) skills
+npx skillmaker-studio start
 ```
 
-The viewer and the CLI are two doors to the same ground: every state change
-is an event on an append-only, git-tracked journal
-(`.skillmaker/events.jsonl`); the board is a replay, and SQLite is only a
-rebuildable index (`skillmaker reindex` reconstructs it from scratch).
+Or install once and use the `skillmaker` bin day to day:
 
-## What works today
+```sh
+npm i -g skillmaker-studio
+skillmaker start
+```
 
-- **Skill Bundles** — `init` / `new` scaffold bundle.json, design.md,
-  stations.json, evals/, output/
-- **The production state machine** — `idea → researching → drafting →
-  evaluating → published`; forward moves require an approved review, publish
-  requires the gate, backward moves are legal with a reason. Enforced
-  identically at the CLI (`advance`, `review request`) and in the viewer.
-- **Reviews** — non-blocking review pairs: request review, approve or
-  revise-with-notes in the viewer; approval unlocks the next stage.
-- **Todos** — journal-native work tracking (`todo add/list/done/...` + a
-  board panel), priority-sorted, with a derived archive window.
-- **Versions + drift** — `version record` hashes the output tree; the
-  studio shows whether design.md or outputs drifted since the last recorded
-  version. Honest states, no enforcement.
-- **Eval fixtures + coverage** — fixture cases by failure class (golden /
-  refusal / empty / rerun / hard-case / trigger), risk maps over five risk
-  families (Input / Reasoning / Output / Adversarial / Chain), a coverage
-  surface with validation honestly reading "not yet measured" until real
-  runs land.
-- **Agent-driven eval runs, on two providers** — `skillmaker run` drives a
-  real coding agent over ACP — **claude-code and codex are both full eval
-  peers** — through a fixture case, end to end, capturing the full
-  transcript and diffing artifacts. A `trigger`-class fixture grades
-  whether the skill activated on its own, provider-tolerant either way.
-- **Grading + measurements** — grade a run pass/fail/partial in the CLI
-  (`skillmaker grade`) or the board's run-detail read-out; graded runs join
-  into *n · pass-rate · confidence-interval* measurements
-  (`skillmaker measurements`), never pooled across fixture, version,
-  provider, or model.
-- **Agent-first production stations** — `skillmaker station run` drives an
-  agent through a stage's work over ACP, requesting review on completion;
-  William, the product's own skill-writing agent, ships skills through
-  this loop today.
-- **Publish, with receipts** — `skillmaker publish` sends a bundle's
-  `output/` to a git directory or a marketplace manifest once it clears
-  the publish gate, from the CLI or the board's guided flow. The
-  Claude-marketplace target round-trips losslessly; the Codex-marketplace
-  manifest shape is still best-effort (no published spec to conform to
-  yet).
-- **The skillbook** — `skillmaker book build` renders a static site with
-  one page per skill: design prose, version-pinned measurement receipts,
-  and a journal-replayed changelog.
-- **Adopt an existing repo** — `skillmaker adopt` wraps pre-existing
-  `SKILL.md` files as bundles in place, no files moved; QA'd against two
-  real skills repos (gstack: 59/60 adopted; mattpocock/skills: 39/39).
-- **Live viewer** — Astro + React + Tailwind board on one origin, SSE
-  updates on every journal change, no reload.
-- **Desktop app** — a Tauri shell (macOS, built from source) that wraps the
-  compiled `skillmaker` binary as a sidecar: the same board, no terminal.
+npm resolves a compiled platform binary (macOS arm64 and Linux x64 today) —
+no postinstall scripts, no runtime downloads. There is also a
+[`/skillmaker` skill](packages/skill/skillmaker/SKILL.md) for driving the
+same CLI from inside Claude Code or Codex.
 
-**Coming next** (see [the build plan](docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/plan.md)):
-William's skills fully self-hosted through the studio's own board — every
-William skill measured on both providers and published through the same
-gated loop any bundle uses — plus a cross-platform, signed desktop build.
+## The Studio
 
-## Architecture
+The left sidebar is the spine: your projects and their skills, plus two
+global views — a **Board** of every skill by stage and a **Tasks** queue of
+work to do across all of them. The center is the **Skill page**: the live
+SKILL.md rendered, reviews and stage moves, evals, and activity. The right
+panel holds a **Files** browser over the skill's bundle and a **Chat**
+panel for agent sessions. Everything updates live as work lands, in light
+and dark.
 
-- **CLI-first, bun-native.** TypeScript run directly by bun (Effect for
-  services/errors/schemas), distributed as a `bun build --compile` single
-  binary.
-- **One origin.** `skillmaker start` = one `Bun.serve`: static viewer +
-  `/api/*` + SSE. No CORS, no second server.
-- **Prose in files, state in events, queries in SQLite.** Sources
-  (research, design, fixtures) and outputs live as files you can read and
-  git-diff; decisions and state transitions are journal events; the DB is
-  disposable.
+![Skill page: rendered instructions, an approved review with a stage advance, and the chat panel ready to start an agent session](assets/readme/skill-page-light.jpg)
 
-Full model: [data-model.md](docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/data-model.md) ·
-Build log: [build-log.md](docs/_archive/plans/2026-07-10-playmaker-to-skillmaker-migration/build-log.md)
+### Chat-first creation
+
+Describe the skill you want; an agent frames it, researches, and drafts it
+in conversation. Each skill gets its own agent session — claude-code or
+codex, with a model picker, effort control, and image attachments —
+working directly in your project. The session is transport; everything the
+agent decides lands on disk in the skill's files.
+
+### Claim-first evals
+
+Evals start from **claims**: the things the skill is supposed to get right,
+grouped by risk family (Input / Reasoning / Output / Adversarial / Chain).
+Fixtures hang under the claims they probe; runs hang under fixtures. Every
+claim row shows per-model evidence chips at a pinned version — proven,
+partial, or gap — and "no fixture yet" is an honest state with a one-click
+path into the Tasks queue, not a hidden one. Runs record whether the skill
+was actually invoked and carry their grades separately: coverage and
+validation never blur. Fixtures are runnable straight from the UI ("Run
+all fixtures"), or from the CLI.
+
+![Claim-first evals: claims grouped by risk family, per-model evidence chips, a version pin, and Run all fixtures](assets/readme/evals-light.jpg)
+
+![The same evals tree in dark mode](assets/readme/evals-dark.jpg)
+
+### Agent-first
+
+Everything the UI does rides the same engine as the `skillmaker` CLI.
+Agents are first-class users: an agent working in your repo and a human
+working in the Studio see and change the same state.
+
+## Caveats
+
+Early software. The chat panel and eval runs drive a real coding agent, so
+they require Claude Code or Codex installed and authenticated on your
+machine.
 
 ## Repo layout
 
 ```
 packages/core/            # @skillmaker/core — domain: schemas, journal, fold, machine, index
 packages/cli/             # @skillmaker/cli — the skillmaker CLI + server (bin: skillmaker)
-packages/viewer/          # @skillmaker/viewer — Astro 5 + React 19 + Tailwind 4 board
-packages/desktop/         # @skillmaker/desktop — Tauri v2 shell wrapping the CLI as a sidecar (macOS)
+packages/viewer/          # @skillmaker/viewer — Astro 5 + React 19 + Tailwind 4 UI
+packages/skill/           # the /skillmaker skill for Claude Code / Codex
+packages/desktop/         # @skillmaker/desktop — Tauri v2 shell wrapping the CLI (macOS)
 packages/docs-site/       # @skillmaker/docs-site — Starlight docs (docs.skillmaker.studio)
 packages/marketing-site/  # @skillmaker/marketing-site — public site
+npm/                      # the skillmaker-studio npm wrapper + platform binary packages
 docs/                     # product plans and design docs (see docs/README.md)
 test/e2e/                 # end-to-end tests that spawn the real CLI
 ```
