@@ -7,12 +7,17 @@ import type { ClaimStatus, Stage } from "./types.ts";
  * touches text that actually overflows — short labels render untouched.
  * MUST sit on a width-constrained element (flex-1 min-w-0 or w-full),
  * never a content-sized span, or the fade eats every label's tail.
+ * Theme-proof: masks composite on the alpha channel, so the literal `black`
+ * here is just "fully opaque" — it renders identically in dark mode.
  */
 export const FADE_R =
   "overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%_-_20px),transparent_calc(100%_-_2px))]";
 
+/** Stage tints. All but Idea flip for dark mode at the token level in
+ * global.css (X-100/-800 are re-tinted under .dark); the neutral ramp is
+ * deliberately not flipped there, so Idea carries its own dark: pair. */
 export const STAGE_TINT: Record<Stage, string> = {
-  Idea: "bg-neutral-200 text-neutral-700",
+  Idea: "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
   Research: "bg-sky-100 text-sky-800",
   Drafting: "bg-indigo-100 text-indigo-800",
   Evals: "bg-amber-100 text-amber-800",

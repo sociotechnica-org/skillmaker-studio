@@ -17,8 +17,11 @@
  * the app to light so the parchment reads consistently.
  * ------------------------------------------------------------------ */
 
-/* Retarget the dark: variant to a class that never appears, so the OS's
- * dark mode can't fight the parchment theme. The app becomes light-only. */
+/* Retarget the dark: variant to the `.dark` root class, so the OS's dark
+ * mode never flips the parchment on its own. The Sidebar's theme toggle
+ * (persisted as localStorage "sm-theme", pre-paint script in index.astro)
+ * is the only thing that sets `.dark`; prefers-color-scheme only picks the
+ * default on first visit. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
@@ -262,10 +265,16 @@ main h1::after {
 
 /* ------------------------------------------------------------------ *
  * DARK MODE — "manuscript at night". Applied via a `.dark` class on
- * <html> (toggle in Header.tsx, persisted + FOUC-guarded in index.astro).
- * The app's own dark: utilities (dark:bg-neutral-900, dark:text-neutral-100,
- * …) do the heavy lifting against the warm ramp above; here we only flip the
- * ground, the ink, the shadow colour, and the texture.
+ * <html> (toggle in the Sidebar footer, persisted + FOUC-guarded in
+ * index.astro). Same manuscript, at night: aged leather grounds, lamplight
+ * amber, parchment ink. Token-consuming classes (bg-canvas, bg-paper,
+ * text-ink, …) flip automatically; the tint steps the shell uses for badges
+ * and states (X-50/-100/-200 grounds with X-700/-800 text) are re-tinted
+ * here too, so `bg-emerald-100 text-emerald-800` reads correctly at night
+ * without per-class sweeps. Solid mid ambers (400–700: buttons, dots,
+ * drag-handle glow) deliberately keep their daylight values — they already
+ * sit well on the dark ground. The neutral ramp is NOT flipped (Markdown.tsx
+ * pairs it with explicit dark: variants).
  * ------------------------------------------------------------------ */
 .dark {
   color-scheme: dark;
@@ -274,7 +283,43 @@ main h1::after {
   --color-border: #3a3220;
   --color-ink: #ece3d2;         /* parchment ink — body text + wordmark */
   --color-ink-muted: #b6a988;
+  --color-paper: #1d1610;       /* sidebar / panel ground, a shade above canvas */
   --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */
+
+  /* Amber tints: lamplit browns for bubbles, chips, and the permission
+   * card; -300 stays a visible accent border (focus rings, review card). */
+  --color-amber-50: #2e2412;
+  --color-amber-100: #3a2d15;
+  --color-amber-200: #4d3b1c;
+  --color-amber-300: #6e5628;
+  --color-amber-800: #e6c98c;
+
+  /* Stage / status accents at night: -50/-100 deep tinted grounds,
+   * -700/-800 light inks. Teal (sky), plum (indigo), moss (emerald),
+   * rust (red), and rose (kept un-branded in light mode, darkened here). */
+  --color-sky-100: #1d2f2e;
+  --color-sky-800: #b3d0d0;
+  --color-indigo-100: #322330;
+  --color-indigo-800: #d0b3c4;
+  --color-emerald-50: #232a15;  /* hover tint — must read against --color-surface */
+  --color-emerald-100: #2c3419;
+  --color-emerald-700: #adc077;
+  --color-emerald-800: #c2d18f;
+  --color-red-50: #2b1512;
+  --color-red-200: #5a2a24;
+  --color-red-600: #e09a8e;
+  --color-red-700: #e8aca2;
+  --color-rose-50: #331a1e;     /* hover tint — must read against --color-surface */
+  --color-rose-100: #3f2026;
+  --color-rose-700: #e5a3ad;
+  --color-rose-800: #edb8c0;
+}
+
+/* Amber selection keeps dark ink for legibility (the flipped --color-ink
+ * would be parchment-on-amber, ~1.6:1). */
+.dark ::selection {
+  background: var(--color-amber);
+  color: #16110a;
 }
 
 /* Paper grain inverts to faint light specks on the dark ground. */

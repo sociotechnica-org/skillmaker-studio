@@ -281,7 +281,7 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
                       <span className={`min-w-0 flex-1 ${FADE_R}`}>{claim.sentence}</span>
                       {chips.length > 0 && <ModelChips chips={chips} />}
                       <span className="font-mono text-[10px] text-ink-muted">{claim.id}</span>
-                      <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted">{status}</span>
+                      <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted dark:bg-neutral-800">{status}</span>
                     </div>
                     <div className="pl-6 text-xs text-ink-muted">
                       {claim.fixtures > 0 ? (
@@ -389,7 +389,7 @@ function FixtureBlock({
         {glance !== undefined && glance.state === "ready" && (
           <>
             {glance.value.fixtureClass !== null && (
-              <span className="rounded bg-neutral-100 px-1 text-[10px] text-ink-muted">{glance.value.fixtureClass}</span>
+              <span className="rounded bg-neutral-100 px-1 text-[10px] text-ink-muted dark:bg-neutral-800">{glance.value.fixtureClass}</span>
             )}
             {glance.value.hasAnswerKey ? (
               <span className="rounded bg-emerald-100 px-1 text-[10px] text-emerald-800" title="case.json carries an answer key">
@@ -430,7 +430,7 @@ function FixtureBlock({
                 <button
                   type="button"
                   onClick={() => onToggleRun(run.id)}
-                  className="flex w-full items-center gap-2 rounded bg-paper px-2 py-1 text-left text-[11px] hover:bg-neutral-100"
+                  className="flex w-full items-center gap-2 rounded bg-paper px-2 py-1 text-left text-[11px] hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
                   <span className="shrink-0 text-ink-muted">{expanded ? "▾" : "▸"}</span>
                   <span className="shrink-0 text-ink-muted">{runStartedLabel(run.startedAt)}</span>

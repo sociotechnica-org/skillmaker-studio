@@ -122,6 +122,32 @@ export function CollapseIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** Sun — shown while dark, click for daylight. */
+export function SunIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <circle cx="8" cy="8" r="3" />
+      <line x1="8" y1="1.2" x2="8" y2="3.2" />
+      <line x1="8" y1="12.8" x2="8" y2="14.8" />
+      <line x1="1.2" y1="8" x2="3.2" y2="8" />
+      <line x1="12.8" y1="8" x2="14.8" y2="8" />
+      <line x1="3.2" y1="3.2" x2="4.6" y2="4.6" />
+      <line x1="11.4" y1="11.4" x2="12.8" y2="12.8" />
+      <line x1="12.8" y1="3.2" x2="11.4" y2="4.6" />
+      <line x1="4.6" y1="11.4" x2="3.2" y2="12.8" />
+    </svg>
+  );
+}
+
+/** Crescent moon — shown while light, click for the manuscript at night. */
+export function MoonIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7Z" />
+    </svg>
+  );
+}
+
 /** Folder — toggles the file-browser column inside the panel. */
 export function FolderIcon({ size = 16 }: IconProps) {
   return (

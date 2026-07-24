@@ -702,7 +702,7 @@ function ChatTab({
           <p className="pt-3 text-ink-muted">Starting the agent…</p>
         )}
         {chat.available && active !== null && active.modelFallback !== undefined && (
-          <p className="pt-2 text-xs text-amber-700">{active.modelFallback}</p>
+          <p className="pt-2 text-xs text-amber-700 dark:text-amber-400">{active.modelFallback}</p>
         )}
         {chat.available &&
           items.map((item, i) => {
@@ -745,7 +745,7 @@ function ChatTab({
                 />
                 <button
                   type="button"
-                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-ink text-[10px] leading-none text-white shadow"
+                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-ink text-[10px] leading-none text-white shadow dark:text-canvas"
                   title={`Remove ${image.name ?? "image"}`}
                   onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
                 >
