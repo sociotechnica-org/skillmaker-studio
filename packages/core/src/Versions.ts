@@ -442,12 +442,22 @@ export const snapshotVersionContent = Effect.fn("Versions.snapshotVersionContent
   );
 
   const snapshotDir = versionSnapshotDir(bundleDir, outputHash);
+  // Content-addressed: a snapshot that already exists for this hash is
+  // byte-identical by construction, so return early. This also makes
+  // CONCURRENT recorders safe (two runs completing at once record the
+  // same version; the old remove->mkdir->copy sequence let one delete
+  // the directory out from under the other -- caught by CI on PR #169).
+  const alreadySnapshotted = yield* fs
+    .exists(snapshotDir)
+    .pipe(Effect.mapError(toIOError(`could not check ${snapshotDir}`)));
+  if (alreadySnapshotted) {
+    return snapshotDir;
+  }
+  // Build in a temp sibling, then rename into place (atomic on one fs).
+  const stagingDir = `${snapshotDir}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
   yield* fs
-    .remove(snapshotDir, { recursive: true, force: true })
-    .pipe(Effect.mapError(toIOError(`could not clear ${snapshotDir}`)));
-  yield* fs
-    .makeDirectory(snapshotDir, { recursive: true })
-    .pipe(Effect.mapError(toIOError(`could not create ${snapshotDir}`)));
+    .makeDirectory(stagingDir, { recursive: true })
+    .pipe(Effect.mapError(toIOError(`could not create ${stagingDir}`)));
 
   const designPath = join(bundleDir, "design.md");
   const designExists = yield* fs
@@ -455,7 +465,7 @@ export const snapshotVersionContent = Effect.fn("Versions.snapshotVersionContent
     .pipe(Effect.mapError(toIOError(`could not check ${designPath}`)));
   if (designExists) {
     yield* fs
-      .copyFile(designPath, join(snapshotDir, "design.md"))
+      .copyFile(designPath, join(stagingDir, "design.md"))
       .pipe(Effect.mapError(toIOError(`could not copy ${designPath}`)));
   }
 
@@ -466,14 +476,26 @@ export const snapshotVersionContent = Effect.fn("Versions.snapshotVersionContent
     const relativeSegments = file.relativePath.split("/");
     const destination =
       layout === "in-place"
-        ? join(snapshotDir, ...relativeSegments)
-        : join(snapshotDir, "output", ...relativeSegments);
+        ? join(stagingDir, ...relativeSegments)
+        : join(stagingDir, "output", ...relativeSegments);
     yield* fs
       .makeDirectory(dirname(destination), { recursive: true })
       .pipe(Effect.mapError(toIOError(`could not create ${dirname(destination)}`)));
     yield* fs
       .copyFile(file.fullPath, destination)
       .pipe(Effect.mapError(toIOError(`could not copy ${file.fullPath}`)));
+  }
+
+  // Move into place. If a concurrent recorder won the race, its snapshot
+  // is identical -- discard the staging copy and succeed.
+  const renamed = yield* fs.rename(stagingDir, snapshotDir).pipe(
+    Effect.map(() => true),
+    Effect.orElseSucceed(() => false),
+  );
+  if (!renamed) {
+    yield* fs
+      .remove(stagingDir, { recursive: true, force: true })
+      .pipe(Effect.mapError(toIOError(`could not clean ${stagingDir}`)));
   }
 
   return snapshotDir;
