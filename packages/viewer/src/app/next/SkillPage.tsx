@@ -1,40 +1,41 @@
 /**
- * The Skill page center panel (redesign, 2026-07-25): identity header with
- * top-right actions, manila-folder tabs — Overview · Research · Eval ·
- * Publish — and a TOP-LEVEL version pivot: every tab is a lens on the
- * selected draft ("Current draft" = the unversioned working state).
- * Non-versioned surfaces hold steady with a quiet note.
+ * The Skill page center panel (redesign, 2026-07-25): manila-folder tabs —
+ * Overview · Research · Eval · Publish — over a full-bleed surface (a
+ * separator line, not a bounding box). Identity lives in the top bar
+ * breadcrumb; version pivot + Publish live in the top bar too
+ * (TopBarSkillControls, rendered by NextShell). Every tab is a lens on
+ * the selected draft ("Current draft" = the unversioned working state).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
 import { fetchBundleFile, useApiData } from "./api.ts";
 import { EvalsSection } from "./EvalsSection.tsx";
-import { ReviewSurface } from "./ReviewSurface.tsx";
-
-import { STAGE_TINT } from "./ui.tsx";
+import { AdvanceControls, ReviewSurface } from "./ReviewSurface.tsx";
 import type { SkillPage as SkillPageData, SkillVersion } from "./types.ts";
 
 type CenterTab = "overview" | "research" | "eval" | "publish";
 
 const TAB_ACTIVE =
-  "relative z-10 -mb-px rounded-t-lg border border-b-0 border-neutral-900/50 bg-surface px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink";
+  "relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-surface px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink";
 const TAB_IDLE =
-  "rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:text-ink";
+  "cursor-pointer rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:bg-surface/70 hover:text-ink";
 
 /** "Current draft" sentinel for the top-level version pivot. */
-const CURRENT = "current";
+export const CURRENT_DRAFT = "current";
 
 export function SkillPageView({
   slug,
   page,
+  pinned,
   onOpenFile,
 }: {
   readonly slug: string;
   readonly page: SkillPageData;
+  readonly pinned: string;
   readonly onOpenFile: (path: string) => void;
 }) {
   const [tab, setTab] = useState<CenterTab>("overview");
-  const [pinned, setPinned] = useState<string>(CURRENT);
+
   // Unread dots: the newest event of each family, compared to a per-skill
   // "last seen" stamp (localStorage). Research listens to station/review
   // traffic; Eval listens to run traffic (ruled 2026-07-25).
@@ -62,102 +63,102 @@ export function SkillPageView({
   const showResearchDot = tab !== "research" && researchStamp !== "" && seen.research !== researchStamp;
   const showEvalDot = tab !== "eval" && runStamp !== "" && seen.eval !== runStamp;
 
-  const openResearch = () => {
-    setTab("research");
-    markSeen("research", researchStamp);
-  };
-  const openEval = () => {
-    setTab("eval");
-    markSeen("eval", runStamp);
-  };
-
   return (
-    <div className="mx-auto max-w-3xl px-6 pb-6 pt-4">
-      {/* ---- identity header: the skill, then its status, then actions ---- */}
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="font-display text-2xl leading-tight">{page.name}</h1>
-          <p className="pt-0.5 text-sm text-ink-muted">{page.oneLiner || "No one-liner yet."}</p>
-          <div className="flex flex-wrap items-center gap-2 pt-2 text-xs">
-            <span className={`rounded px-1.5 py-0.5 ${STAGE_TINT[page.stage]}`}>{page.stage}</span>
-            <span className="text-ink-muted">{page.drift}</span>
-            <VersionPicker versions={page.versions} pinned={pinned} onPin={setPinned} />
+    <div className="flex min-h-full flex-col">
+      <div className="w-full px-6 pt-4">
+        <div className="mx-auto max-w-3xl">
+          {page.loop !== null && <ReviewSurface loop={page.loop} />}
+
+          {/* folder tabs, sitting on the full-width separator below */}
+          <div className="flex items-end gap-1">
+            {(
+              [
+                { id: "overview", label: "Overview", onClick: () => setTab("overview"), dot: false },
+                { id: "research", label: "Research", onClick: () => { setTab("research"); markSeen("research", researchStamp); }, dot: showResearchDot },
+                { id: "eval", label: "Eval", onClick: () => { setTab("eval"); markSeen("eval", runStamp); }, dot: showEvalDot },
+                { id: "publish", label: "Publish", onClick: () => setTab("publish"), dot: false },
+              ] as const
+            ).map((t) => (
+              <button key={t.id} type="button" onClick={t.onClick} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>
+                {t.label}
+                {t.dot && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" />}
+              </button>
+            ))}
           </div>
         </div>
-        <HeaderActions onPublishTab={() => setTab("publish")} />
       </div>
 
-      {page.loop !== null && (
-        <div className="pt-4">
-          <ReviewSurface loop={page.loop} />
+      {/* full-bleed tab surface: separator line + tinted ground to the bottom */}
+      <div className="flex-1 border-t border-neutral-900/50 bg-surface">
+        <div className="mx-auto max-w-3xl px-6 py-5">
+          {tab === "overview" && <OverviewTab page={page} pinned={pinned} onOpenFile={onOpenFile} />}
+          {tab === "research" && <ResearchTab slug={slug} onOpenFile={onOpenFile} />}
+          {tab === "eval" && <EvalsSection page={page} />}
+          {tab === "publish" && <PublishTab page={page} pinned={pinned} />}
         </div>
-      )}
-
-      {/* ---- folder tabs ---- */}
-      <div className="mt-5 flex items-end gap-1">
-        {(
-          [
-            { id: "overview", label: "Overview", onClick: () => setTab("overview"), dot: false },
-            { id: "research", label: "Research", onClick: openResearch, dot: showResearchDot },
-            { id: "eval", label: "Eval", onClick: openEval, dot: showEvalDot },
-            { id: "publish", label: "Publish", onClick: () => setTab("publish"), dot: false },
-          ] as const
-        ).map((t) => (
-          <button key={t.id} type="button" onClick={t.onClick} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>
-            {t.label}
-            {t.dot && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" />}
-          </button>
-        ))}
-      </div>
-      <div className="rounded-b-lg rounded-tr-lg border border-neutral-900/50 bg-surface p-4">
-        {tab === "overview" && <OverviewTab slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} />}
-        {tab === "research" && <ResearchTab slug={slug} pinned={pinned} onOpenFile={onOpenFile} />}
-        {tab === "eval" && <EvalsSection page={page} />}
-        {tab === "publish" && <PublishTab page={page} pinned={pinned} onPin={setPinned} />}
       </div>
     </div>
   );
 }
 
-// ------------------------------------------------------------- header bits
+// -------------------------------------------------- top bar controls
 
-function VersionPicker({
-  versions,
+/**
+ * Rendered by NextShell in the center top bar: the version pivot and the
+ * Publish button (stage actions live in its popover — no duplication).
+ */
+export function TopBarSkillControls({
+  slug,
+  page,
   pinned,
   onPin,
 }: {
-  readonly versions: ReadonlyArray<SkillVersion>;
+  readonly slug: string;
+  readonly page: SkillPageData;
   readonly pinned: string;
   readonly onPin: (v: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <select
-      className="cursor-pointer rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-ink-muted outline-none hover:text-ink"
-      value={pinned}
-      onChange={(e) => onPin(e.target.value)}
-      title="Every tab is a lens on the selected draft"
-    >
-      <option value={CURRENT}>Current draft</option>
-      {versions.map((v) => (
-        <option key={v.hash} value={v.hash}>
-          {v.shortHash}
-          {v.label !== null ? ` · ${v.label}` : ""}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function HeaderActions({ onPublishTab }: { readonly onPublishTab: () => void }) {
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 pt-1">
+    <div className="relative flex items-center gap-1.5">
+      <select
+        className="max-w-40 cursor-pointer rounded border border-border bg-surface px-1.5 py-1 text-xs text-ink-muted outline-none hover:text-ink"
+        value={pinned}
+        onChange={(e) => onPin(e.target.value)}
+        title="Every tab is a lens on the selected draft"
+      >
+        <option value={CURRENT_DRAFT}>Current draft</option>
+        {page.versions.map((v: SkillVersion) => (
+          <option key={v.hash} value={v.hash}>
+            {v.shortHash}
+            {v.label !== null ? ` · ${v.label}` : ""}
+          </option>
+        ))}
+      </select>
       <button
         type="button"
-        className="rounded bg-amber-600 px-3 py-1.5 font-display text-sm text-white shadow hover:bg-amber-700"
-        onClick={onPublishTab}
+        className="cursor-pointer rounded bg-amber-600 px-3 py-1 font-display text-sm text-white shadow hover:bg-amber-700"
+        onClick={() => setOpen(!open)}
       >
-        Publish…
+        Publish
       </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            aria-label="Close"
+            className="fixed inset-0 z-20 cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute right-0 top-9 z-30 w-72 rounded border border-border bg-surface p-3 shadow-xl">
+            {page.loop === null ? (
+              <p className="text-xs text-ink-muted">Stage actions need the server.</p>
+            ) : (
+              <AdvanceControls loop={page.loop} />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -165,19 +166,17 @@ function HeaderActions({ onPublishTab }: { readonly onPublishTab: () => void }) 
 // ------------------------------------------------------------------- tabs
 
 function OverviewTab({
-  slug,
   page,
   pinned,
   onOpenFile,
 }: {
-  readonly slug: string;
   readonly page: SkillPageData;
   readonly pinned: string;
   readonly onOpenFile: (path: string) => void;
 }) {
   return (
     <div className="text-sm">
-      {pinned !== CURRENT && (
+      {pinned !== CURRENT_DRAFT && (
         <p className="pb-2 text-xs text-ink-muted">Showing the current draft — historical snapshots arrive with the version store.</p>
       )}
       {page.instructions === null ? (
@@ -187,7 +186,7 @@ function OverviewTab({
           <MarkdownContent markdown={firstSection(page.instructions)} />
           <button
             type="button"
-            className="mt-3 rounded border border-border bg-canvas px-3 py-1.5 font-display text-xs text-ink-muted hover:text-ink"
+            className="mt-3 cursor-pointer rounded border border-border bg-canvas px-3 py-1.5 font-display text-xs text-ink-muted hover:text-ink"
             onClick={() => onOpenFile("output/SKILL.md")}
           >
             Open full SKILL.md in Files
@@ -217,11 +216,9 @@ const RESEARCH_FILES = ["research/notes.md", "research/decisions.md"] as const;
 
 function ResearchTab({
   slug,
-  pinned,
   onOpenFile,
 }: {
   readonly slug: string;
-  readonly pinned: string;
   readonly onOpenFile: (path: string) => void;
 }) {
   const fetcher = useCallback(async () => {
@@ -239,7 +236,6 @@ function ResearchTab({
 
   return (
     <div className="text-sm">
-      {pinned !== CURRENT && <p className="pb-2 text-xs text-ink-muted">Research is bundle-level — not versioned.</p>}
       {files === null && <p className="text-ink-muted">Loading research…</p>}
       {files !== null && files.length === 0 && (
         <p className="text-ink-muted">No research yet — run the research station or ask the agent to gather sources.</p>
@@ -251,7 +247,7 @@ function ResearchTab({
               {f.path.replace("research/", "")}
               <button
                 type="button"
-                className="ml-2 text-[10px] underline"
+                className="ml-2 cursor-pointer text-[10px] underline"
                 onClick={(e) => {
                   e.preventDefault();
                   onOpenFile(f.path);
@@ -269,15 +265,7 @@ function ResearchTab({
   );
 }
 
-function PublishTab({
-  page,
-  pinned,
-  onPin,
-}: {
-  readonly page: SkillPageData;
-  readonly pinned: string;
-  readonly onPin: (v: string) => void;
-}) {
+function PublishTab({ page, pinned }: { readonly page: SkillPageData; readonly pinned: string }) {
   return (
     <div className="text-sm">
       <p className="text-ink-muted">
@@ -288,10 +276,9 @@ function PublishTab({
       <h3 className="pt-3 font-display text-xs uppercase text-ink-muted">Versions</h3>
       <div className="mt-1 space-y-1">
         <VersionRow
-          active={pinned === CURRENT}
+          active={pinned === CURRENT_DRAFT}
           title="Current draft"
           subtitle={page.drift}
-          onClick={() => onPin(CURRENT)}
           action={
             <button
               type="button"
@@ -309,7 +296,6 @@ function PublishTab({
             active={pinned === v.hash}
             title={v.shortHash + (v.label !== null ? ` · ${v.label}` : "")}
             subtitle={`recorded ${new Date(v.recordedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
-            onClick={() => onPin(v.hash)}
             action={
               <button
                 type="button"
@@ -325,7 +311,7 @@ function PublishTab({
         {page.versions.length === 0 && <p className="text-xs text-ink-muted">No versions recorded yet.</p>}
       </div>
       <p className="pt-3 text-xs text-ink-muted">
-        Evidence per version lives in the Eval tab — pin a version above and switch tabs to see its measurements.
+        Evidence per version lives in the Eval tab — pin a version in the top bar and switch tabs to see its measurements.
       </p>
     </div>
   );
@@ -336,22 +322,20 @@ function VersionRow({
   title,
   subtitle,
   action,
-  onClick,
 }: {
   readonly active: boolean;
   readonly title: string;
   readonly subtitle: string;
   readonly action: React.ReactNode;
-  readonly onClick: () => void;
 }) {
   return (
     <div
       className={`flex items-center gap-2 rounded border px-2 py-1.5 ${active ? "border-amber-400 bg-canvas" : "border-border"}`}
     >
-      <button type="button" onClick={onClick} className="min-w-0 flex-1 text-left">
+      <div className="min-w-0 flex-1 text-left">
         <span className="font-mono text-xs">{title}</span>
         <span className="pl-2 text-xs text-ink-muted">{subtitle}</span>
-      </button>
+      </div>
       {action}
     </div>
   );

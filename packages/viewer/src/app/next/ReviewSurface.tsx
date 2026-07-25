@@ -53,19 +53,23 @@ const fmtAt = (iso: string): string => {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 };
 
+/**
+ * The pending-review card ONLY (2026-07-25 redesign): advance controls
+ * moved to the top bar's Publish popover (exported below); the latest
+ * outcome line was cut — history is Activity's job.
+ */
 export function ReviewSurface({ loop }: { readonly loop: SkillLoop }) {
+  if (loop.substate !== "awaiting-review") return null;
   return (
     <div className="pb-4">
-      <AdvanceControls loop={loop} />
-      {loop.substate === "awaiting-review" && <ReviewCard loop={loop} />}
-      {loop.outcome !== undefined && <OutcomeLine outcome={loop.outcome} />}
+      <ReviewCard loop={loop} />
     </div>
   );
 }
 
 // -------------------------------------------------------------- advance
 
-function AdvanceControls({ loop }: { readonly loop: SkillLoop }) {
+export function AdvanceControls({ loop }: { readonly loop: SkillLoop }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backOpen, setBackOpen] = useState(false);

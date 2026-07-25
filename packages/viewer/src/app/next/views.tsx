@@ -90,18 +90,20 @@ export function OverviewCard({ slug, elevated }: { readonly slug: string; readon
  */
 export function SkillView({
   slug,
+  pinned,
   overviewOpen,
   onOpenFile,
 }: {
   readonly slug: string;
+  readonly pinned: string;
   readonly overviewOpen: boolean;
   readonly onOpenFile: (path: string) => void;
 }) {
   const page = useSkillPage(slug);
   return (
-    <div className="flex">
+    <div className="flex min-h-full">
       <div className="min-w-0 flex-1">
-        <SkillPageView slug={slug} page={page} onOpenFile={onOpenFile} />
+        <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} />
       </div>
       <div className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${overviewOpen ? "w-[244px]" : "w-0"}`}>
         <div className="sticky top-0 mr-[10px] mt-[10px]">

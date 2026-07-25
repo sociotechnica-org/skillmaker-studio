@@ -21,7 +21,14 @@ import { NewSkillLauncher } from "./NewSkillLauncher.tsx";
 import { RightPanel, type ChatIntro } from "./RightPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { IconButton } from "./ui.tsx";
-import { BoardView, OverviewCard, SkillView, TasksView } from "./views.tsx";
+import { BoardView, OverviewCard, SkillView, TasksView, useSkillPage } from "./views.tsx";
+import { TopBarSkillControls } from "./SkillPage.tsx";
+
+/** Top-bar bridge: owns nothing, fetches the shared skill page for the controls. */
+function TopBarControls({ slug, pinned, onPin }: { readonly slug: string; readonly pinned: string; readonly onPin: (v: string) => void }) {
+  const page = useSkillPage(slug);
+  return <TopBarSkillControls slug={slug} page={page} pinned={pinned} onPin={onPin} />;
+}
 import type { CenterView } from "./types.ts";
 
 export default function NextShell() {
@@ -31,6 +38,8 @@ export default function NextShell() {
   const [overviewOpen, setOverviewOpen] = useState(true);
   // A center-panel "open in Files" request: RightPanel consumes + clears it.
   const [fileRequest, setFileRequest] = useState<string | null>(null);
+  // Top-level version pivot: every skill tab is a lens on this draft.
+  const [pinned, setPinned] = useState<string>("current");
   const [overviewOverlay, setOverviewOverlay] = useState(false);
   // Set by the new-skill launcher: the chat panel starts a session for this
   // skill whose first prompt is the launcher's message, then clears it.
@@ -136,6 +145,7 @@ export default function NextShell() {
             <span className="font-display text-sm">{title}</span>
             {onSkillPage && <span className="text-ink-muted">···</span>}
           </div>
+          {center.kind === "skill" && <TopBarControls slug={center.slug} pinned={pinned} onPin={setPinned} />}
           {onSkillPage && (
             <IconButton
               active={overviewShown || overviewOverlay}
@@ -154,6 +164,7 @@ export default function NextShell() {
           {center.kind === "skill" && (
             <SkillView
               slug={center.slug}
+              pinned={pinned}
               overviewOpen={overviewShown}
               onOpenFile={(path) => {
                 setRightOpen(true);
