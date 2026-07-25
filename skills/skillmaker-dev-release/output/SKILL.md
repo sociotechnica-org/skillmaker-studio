@@ -16,8 +16,13 @@ the run, (4) verify npm.
 - Clean `main`, CI green on the tip you intend to release.
 - The six-or-so PRs you mean to ship are already merged to main.
 - You can push tags to the repo and `gh` is authenticated.
-- `NPM_TOKEN` repo secret is configured (if absent, `publish-npm` is
-  skipped gracefully — the GitHub Release still happens, npm does not).
+- npm publishing uses **trusted publishing (OIDC)** as of v0.5.0: each
+  package (`skillmaker-studio`, `@skillmaker/cli-darwin-arm64`,
+  `@skillmaker/cli-linux-x64`) has this repo + `release.yml` registered as
+  a trusted publisher on npmjs.com, and `publish-npm` carries
+  `id-token: write`. No `NPM_TOKEN` secret exists or is needed. A NEW
+  package would need its trusted publisher registered before its first
+  tag run.
 
 ## Version touchpoints
 
@@ -129,6 +134,20 @@ placeholder unless the launcher moves there).
 - **npm `view` lag.** Freshly published versions can take a minute or two
   to appear; retry before concluding the publish failed.
 
+- **v0.5.0 attempt 1 — `EOTP` means the package demands interactive 2FA
+  for publishes.** With a valid, correctly-scoped token, `npm publish`
+  still failed `EOTP` because the packages' publishing access required
+  two-factor with no automation-token exception. The token era ended here:
+  rather than flipping the per-package setting, v0.5.0 moved to trusted
+  publishing (OIDC) — npm's own direction, since granular tokens lose
+  direct publish ~Jan 2027 (npm changelog 2026-07-08).
+- **Workflow fixes require a re-tag, and re-tagging is safe when npm is
+  clean.** Exercised at v0.5.0: the tag pointed at a pre-OIDC commit, so
+  the release + tag were deleted (`gh release delete --cleanup-tag`), the
+  tag re-pushed onto the commit carrying the workflow fix, and the fresh
+  run went green end-to-end. Safe because nothing had published to npm at
+  that version; with a partial publish, expect EPUBLISHCONFLICT instead.
+
 ## Verified vs. inferred
 
 Verified by execution or direct observation: the tag-only trigger, the
@@ -138,8 +157,11 @@ loop ran and reached npm at v0.4.0), the E404 scope-access failure, the
 failed-attempt-2 behavior and manual-publish recovery of v0.3.0 (run
 29789655443), the `+sha` asset naming, npm state before/after.
 
-Inferred from reading, not yet exercised: a fully green `publish-npm` (no
-tag run has yet published to npm end-to-end; both v0.3.0 and v0.4.0 needed
-out-of-band recovery), the EPUBLISHCONFLICT behavior on partial-publish
-recovery, the npx smoke test against a CI-published version, and the
-`install.sh` fallback path (frozen by design; not part of this workflow).
+Verified at v0.5.0 (run 30152656666, 2026-07-25): the first fully green
+`publish-npm` end-to-end — via OIDC trusted publishing, no secret — plus
+the npx smoke test against the CI-published version, and the
+delete-release/re-tag recovery path.
+
+Still inferred, not exercised: EPUBLISHCONFLICT on partial-publish
+recovery, and the `install.sh` fallback path (frozen by design; not part
+of this workflow).
