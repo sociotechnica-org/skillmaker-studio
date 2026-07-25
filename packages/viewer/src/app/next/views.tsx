@@ -1,10 +1,8 @@
 /** Center-column views: Board, Tasks, and the Skill page. */
-import { useCallback, useState } from "react";
-import { MarkdownContent } from "../components/Markdown.tsx";
+import { useCallback } from "react";
 import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from "./api.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
-import { EvalsSection } from "./EvalsSection.tsx";
-import { ReviewSurface } from "./ReviewSurface.tsx";
+import { SkillPageView } from "./SkillPage.tsx";
 import { STAGES } from "./types.ts";
 import { Button, FADE_R, STAGE_TINT } from "./ui.tsx";
 import type { SkillPage } from "./types.ts";
@@ -90,14 +88,20 @@ export function OverviewCard({ slug, elevated }: { readonly slug: string; readon
  * The Skill page: content column + the overview column, which occupies
  * layout space and slides/grows in from the right (content slides over).
  */
-export function SkillView({ slug, overviewOpen }: { readonly slug: string; readonly overviewOpen: boolean }) {
+export function SkillView({
+  slug,
+  overviewOpen,
+  onOpenFile,
+}: {
+  readonly slug: string;
+  readonly overviewOpen: boolean;
+  readonly onOpenFile: (path: string) => void;
+}) {
   const page = useSkillPage(slug);
   return (
     <div className="flex">
       <div className="min-w-0 flex-1">
-        <div className="mx-auto max-w-3xl p-6">
-          <SkillContent page={page} />
-        </div>
+        <SkillPageView slug={slug} page={page} onOpenFile={onOpenFile} />
       </div>
       <div className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${overviewOpen ? "w-[244px]" : "w-0"}`}>
         <div className="sticky top-0 mr-[10px] mt-[10px]">
@@ -105,66 +109,5 @@ export function SkillView({ slug, overviewOpen }: { readonly slug: string; reado
         </div>
       </div>
     </div>
-  );
-}
-
-function SkillContent({ page }: { readonly page: SkillPage }) {
-  const [tab, setTab] = useState<"instructions" | "evals">("instructions");
-  return (
-    <>
-      {/* production-loop surfaces: advance controls + the pinned review card,
-          ABOVE the tab pills (ruled 2026-07-23). Hidden on placeholder data. */}
-      {page.loop !== null && <ReviewSurface loop={page.loop} />}
-
-      {/* center tab selector — pill for active, quiet text for the rest */}
-      <div className="flex items-center gap-1 pb-4">
-        {(
-          [
-            { id: "instructions", label: "Instructions" },
-            { id: "evals", label: "Evals" },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`rounded-full px-3 py-1 font-display text-sm ${
-              tab === t.id ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "instructions" && (
-      <section>
-        <div className="mt-1 rounded border border-border bg-surface p-3 text-sm shadow-sm">
-          {page.instructions === null ? (
-            <p className="text-ink-muted">No SKILL.md yet.</p>
-          ) : (
-            <div className="max-h-72 overflow-y-auto">
-              <MarkdownContent markdown={page.instructions} />
-            </div>
-          )}
-          <div className="pt-2"><Button label="Open in Files" /></div>
-        </div>
-      </section>
-      )}
-
-      {tab === "evals" && <EvalsSection page={page} />}
-
-      <section className="pt-5">
-        <h2 className="font-display text-lg text-ink-muted">Activity</h2>
-        <div className="mt-1 rounded border border-border bg-surface p-3 text-xs text-ink-muted shadow-sm">
-          {page.events.map((e, i) => (
-            <span key={`${e.type}-${i}`}>
-              {i > 0 && " — "}
-              {e.type} · {e.at}
-            </span>
-          ))}
-        </div>
-      </section>
-    </>
   );
 }

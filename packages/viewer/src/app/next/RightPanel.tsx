@@ -41,9 +41,13 @@ export function RightPanel({
   width,
   intro = null,
   onIntroConsumed,
+  fileRequest = null,
+  onFileRequestHandled,
 }: {
   readonly skill: string;
   readonly width: number;
+  readonly fileRequest?: string | null;
+  readonly onFileRequestHandled?: () => void;
   readonly intro?: ChatIntro | null;
   readonly onIntroConsumed?: () => void;
 }) {
@@ -57,6 +61,25 @@ export function RightPanel({
     setSelectedFile(path);
     if (path !== null && width < 420) setTreeOpen(false);
   };
+
+  // Center-panel "open in Files" requests.
+  useEffect(() => {
+    if (fileRequest === null || fileRequest === undefined) return;
+    setTab("files");
+    setSelectedFile(fileRequest);
+    if (width < 420) setTreeOpen(false);
+    onFileRequestHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileRequest]);
+
+  // Center-panel "open in Files" requests.
+  useEffect(() => {
+    if (fileRequest === undefined || fileRequest === null) return;
+    setTab("files");
+    selectFile(fileRequest);
+    onFileRequestHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileRequest]);
 
   return (
     <div className="flex h-full flex-col">

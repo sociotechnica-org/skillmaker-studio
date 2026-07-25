@@ -112,8 +112,19 @@ export type SkillLoop = {
   readonly outcome: ReviewOutcomeView | undefined;
 };
 
+/** One recorded version of a skill (a receipt: hash + when). */
+export type SkillVersion = {
+  readonly hash: string;
+  readonly shortHash: string;
+  readonly label: string | null;
+  readonly recordedAt: string;
+};
+
 /** Everything the Skill page renders (wire: GET /api/bundles/:slug + instructions file). */
 export type SkillPage = {
+  readonly name: string;
+  readonly oneLiner: string;
+  readonly versions: ReadonlyArray<SkillVersion>;
   /** Production-loop facts (review card + advance controls); `null` on placeholders. */
   readonly loop: SkillLoop | null;
   readonly instructions: string | null;

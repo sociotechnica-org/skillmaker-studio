@@ -200,6 +200,16 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
   const coveredCount = detail.riskCoverage.filter((r) => r.coverage !== "gap").length;
 
   return {
+    name: detail.bundle.name.length > 0 ? detail.bundle.name : detail.bundle.slug,
+    oneLiner: detail.bundle.oneLiner,
+    versions: [...detail.versions]
+      .map((v) => ({
+        hash: v.hash,
+        shortHash: v.hash.replace(/^sha256:/, "").slice(0, 8),
+        label: v.label ?? null,
+        recordedAt: v.recordedAt,
+      }))
+      .reverse(),
     loop: toLoop(detail),
     instructions,
     stage: STAGE_FROM_WIRE[detail.bundle.stage],

@@ -29,6 +29,8 @@ export default function NextShell() {
   const [rightOpen, setRightOpen] = useState(true);
   const [center, setCenter] = useState<CenterView>({ kind: "skill", project: "skills", slug: "to-tickets" });
   const [overviewOpen, setOverviewOpen] = useState(true);
+  // A center-panel "open in Files" request: RightPanel consumes + clears it.
+  const [fileRequest, setFileRequest] = useState<string | null>(null);
   const [overviewOverlay, setOverviewOverlay] = useState(false);
   // Set by the new-skill launcher: the chat panel starts a session for this
   // skill whose first prompt is the launcher's message, then clears it.
@@ -149,7 +151,16 @@ export default function NextShell() {
         <main className="relative flex-1 overflow-y-auto">
           {center.kind === "board" && <BoardView onOpenSkill={(project, slug) => setCenter({ kind: "skill", project, slug })} />}
           {center.kind === "tasks" && <TasksView />}
-          {center.kind === "skill" && <SkillView slug={center.slug} overviewOpen={overviewShown} />}
+          {center.kind === "skill" && (
+            <SkillView
+              slug={center.slug}
+              overviewOpen={overviewShown}
+              onOpenFile={(path) => {
+                setRightOpen(true);
+                setFileRequest(path);
+              }}
+            />
+          )}
           {center.kind === "new-skill" && (
             <NewSkillLauncher
               project={center.project}
