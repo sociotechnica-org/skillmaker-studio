@@ -22,6 +22,13 @@
  * (persisted as localStorage "sm-theme", pre-paint script in index.astro)
  * is the only thing that sets `.dark`; prefers-color-scheme only picks the
  * default on first visit. */
+/* Tailwind v4 preflight sets buttons to cursor:default; every enabled
+   button in this product is clickable — say so with the cursor. */
+button:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {

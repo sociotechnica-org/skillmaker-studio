@@ -117,7 +117,7 @@ export function AdvanceControls({ loop }: { readonly loop: SkillLoop }) {
         {earlier.length > 0 && (
           <button
             type="button"
-            className="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface hover:text-ink"
+            className="rounded border border-border bg-canvas px-2.5 py-1 font-display text-xs text-ink-muted shadow-sm hover:bg-surface hover:text-ink"
             onClick={() => setBackOpen(!backOpen)}
           >
             {backOpen ? "Cancel" : "Move to an earlier stage…"}
