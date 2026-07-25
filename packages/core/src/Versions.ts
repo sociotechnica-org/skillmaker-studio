@@ -3,15 +3,18 @@
  * the output tree: sha256 over the sorted `(path, file-sha256)` list under
  * `output/`. Recording one is explicit (`skillmaker version record`, or the
  * server's `POST /api/bundles/:slug/record-version`) and lands on the
- * journal as `skill.version_recorded` -- there is no version file in the
- * bundle. This module hashes files/trees (I/O) and computes drift (pure);
+ * journal as `skill.version_recorded`, PLUS a content snapshot under
+ * `<bundle>/.skillmaker/versions/<bare-hash>/` (director ruling 2026-07-25:
+ * a skill keeps its whole history in the bundle -- the event stays a
+ * hashes-only receipt, the snapshot is what revert/compare will read).
+ * This module hashes files/trees (I/O) and computes drift (pure);
  * the CLI and server both call the same `computeBundleHashes` so hashing
  * logic lives in exactly one place.
  */
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { createHash } from "node:crypto";
-import { basename, join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import type { Actor } from "./Actor.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import type { JournalEvent } from "./Journal.ts";
@@ -25,6 +28,25 @@ const sha256Hex = (data: Uint8Array | string): string => createHash("sha256").up
 export const ADOPT_MARKER_FILENAME = ".skillmaker-adopt.json";
 
 /**
+ * The bundle-side studio plumbing directory, deliberately the SAME name as
+ * the workspace-root `.skillmaker/` runtime dir: that name already means
+ * "studio-owned, never workspace content" everywhere -- it sits in
+ * `WORKSPACE_SCAN_SKIP_DIR_NAMES`, so `Adopt.ts`'s discovery walk and
+ * `IndexService.ts`'s bundle scan never descend into it (a snapshot's copied
+ * `SKILL.md` can never be re-discovered as an adoptable skill), and the
+ * server's Files-tab walk skips top-level dotdirs. Unlike the root runtime
+ * dir it is NOT gitignored (`init`'s `.gitignore` block anchors
+ * `.skillmaker/*` to the repo root), so `<bundle>/.skillmaker/versions/`
+ * travels with the project in git -- the whole point of keeping history in
+ * the bundle. Today it holds exactly one thing: `versions/<bare-hash>/`
+ * snapshots (`snapshotVersionContent`).
+ */
+export const BUNDLE_PLUMBING_DIRNAME = ".skillmaker";
+
+/** Where a bundle's recorded-version snapshots live, relative to the bundle dir. */
+export const VERSION_SNAPSHOTS_SUBDIR = "versions";
+
+/**
  * Top-level entries excluded when hashing an in-place-adopted bundle's
  * output tree: the studio-owned files `Adopt.ts` writes into the discovered
  * directory (mirroring the names `WorkspaceService.createBundle` scaffolds
@@ -32,6 +54,13 @@ export const ADOPT_MARKER_FILENAME = ".skillmaker-adopt.json";
  * `dossier.md` (issue #94) joined this set for the same reason `design.md`
  * is here: it's a studio-authored annotation about the skill, not part of
  * the skill's own output, so editing it must never register as drift.
+ * `.skillmaker` (version snapshots) is studio plumbing for the same reason:
+ * `snapshotVersionContent` below writes recorded-version content under
+ * `<bundle>/.skillmaker/versions/`, and that history must never count as the
+ * skill's own output -- otherwise the act of recording a version would
+ * change the very hash the version records (and `Route.ts`'s upgrade landing,
+ * which clears every in-place entry NOT in this set, would delete the
+ * bundle's history on every upgrade).
  */
 export const ADOPT_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
   "bundle.json",
@@ -41,6 +70,7 @@ export const ADOPT_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
   "research",
   "evals",
   "runs",
+  BUNDLE_PLUMBING_DIRNAME,
 ]);
 
 /**
@@ -110,7 +140,21 @@ export interface HashOutputTreeOptions {
   readonly excludeTopLevel?: ReadonlySet<string>;
 }
 
-export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (
+/** One file the output-tree walk selected: its full on-disk path and its forward-slash-normalized path relative to the walked dir. */
+interface CollectedOutputFile {
+  readonly fullPath: string;
+  readonly relativePath: string;
+}
+
+/**
+ * The single output-tree walk both hashing and snapshotting share: every
+ * file under `dir`, recursively, excluding `.gitkeep` and (when given) the
+ * `excludeTopLevel` names -- sorted by normalized relative path. Extracted
+ * from `hashOutputTree` so `snapshotVersionContent` copies EXACTLY the set
+ * of files the output hash covered, by construction rather than by keeping
+ * two walks in sync.
+ */
+const collectOutputFiles = Effect.fn("Versions.collectOutputFiles")(function* (
   dir: string,
   options?: HashOutputTreeOptions,
 ) {
@@ -123,7 +167,7 @@ export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (
         .pipe(Effect.mapError(toIOError(`could not list ${dir}`)))
     : [];
 
-  const pairs: Array<readonly [string, string]> = [];
+  const files: CollectedOutputFile[] = [];
   for (const entry of entries) {
     if (basename(entry) === ".gitkeep") {
       continue;
@@ -139,12 +183,23 @@ export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (
     if (info.type !== "File") {
       continue;
     }
-    const fileHash = yield* hashFile(fullPath);
-    const normalizedPath = entry.split(sep).join("/");
-    pairs.push([normalizedPath, fileHash]);
+    files.push({ fullPath, relativePath: entry.split(sep).join("/") });
   }
 
-  pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  files.sort((a, b) => (a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0));
+  return files;
+});
+
+export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (
+  dir: string,
+  options?: HashOutputTreeOptions,
+) {
+  const files = yield* collectOutputFiles(dir, options);
+  const pairs: Array<readonly [string, string]> = [];
+  for (const file of files) {
+    const fileHash = yield* hashFile(file.fullPath);
+    pairs.push([file.relativePath, fileHash]);
+  }
   return `sha256:${sha256Hex(JSON.stringify(pairs))}`;
 });
 
@@ -330,6 +385,133 @@ export const versionLabel = (
   return hex.length > 8 ? hex.slice(0, 8) : hex;
 };
 
+// ---------------------------------------------------------------------------
+// Version snapshots (feat/version-snapshots): recording a version KEEPS its
+// content. The journal event stays a receipt (hashes only, unchanged shape);
+// the content itself is copied into the bundle so history travels with the
+// project, git-independent.
+// ---------------------------------------------------------------------------
+
+/** Strips the `"sha256:"` prefix -- snapshot directories are named by the bare hex so they are filesystem- and URL-safe. */
+export const bareHash = (hash: string): string => {
+  const prefix = "sha256:";
+  return hash.startsWith(prefix) ? hash.slice(prefix.length) : hash;
+};
+
+/** The snapshot directory for one recorded version: `<bundleDir>/.skillmaker/versions/<bare-hash>/`. */
+export const versionSnapshotDir = (bundleDir: string, outputHash: string): string =>
+  join(bundleDir, BUNDLE_PLUMBING_DIRNAME, VERSION_SNAPSHOTS_SUBDIR, bareHash(outputHash));
+
+/**
+ * Where the version's content came from -- the same two facts every hash
+ * computation already needs (`computeBundleHashes`), so every
+ * `recordSkillVersion` caller has them at hand by construction.
+ */
+export interface VersionSnapshotSource {
+  readonly bundleDir: string;
+  readonly layout: BundleLayout;
+}
+
+/**
+ * Copies the recorded version's content into its snapshot directory:
+ * `design.md` (when present) at the snapshot root, plus the bundle's skill
+ * payload -- under `output/` for an `"output-dir"` bundle (mirroring its
+ * bundle-relative shape), at their own relative paths for an `"in-place"`
+ * bundle (whose payload IS the bundle dir minus `ADOPT_EXCLUDED_NAMES`; the
+ * snapshot home itself is in that set, so a snapshot never snapshots
+ * itself). The file set is EXACTLY what `hashOutputTree` hashed -- the same
+ * `collectOutputFiles` walk, same exclusions, `.gitkeep` dropped.
+ *
+ * Idempotent by overwrite: the target directory is cleared and rewritten,
+ * so re-recording identical content lands the identical snapshot. Never
+ * touches hash computation -- for an in-place bundle the plumbing dir is
+ * excluded from the walk, for an output-dir bundle it sits outside
+ * `output/` entirely.
+ */
+export const snapshotVersionContent = Effect.fn("Versions.snapshotVersionContent")(function* (
+  source: VersionSnapshotSource,
+  outputHash: string,
+) {
+  const fs = yield* FileSystem;
+  const { bundleDir, layout } = source;
+
+  const payloadRoot = layout === "in-place" ? bundleDir : join(bundleDir, "output");
+  const files = yield* collectOutputFiles(
+    payloadRoot,
+    layout === "in-place" ? { excludeTopLevel: ADOPT_EXCLUDED_NAMES } : undefined,
+  );
+
+  const snapshotDir = versionSnapshotDir(bundleDir, outputHash);
+  yield* fs
+    .remove(snapshotDir, { recursive: true, force: true })
+    .pipe(Effect.mapError(toIOError(`could not clear ${snapshotDir}`)));
+  yield* fs
+    .makeDirectory(snapshotDir, { recursive: true })
+    .pipe(Effect.mapError(toIOError(`could not create ${snapshotDir}`)));
+
+  const designPath = join(bundleDir, "design.md");
+  const designExists = yield* fs
+    .exists(designPath)
+    .pipe(Effect.mapError(toIOError(`could not check ${designPath}`)));
+  if (designExists) {
+    yield* fs
+      .copyFile(designPath, join(snapshotDir, "design.md"))
+      .pipe(Effect.mapError(toIOError(`could not copy ${designPath}`)));
+  }
+
+  for (const file of files) {
+    // An in-place payload file keeps its own relative path; an output-dir
+    // payload file keeps its bundle-relative `output/...` path -- so a
+    // snapshot always reads like the bundle did at record time.
+    const relativeSegments = file.relativePath.split("/");
+    const destination =
+      layout === "in-place"
+        ? join(snapshotDir, ...relativeSegments)
+        : join(snapshotDir, "output", ...relativeSegments);
+    yield* fs
+      .makeDirectory(dirname(destination), { recursive: true })
+      .pipe(Effect.mapError(toIOError(`could not create ${dirname(destination)}`)));
+    yield* fs
+      .copyFile(file.fullPath, destination)
+      .pipe(Effect.mapError(toIOError(`could not copy ${file.fullPath}`)));
+  }
+
+  return snapshotDir;
+});
+
+/**
+ * The sorted, forward-slash-normalized file list of one version's snapshot,
+ * or `undefined` when no snapshot exists -- the honest answer for a receipt
+ * recorded before snapshots existed (its content is gone; there is nothing
+ * to back-fill from). Shared by the server's snapshot endpoints and the
+ * CLI's `version show`.
+ */
+export const listVersionSnapshotFiles = Effect.fn("Versions.listVersionSnapshotFiles")(function* (
+  bundleDir: string,
+  outputHash: string,
+) {
+  const fs = yield* FileSystem;
+  const snapshotDir = versionSnapshotDir(bundleDir, outputHash);
+  const exists = yield* fs
+    .exists(snapshotDir)
+    .pipe(Effect.mapError(toIOError(`could not check ${snapshotDir}`)));
+  if (!exists) {
+    return undefined;
+  }
+  const entries = yield* fs
+    .readDirectory(snapshotDir, { recursive: true })
+    .pipe(Effect.mapError(toIOError(`could not list ${snapshotDir}`)));
+  const files: string[] = [];
+  for (const entry of entries) {
+    const fullPath = join(snapshotDir, entry);
+    const info = yield* fs.stat(fullPath).pipe(Effect.mapError(toIOError(`could not stat ${fullPath}`)));
+    if (info.type === "File") {
+      files.push(entry.split(sep).join("/"));
+    }
+  }
+  return files.sort();
+});
+
 /** The idempotency key format every `skill.version_recorded` writer must share -- keyed on both hashes so a design-only or output-only change is genuinely new content, never colliding with an unrelated prior version. */
 export const skillVersionIdempotencyKey = (bundle: string, designHash: string, outputHash: string): string =>
   `skill.version_recorded:${bundle}:${designHash}:${outputHash}`;
@@ -348,12 +530,23 @@ export const skillVersionIdempotencyKey = (bundle: string, designHash: string, o
  * a same-content repeat a clean no-op (`"already_appended"`) and a
  * different-content repeat under the same hashes a genuine, catchable
  * `JournalIdempotencyConflictError` -- never a raw duplicate write.
+ *
+ * SNAPSHOT ON RECORD (director ruling 2026-07-25): after the receipt lands
+ * (fresh append OR `"already_appended"` -- content is identical either way,
+ * and re-recording lets an old, still-matching receipt gain a snapshot),
+ * the version's content is copied into the bundle via
+ * `snapshotVersionContent`. `snapshotSource` is a REQUIRED parameter,
+ * deliberately: every writer already holds the bundle dir + layout (it just
+ * computed the hashes from them), and making it optional would invite a new
+ * writer to silently record content-free receipts again. On an idempotency
+ * conflict the append fails first and no snapshot is written.
  */
 export const recordSkillVersion = Effect.fn("Versions.recordSkillVersion")(function* (
   bundle: string,
   actor: Actor,
   designHash: string,
   outputHash: string,
+  snapshotSource: VersionSnapshotSource,
   extraPayload?: Readonly<Record<string, unknown>>,
 ) {
   const journal = yield* Journal;
@@ -363,5 +556,6 @@ export const recordSkillVersion = Effect.fn("Versions.recordSkillVersion")(funct
     idempotencyKey: skillVersionIdempotencyKey(bundle, designHash, outputHash),
     payload: { bundle, hash: outputHash, designHash, ...(extraPayload ?? {}) },
   });
+  yield* snapshotVersionContent(snapshotSource, outputHash);
   return { status: result.status, hash: outputHash, designHash } as const;
 });

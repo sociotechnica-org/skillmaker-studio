@@ -742,7 +742,7 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
     }
 
     const { designHash, outputHash } = yield* computeBundleHashes(dir, "in-place");
-    yield* recordSkillVersion(wrapped.slug, actor, designHash, outputHash, { label: "adopted" });
+    yield* recordSkillVersion(wrapped.slug, actor, designHash, outputHash, { bundleDir: dir, layout: "in-place" }, { label: "adopted" });
 
     const todoMinted = yield* mintHurtsTodo(row, actor, bundleCreated.event.id, wrapped.slug);
 

@@ -29,7 +29,7 @@ import { runStart } from "./commands/Start.ts";
 import { runStationRun } from "./commands/StationRun.ts";
 import { runStatus } from "./commands/Status.ts";
 import { runTodoAdd, runTodoList, runTodoStatus, type TodoStatusCommand } from "./commands/Todo.ts";
-import { runVersionRecord } from "./commands/Version.ts";
+import { runVersionRecord, runVersionShow } from "./commands/Version.ts";
 
 const USAGE = `skillmaker — Skillmaker Studio CLI
 
@@ -56,7 +56,8 @@ Commands:
   review request <slug>   Request review of the bundle's current stage work
   review resolve <slug>   Resolve a review (approve|revise) -- same journal path as the panel; no browser required
   advance <slug>          Move a bundle along the state machine (guarded)
-  version record <slug>   Record a version: hash design.md + output/ (idempotent on content)
+  version record <slug>   Record a version: hash design.md + output/ and snapshot its content into the bundle (idempotent on content)
+  version show <slug> <hash>   List a recorded version's snapshot files (hash may be a prefix, bare or sha256:-prefixed)
   publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
   ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
   report <slug>           Record a field report on a shipped skill -- what the wild says back (§2.9, issue #67)
@@ -242,6 +243,23 @@ const positionalAfter = (argv: ReadonlyArray<string>, startIndex: number): strin
 const positionalAfterCommand = (argv: ReadonlyArray<string>): string | undefined =>
   positionalAfter(argv, 1);
 
+/** Every positional at or after `startIndex`, in order -- for subcommands taking two (e.g. `version show <slug> <hash>`). Same flag/flag-value skipping as `positionalAfter`. */
+const positionalsAfter = (argv: ReadonlyArray<string>, startIndex: number): ReadonlyArray<string> => {
+  const out: string[] = [];
+  for (let i = startIndex; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === undefined || arg.startsWith("-")) {
+      continue;
+    }
+    const prev = argv[i - 1];
+    if (prev !== undefined && VALUE_FLAGS.has(prev)) {
+      continue;
+    }
+    out.push(arg);
+  }
+  return out;
+};
+
 export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, cwd: string) {
   const command = argv[0];
   const json = hasFlag(argv, "--json");
@@ -376,14 +394,18 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "version": {
       const subcommand = argv[1];
-      if (subcommand !== "record") {
-        return usageError(
-          `skillmaker: unknown "version" subcommand "${String(subcommand)}"\n\nUsage: skillmaker version record <slug> [--label <text>]\n`,
-        );
+      if (subcommand === "record") {
+        const slug = positionalAfter(argv, 2);
+        const label = flagValue(argv, "--label");
+        return yield* runVersionRecord(cwd, slug, { json, label });
       }
-      const slug = positionalAfter(argv, 2);
-      const label = flagValue(argv, "--label");
-      return yield* runVersionRecord(cwd, slug, { json, label });
+      if (subcommand === "show") {
+        const positionals = positionalsAfter(argv, 2);
+        return yield* runVersionShow(cwd, positionals[0], positionals[1], { json });
+      }
+      return usageError(
+        `skillmaker: unknown "version" subcommand "${String(subcommand)}"\n\nUsage: skillmaker version record <slug> [--label <text>]\n       skillmaker version show <slug> <hash>\n`,
+      );
     }
     case "publish": {
       const slug = positionalAfterCommand(argv);

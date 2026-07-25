@@ -296,9 +296,14 @@ const landAndAdopt = Effect.fn("Route.landAndAdopt")(function* (
   }
 
   const { designHash, outputHash } = yield* computeBundleHashes(bundleDir, "in-place");
-  yield* recordSkillVersion(wrapped.slug, ctx.input.actor, designHash, outputHash, {
-    label: options.versionLabel,
-  });
+  yield* recordSkillVersion(
+    wrapped.slug,
+    ctx.input.actor,
+    designHash,
+    outputHash,
+    { bundleDir, layout: "in-place" },
+    { label: options.versionLabel },
+  );
 
   return { slug: wrapped.slug, bundleDir, designHash, outputHash } satisfies LandAndAdoptResult;
 });
@@ -435,7 +440,14 @@ const routeUpgrade = Effect.fn("Route.routeUpgrade")(function* (ctx: RouteContex
 
   const { designHash, outputHash } = yield* computeBundleHashes(bundleDir, layout);
   const label = ctx.input.name ?? ctx.received.payload.claimedVersionHash ?? ctx.received.payload.claimedName;
-  yield* recordSkillVersion(bundle, ctx.input.actor, designHash, outputHash, label !== undefined ? { label } : {});
+  yield* recordSkillVersion(
+    bundle,
+    ctx.input.actor,
+    designHash,
+    outputHash,
+    { bundleDir, layout },
+    label !== undefined ? { label } : {},
+  );
 
   yield* appendRouted(ctx, { disposition: "upgrade", bundle });
   const result: RouteCrateResult = {
