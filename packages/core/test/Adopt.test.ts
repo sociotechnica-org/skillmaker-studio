@@ -157,6 +157,23 @@ describe("adoptWorkspace: discovery", () => {
     );
   });
 
+  test("never re-discovers a version snapshot's SKILL.md (.skillmaker is a skipped plumbing dir)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        // A recorded version's snapshot copies the skill payload -- SKILL.md
+        // included -- into `<bundle>/.skillmaker/versions/<bare-hash>/`
+        // (Versions.snapshotVersionContent). Discovery must never offer that
+        // copy for adoption as a "new" skill.
+        yield* write(dir, "real-skill/SKILL.md", skillMd("real-skill"));
+        yield* write(dir, "real-skill/.skillmaker/versions/abc123/SKILL.md", skillMd("real-skill"));
+
+        const report = yield* adoptWorkspace(dir);
+        expect(report.found).toBe(1);
+        expect(report.adopted[0]?.slug).toBe("real-skill");
+      }),
+    );
+  });
+
   test("skips a nested git checkout (a directory with its own .git entry, e.g. an agent worktree)", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {

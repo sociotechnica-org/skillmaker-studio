@@ -413,9 +413,10 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
     // different-content repeat under the same (bundle, hash, designHash)
     // triple is a catchable conflict, never a raw duplicate write that
     // could brick IndexService's skill_versions table.
-    yield* recordSkillVersion(input.bundle, input.actor, hashes.designHash, hashes.outputHash).pipe(
-      Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void),
-    );
+    yield* recordSkillVersion(input.bundle, input.actor, hashes.designHash, hashes.outputHash, {
+      bundleDir,
+      layout: bundleLayout,
+    }).pipe(Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void));
     skillVersionHash = hashes.outputHash;
     autoRecordedVersion = true;
   }

@@ -57,6 +57,14 @@ export class VersionRecord extends Schema.Class<VersionRecord>("VersionRecord")(
   designHash: Schema.String,
   label: Schema.optionalKey(Schema.String),
   recordedAt: Schema.String,
+  /**
+   * Whether this version's content was kept
+   * (`<bundle>/.skillmaker/versions/<bare-hash>/`, servable via
+   * `GET /api/bundles/:slug/versions/:hash/files`). Receipts recorded
+   * before snapshots existed stay `false` -- their content is gone.
+   * Optional: only bundle-detail responses carry it.
+   */
+  snapshot: Schema.optionalKey(Schema.Boolean),
 }) {}
 
 export class BundlesResponse extends Schema.Class<BundlesResponse>("BundlesResponse")({
