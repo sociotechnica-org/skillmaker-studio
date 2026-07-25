@@ -46,6 +46,8 @@ select:not(:disabled) {
   --color-ink: var(--color-neutral-900);
   --color-ink-muted: #5b5143;
   --color-paper: #f4ece0;
+  --color-well: #1b150d;
+  --color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */
   --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */
   --color-amber: var(--color-amber-500);
   --color-amber-glow: #e8b86d;

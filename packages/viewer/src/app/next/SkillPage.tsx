@@ -16,9 +16,9 @@ import type { SkillPage as SkillPageData, SkillVersion } from "./types.ts";
 type CenterTab = "overview" | "research" | "eval" | "publish";
 
 const TAB_ACTIVE =
-  "relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-surface px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink";
+  "relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink";
 const TAB_IDLE =
-  "cursor-pointer rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:bg-surface/70 hover:text-ink";
+  "cursor-pointer rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:bg-well/70 hover:text-ink";
 
 /** "Current draft" sentinel for the top-level version pivot. */
 export const CURRENT_DRAFT = "current";
@@ -89,7 +89,7 @@ export function SkillPageView({
       </div>
 
       {/* full-bleed tab surface: separator line + tinted ground to the bottom */}
-      <div className="flex-1 border-t border-neutral-900/50 bg-surface">
+      <div className="flex-1 border-t border-neutral-900/50 bg-well">
         <div className="mx-auto max-w-3xl px-6 py-5">
           {tab === "overview" && <OverviewTab page={page} pinned={pinned} onOpenFile={onOpenFile} />}
           {tab === "research" && <ResearchTab slug={slug} onOpenFile={onOpenFile} />}
