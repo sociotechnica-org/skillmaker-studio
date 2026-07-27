@@ -4,8 +4,11 @@
  * against the real shipped adapters, so the fixtures below mirror REAL
  * wire results:
  *
- * - claude-code (`@zed-industries/claude-code-acp@0.16.2`): plain model
- *   aliases in `models.availableModels`, no effort door of any kind.
+ * - legacy claude-code (`@zed-industries/claude-code-acp@0.16.2`): plain
+ *   model aliases in `models.availableModels`, no effort door of any kind.
+ * - current claude-code (`@agentclientprotocol/claude-agent-acp@0.63.0`,
+ *   issue #154): NO `models` key -- the catalog is the configOptions
+ *   entry `{id: "model", options, currentValue}` with opaque values.
  * - codex (`@agentclientprotocol/codex-acp@1.1.x`): every entry is a
  *   `model[effort]` variant with a `"Name (effort)"` display name.
  */
@@ -15,6 +18,7 @@ import {
   buildPromptBlocks,
   composeModelId,
   fallbackCatalogEntry,
+  isStaleGptModelId,
   mapProviderCatalog,
   MAX_CHAT_IMAGE_BYTES,
   parseModelId,
@@ -28,7 +32,7 @@ import {
 
 describe("parseModelId / composeModelId", () => {
   test("codex bracket form splits into base + effort", () => {
-    expect(parseModelId("gpt-5.2-codex[medium]")).toEqual({ model: "gpt-5.2-codex", effort: "medium" });
+    expect(parseModelId("gpt-5.6-codex[medium]")).toEqual({ model: "gpt-5.6-codex", effort: "medium" });
   });
 
   test("plain claude aliases stay whole", () => {
@@ -37,7 +41,7 @@ describe("parseModelId / composeModelId", () => {
   });
 
   test("compose round-trips: with effort -> bracketed; without -> verbatim", () => {
-    expect(composeModelId("gpt-5.2-codex", "high")).toBe("gpt-5.2-codex[high]");
+    expect(composeModelId("gpt-5.6-codex", "high")).toBe("gpt-5.6-codex[high]");
     expect(composeModelId("sonnet")).toBe("sonnet");
     expect(composeModelId("sonnet", "")).toBe("sonnet");
     const { model, effort } = parseModelId(composeModelId("m", "low"));
@@ -86,13 +90,13 @@ const CODEX_INIT = { agentCapabilities: { promptCapabilities: { image: true, emb
 const CODEX_SESSION = {
   sessionId: "t1",
   models: {
-    currentModelId: "gpt-5.2-codex[medium]",
+    currentModelId: "gpt-5.6-codex[medium]",
     availableModels: [
-      { modelId: "gpt-5.2-codex[low]", name: "GPT-5.2 Codex (low)", description: "Fastest." },
-      { modelId: "gpt-5.2-codex[medium]", name: "GPT-5.2 Codex (medium)", description: "Balanced." },
-      { modelId: "gpt-5.2-codex[high]", name: "GPT-5.2 Codex (high)", description: "Deepest." },
-      { modelId: "gpt-5.2[medium]", name: "GPT-5.2 (medium)", description: "General." },
-      { modelId: "gpt-5.2[high]", name: "GPT-5.2 (high)", description: "General, deeper." },
+      { modelId: "gpt-5.6-codex[low]", name: "GPT-5.6 Codex (low)", description: "Fastest." },
+      { modelId: "gpt-5.6-codex[medium]", name: "GPT-5.6 Codex (medium)", description: "Balanced." },
+      { modelId: "gpt-5.6-codex[high]", name: "GPT-5.6 Codex (high)", description: "Deepest." },
+      { modelId: "gpt-5.6[medium]", name: "GPT-5.6 (medium)", description: "General." },
+      { modelId: "gpt-5.6[high]", name: "GPT-5.6 (high)", description: "General, deeper." },
     ],
   },
 };
@@ -113,16 +117,16 @@ describe("mapProviderCatalog", () => {
   test("codex: model[effort] variants group by base model with efforts split out", () => {
     const entry = mapProviderCatalog("codex", CODEX_INIT, CODEX_SESSION);
     expect(entry.title).toBe("Codex");
-    expect(entry.models.map((m) => m.id)).toEqual(["gpt-5.2-codex", "gpt-5.2"]);
+    expect(entry.models.map((m) => m.id)).toEqual(["gpt-5.6-codex", "gpt-5.6"]);
     const codexModel = entry.models[0];
-    expect(codexModel?.label).toBe("GPT-5.2 Codex");
+    expect(codexModel?.label).toBe("GPT-5.6 Codex");
     expect(codexModel?.efforts).toEqual(["low", "medium", "high"]);
-    // currentModelId gpt-5.2-codex[medium] -> that base's default effort.
+    // currentModelId gpt-5.6-codex[medium] -> that base's default effort.
     expect(codexModel?.defaultEffort).toBe("medium");
     expect(entry.models[1]?.efforts).toEqual(["medium", "high"]);
     // A base the current id does not match defaults to its first effort.
     expect(entry.models[1]?.defaultEffort).toBe("medium");
-    expect(entry.currentModelId).toBe("gpt-5.2-codex");
+    expect(entry.currentModelId).toBe("gpt-5.6-codex");
     expect(entry.currentEffort).toBe("medium");
   });
 
@@ -136,6 +140,87 @@ describe("mapProviderCatalog", () => {
     expect(mapProviderCatalog("my-agent", {}, { sessionId: "x" }).title).toBe("my-agent");
   });
 
+  // The @agentclientprotocol/claude-agent-acp@0.63.0 shape (issue #154,
+  // verified live 2026-07-27): session/new has NO `models` key; the model
+  // catalog is the configOptions entry {id: "model", options, currentValue}.
+  const CLAUDE_AGENT_ACP_SESSION = {
+    sessionId: "s2",
+    modes: { currentModeId: "acceptEdits", availableModes: [] },
+    configOptions: [
+      {
+        id: "mode",
+        name: "Mode",
+        type: "select",
+        currentValue: "acceptEdits",
+        options: [{ value: "auto", name: "Auto" }],
+      },
+      {
+        id: "model",
+        name: "Model",
+        description: "AI model to use",
+        category: "model",
+        type: "select",
+        currentValue: "claude-fable-5[1m]",
+        options: [
+          { value: "default", name: "Default (recommended)", description: "Opus 5 · Best for everyday, complex tasks" },
+          { value: "opus", name: "Opus", description: "Opus 5 · Best for everyday, complex tasks" },
+          { value: "claude-fable-5[1m]", name: "Fable", description: "Fable 5 · Most capable for your hardest and longest-running tasks" },
+          { value: "sonnet", name: "Sonnet", description: "Sonnet 5 · Efficient for routine tasks" },
+          { value: "haiku", name: "Haiku", description: "Haiku 4.5 · Fastest for quick answers" },
+        ],
+      },
+      {
+        id: "effort",
+        name: "Effort",
+        type: "select",
+        currentValue: "medium",
+        options: [{ value: "low", name: "Low" }, { value: "medium", name: "Medium" }],
+      },
+    ],
+  };
+
+  test("claude-agent-acp: no models key -> catalog falls back to the configOptions model entry, values mapped verbatim", () => {
+    const entry = mapProviderCatalog("claude-code", CLAUDE_INIT, CLAUDE_AGENT_ACP_SESSION);
+    expect(entry.probed).toBe(true);
+    expect(entry.imageSupport).toBe(true);
+    expect(entry.models.map((m) => m.id)).toEqual(["default", "opus", "claude-fable-5[1m]", "sonnet", "haiku"]);
+    expect(entry.models.map((m) => m.label)).toEqual(["Default (recommended)", "Opus", "Fable", "Sonnet", "Haiku"]);
+    expect(entry.models[2]?.description).toContain("Fable 5");
+    // Option values are OPAQUE: "claude-fable-5[1m]"'s bracket is a
+    // context-window variant, never parsed as a codex effort.
+    expect(entry.models.every((m) => m.efforts.length === 0)).toBe(true);
+    expect(entry.currentModelId).toBe("claude-fable-5[1m]");
+    expect(entry.currentEffort).toBeUndefined();
+  });
+
+  test("configOptions fallback without a model entry still degrades to no models", () => {
+    const entry = mapProviderCatalog("claude-code", CLAUDE_INIT, {
+      sessionId: "x",
+      configOptions: [{ id: "mode", currentValue: "default", options: [{ value: "default" }] }],
+    });
+    expect(entry.models).toEqual([]);
+    expect(entry.probed).toBe(true);
+  });
+
+  test("configOptions fallback drops stale GPT families too (provider-agnostic ruling)", () => {
+    const entry = mapProviderCatalog("some-agent", {}, {
+      sessionId: "x",
+      configOptions: [
+        {
+          id: "model",
+          type: "select",
+          currentValue: "gpt-5.6",
+          options: [
+            { value: "gpt-5.2", name: "GPT-5.2" },
+            { value: "gpt-5.6", name: "GPT-5.6" },
+            { value: "o4-mini", name: "o4-mini" },
+          ],
+        },
+      ],
+    });
+    expect(entry.models.map((m) => m.id)).toEqual(["gpt-5.6", "o4-mini"]);
+  });
+
   test("fallbackCatalogEntry is the honest unprobed shape", () => {
     const entry = fallbackCatalogEntry("codex", "spawn failed");
     expect(entry.probed).toBe(false);
@@ -143,6 +228,67 @@ describe("mapProviderCatalog", () => {
     expect(entry.note).toBe("spawn failed");
     // Images default ON for unprobed providers (both shipped adapters support them).
     expect(entry.imageSupport).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stale GPT-family filter (director's ruling: < gpt-5.6 is out of the picker)
+// ---------------------------------------------------------------------------
+
+describe("isStaleGptModelId", () => {
+  test("families older than 5.6 are stale: gpt-5.2, gpt-5.2-codex, gpt-4o, gpt-4.1", () => {
+    expect(isStaleGptModelId("gpt-5.2")).toBe(true);
+    expect(isStaleGptModelId("gpt-5.2-codex")).toBe(true);
+    expect(isStaleGptModelId("gpt-5")).toBe(true);
+    expect(isStaleGptModelId("gpt-4o")).toBe(true);
+    expect(isStaleGptModelId("gpt-4.1")).toBe(true);
+    expect(isStaleGptModelId("gpt-3.5-turbo")).toBe(true);
+  });
+
+  test("5.6 and newer stay, version-PARSED so future families pass through", () => {
+    expect(isStaleGptModelId("gpt-5.6")).toBe(false);
+    expect(isStaleGptModelId("gpt-5.6-codex")).toBe(false);
+    expect(isStaleGptModelId("gpt-5.7")).toBe(false);
+    expect(isStaleGptModelId("gpt-5.10")).toBe(false);
+    expect(isStaleGptModelId("gpt-6")).toBe(false);
+    expect(isStaleGptModelId("gpt-6.0")).toBe(false);
+    expect(isStaleGptModelId("gpt-10.1")).toBe(false);
+  });
+
+  test("non-gpt ids are never stale", () => {
+    expect(isStaleGptModelId("default")).toBe(false);
+    expect(isStaleGptModelId("claude-fable-5[1m]")).toBe(false);
+    expect(isStaleGptModelId("o4-mini")).toBe(false);
+    expect(isStaleGptModelId("my-gpt-5.2")).toBe(false);
+    expect(isStaleGptModelId("gpt-next")).toBe(false);
+  });
+});
+
+describe("mapProviderCatalog drops stale GPT families from the fold", () => {
+  test("codex: gpt-5.2 variants disappear, gpt-5.6 family and non-gpt ids stay, efforts intact", () => {
+    const entry = mapProviderCatalog("codex", CODEX_INIT, {
+      sessionId: "t2",
+      models: {
+        currentModelId: "gpt-5.6-codex[medium]",
+        availableModels: [
+          { modelId: "gpt-5.2-codex[low]", name: "GPT-5.2 Codex (low)" },
+          { modelId: "gpt-5.2-codex[medium]", name: "GPT-5.2 Codex (medium)" },
+          { modelId: "gpt-5.6-codex[medium]", name: "GPT-5.6 Codex (medium)" },
+          { modelId: "gpt-5.6-codex[high]", name: "GPT-5.6 Codex (high)" },
+          { modelId: "gpt-4o[medium]", name: "GPT-4o (medium)" },
+          { modelId: "o4-mini[low]", name: "o4-mini (low)" },
+        ],
+      },
+    });
+    expect(entry.models.map((m) => m.id)).toEqual(["gpt-5.6-codex", "o4-mini"]);
+    expect(entry.models[0]?.efforts).toEqual(["medium", "high"]);
+    expect(entry.models[0]?.defaultEffort).toBe("medium");
+    expect(entry.currentModelId).toBe("gpt-5.6-codex");
+  });
+
+  test("claude aliases are untouched by the filter", () => {
+    const entry = mapProviderCatalog("claude-code", CLAUDE_INIT, CLAUDE_SESSION);
+    expect(entry.models.map((m) => m.id)).toEqual(["default", "opus", "sonnet"]);
   });
 });
 

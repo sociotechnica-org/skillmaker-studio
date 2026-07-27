@@ -49,6 +49,12 @@ export interface SessionModelSource {
   readonly configOptions?: ReadonlyArray<{
     readonly id?: string;
     readonly currentValue?: unknown;
+    /** `@agentclientprotocol/claude-agent-acp`'s select-option list -- carries the human `description` used as the model label. */
+    readonly options?: ReadonlyArray<{
+      readonly value?: unknown;
+      readonly name?: string;
+      readonly description?: string;
+    }>;
   }>;
   readonly [key: string]: unknown;
 }
@@ -97,7 +103,30 @@ export interface ProviderProfile {
  */
 export const resolveModelLabel = (session: SessionModelSource, modelId: string): string => {
   const match = session.models?.availableModels?.find((candidate) => candidate.modelId === modelId);
-  return match?.description ?? modelId;
+  if (match?.description !== undefined) return match.description;
+  // `@agentclientprotocol/claude-agent-acp` (issue #154) advertises models
+  // only via configOptions -- same label reasoning applies there.
+  const option = session.configOptions
+    ?.find((opt) => opt.id === "model")
+    ?.options?.find((candidate) => candidate.value === modelId);
+  return option?.description ?? modelId;
+};
+
+/**
+ * Every model id the session advertises as selectable, across BOTH wire
+ * shapes: `models.availableModels[].modelId` (legacy claude-code-acp,
+ * codex-acp) and the configOptions model entry's `options[].value`
+ * (`@agentclientprotocol/claude-agent-acp`). Used to validate a
+ * caller-requested `--model` before switching to it.
+ */
+export const advertisedModelIds = (session: SessionModelSource): ReadonlyArray<string> => {
+  const fromModels = session.models?.availableModels?.map((candidate) => candidate.modelId) ?? [];
+  const fromConfig =
+    session.configOptions
+      ?.find((opt) => opt.id === "model")
+      ?.options?.map((candidate) => candidate.value)
+      .filter((value): value is string => typeof value === "string") ?? [];
+  return [...fromModels, ...fromConfig];
 };
 
 const extractFromModelsField = (session: SessionModelSource): string | null => {
@@ -106,13 +135,26 @@ const extractFromModelsField = (session: SessionModelSource): string | null => {
   return resolveModelLabel(session, currentModelId);
 };
 
-/** `configOptions` fallback for adapters (the deprecated `@zed-industries/codex-acp`) that report the selected model only there, as `{id: "model", currentValue: "<modelId>"}`. */
+/**
+ * `configOptions` fallback for adapters that report the selected model only
+ * there, as `{id: "model", currentValue: "<modelId>"}`: the deprecated
+ * `@zed-industries/codex-acp`, and -- since the issue #154 migration -- the
+ * current claude provider `@agentclientprotocol/claude-agent-acp` (0.63.0),
+ * whose `session/new` has no `models` key at all. When the model option
+ * also carries an `options` list (claude-agent-acp does), the matching
+ * option's `description` wins as the label -- same reasoning as
+ * `resolveModelLabel`: `"default"`/`"opus"` are stable protocol ids but not
+ * stable model identities.
+ */
 const extractFromConfigOptions = (session: SessionModelSource): string | null => {
   const modelOption = session.configOptions?.find((opt) => opt.id === "model");
-  return typeof modelOption?.currentValue === "string" ? modelOption.currentValue : null;
+  const current = modelOption?.currentValue;
+  if (typeof current !== "string") return null;
+  const match = modelOption?.options?.find((option) => option.value === current);
+  return match?.description ?? current;
 };
 
-/** Tries `models.currentModelId` first (claude-code-acp, and `@agentclientprotocol/codex-acp`), then `configOptions[id="model"].currentValue` (the deprecated `@zed-industries/codex-acp`). The two shapes never collide, so trying both is safe for any provider (spike/FINDINGS.md's recommendation). */
+/** Tries `models.currentModelId` first (the legacy claude-code-acp, and `@agentclientprotocol/codex-acp`), then `configOptions[id="model"].currentValue` (the deprecated `@zed-industries/codex-acp`, and `@agentclientprotocol/claude-agent-acp`). The two shapes never collide, so trying both is safe for any provider (spike/FINDINGS.md's recommendation). */
 const extractModelTolerant = (session: SessionModelSource): string | null =>
   extractFromModelsField(session) ?? extractFromConfigOptions(session);
 

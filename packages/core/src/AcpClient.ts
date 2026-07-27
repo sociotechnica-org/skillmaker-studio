@@ -23,7 +23,7 @@ import { realpathSync } from "node:fs";
 import { isAbsolute as pathIsAbsolute, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { Schema } from "effect";
 import { Effect } from "effect";
-import { CLAUDE_CODE_PROFILE, resolveModelLabel, type ProviderProfile } from "./ProviderProfile.ts";
+import { advertisedModelIds, CLAUDE_CODE_PROFILE, resolveModelLabel, type ProviderProfile } from "./ProviderProfile.ts";
 
 // ---------------------------------------------------------------------------
 // Env stripping (spike/FINDINGS.md "Critical, non-obvious gotcha")
@@ -177,6 +177,8 @@ class TaskFault extends Error {
 }
 
 const JSON_RPC_AUTH_REQUIRED_CODE = -32000;
+/** JSON-RPC's standard "Method not found" -- how `@agentclientprotocol/claude-agent-acp` answers the removed `session/set_model` (see `setModel`'s fallback). */
+const JSON_RPC_METHOD_NOT_FOUND_CODE = -32601;
 
 /**
  * Stderr substrings known (from real runs) to indicate an infra fault even
@@ -750,12 +752,29 @@ export class AcpClient {
    * `query.setModel(modelId)` -- the JS binding name `unstable_setSessionModel`
    * maps to the wire method `session/set_model`, per
    * `@agentclientprotocol/sdk@0.14.1`'s `AGENT_METHODS.session_set_model`).
-   * Must be called with a `modelId` already confirmed present in
-   * `session/new`'s `models.availableModels` -- the adapter does not itself
-   * validate the id (Fix 1, Phase 20 Story 2 friction log F1).
+   * Must be called with a `modelId` already confirmed present in the
+   * provider's advertised catalog (`session/new`'s `models.availableModels`,
+   * or the `configOptions` model entry's `options`) -- the adapter does not
+   * itself validate the id (Fix 1, Phase 20 Story 2 friction log F1).
+   *
+   * `@agentclientprotocol/claude-agent-acp` (0.63.0, the renamed successor
+   * of `@zed-industries/claude-code-acp` -- issue #154) REMOVED
+   * `session/set_model` (answers JSON-RPC -32601 "Method not found") in
+   * favor of `session/set_config_option` with `{sessionId, configId:
+   * "model", value}` (confirmed live). So: try the legacy method first
+   * (codex-acp still answers it, with the bracketed `model[effort]` form),
+   * and on -32601 specifically fall back to `session/set_config_option`.
+   * Any other error propagates -- only "the method does not exist" means
+   * "use the new door".
    */
   async setModel(sessionId: string, modelId: string): Promise<void> {
-    await this.request("session/set_model", { sessionId, modelId });
+    try {
+      await this.request("session/set_model", { sessionId, modelId });
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      if (code !== JSON_RPC_METHOD_NOT_FOUND_CODE) throw err;
+      await this.request("session/set_config_option", { sessionId, configId: "model", value: modelId });
+    }
   }
 
   /**
@@ -904,10 +923,11 @@ export const runAcpSession = (opts: AcpRunOptions): Effect.Effect<AcpRunResult, 
       let model = providerProfile.extractModel(session);
 
       if (opts.requestedModel !== undefined) {
-        const advertised = session.models?.availableModels ?? [];
-        const match = advertised.find((candidate) => candidate.modelId === opts.requestedModel);
-        if (!match) {
-          const advertisedIds = advertised.map((candidate) => candidate.modelId);
+        // Both advertisement shapes: models.availableModels (legacy
+        // claude-code-acp, codex-acp) and configOptions[id="model"].options
+        // (@agentclientprotocol/claude-agent-acp -- issue #154).
+        const advertisedIds = advertisedModelIds(session);
+        if (!advertisedIds.includes(opts.requestedModel)) {
           const list = advertisedIds.length > 0 ? advertisedIds.join(", ") : "(provider advertised no models)";
           throw new Error(
             `unknown model "${opts.requestedModel}" -- advertised models: ${list}`,

@@ -384,6 +384,130 @@ describe("runAcpSession model selection (Fix 1: session/set_model; Fix 2: resolv
   }, 10_000);
 });
 
+// Issue #154: the migrated claude adapter
+// (@agentclientprotocol/claude-agent-acp@0.63.0, verified live 2026-07-27)
+// REMOVED session/set_model (answers -32601 "Method not found") and reports
+// models only via configOptions[id="model"] -- no `models` key on
+// session/new at all. The fake below mirrors that wire behavior exactly.
+describe("runAcpSession against the claude-agent-acp shape (issue #154: configOptions models, set_config_option fallback)", () => {
+  const modelOptions = [
+    { value: "default", name: "Default (recommended)", description: "Opus 5 - Best for everyday, complex tasks" },
+    { value: "sonnet", name: "Sonnet", description: "Sonnet 5 - Efficient for routine tasks" },
+  ];
+
+  const fakeClaudeAgentAcpScript = `
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    let setConfigCalls = [];
+    rl.on("line", (line) => {
+      const msg = JSON.parse(line);
+      if (msg.method === "initialize") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\\n");
+      } else if (msg.method === "session/new") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", id: msg.id,
+          result: { sessionId: "s1", configOptions: [
+            { id: "mode", currentValue: "acceptEdits" },
+            { id: "model", currentValue: "default", options: ${JSON.stringify(modelOptions)} },
+          ] },
+        }) + "\\n");
+      } else if (msg.method === "session/set_model") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", id: msg.id,
+          error: { code: -32601, message: '"Method not found": session/set_model', data: { method: "session/set_model" } },
+        }) + "\\n");
+      } else if (msg.method === "session/set_config_option") {
+        setConfigCalls.push(msg.params);
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { configOptions: [] } }) + "\\n");
+      } else if (msg.method === "session/prompt") {
+        // Echo the recorded set_config_option calls through stderr so the
+        // test can assert the fallback actually fired with the right params.
+        process.stderr.write("SET_CONFIG:" + JSON.stringify(setConfigCalls) + "\\n");
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } }) + "\\n");
+      }
+    });
+  `;
+
+  test("no requestedModel: the current model resolves through configOptions options to its description", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", fakeClaudeAgentAcpScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success") {
+      expect(result.success.model).toBe("Opus 5 - Best for everyday, complex tasks");
+    }
+  }, 10_000);
+
+  test("requestedModel: validated against configOptions options, applied via the session/set_config_option fallback after set_model answers -32601", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", fakeClaudeAgentAcpScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+          requestedModel: "sonnet",
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success") {
+      expect(result.success.model).toBe("Sonnet 5 - Efficient for routine tasks");
+      expect(result.success.stderr).toContain(
+        'SET_CONFIG:[{"sessionId":"s1","configId":"model","value":"sonnet"}]',
+      );
+    }
+  }, 10_000);
+
+  test("an unadvertised requestedModel is still rejected, listing the configOptions-advertised ids", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", fakeClaudeAgentAcpScript],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+          requestedModel: "bogus-model",
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(AcpProtocolError);
+      if (result.failure instanceof AcpProtocolError) {
+        expect(result.failure.message).toContain("bogus-model");
+        expect(result.failure.message).toContain("sonnet");
+      }
+    }
+  }, 10_000);
+
+  test("a NON--32601 set_model failure still propagates (the fallback only covers 'method not found')", async () => {
+    const script = fakeClaudeAgentAcpScript.replace(
+      "code: -32601",
+      "code: -32603",
+    );
+    const result = await Effect.runPromise(
+      Effect.result(
+        runAcpSession({
+          command: ["node", "-e", script],
+          cwd: process.cwd(),
+          prompt: "hello",
+          promptTimeoutMs: 5000,
+          requestedModel: "sonnet",
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Failure");
+  }, 10_000);
+});
+
 // Issue #140: deny-by-default permission policy. Requests whose referenced
 // paths stay inside the sandbox dir are allowed; anything reaching outside is
 // denied; --permissive restores approve-everything. All decisions carry a

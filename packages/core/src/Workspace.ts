@@ -52,7 +52,14 @@ export const defaultConfig = (name: string): typeof WorkspaceConfig.Type => ({
   viewer: { port: 4323 },
   trackRuns: true,
   providers: {
-    "claude-code": { command: ["npx", "-y", "@zed-industries/claude-code-acp@latest"] },
+    // `@agentclientprotocol/claude-agent-acp` is the renamed successor of the
+    // npm-deprecated `@zed-industries/claude-code-acp` (issue #154). Verified
+    // live at 0.63.0: `session/new` no longer returns a `models` key -- the
+    // model catalog and current model live in `configOptions` (entry
+    // `{id: "model", options, currentValue}`), and `session/set_model` is
+    // gone (-32601) in favor of `session/set_config_option` -- both shapes
+    // are handled by ChatCapabilities.ts / ProviderProfile.ts / AcpClient.ts.
+    "claude-code": { command: ["npx", "-y", "@agentclientprotocol/claude-agent-acp@latest"] },
     // `@agentclientprotocol/codex-acp` (not the npm-deprecated
     // `@zed-industries/codex-acp`) rides the machine's already-logged-in
     // `codex` CLI over ChatGPT auth, exactly like the claude-code provider

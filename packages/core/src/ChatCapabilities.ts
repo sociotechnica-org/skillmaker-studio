@@ -2,17 +2,25 @@
  * Chat capability mapping (Phase: model picker / effort / images), from the
  * 2026-07 adapter spike against the SHIPPED adapters:
  *
- * - `@zed-industries/claude-code-acp@0.16.2` (the pinned claude provider):
- *   `session/new` returns `models: {availableModels: [{modelId, name,
- *   description}], currentModelId}`; the wire method `session/set_model`
- *   (SDK 0.14.1's `AGENT_METHODS.session_set_model`, JS binding
- *   `unstable_setSessionModel`) switches the model at any point -- including
- *   immediately after `session/new`, i.e. "model at session start". There
- *   is NO effort/reasoning-level door of any kind: model ids are plain
- *   aliases (`default`, `sonnet`, `opus`...), and thinking budget is only
- *   reachable via the adapter's `MAX_THINKING_TOKENS` env var -- not a
- *   per-session protocol surface. Effort is therefore NOT offered for
- *   claude models (degraded-hidden, no fakery).
+ * - `@agentclientprotocol/claude-agent-acp@0.63.0` (the claude provider --
+ *   the renamed successor of the npm-deprecated
+ *   `@zed-industries/claude-code-acp`, issue #154; verified live 2026-07-27):
+ *   `session/new` returns NO `models` key at all. The model catalog lives
+ *   in `configOptions` instead -- an entry `{id: "model", type: "select",
+ *   currentValue, options: [{value, name, description}]}` -- and the wire
+ *   method `session/set_model` is REMOVED (-32601); model switching is
+ *   `session/set_config_option` (AcpClient.setModel falls back
+ *   automatically). Option values are OPAQUE select tokens (aliases like
+ *   `default`/`opus`/`sonnet`, but also `claude-fable-5[1m]`, whose
+ *   bracket is a context-window variant, NOT codex's effort convention),
+ *   so the configOptions path below maps them verbatim -- never
+ *   bracket-parsed, no effort UI (a separate global `effort` configOption
+ *   exists but is deliberately not surfaced: it is not the per-model
+ *   effort shape this catalog models).
+ * - The OLD `@zed-industries/claude-code-acp@0.16.2` returned `models:
+ *   {availableModels: [{modelId, name, description}], currentModelId}` and
+ *   answered `session/set_model` -- that path is kept first, tried before
+ *   the configOptions fallback.
  * - `@agentclientprotocol/codex-acp` (1.1.x): `session/new` returns the
  *   same `models` state shape, but every `availableModels` entry is a
  *   MODELxEFFORT variant -- `modelId` is `"<model>[<effort>]"` (e.g.
@@ -132,6 +140,66 @@ const readCurrentModelId = (session: unknown): string | undefined => {
   return typeof current === "string" && current.length > 0 ? current : undefined;
 };
 
+/**
+ * Fallback model source for adapters that report no `models` key
+ * (`@agentclientprotocol/claude-agent-acp@0.63.0`): the `configOptions`
+ * entry `{id: "model", options: [{value, name, description}],
+ * currentValue}`. Option values map to `modelId`s verbatim -- they are
+ * opaque select tokens, NOT the codex `model[effort]` convention, so the
+ * caller must not bracket-parse them.
+ */
+const readConfigOptionModels = (
+  session: unknown,
+): { readonly models: ReadonlyArray<WireModel>; readonly current?: string } | undefined => {
+  if (!isRecord(session) || !Array.isArray(session.configOptions)) return undefined;
+  const modelOption = session.configOptions.find(
+    (entry): entry is Record<string, unknown> => isRecord(entry) && entry.id === "model",
+  );
+  if (modelOption === undefined || !Array.isArray(modelOption.options)) return undefined;
+  const models: WireModel[] = [];
+  for (const option of modelOption.options) {
+    if (!isRecord(option) || typeof option.value !== "string" || option.value.length === 0) continue;
+    models.push({
+      modelId: option.value,
+      ...(typeof option.name === "string" ? { name: option.name } : {}),
+      ...(typeof option.description === "string" ? { description: option.description } : {}),
+    });
+  }
+  if (models.length === 0) return undefined;
+  const current = modelOption.currentValue;
+  return {
+    models,
+    ...(typeof current === "string" && current.length > 0 ? { current } : {}),
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Stale GPT-family filter (director's ruling: < gpt-5.6 is out of the picker)
+// ---------------------------------------------------------------------------
+
+/** The oldest GPT family the model picker offers (inclusive). */
+export const MIN_GPT_FAMILY = { major: 5, minor: 6 } as const;
+
+/** Matches ids whose base names a GPT family with a parsable version: `gpt-<major>[.<minor>]...` (e.g. `gpt-5.2`, `gpt-5.2-codex`, `gpt-4o`). */
+const GPT_FAMILY_PATTERN = /^gpt-(\d+)(?:\.(\d+))?/i;
+
+/**
+ * True when `modelId` parses as a GPT family OLDER than `MIN_GPT_FAMILY`
+ * (5.6): `gpt-5.2`, `gpt-5.2-codex`, `gpt-4o` -> stale; `gpt-5.6`,
+ * `gpt-5.6-codex`, `gpt-6`, and every non-gpt id -> not stale. A version
+ * PARSE, not a blocklist, so future families pass through untouched.
+ * Provider-agnostic: applied to any id in any provider's fold (bracketed
+ * effort variants are judged by their base id).
+ */
+export const isStaleGptModelId = (modelId: string): boolean => {
+  const match = GPT_FAMILY_PATTERN.exec(modelId);
+  if (match === null || match[1] === undefined) return false;
+  const major = Number(match[1]);
+  const minor = match[2] !== undefined ? Number(match[2]) : 0;
+  if (major !== MIN_GPT_FAMILY.major) return major < MIN_GPT_FAMILY.major;
+  return minor < MIN_GPT_FAMILY.minor;
+};
+
 /** Strips codex's `" (medium)"` suffix off an effort-variant display name so the base model keeps one clean label. */
 const stripEffortSuffix = (name: string, effort: string): string => {
   const suffix = ` (${effort})`;
@@ -144,6 +212,15 @@ const stripEffortSuffix = (name: string, effort: string): string => {
  * collected in adapter order; plain ids (claude) map 1:1 with no efforts.
  * `currentModelId` decides each grouped model's `defaultEffort` when it
  * matches; otherwise the first listed effort is the default.
+ *
+ * When the session reports NO `models` key (the
+ * `@agentclientprotocol/claude-agent-acp` shape), the catalog falls back to
+ * the `configOptions` model entry, whose option values map 1:1 as OPAQUE
+ * ids -- never bracket-parsed (`claude-fable-5[1m]`'s bracket is a
+ * context-window variant, not an effort), so no effort UI and the wire id
+ * is the option value verbatim.
+ *
+ * Both paths drop stale GPT families (`isStaleGptModelId`, < 5.6).
  */
 export const mapProviderCatalog = (
   provider: string,
@@ -151,6 +228,29 @@ export const mapProviderCatalog = (
   session: unknown,
 ): ChatProviderCatalogEntry => {
   const wire = readAvailableModels(session);
+
+  if (wire.length === 0) {
+    const fromConfig = readConfigOptionModels(session);
+    if (fromConfig !== undefined) {
+      const models: ChatCatalogModel[] = fromConfig.models
+        .filter((model) => !isStaleGptModelId(model.modelId))
+        .map((model) => ({
+          id: model.modelId,
+          label: model.name ?? model.modelId,
+          ...(model.description !== undefined ? { description: model.description } : {}),
+          efforts: [],
+        }));
+      return {
+        provider,
+        title: providerTitle(provider),
+        models,
+        ...(fromConfig.current !== undefined ? { currentModelId: fromConfig.current } : {}),
+        imageSupport: readImageCapability(init),
+        probed: true,
+      };
+    }
+  }
+
   const current = readCurrentModelId(session);
   const parsedCurrent = current !== undefined ? parseModelId(current) : undefined;
 
@@ -164,6 +264,7 @@ export const mapProviderCatalog = (
   const groups = new Map<string, Group>();
   for (const model of wire) {
     const { model: base, effort } = parseModelId(model.modelId);
+    if (isStaleGptModelId(base)) continue;
     let group = groups.get(base);
     if (group === undefined) {
       group = { id: base, label: base, efforts: [] };

@@ -133,7 +133,7 @@ export const makeChatPermissionPolicy = (
 // ---------------------------------------------------------------------------
 
 export interface ChatSessionOptions {
-  /** The adapter command, e.g. `["npx", "-y", "@zed-industries/claude-code-acp@latest"]`. */
+  /** The adapter command, e.g. `["npx", "-y", "@agentclientprotocol/claude-agent-acp@latest"]`. */
   readonly command: ReadonlyArray<string>;
   /** The PROJECT ROOT -- the D9 ruling: the chat agent works direct in the project, no sandbox, no copyback. */
   readonly cwd: string;
@@ -143,11 +143,14 @@ export interface ChatSessionOptions {
   readonly resumeSessionId?: string;
   /**
    * A WIRE model id to apply right after the session opens (new or
-   * resumed), via ACP `session/set_model` -- for codex this is the
-   * bracketed `model[effort]` form (see ChatCapabilities.composeModelId).
-   * Applying at start IS the protocol's model-at-start door: neither
-   * shipped adapter takes a model in `session/new` params, but both honor
-   * `set_model` before the first prompt. A failed set_model degrades to
+   * resumed), via `AcpClient.setModel` (ACP `session/set_model`, falling
+   * back to `session/set_config_option` for adapters like
+   * `@agentclientprotocol/claude-agent-acp` that removed it) -- for codex
+   * this is the bracketed `model[effort]` form (see
+   * ChatCapabilities.composeModelId). Applying at start IS the protocol's
+   * model-at-start door: neither shipped adapter takes a model in
+   * `session/new` params, but both honor a model switch before the first
+   * prompt. A failed set_model degrades to
    * the adapter's default with `modelFallback` set -- an open chat on the
    * default model beats a refused session.
    */
@@ -185,7 +188,7 @@ export interface ChatSessionHandle {
     text: string,
     images?: ReadonlyArray<ChatImageAttachment>,
   ) => Effect.Effect<{ readonly stopReason: string }, ChatSessionError>;
-  /** Mid-session ACP `session/set_model` (both shipped adapters honor it; codex takes the bracketed `model[effort]` form). Rejects while a turn is in flight. */
+  /** Mid-session model switch via `AcpClient.setModel` (`session/set_model`, or `session/set_config_option` for adapters that removed it; codex takes the bracketed `model[effort]` form). Rejects while a turn is in flight. */
   readonly setModel: (modelId: string) => Effect.Effect<void, ChatSessionError>;
   /** ACP `session/cancel` for the in-flight turn (no-op when idle): the running `prompt` then resolves with `stopReason: "cancelled"`. */
   readonly cancel: () => void;
@@ -244,7 +247,17 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
       const readWireModelId = (session: unknown): string | null => {
         if (typeof session !== "object" || session === null) return null;
         const models = (session as { readonly models?: { readonly currentModelId?: unknown } }).models;
-        return typeof models?.currentModelId === "string" ? models.currentModelId : null;
+        if (typeof models?.currentModelId === "string") return models.currentModelId;
+        // `@agentclientprotocol/claude-agent-acp` (issue #154) reports no
+        // `models` key: the current model is the `configOptions` entry
+        // `{id: "model"}`'s `currentValue`.
+        const configOptions = (session as { readonly configOptions?: unknown }).configOptions;
+        if (!Array.isArray(configOptions)) return null;
+        const modelOption = configOptions.find(
+          (entry): entry is { readonly currentValue?: unknown } =>
+            typeof entry === "object" && entry !== null && (entry as { readonly id?: unknown }).id === "model",
+        );
+        return typeof modelOption?.currentValue === "string" ? modelOption.currentValue : null;
       };
 
       if (opts.resumeSessionId !== undefined && loadSessionSupported) {
