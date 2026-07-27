@@ -122,13 +122,21 @@ export function NewSkillLauncher({
 
         {/* compose box -- same pattern as the chat tab's floating input */}
         <div className="rounded-xl border border-border bg-surface/95 shadow-lg focus-within:border-amber-300">
-          <input
-            className="w-full bg-transparent px-4 pb-1.5 pt-3.5 text-sm outline-none disabled:opacity-60"
+          {/* textarea, not input: real briefs are sentences long (Shift+Enter
+              for newlines, Enter sends — same convention as the chat tab). */}
+          <textarea
+            className="max-h-64 w-full resize-none bg-transparent px-4 pb-1.5 pt-3.5 text-sm outline-none disabled:opacity-60"
+            rows={3}
             placeholder={serverless ? "Start the server to create skills" : "A skill that…"}
             value={message}
             disabled={serverless || busy}
             autoFocus
-            onChange={(event) => setMessage(event.target.value)}
+            onChange={(event) => {
+              setMessage(event.target.value);
+              // Auto-grow up to max-h: reset then track content height.
+              event.target.style.height = "auto";
+              event.target.style.height = `${event.target.scrollHeight}px`;
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
