@@ -143,7 +143,12 @@ export function Sidebar({
         <NewProjectDialog
           onClose={() => setNewProjectOpen(false)}
           onRegistered={(slug) => {
-            if (slug !== null) setActiveProject(slug);
+            if (slug !== null) {
+              setActiveProject(slug);
+              // A just-registered project is empty (or newly adopted): land
+              // on its New-skill page so the next step is obvious.
+              onNavigate({ kind: "new-skill", project: slug });
+            }
             loadProjects();
           }}
         />
