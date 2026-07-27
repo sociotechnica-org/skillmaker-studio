@@ -53,19 +53,23 @@ const fmtAt = (iso: string): string => {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 };
 
+/**
+ * The pending-review card ONLY (2026-07-25 redesign): advance controls
+ * moved to the top bar's Publish popover (exported below); the latest
+ * outcome line was cut — history is Activity's job.
+ */
 export function ReviewSurface({ loop }: { readonly loop: SkillLoop }) {
+  if (loop.substate !== "awaiting-review") return null;
   return (
     <div className="pb-4">
-      <AdvanceControls loop={loop} />
-      {loop.substate === "awaiting-review" && <ReviewCard loop={loop} />}
-      {loop.outcome !== undefined && <OutcomeLine outcome={loop.outcome} />}
+      <ReviewCard loop={loop} />
     </div>
   );
 }
 
 // -------------------------------------------------------------- advance
 
-function AdvanceControls({ loop }: { readonly loop: SkillLoop }) {
+export function AdvanceControls({ loop }: { readonly loop: SkillLoop }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backOpen, setBackOpen] = useState(false);
@@ -113,7 +117,7 @@ function AdvanceControls({ loop }: { readonly loop: SkillLoop }) {
         {earlier.length > 0 && (
           <button
             type="button"
-            className="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface hover:text-ink"
+            className="rounded border border-border bg-canvas px-2.5 py-1 font-display text-xs text-ink-muted shadow-sm hover:bg-surface hover:text-ink"
             onClick={() => setBackOpen(!backOpen)}
           >
             {backOpen ? "Cancel" : "Move to an earlier stage…"}

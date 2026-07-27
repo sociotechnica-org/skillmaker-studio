@@ -22,6 +22,13 @@
  * (persisted as localStorage "sm-theme", pre-paint script in index.astro)
  * is the only thing that sets `.dark`; prefers-color-scheme only picks the
  * default on first visit. */
+/* Tailwind v4 preflight sets buttons to cursor:default; every enabled
+   button in this product is clickable — say so with the cursor. */
+button:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
@@ -39,6 +46,8 @@
   --color-ink: var(--color-neutral-900);
   --color-ink-muted: #5b5143;
   --color-paper: #f4ece0;
+  --color-well: #1b150d;
+  --color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */
   --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */
   --color-amber: var(--color-amber-500);
   --color-amber-glow: #e8b86d;

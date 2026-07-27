@@ -34,5 +34,13 @@ export default defineConfig({
   integrations: [react()],
   vite: {
     plugins: [tailwindcss(), devSpaFallback()],
+    server: {
+      // Live data during design iteration: astro dev proxies /api to a
+      // running `skillmaker start` (default port). Absent server = the
+      // shell's placeholder fallbacks, same as before.
+      proxy: {
+        "/api": "http://127.0.0.1:4323",
+      },
+    },
   },
 });
