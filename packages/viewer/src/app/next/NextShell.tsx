@@ -140,9 +140,10 @@ export default function NextShell() {
           {!sidebarOpen && <span className="w-7 shrink-0" />}
           <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
             {(center.kind === "skill" || center.kind === "new-skill") && (
-              <span className="font-display text-sm text-ink-muted">{center.project} /</span>
+              <span className="shrink-0 whitespace-nowrap font-display text-sm text-ink-muted">{center.project} /</span>
             )}
-            <span className="font-display text-sm">{title}</span>
+            {/* long slugs truncate — the h-11 bar must never wrap or overflow */}
+            <span className="truncate font-display text-sm" title={title}>{title}</span>
             {onSkillPage && <span className="text-ink-muted">···</span>}
           </div>
           {center.kind === "skill" && <TopBarControls slug={center.slug} pinned={pinned} onPin={setPinned} />}
