@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -23,13 +23,14 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 type CandidatesResponse = {
   candidates: ReadonlyArray<{ path: string; slug: string }>;
 };
 
 const listCandidates = async (): Promise<CandidatesResponse> => {
-  const response = await fetch(`${baseUrl}/api/adopt/candidates`);
+  const response = await fetch(`${projectUrl}/adopt/candidates`);
   expect(response.status).toBe(200);
   return (await response.json()) as CandidatesResponse;
 };
@@ -50,12 +51,13 @@ beforeAll(async () => {
   writeSkill(join("imported", "release-notes"), "Release Notes");
   writeSkill(join("docs", "standup-summarizer"), "Standup Summarizer");
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -82,7 +84,7 @@ describe("GET /api/adopt/candidates", () => {
   });
 
   test("an adopted candidate drops out of the next listing", async () => {
-    const adopt = await fetch(`${baseUrl}/api/adopt`, {
+    const adopt = await fetch(`${projectUrl}/adopt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ path: "imported/release-notes/SKILL.md" }),
@@ -94,7 +96,7 @@ describe("GET /api/adopt/candidates", () => {
   });
 
   test("POST is refused -- the endpoint is read-only", async () => {
-    const response = await fetch(`${baseUrl}/api/adopt/candidates`, { method: "POST" });
+    const response = await fetch(`${projectUrl}/adopt/candidates`, { method: "POST" });
     expect(response.status).toBe(405);
   });
 });

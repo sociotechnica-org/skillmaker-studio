@@ -15,6 +15,7 @@
  * William's actual `william-draft-skill-md` skill) lives in
  * `test/e2e/phase10-real.e2e.test.ts`, gated on `SKILLMAKER_REAL_ACP=1`.
  */
+import { computeProjectSlugs } from "../../packages/core/src/MachineConfig.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -90,10 +91,17 @@ const postEvent = async (body: unknown): Promise<{ status: number; body: unknown
   // by test/e2e/phase20-story4-review-resolve.e2e.test.ts.
   const port = 24000 + Math.floor(Math.random() * 8000);
   const baseUrl = `http://localhost:${port}`;
+  // Registry-only start (director rulings 2026-07-27): the server ignores
+  // cwd, so the scratch workspace is registered in a temp machine home and
+  // the event lands on its project-scoped route.
+  const home = mkdtempSync(join(tmpdir(), "skillmaker-e2e-phase10-home-"));
+  writeFileSync(join(home, "config.json"), JSON.stringify({ projects: [{ path: scratchDir }] }));
+  const projectSlug = computeProjectSlugs([scratchDir]).get(scratchDir) as string;
   const serverProcess = Bun.spawn(["bun", cliEntry, "start", "--port", String(port), "--no-open"], {
     cwd: scratchDir,
     stdout: "pipe",
     stderr: "pipe",
+    env: { ...process.env, SKILLMAKER_STUDIO_HOME: home },
   });
   try {
     const deadline = Date.now() + 15000;
@@ -106,7 +114,7 @@ const postEvent = async (body: unknown): Promise<{ status: number; body: unknown
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const response = await fetch(`${baseUrl}/api/events`, {
+    const response = await fetch(`${baseUrl}/api/projects/${projectSlug}/events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),

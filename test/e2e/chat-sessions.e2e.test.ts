@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer, type StartedE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer, type StartedE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -22,8 +22,9 @@ const fakeChatAdapter = join(import.meta.dir, "fixtures", "fake-acp-chat.cjs");
 let scratchDir: string;
 let scratchHome: string;
 let fakeStateDir: string;
-let server: StartedE2eServer;
+let server: StartedE2eRegistryServer;
 let baseUrl: string;
+let projectUrl: string;
 
 const SKILL = "example-skill";
 
@@ -33,12 +34,12 @@ const runCli = (args: ReadonlyArray<string>, cwd: string) => {
 };
 
 const getJson = async (path: string): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}${path}`);
+  const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`);
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 };
 
 const postJson = async (path: string, payload: unknown): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -71,7 +72,7 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
   const events: Array<Record<string, unknown>> = [];
   void (async () => {
     try {
-      const response = await fetch(`${baseUrl}${path}`, { signal: controller.signal });
+      const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, { signal: controller.signal });
       const reader = (response.body as ReadableStream<Uint8Array>).getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -139,7 +140,7 @@ beforeAll(async () => {
   // The spawned server (and through it the adapter) gets this env:
   // fake provider-side session store + a scratch HOME so the agent-home
   // injection never touches the operator's real ~/.skillmaker.
-  server = await startE2eServer({
+  server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
     env: {
@@ -148,6 +149,7 @@ beforeAll(async () => {
     },
   });
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60_000);
 
 afterAll(async () => {

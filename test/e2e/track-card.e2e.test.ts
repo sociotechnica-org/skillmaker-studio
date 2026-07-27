@@ -27,7 +27,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -37,6 +37,7 @@ let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let port: number;
 let baseUrl: string;
+let projectUrl: string;
 
 const copyToolVersions = (dir: string) => {
   const toolVersions = join(repoRoot, ".tool-versions");
@@ -62,7 +63,7 @@ interface CatalogRow {
 }
 
 const getCatalog = async (): Promise<ReadonlyArray<CatalogRow>> => {
-  const response = await fetch(`${baseUrl}/api/catalog`);
+  const response = await fetch(`${projectUrl}/catalog`);
   expect(response.status).toBe(200);
   const body = (await response.json()) as { entries: ReadonlyArray<CatalogRow> };
   return body.entries;
@@ -76,7 +77,7 @@ interface LineagePayload {
 }
 
 const getBundleDetail = async (slug: string): Promise<{ lineage: LineagePayload }> => {
-  const response = await fetch(`${baseUrl}/api/bundles/${slug}`);
+  const response = await fetch(`${projectUrl}/bundles/${slug}`);
   expect(response.status).toBe(200);
   return (await response.json()) as { lineage: LineagePayload };
 };
@@ -96,7 +97,7 @@ const getIntake = async (): Promise<{
   crates: ReadonlyArray<{ intake: string }>;
   salvaged: ReadonlyArray<SalvagedRow>;
 }> => {
-  const response = await fetch(`${baseUrl}/api/intake`);
+  const response = await fetch(`${projectUrl}/intake`);
   expect(response.status).toBe(200);
   return (await response.json()) as {
     crates: ReadonlyArray<{ intake: string }>;
@@ -114,7 +115,7 @@ const receiveCrate = (relativeDir: string, skillMdContent: string, extraArgs: Re
 };
 
 const postEvent = async (type: string, payload: Record<string, unknown>): Promise<number> => {
-  const response = await fetch(`${baseUrl}/api/events`, {
+  const response = await fetch(`${projectUrl}/events`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ type, payload }),
@@ -146,13 +147,14 @@ beforeAll(async () => {
   expect(runCli(["new", "gizmo", "--json"]).exitCode).toBe(0);
   expect(runCli(["new", "widget", "--json"]).exitCode).toBe(0);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   port = server.port;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -299,7 +301,7 @@ describe("issue #109: the acts land in the Feed while the items land in the draw
     const entries = await getCatalog();
     expect(entries.find((candidate) => candidate.slug === "widget")?.archived).toBe(true);
 
-    const response = await fetch(`${baseUrl}/api/events?limit=50`);
+    const response = await fetch(`${projectUrl}/events?limit=50`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       events: ReadonlyArray<{ type: string; payload: Record<string, unknown> }>;
@@ -356,7 +358,7 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     expect(slug.length).toBeGreaterThan(0);
     inPlaceSlug = slug;
 
-    const response = await fetch(`${baseUrl}/api/bundles/${slug}`);
+    const response = await fetch(`${projectUrl}/bundles/${slug}`);
     expect(response.status).toBe(200);
     const detail = (await response.json()) as {
       dossier: { job?: string; basis?: string };
@@ -386,7 +388,7 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     // No dead links: every listed file must be servable from the bundle's
     // real directory through the file endpoint.
     for (const file of detail.files) {
-      const fileResponse = await fetch(`${baseUrl}/api/bundles/${slug}/file?path=${encodeURIComponent(file)}`);
+      const fileResponse = await fetch(`${projectUrl}/bundles/${slug}/file?path=${encodeURIComponent(file)}`);
       expect(fileResponse.status).toBe(200);
     }
   });
@@ -397,7 +399,7 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     // idempotent (`already_appended`) with the SAME output hash -- the old
     // broken path hashed the nonexistent `<skillsDir>/<slug>` tree, whose
     // (different) hashes could never match the recorded version's.
-    const detailResponse = await fetch(`${baseUrl}/api/bundles/${inPlaceSlug}`);
+    const detailResponse = await fetch(`${projectUrl}/bundles/${inPlaceSlug}`);
     expect(detailResponse.status).toBe(200);
     const detail = (await detailResponse.json()) as {
       versions: ReadonlyArray<{ hash: string; label?: string }>;
@@ -405,7 +407,7 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     const adoptedVersion = detail.versions.find((version) => version.label === "adopted");
     expect(adoptedVersion).toBeDefined();
 
-    const recordResponse = await fetch(`${baseUrl}/api/bundles/${inPlaceSlug}/record-version`, {
+    const recordResponse = await fetch(`${projectUrl}/bundles/${inPlaceSlug}/record-version`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ label: "adopted" }),
@@ -437,7 +439,7 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     );
     writeFileSync(join(caseDir, "prompt.md"), "Do the brownfield task, in place.\n");
 
-    const response = await fetch(`${baseUrl}/api/bundles/${inPlaceSlug}/fixtures/brown-golden`);
+    const response = await fetch(`${projectUrl}/bundles/${inPlaceSlug}/fixtures/brown-golden`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       caseName: string;
@@ -462,7 +464,7 @@ describe("card-fidelity simplify pass: GET /api/bundles/:slug instructionsPath f
     // `skillmaker new` scaffolds output/ but writes no SKILL.md into it --
     // the drafting station does that later -- so a fresh bundle's honest
     // answer is null, never a path to a file that isn't there.
-    const beforeResponse = await fetch(`${baseUrl}/api/bundles/gizmo`);
+    const beforeResponse = await fetch(`${projectUrl}/bundles/gizmo`);
     expect(beforeResponse.status).toBe(200);
     const before = (await beforeResponse.json()) as { instructionsPath: string | null };
     expect(before.instructionsPath).toBeNull();
@@ -471,7 +473,7 @@ describe("card-fidelity simplify pass: GET /api/bundles/:slug instructionsPath f
       join(scratchDir, "skills", "gizmo", "output", "SKILL.md"),
       "# Gizmo\n\nDo the gizmo thing.\n",
     );
-    const afterResponse = await fetch(`${baseUrl}/api/bundles/gizmo`);
+    const afterResponse = await fetch(`${projectUrl}/bundles/gizmo`);
     expect(afterResponse.status).toBe(200);
     const after = (await afterResponse.json()) as { instructionsPath: string | null };
     expect(after.instructionsPath).toBe("output/SKILL.md");
@@ -499,7 +501,7 @@ describe("card-fidelity round 2: GET /api/bundles/:slug/fixtures/:case for an ou
     );
     writeFileSync(join(caseDir, "prompt.md"), "Do the gizmo task for the harness.\n");
 
-    const response = await fetch(`${baseUrl}/api/bundles/gizmo/fixtures/harness-golden`);
+    const response = await fetch(`${projectUrl}/bundles/gizmo/fixtures/harness-golden`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       caseName: string;
@@ -517,7 +519,7 @@ describe("card-fidelity round 2: GET /api/bundles/:slug/fixtures/:case for an ou
     expect(body.grading?.answerKey).toBeNull();
     expect(body.grading?.checks).toEqual(["output mentions the gizmo"]);
 
-    const missing = await fetch(`${baseUrl}/api/bundles/gizmo/fixtures/no-such-case`);
+    const missing = await fetch(`${projectUrl}/bundles/gizmo/fixtures/no-such-case`);
     expect(missing.status).toBe(404);
   });
 });

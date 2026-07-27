@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -27,6 +27,7 @@ let bundleDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let port: number;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string = scratchDir) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -56,7 +57,7 @@ const postEvent = async (
   type: string,
   payload: Record<string, unknown>,
 ): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}/api/events`, {
+  const response = await fetch(`${projectUrl}/events`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ type, payload }),
@@ -122,13 +123,14 @@ beforeAll(async () => {
   ];
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   port = server.port;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 
   // Walk idea -> published via the same review + gate contract Phase 4's
   // e2e suite exercises.

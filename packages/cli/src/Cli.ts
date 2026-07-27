@@ -15,6 +15,7 @@ import { runInit } from "./commands/Init.ts";
 import { runList } from "./commands/List.ts";
 import { runMeasurements } from "./commands/Measurements.ts";
 import { runNew } from "./commands/New.ts";
+import { runProjectAdd, runProjectList, runProjectRemove } from "./commands/Project.ts";
 import { runPublish } from "./commands/Publish.ts";
 import { runReceive } from "./commands/Receive.ts";
 import { runReindex } from "./commands/Reindex.ts";
@@ -52,7 +53,10 @@ Commands:
   station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
   grade <slug> <runId>    Record a run's grading verdict (data-model.md §2.9)
   measurements <slug>     Show measurement cells: n, pass rate, CI, guidance (§2.11)
-  start             Serve the viewer + API (default port from config, or 4323)
+  start             Serve the viewer + API for every REGISTERED project (machine registry at ~/.skillmaker-studio; ignores cwd; default port 4323)
+  project add <path>     Register a project directory (an existing skillmaker workspace) in the machine registry
+  project list           List registered projects with their URL slugs
+  project remove <path>  Unregister a project directory (never touches the directory itself)
   review request <slug>   Request review of the bundle's current stage work
   review resolve <slug>   Resolve a review (approve|revise) -- same journal path as the panel; no browser required
   advance <slug>          Move a bundle along the state machine (guarded)
@@ -367,6 +371,21 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         return usageError(`skillmaker start: invalid --port value "${portValue}"\n`);
       }
       return yield* runStart(cwd, { port, noOpen: hasFlag(argv, "--no-open") });
+    }
+    case "project": {
+      const subcommand = argv[1];
+      if (subcommand === "add") {
+        return yield* runProjectAdd(cwd, positionalAfter(argv, 2), { json });
+      }
+      if (subcommand === "remove") {
+        return yield* runProjectRemove(cwd, positionalAfter(argv, 2), { json });
+      }
+      if (subcommand === "list") {
+        return yield* runProjectList(cwd, { json });
+      }
+      return usageError(
+        `skillmaker: unknown "project" subcommand "${String(subcommand)}"\n\nUsage: skillmaker project add <path>\n       skillmaker project list\n       skillmaker project remove <path>\n`,
+      );
     }
     case "review": {
       const subcommand = argv[1];

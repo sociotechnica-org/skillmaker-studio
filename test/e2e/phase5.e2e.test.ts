@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -23,6 +23,7 @@ let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let port: number;
 let baseUrl: string;
+let projectUrl: string;
 
 const copyToolVersions = (dir: string) => {
   const toolVersions = join(repoRoot, ".tool-versions");
@@ -60,7 +61,7 @@ const postEvent = async (
   type: string,
   payload: Record<string, unknown>,
 ): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}/api/events`, {
+  const response = await fetch(`${projectUrl}/events`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ type, payload }),
@@ -70,7 +71,7 @@ const postEvent = async (
 };
 
 const getTodosOverHttp = async (all = false): Promise<ReadonlyArray<TodoView>> => {
-  const response = await fetch(`${baseUrl}/api/todos${all ? "?all=1" : ""}`);
+  const response = await fetch(`${projectUrl}/todos${all ? "?all=1" : ""}`);
   expect(response.status).toBe(200);
   const body = (await response.json()) as { todos: ReadonlyArray<TodoView> };
   return body.todos;
@@ -99,13 +100,14 @@ beforeAll(async () => {
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
   expect(runCli(["new", "delta", "--json"], scratchDir).exitCode).toBe(0);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   port = server.port;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {

@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -23,6 +23,7 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string = scratchDir) =>
   Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -45,12 +46,13 @@ beforeAll(async () => {
   mkdirSync(join(bundleDir, "output"), { recursive: true });
   writeFileSync(join(bundleDir, "output", "SKILL.md"), "---\nname: demo-skill\n---\n\nDo the thing.\n");
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -65,7 +67,7 @@ afterAll(async () => {
 
 describe("research file visibility over HTTP", () => {
   test("the file endpoint serves research/notes.md (the allowlist regression)", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/demo-skill/file?path=research/notes.md`);
+    const response = await fetch(`${projectUrl}/bundles/demo-skill/file?path=research/notes.md`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { path: string; content: string };
     expect(body.path).toBe("research/notes.md");
@@ -73,7 +75,7 @@ describe("research file visibility over HTTP", () => {
   });
 
   test("the detail payload lists the reviewable files, pipeline-ordered, dotfiles dropped", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/demo-skill`);
+    const response = await fetch(`${projectUrl}/bundles/demo-skill`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { files: ReadonlyArray<string> };
     // evals/ joined the reviewable allowlist for the next shell's Files tab
@@ -86,7 +88,7 @@ describe("research file visibility over HTTP", () => {
 
   test("the traversal guard the allowlist exists for still holds", async () => {
     for (const path of ["research/../../design.md", "../../../etc/passwd", "runs/x/../../../secret"]) {
-      const response = await fetch(`${baseUrl}/api/bundles/demo-skill/file?path=${encodeURIComponent(path)}`);
+      const response = await fetch(`${projectUrl}/bundles/demo-skill/file?path=${encodeURIComponent(path)}`);
       expect(response.status).toBe(404);
     }
   });

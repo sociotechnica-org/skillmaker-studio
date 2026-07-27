@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -19,6 +19,7 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 let failedReportId: string;
 let surpriseReportId: string;
@@ -261,12 +262,13 @@ describe("skillmaker todo add --from-report: reindex + server surfaces the work 
   });
 
   beforeAll(async () => {
-    const server = await startE2eServer({
+    const server = await startE2eRegistryServer({
       command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
       cwd: scratchDir,
     });
     serverProcess = server.process;
     baseUrl = server.baseUrl;
+    projectUrl = server.projectUrls[0] as string;
   }, 60000);
 
   interface FieldReportView {
@@ -276,7 +278,7 @@ describe("skillmaker todo add --from-report: reindex + server surfaces the work 
   }
 
   test("GET /api/field-reports shows the linked todo as a work chip and leaves an unlinked report null", async () => {
-    const response = await fetch(`${baseUrl}/api/field-reports`);
+    const response = await fetch(`${projectUrl}/field-reports`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { reports: ReadonlyArray<FieldReportView> };
 
@@ -292,7 +294,7 @@ describe("skillmaker todo add --from-report: reindex + server surfaces the work 
   });
 
   test("GET /api/todos includes the origin-stamped todos", async () => {
-    const response = await fetch(`${baseUrl}/api/todos`);
+    const response = await fetch(`${projectUrl}/todos`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       todos: ReadonlyArray<{ readonly title: string; readonly origin?: { readonly kind: string; readonly eventId: string } }>;

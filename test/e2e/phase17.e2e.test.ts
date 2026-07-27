@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -18,6 +18,7 @@ let scratchDir: string;
 let bundleDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -73,12 +74,13 @@ beforeAll(async () => {
   writeFileSync(join(bundleDir, "evals", "fixtures", "golden-basic", "prompt.md"), "Do the thing.\n");
   expect(runCli(["version", "record", "alpha", "--json"], scratchDir).exitCode).toBe(0);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -93,7 +95,7 @@ afterAll(async () => {
 
 describe("phase 17: GET /api/events", () => {
   test("defaults to the most recent events, newest first", async () => {
-    const response = await fetch(`${baseUrl}/api/events`);
+    const response = await fetch(`${projectUrl}/events`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as EventsPage;
     expect(body.events.length).toBeGreaterThan(0);
@@ -102,14 +104,14 @@ describe("phase 17: GET /api/events", () => {
   });
 
   test("limit is honored and paginates via nextCursor/before", async () => {
-    const firstPage = await fetch(`${baseUrl}/api/events?limit=2`);
+    const firstPage = await fetch(`${projectUrl}/events?limit=2`);
     expect(firstPage.status).toBe(200);
     const firstBody = (await firstPage.json()) as EventsPage;
     expect(firstBody.events.length).toBe(2);
     expect(firstBody.nextCursor).not.toBeNull();
 
     const secondPage = await fetch(
-      `${baseUrl}/api/events?limit=2&before=${encodeURIComponent(String(firstBody.nextCursor))}`,
+      `${projectUrl}/events?limit=2&before=${encodeURIComponent(String(firstBody.nextCursor))}`,
     );
     expect(secondPage.status).toBe(200);
     const secondBody = (await secondPage.json()) as EventsPage;
@@ -122,19 +124,19 @@ describe("phase 17: GET /api/events", () => {
   });
 
   test("an unknown before cursor is a 400", async () => {
-    const response = await fetch(`${baseUrl}/api/events?before=no-such-event`);
+    const response = await fetch(`${projectUrl}/events?before=no-such-event`);
     expect(response.status).toBe(400);
   });
 
   test("a non-positive-integer limit is a 400", async () => {
     for (const limit of ["0", "-1", "abc"]) {
-      const response = await fetch(`${baseUrl}/api/events?limit=${encodeURIComponent(limit)}`);
+      const response = await fetch(`${projectUrl}/events?limit=${encodeURIComponent(limit)}`);
       expect(response.status).toBe(400);
     }
   });
 
   test("limit is capped at the max page size", async () => {
-    const response = await fetch(`${baseUrl}/api/events?limit=100000`);
+    const response = await fetch(`${projectUrl}/events?limit=100000`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as EventsPage;
     expect(body.events.length).toBeLessThanOrEqual(200);
@@ -143,7 +145,7 @@ describe("phase 17: GET /api/events", () => {
 
 describe("phase 17: GET /api/catalog", () => {
   test("returns one row per bundle with the skill-browser fields", async () => {
-    const response = await fetch(`${baseUrl}/api/catalog`);
+    const response = await fetch(`${projectUrl}/catalog`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { entries: ReadonlyArray<CatalogRow> };
     expect(body.entries.map((entry) => entry.slug).sort()).toEqual(["alpha", "beta"]);

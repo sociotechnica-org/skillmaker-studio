@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -21,6 +21,7 @@ let bundleDir: string;
 let otherBundleDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 let failedReportId: string;
 let unharvestedReportId: string;
@@ -331,12 +332,13 @@ describe("skillmaker fixture harvest: reindex + server surfaces the fixture", ()
   });
 
   beforeAll(async () => {
-    const server = await startE2eServer({
+    const server = await startE2eRegistryServer({
       command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
       cwd: scratchDir,
     });
     serverProcess = server.process;
     baseUrl = server.baseUrl;
+    projectUrl = server.projectUrls[0] as string;
   }, 60000);
 
   interface FixtureView {
@@ -346,7 +348,7 @@ describe("skillmaker fixture harvest: reindex + server surfaces the fixture", ()
   }
 
   test("GET /api/bundles/:slug lists the harvested fixture with its provenance", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/demo-skill`);
+    const response = await fetch(`${projectUrl}/bundles/demo-skill`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { fixtures: ReadonlyArray<FixtureView> };
     const harvested = body.fixtures.find((fixture) => fixture.caseName === "hard-case-1");
@@ -365,7 +367,7 @@ describe("skillmaker fixture harvest: reindex + server surfaces the fixture", ()
   }
 
   test("GET /api/field-reports marks the harvested report and leaves the unharvested one null", async () => {
-    const response = await fetch(`${baseUrl}/api/field-reports`);
+    const response = await fetch(`${projectUrl}/field-reports`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { reports: ReadonlyArray<FieldReportView> };
 
@@ -380,7 +382,7 @@ describe("skillmaker fixture harvest: reindex + server surfaces the fixture", ()
   });
 
   test("GET /api/bundles reports a fixture count of 2 for demo-skill", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles`);
+    const response = await fetch(`${projectUrl}/bundles`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { fixtureCounts: Readonly<Record<string, number>> };
     expect(body.fixtureCounts["demo-skill"]).toBe(2);

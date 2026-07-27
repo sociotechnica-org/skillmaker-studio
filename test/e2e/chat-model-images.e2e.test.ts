@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer, type StartedE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer, type StartedE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -33,8 +33,9 @@ const fakeChatAdapter = join(import.meta.dir, "fixtures", "fake-acp-chat.cjs");
 let scratchDir: string;
 let scratchHome: string;
 let fakeStateDir: string;
-let server: StartedE2eServer;
+let server: StartedE2eRegistryServer;
 let baseUrl: string;
+let projectUrl: string;
 
 const SKILL = "model-image-skill";
 
@@ -48,13 +49,17 @@ const runCli = (args: ReadonlyArray<string>, cwd: string) => {
   return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: result.exitCode };
 };
 
+/** Project-scoped routes ride `/api/projects/:slug`; `/api/chat/providers` stays machine-level (director rulings 2026-07-27). */
+const apiUrl = (path: string): string =>
+  path === "/api/chat/providers" ? `${baseUrl}${path}` : `${projectUrl}${path.replace(/^\/api/, "")}`;
+
 const getJson = async (path: string): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}${path}`);
+  const response = await fetch(apiUrl(path));
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 };
 
 const postJson = async (path: string, payload: unknown): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(apiUrl(path), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -92,7 +97,7 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
   const events: Array<Record<string, unknown>> = [];
   void (async () => {
     try {
-      const response = await fetch(`${baseUrl}${path}`, { signal: controller.signal });
+      const response = await fetch(apiUrl(path), { signal: controller.signal });
       const reader = (response.body as ReadableStream<Uint8Array>).getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -147,7 +152,7 @@ beforeAll(async () => {
   config.providers["claude-code"] = { command: ["node", fakeChatAdapter] };
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
-  server = await startE2eServer({
+  server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
     env: {
@@ -156,6 +161,7 @@ beforeAll(async () => {
     },
   });
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60_000);
 
 afterAll(async () => {
