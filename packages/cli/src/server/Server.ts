@@ -15,6 +15,7 @@ import {
   detectBundleLayout,
   didSkillActivate,
   foldBundleStates,
+  foldSkillVersions,
   foldTodos,
   gatherIntakeRegistry,
   guardStatus,
@@ -31,10 +32,13 @@ import {
   parseDossier,
   publishBundle,
   recordSkillVersion,
+  resolveSkillVersion,
   runFixture,
   runStation,
   scanFixtures,
+  shortHash,
   slugify,
+  versionSnapshotDir,
   walk,
   Workspace,
   WorkspaceLayer,
@@ -54,11 +58,14 @@ import {
   type Todo,
   type TodoRecord,
   type VersionRecord,
+  type VersionSnapshotSource,
   type WarningRecord,
   type WorkspaceConfig,
 } from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
+import type { FileSystem } from "effect/FileSystem";
+import type { Path } from "effect/Path";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve as resolvePath, sep } from "node:path";
@@ -254,11 +261,15 @@ const listTodoRecords = (root: string, includeSwept: boolean): Promise<ReadonlyA
 
 const runJournalEffect = <A>(
   root: string,
-  program: Effect.Effect<A, unknown, Journal>,
+  // `Journal | FileSystem | Path`: `recordSkillVersion` writes the version's
+  // content snapshot alongside the journal append, so journal programs may
+  // now touch the filesystem too -- BunServices covers the platform half.
+  program: Effect.Effect<A, unknown, Journal | FileSystem | Path>,
 ): Promise<A> =>
   Effect.runPromise(
     program.pipe(
       Effect.provide(Layer.provide(JournalLayer(join(root, ".skillmaker", "events.jsonl")), BunServices.layer)),
+      Effect.provide(BunServices.layer),
     ),
   );
 
@@ -724,9 +735,12 @@ type AppendVersionOutcome =
   | { readonly kind: "conflict"; readonly message: string };
 
 /**
- * Appends `skill.version_recorded` with the same idempotency semantics as
- * the CLI's `skillmaker version record` (Version.ts): same content twice is
- * a no-op, same hash with a different label is a conflict.
+ * Appends `skill.version_recorded` through the SAME core `recordSkillVersion`
+ * path the CLI's `skillmaker version record` uses (Version.ts) -- one door
+ * for the idempotency key AND for the content snapshot the record now
+ * writes (`Versions.snapshotVersionContent`); this used to be a hand-rolled
+ * duplicate of the append. Same semantics: same content twice is a no-op,
+ * same hash with a different label is a conflict.
  */
 const appendVersion = (
   root: string,
@@ -735,21 +749,19 @@ const appendVersion = (
   outputHash: string,
   designHash: string,
   label: string | undefined,
+  snapshotSource: VersionSnapshotSource,
 ): Promise<AppendVersionOutcome> =>
   runJournalEffect(
     root,
-    Effect.gen(function* () {
-      const journal = yield* Journal;
-      const result = yield* journal.append({
-        type: "skill.version_recorded",
-        actor,
-        // See Version.ts's CLI equivalent: keyed on BOTH hashes so a
-        // design-only change doesn't collide with the prior version's key.
-        idempotencyKey: `skill.version_recorded:${slug}:${designHash}:${outputHash}`,
-        payload: { bundle: slug, hash: outputHash, designHash, ...(label !== undefined ? { label } : {}) },
-      });
-      return { kind: "ok" as const, status: result.status };
-    }).pipe(
+    recordSkillVersion(
+      slug,
+      actor,
+      designHash,
+      outputHash,
+      snapshotSource,
+      label !== undefined ? { label } : undefined,
+    ).pipe(
+      Effect.map((result) => ({ kind: "ok" as const, status: result.status })),
       Effect.catchTag("JournalIdempotencyConflictError", (error) =>
         Effect.succeed<AppendVersionOutcome>({ kind: "conflict", message: error.message }),
       ),
@@ -1117,7 +1129,14 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     bundle,
     guardStatus: guardStatus(events, slug),
     events: recentEvents,
-    versions,
+    // `snapshot`: whether this version's content was kept
+    // (`<bundle>/.skillmaker/versions/<bare-hash>/`, Versions.ts). Receipts
+    // recorded before snapshots existed honestly stay `false` -- their
+    // content is gone and cannot be back-filled.
+    versions: versions.map((version) => ({
+      ...version,
+      snapshot: existsSync(versionSnapshotDir(bundleDir, version.hash)),
+    })),
     fixtures,
     riskCoverage,
     warnings,
@@ -1184,15 +1203,15 @@ const handleRecordVersion = async (
     // hands `computeBundleHashes` the right layout, exactly as the CLI's
     // `version record` does.
     const bundleDir = await resolveBundleDir(root, config, slug);
+    const layout = await Effect.runPromise(
+      detectBundleLayout(bundleDir).pipe(Effect.provide(BunServices.layer)),
+    );
     const { designHash, outputHash } = await Effect.runPromise(
-      detectBundleLayout(bundleDir).pipe(
-        Effect.flatMap((layout) => computeBundleHashes(bundleDir, layout)),
-        Effect.provide(BunServices.layer),
-      ),
+      computeBundleHashes(bundleDir, layout).pipe(Effect.provide(BunServices.layer)),
     );
 
     const actor = await Effect.runPromise(resolveUserActor());
-    const outcome = await appendVersion(root, slug, actor, outputHash, designHash, label);
+    const outcome = await appendVersion(root, slug, actor, outputHash, designHash, label, { bundleDir, layout });
 
     if (outcome.kind === "conflict") {
       return jsonResponse(
@@ -1390,9 +1409,14 @@ const handleAdopt = async (root: string, request: Request): Promise<Response> =>
           }
           const hashes = hashesBySlug.get(skill.slug);
           if (hashes !== undefined) {
-            yield* recordSkillVersion(skill.slug, actor, hashes.designHash, hashes.outputHash, {
-              label: "adopted",
-            });
+            yield* recordSkillVersion(
+              skill.slug,
+              actor,
+              hashes.designHash,
+              hashes.outputHash,
+              { bundleDir: skill.dir, layout: "in-place" },
+              { label: "adopted" },
+            );
           }
         }
       }),
@@ -1569,6 +1593,99 @@ const handleBundleFile = async (
     return new Response("Not Found", { status: 404 });
   }
 
+  const content = readFileSync(filePath, "utf8");
+  return jsonResponse({ path: relPath, content });
+};
+
+/**
+ * Resolves a recorded version for the snapshot endpoints below: the journal
+ * is the source of truth (`foldSkillVersions`, same as the CLI), and the
+ * hash may be given bare or `sha256:`-prefixed, full or as a left-anchored
+ * prefix (`resolveSkillVersion`'s convention -- newest match wins).
+ */
+const resolveRecordedVersion = async (
+  root: string,
+  slug: string,
+  rawHash: string,
+): Promise<{ hash: string; designHash: string; label?: string; recordedAt: string } | undefined> => {
+  const events = await readJournalEvents(root);
+  const versions = foldSkillVersions(events).get(slug) ?? [];
+  const normalized = rawHash.startsWith("sha256:") ? rawHash : `sha256:${rawHash}`;
+  return resolveSkillVersion(versions, normalized);
+};
+
+/**
+ * `GET /api/bundles/:slug/versions/:hash/files` -- one recorded version's
+ * kept content, listed. Snapshots live in the bundle
+ * (`<bundle>/.skillmaker/versions/<bare-hash>/`, Versions.ts) and are
+ * deliberately NOT part of the Files tab's tree (`handleBundleFiles` skips
+ * dotdirs -- history would flood it); these dedicated endpoints are how the
+ * UI shows history. A receipt recorded before snapshots existed gets an
+ * honest 404: its content was never kept and cannot be reconstructed.
+ */
+const handleVersionSnapshotFiles = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  rawHash: string,
+): Promise<Response> => {
+  const version = await resolveRecordedVersion(root, slug, rawHash);
+  if (version === undefined) {
+    return jsonResponse({ error: `no recorded version matching "${rawHash}" for "${slug}"` }, 404);
+  }
+  const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
+  const snapshotDir = versionSnapshotDir(bundleDir, version.hash);
+  if (!existsSync(snapshotDir) || !statSync(snapshotDir).isDirectory()) {
+    return jsonResponse(
+      {
+        error: `no snapshot for version ${shortHash(version.hash)} -- it was recorded before snapshots existed, so its content was not kept`,
+      },
+      404,
+    );
+  }
+  const files = [...listFilesRecursive(snapshotDir)]
+    .sort()
+    .map((rel) => ({ path: rel, size: statSync(join(snapshotDir, rel)).size }));
+  return jsonResponse({
+    slug,
+    hash: version.hash,
+    label: version.label ?? null,
+    recordedAt: version.recordedAt,
+    files,
+  });
+};
+
+/**
+ * `GET /api/bundles/:slug/versions/:hash/file?path=...` -- one file out of a
+ * version's snapshot. Same guard shape as `handleBundleFile`: no relative
+ * segments, resolved-path containment inside the snapshot directory, 404
+ * (never an error) for anything outside it. Everything inside a snapshot is
+ * servable by construction -- it only ever contains `design.md` + the skill
+ * payload the hash covered.
+ */
+const handleVersionSnapshotFile = async (
+  root: string,
+  config: WorkspaceConfig,
+  slug: string,
+  rawHash: string,
+  relPath: string | null,
+): Promise<Response> => {
+  if (relPath === null || relPath.length === 0 || relPath.split("/").includes("..")) {
+    return new Response("Not Found", { status: 404 });
+  }
+  const version = await resolveRecordedVersion(root, slug, rawHash);
+  if (version === undefined) {
+    return new Response("Not Found", { status: 404 });
+  }
+  const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
+  const snapshotDir = resolvePath(versionSnapshotDir(bundleDir, version.hash));
+  const filePath = resolvePath(join(snapshotDir, relPath));
+  if (filePath !== snapshotDir && !filePath.startsWith(snapshotDir + sep)) {
+    return new Response("Not Found", { status: 404 });
+  }
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    return new Response("Not Found", { status: 404 });
+  }
   const content = readFileSync(filePath, "utf8");
   return jsonResponse({ path: relPath, content });
 };
@@ -2340,6 +2457,21 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
             return jsonResponse({ error: "file requires GET" }, 405);
           }
           return handleBundleFile(root, config, slug, url.searchParams.get("path"));
+        }
+
+        if (slug !== undefined && segments.length === 4 && segments[1] === "versions") {
+          const rawHash = segments[2];
+          const leaf = segments[3];
+          if (rawHash === undefined || (leaf !== "files" && leaf !== "file")) {
+            return jsonResponse({ error: "unknown versions endpoint" }, 404);
+          }
+          if (request.method !== "GET") {
+            return jsonResponse({ error: `versions/:hash/${leaf} requires GET` }, 405);
+          }
+          const decodedHash = decodeURIComponent(rawHash);
+          return leaf === "files"
+            ? handleVersionSnapshotFiles(root, config, slug, decodedHash)
+            : handleVersionSnapshotFile(root, config, slug, decodedHash, url.searchParams.get("path"));
         }
 
         if (slug !== undefined && segments.length === 3 && segments[1] === "runs") {

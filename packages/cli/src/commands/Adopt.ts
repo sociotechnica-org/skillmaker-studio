@@ -146,7 +146,14 @@ export const runAdopt = Effect.fn("runAdopt")(function* (
       }
 
       const { designHash, outputHash } = yield* computeBundleHashes(skill.dir, "in-place");
-      yield* recordSkillVersion(skill.slug, actor, designHash, outputHash, { label: "adopted" });
+      yield* recordSkillVersion(
+        skill.slug,
+        actor,
+        designHash,
+        outputHash,
+        { bundleDir: skill.dir, layout: "in-place" },
+        { label: "adopted" },
+      );
     }
 
     return adoptReport;

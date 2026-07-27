@@ -7,14 +7,18 @@ import { BundleCreatedEvent, SkillVersionRecordedEvent } from "../src/Journal.ts
 import type { JournalEvent } from "../src/Journal.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
 import {
+  ADOPT_EXCLUDED_NAMES,
+  computeBundleHashes,
   computeDrift,
   foldSkillVersions,
   hashDesign,
   hashOutputTree,
   latestSkillVersion,
+  listVersionSnapshotFiles,
   recordSkillVersion,
   resolveSkillVersion,
   versionLabel,
+  versionSnapshotDir,
 } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
@@ -255,8 +259,9 @@ describe("recordSkillVersion (Fix F3: the exact Story-1 duplicate-hash sequence)
     await withTempDir((dir) =>
       Effect.gen(function* () {
         const journal = yield* Journal;
-        const first = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1");
-        const second = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1");
+        const source = { bundleDir: dir, layout: "output-dir" } as const;
+        const first = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", source);
+        const second = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", source);
 
         expect(first.status).toBe("appended");
         expect(second.status).toBe("already_appended");
@@ -281,7 +286,8 @@ describe("recordSkillVersion (Fix F3: the exact Story-1 duplicate-hash sequence)
         const journal = yield* Journal;
 
         // Step 1: `adopt` records the initial version, as Adopt.ts does.
-        const adoptResult = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", {
+        const source = { bundleDir: dir, layout: "output-dir" } as const;
+        const adoptResult = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", source, {
           label: "adopted",
         });
         expect(adoptResult.status).toBe("appended");
@@ -290,7 +296,9 @@ describe("recordSkillVersion (Fix F3: the exact Story-1 duplicate-hash sequence)
         // records again, exactly like RunEngine.ts's drift check, but WITHOUT
         // the "adopted" label in its payload -- different content under the
         // same idempotency key, so it must conflict, not silently duplicate.
-        const runOutcome = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1").pipe(Effect.flip);
+        const runOutcome = yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", source).pipe(
+          Effect.flip,
+        );
         expect(runOutcome._tag).toBe("JournalIdempotencyConflictError");
 
         // The journal must still contain exactly ONE skill.version_recorded
@@ -307,16 +315,155 @@ describe("recordSkillVersion (Fix F3: the exact Story-1 duplicate-hash sequence)
     await withTempDir((dir) =>
       Effect.gen(function* () {
         const journal = yield* Journal;
-        yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", { label: "adopted" });
+        const source = { bundleDir: dir, layout: "output-dir" } as const;
+        yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", source, { label: "adopted" });
 
         // Mirrors RunEngine.ts's `.pipe(Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void))`.
-        yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1").pipe(
+        yield* recordSkillVersion("demo", actor, "sha256:d1", "sha256:h1", source).pipe(
           Effect.catchTag("JournalIdempotencyConflictError", () => Effect.void),
         );
 
         const all = yield* journal.readAll();
         expect(all.filter((e) => e.type === "skill.version_recorded").length).toBe(1);
       }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
+    );
+  });
+});
+
+// Director ruling 2026-07-25: recording a version KEEPS its content --
+// `recordSkillVersion` snapshots `design.md` + the skill payload into
+// `<bundle>/.skillmaker/versions/<bare-hash>/`, so history lives in the
+// bundle and travels with the project.
+describe("snapshot on record", () => {
+  const writeFiles = (files: ReadonlyArray<readonly [string, string]>) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem;
+      for (const [path, content] of files) {
+        yield* fs.makeDirectory(join(path, ".."), { recursive: true });
+        yield* fs.writeFileString(path, content);
+      }
+    });
+
+  test("output-dir layout: records the receipt AND keeps design.md + output/ under .skillmaker/versions/<bare-hash>/", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const bundleDir = join(dir, "skills", "demo");
+        yield* writeFiles([
+          [join(bundleDir, "design.md"), "# design\n"],
+          [join(bundleDir, "output", "SKILL.md"), "# skill\n"],
+          [join(bundleDir, "output", "references", "notes.md"), "notes\n"],
+        ]);
+
+        const before = yield* computeBundleHashes(bundleDir, "output-dir");
+        const result = yield* recordSkillVersion("demo", actor, before.designHash, before.outputHash, {
+          bundleDir,
+          layout: "output-dir",
+        });
+        expect(result.status).toBe("appended");
+
+        const snapshotDir = versionSnapshotDir(bundleDir, before.outputHash);
+        // Named by the BARE hex -- no "sha256:" in the directory name.
+        expect(snapshotDir).not.toContain("sha256:");
+        expect(yield* fs.readFileString(join(snapshotDir, "design.md"))).toBe("# design\n");
+        expect(yield* fs.readFileString(join(snapshotDir, "output", "SKILL.md"))).toBe("# skill\n");
+        expect(yield* fs.readFileString(join(snapshotDir, "output", "references", "notes.md"))).toBe("notes\n");
+
+        const files = yield* listVersionSnapshotFiles(bundleDir, before.outputHash);
+        expect(files).toEqual(["design.md", "output/SKILL.md", "output/references/notes.md"]);
+
+        // The snapshot must NOT change the hash computation: output/ is
+        // untouched and the snapshot lives outside it.
+        const after = yield* computeBundleHashes(bundleDir, "output-dir");
+        expect(after).toEqual(before);
+      }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
+    );
+  });
+
+  test("in-place layout: keeps the payload + design.md, excludes studio-owned files, and the snapshot never changes the recorded hash", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        const bundleDir = join(dir, "imported", "release-notes");
+        yield* writeFiles([
+          [join(bundleDir, "SKILL.md"), "# skill\n"],
+          [join(bundleDir, "references", "guide.md"), "guide\n"],
+          [join(bundleDir, "bundle.json"), `{"slug":"release-notes","name":"Release Notes"}\n`],
+          [join(bundleDir, ".skillmaker-adopt.json"), "{}\n"],
+          [join(bundleDir, "design.md"), "# design\n"],
+          [join(bundleDir, "dossier.md"), "# dossier\n"],
+        ]);
+
+        const before = yield* computeBundleHashes(bundleDir, "in-place");
+        yield* recordSkillVersion("release-notes", actor, before.designHash, before.outputHash, {
+          bundleDir,
+          layout: "in-place",
+        });
+
+        // The payload + design.md, nothing studio-owned.
+        const files = yield* listVersionSnapshotFiles(bundleDir, before.outputHash);
+        expect(files).toEqual(["SKILL.md", "design.md", "references/guide.md"]);
+        const snapshotDir = versionSnapshotDir(bundleDir, before.outputHash);
+        expect(yield* fs.exists(join(snapshotDir, "bundle.json"))).toBe(false);
+        expect(yield* fs.exists(join(snapshotDir, "dossier.md"))).toBe(false);
+
+        // The critical in-place invariant: the snapshot lands INSIDE the
+        // bundle dir, yet the output hash is unchanged -- `.skillmaker` is in
+        // `ADOPT_EXCLUDED_NAMES`, so recording a version never registers as
+        // drift of the very content it recorded.
+        const after = yield* computeBundleHashes(bundleDir, "in-place");
+        expect(after).toEqual(before);
+      }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
+    );
+  });
+
+  test("re-recording identical content is a no-op receipt with the snapshot overwritten identically (and a snapshot never snapshots itself)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const bundleDir = join(dir, "imported", "release-notes");
+        yield* writeFiles([
+          [join(bundleDir, "SKILL.md"), "# skill\n"],
+          [join(bundleDir, ".skillmaker-adopt.json"), "{}\n"],
+        ]);
+
+        const hashes = yield* computeBundleHashes(bundleDir, "in-place");
+        const source = { bundleDir, layout: "in-place" } as const;
+        const first = yield* recordSkillVersion("release-notes", actor, hashes.designHash, hashes.outputHash, source);
+        const second = yield* recordSkillVersion("release-notes", actor, hashes.designHash, hashes.outputHash, source);
+        expect(first.status).toBe("appended");
+        expect(second.status).toBe("already_appended");
+
+        // If the second record's walk had picked up the first record's
+        // snapshot, the file list would contain `.skillmaker/versions/...`
+        // entries -- it must stay exactly the payload.
+        const files = yield* listVersionSnapshotFiles(bundleDir, hashes.outputHash);
+        expect(files).toEqual(["SKILL.md"]);
+      }).pipe(Effect.provide(JournalLayer(join(dir, "events.jsonl")))),
+    );
+  });
+
+  test("listVersionSnapshotFiles is honestly undefined for a receipt recorded before snapshots existed", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const files = yield* listVersionSnapshotFiles(join(dir, "skills", "demo"), "sha256:aaaa");
+        expect(files).toBeUndefined();
+      }),
+    );
+  });
+
+  test("hashOutputTree's in-place exclusion covers the snapshot home (.skillmaker is studio plumbing, never output)", async () => {
+    expect(ADOPT_EXCLUDED_NAMES.has(".skillmaker")).toBe(true);
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem;
+        yield* fs.makeDirectory(join(dir, ".skillmaker", "versions", "abc"), { recursive: true });
+        yield* fs.writeFileString(join(dir, ".skillmaker", "versions", "abc", "SKILL.md"), "old\n");
+        yield* fs.writeFileString(join(dir, "SKILL.md"), "current\n");
+        const withSnapshots = yield* hashOutputTree(dir, { excludeTopLevel: ADOPT_EXCLUDED_NAMES });
+        yield* fs.remove(join(dir, ".skillmaker"), { recursive: true });
+        const without = yield* hashOutputTree(dir, { excludeTopLevel: ADOPT_EXCLUDED_NAMES });
+        expect(withSnapshots).toBe(without);
+      }),
     );
   });
 });
