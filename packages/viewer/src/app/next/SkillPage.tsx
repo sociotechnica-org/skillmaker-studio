@@ -119,26 +119,74 @@ export function TopBarSkillControls({
   readonly onPin: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const pinnedVersion = page.versions.find((v: SkillVersion) => v.hash === pinned);
   return (
     <div className="relative flex items-center gap-1.5">
-      <select
-        className="max-w-40 cursor-pointer rounded border border-border bg-surface px-1.5 py-1 text-xs text-ink-muted outline-none hover:text-ink"
-        value={pinned}
-        onChange={(e) => onPin(e.target.value)}
-        title="Every tab is a lens on the selected draft"
+      {/* Time-Machine-style version pivot: an icon, not a native select —
+          the top bar stays narrow; the history lives in a popover. Amber
+          when pinned to the past so "you are not looking at now" is loud. */}
+      <button
+        type="button"
+        className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded hover:bg-surface ${
+          pinned === CURRENT_DRAFT ? "text-ink-muted hover:text-ink" : "bg-amber-600/15 text-amber-700"
+        }`}
+        title={
+          pinned === CURRENT_DRAFT
+            ? "Version history — every tab is a lens on the selected draft"
+            : `Viewing version ${pinnedVersion?.shortHash ?? pinned} — click to change`
+        }
+        onClick={() => {
+          setVersionsOpen(!versionsOpen);
+          setOpen(false);
+        }}
       >
-        <option value={CURRENT_DRAFT}>Current draft</option>
-        {page.versions.map((v: SkillVersion) => (
-          <option key={v.hash} value={v.hash}>
-            {v.shortHash}
-            {v.label !== null ? ` · ${v.label}` : ""}
-          </option>
-        ))}
-      </select>
+        <TimeMachineIcon />
+      </button>
+      {versionsOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="Close"
+            className="fixed inset-0 z-20 cursor-default"
+            onClick={() => setVersionsOpen(false)}
+          />
+          <div className="absolute right-0 top-9 z-30 w-56 rounded border border-border bg-surface py-1 shadow-xl">
+            <VersionMenuRow
+              selected={pinned === CURRENT_DRAFT}
+              label="Current draft"
+              detail={null}
+              onPick={() => {
+                onPin(CURRENT_DRAFT);
+                setVersionsOpen(false);
+              }}
+            />
+            {page.versions.length > 0 && <div className="mx-2 my-1 border-t border-border" />}
+            {page.versions.map((v: SkillVersion) => (
+              <VersionMenuRow
+                key={v.hash}
+                selected={pinned === v.hash}
+                label={v.shortHash}
+                detail={v.label}
+                onPick={() => {
+                  onPin(v.hash);
+                  setVersionsOpen(false);
+                }}
+              />
+            ))}
+            {page.versions.length === 0 && (
+              <p className="px-3 py-1.5 text-xs text-ink-muted">No recorded versions yet.</p>
+            )}
+          </div>
+        </>
+      )}
       <button
         type="button"
         className="cursor-pointer rounded bg-amber-600 px-3 py-1 font-display text-sm text-white shadow hover:bg-amber-700"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          setOpen(!open);
+          setVersionsOpen(false);
+        }}
       >
         Publish
       </button>
@@ -160,6 +208,49 @@ export function TopBarSkillControls({
         </>
       )}
     </div>
+  );
+}
+
+/** Apple-Time-Machine-ish glyph: a clock face wrapped in a counterclockwise
+    orbit arrow — "step back through this skill's history". */
+function TimeMachineIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      {/* orbit arrow: open circle sweeping counterclockwise into an arrowhead */}
+      <path
+        d="M 13.8 6.2 A 6 6 0 1 0 14 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path d="M 14.6 2.9 L 13.8 6.2 L 10.9 5.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      {/* clock hands */}
+      <path d="M 8 5.2 V 8 L 10 9.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function VersionMenuRow({
+  selected,
+  label,
+  detail,
+  onPick,
+}: {
+  readonly selected: boolean;
+  readonly label: string;
+  readonly detail: string | null;
+  readonly onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-well"
+      onClick={onPick}
+    >
+      <span className={`w-3 shrink-0 ${selected ? "text-ink" : "text-transparent"}`}>✓</span>
+      <span className={selected ? "text-ink" : "text-ink-muted"}>{label}</span>
+      {detail !== null && <span className="truncate text-ink-muted/70">{detail}</span>}
+    </button>
   );
 }
 
