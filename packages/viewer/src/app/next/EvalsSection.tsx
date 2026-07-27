@@ -276,9 +276,11 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
                 const expanded = expandedClaims.has(claim.id);
                 return (
                   <div key={claim.id} className="rounded border border-border bg-surface px-3 py-2 shadow-sm">
-                    <div className="flex items-center gap-2 text-sm">
+                    {/* items-start + wrapping sentence: a claim must be readable
+                        in full — chips/labels hug the first line, text wraps under. */}
+                    <div className="flex items-start gap-2 text-sm">
                       <span title={status}>{CLAIM_DOT[status]}</span>
-                      <span className={`min-w-0 flex-1 ${FADE_R}`}>{claim.sentence}</span>
+                      <span className="min-w-0 flex-1">{claim.sentence}</span>
                       {chips.length > 0 && <ModelChips chips={chips} />}
                       <span className="font-mono text-[10px] text-ink-muted">{claim.id}</span>
                       <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted dark:bg-neutral-800">{status}</span>
