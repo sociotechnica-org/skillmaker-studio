@@ -64,16 +64,6 @@ export function RightPanel({
 
   // Center-panel "open in Files" requests.
   useEffect(() => {
-    if (fileRequest === null || fileRequest === undefined) return;
-    setTab("files");
-    setSelectedFile(fileRequest);
-    if (width < 420) setTreeOpen(false);
-    onFileRequestHandled?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileRequest]);
-
-  // Center-panel "open in Files" requests.
-  useEffect(() => {
     if (fileRequest === undefined || fileRequest === null) return;
     setTab("files");
     selectFile(fileRequest);

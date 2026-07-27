@@ -213,6 +213,8 @@ export default function NextShell() {
             <RightPanel
               skill={center.slug}
               width={expanded ? 9999 : right.width}
+              fileRequest={fileRequest}
+              onFileRequestHandled={() => setFileRequest(null)}
               intro={chatIntro !== null && chatIntro.slug === center.slug ? chatIntro : null}
               onIntroConsumed={() => setChatIntro(null)}
             />
