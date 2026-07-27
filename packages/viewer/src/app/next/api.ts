@@ -14,7 +14,9 @@
  * caller-supplied placeholder constants on any fetch/decode failure.
  */
 import { useEffect, useRef, useState } from "react";
-import { getBundleDetail, getBundleFile, getCatalog, getFixtureDetail, getState, getTodos } from "../runtime/api.ts";
+import { apiPath, useActiveProject } from "../runtime/projectScope.ts";
+import { getBundleDetail, getBundleFile, getFixtureDetail, getTodos } from "../runtime/api.ts";
+import { fetchProjects as fetchRegistryProjects } from "./projectsApi.ts";
 import { useJournalTick } from "./liveRefresh.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
 import { latestReviewOutcome, pendingReview } from "../runtime/reviewPanel.ts";
@@ -44,15 +46,16 @@ export const toSkill = (entry: CatalogEntry): Skill => ({
 });
 
 /**
- * Catalog + workspace -> the projects list. A single project until the
- * registry exists: named after the workspace, skills from the catalog.
- * Archived bundles stay off the board (its "Archived: drawer" footnote).
+ * Catalog + workspace -> a one-project list. Kept as the FALLBACK shape for
+ * a server without the machine registry; the live path is projectsApi's
+ * `GET /api/projects` (the registry, every project with its skills).
  */
 export const toProjects = (
   state: StateResponse,
   entries: ReadonlyArray<CatalogEntry>,
 ): ReadonlyArray<Project> => [
   {
+    slug: state.workspace.name,
     name: state.workspace.name,
     path: state.workspace.path,
     skills: entries.filter((entry) => !entry.archived).map(toSkill),
@@ -95,10 +98,11 @@ export const toTasks = (todos: ReadonlyArray<TodoRecord>): ReadonlyArray<Task> =
     return task === undefined ? [] : [task];
   });
 
-/** `GET /api/state` + `GET /api/catalog` -> skills-by-stage (≈ `skillmaker list`). */
+/** `GET /api/projects` (the machine registry) -> every registered project with its skills (≈ `skillmaker project list` + `skillmaker list`). */
 export const fetchProjects = async (): Promise<ReadonlyArray<Project>> => {
-  const [state, catalog] = await Promise.all([getState(), getCatalog()]);
-  return toProjects(state, catalog.entries);
+  const projects = await fetchRegistryProjects();
+  if (projects === null) throw new Error("projects unavailable");
+  return projects;
 };
 
 /** `GET /api/todos` -> open tasks (≈ `skillmaker todo list`). */
@@ -249,7 +253,7 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
 
 /** `GET /api/bundles/:slug/files` -> the bundle's readable file tree. */
 export const fetchBundleFiles = async (slug: string): Promise<ReadonlyArray<BundleFile>> => {
-  const response = await fetch(`/api/bundles/${encodeURIComponent(slug)}/files`);
+  const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}/files`));
   if (!response.ok) throw new Error(`files: ${response.status}`);
   const body = (await response.json()) as { files?: ReadonlyArray<{ path?: unknown; size?: unknown }> };
   return (body.files ?? [])
@@ -260,7 +264,7 @@ export const fetchBundleFiles = async (slug: string): Promise<ReadonlyArray<Bund
 /** `GET /api/bundles/:slug/file?path=` -> one file's content. */
 export const fetchBundleFile = async (slug: string, path: string): Promise<string> => {
   const response = await fetch(
-    `/api/bundles/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`,
+    apiPath(`/api/bundles/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`),
   );
   if (!response.ok) throw new Error(`file: ${response.status}`);
   const body = (await response.json()) as { content?: unknown };
@@ -303,7 +307,7 @@ export type RunGlance = {
  */
 export const fetchRunGlance = async (slug: string, runId: string): Promise<RunGlance> => {
   const response = await fetch(
-    `/api/bundles/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`,
+    apiPath(`/api/bundles/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`),
   );
   if (!response.ok) throw new Error(`run: ${response.status}`);
   const body = (await response.json()) as { skillInvoked?: unknown; artifacts?: unknown };
@@ -332,6 +336,9 @@ export const fetchRunGlance = async (slug: string, runId: string): Promise<RunGl
  * only when the server is absent, and honest empty states when live. */
 export function useApiStatus<T>(fetcher: () => Promise<T>): { readonly data?: T; readonly status: "loading" | "live" | "error" } {
   const tick = useJournalTick();
+  // Refetch when the ACTIVE PROJECT changes -- every project-scoped path
+  // this fetcher hits is rewritten through projectScope.apiPath.
+  const project = useActiveProject();
   const [state, setState] = useState<{ readonly data?: T; readonly status: "loading" | "live" | "error" }>({ status: "loading" });
   const lastFetcher = useRef<(() => Promise<T>) | undefined>(undefined);
   useEffect(() => {
@@ -352,12 +359,13 @@ export function useApiStatus<T>(fetcher: () => Promise<T>): { readonly data?: T;
     return () => {
       cancelled = true;
     };
-  }, [fetcher, tick]);
+  }, [fetcher, tick, project]);
   return state;
 }
 
 export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
   const tick = useJournalTick();
+  const project = useActiveProject();
   const [data, setData] = useState<T | undefined>(undefined);
 
   useEffect(() => {
@@ -374,7 +382,7 @@ export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
     return () => {
       cancelled = true;
     };
-  }, [fetcher, tick]);
+  }, [fetcher, tick, project]);
 
   return data ?? fallback;
 }

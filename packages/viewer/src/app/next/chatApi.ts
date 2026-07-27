@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postJson } from "../runtime/client.ts";
+import { apiPath } from "../runtime/projectScope.ts";
 
 export interface ChatResumable {
   readonly provider: string;
@@ -167,7 +168,7 @@ export function useChatSession(skill: string): ChatSessionHook {
     let cancelled = false;
     setState(undefined);
     setEvents([]);
-    fetch(`/api/chat/${encodeURIComponent(skill)}/state`, { headers: { accept: "application/json" } })
+    fetch(apiPath(`/api/chat/${encodeURIComponent(skill)}/state`), { headers: { accept: "application/json" } })
       .then(async (response) => {
         if (cancelled) return;
         if (!response.ok) {
@@ -192,7 +193,7 @@ export function useChatSession(skill: string): ChatSessionHook {
 
   useEffect(() => {
     if (!available) return;
-    const source = new EventSource(`/api/chat/${encodeURIComponent(skill)}/stream`);
+    const source = new EventSource(apiPath(`/api/chat/${encodeURIComponent(skill)}/stream`));
     const onOpen = () => {
       // The server replays the live session's whole buffer on connect:
       // start from a clean slate so a reconnect never duplicates items.

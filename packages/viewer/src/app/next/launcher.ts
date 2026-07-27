@@ -15,6 +15,7 @@
  *   (the same list the chat surface's picker shows), `null` when serverless.
  */
 import { getState } from "../runtime/api.ts";
+import { apiPath } from "../runtime/projectScope.ts";
 
 // ---------------------------------------------------------------------------
 // Slug derivation (pure)
@@ -116,7 +117,7 @@ export const decodeCandidatesResponse = (json: unknown): ReadonlyArray<AdoptCand
 /** Candidates, or `null` on any failure (server absent, bad payload). */
 export const fetchAdoptCandidates = async (): Promise<ReadonlyArray<AdoptCandidate> | null> => {
   try {
-    const response = await fetch("/api/adopt/candidates", { headers: { accept: "application/json" } });
+    const response = await fetch(apiPath("/api/adopt/candidates"), { headers: { accept: "application/json" } });
     if (!response.ok) return null;
     return decodeCandidatesResponse(await response.json());
   } catch {
