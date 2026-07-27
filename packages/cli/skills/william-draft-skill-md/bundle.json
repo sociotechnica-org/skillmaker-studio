@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "william-draft-skill-md",
+  "name": "William Draft Skill Md",
+  "oneLiner": "Drafts output/SKILL.md from a bundle's design.md -- the drafting station's default agent.",
+  "tags": ["meta", "stations"],
+  "created": "2026-07-11",
+  "targets": [
+    "claude-code"
+  ]
+}

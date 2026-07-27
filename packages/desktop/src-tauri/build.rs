@@ -16,9 +16,14 @@ use std::{env, fs, path::PathBuf};
 /// `Contents/MacOS/viewer-dist` -- sibling to the bundled sidecar -- as
 /// part of `tauri build`'s bundling step (this build.rs does not run
 /// again at that point).
-fn copy_viewer_dist_next_to_dev_sidecar() {
+/// `packaged-skills/` (D6's product-packaged station skills, staged by the
+/// same prepare-desktop-sidecar.sh) rides along identically: the CLI's
+/// `PackagedSkills.ts` walks execPath ancestors for a sibling
+/// `packaged-skills` directory, exactly like `ViewerDist.ts` does for
+/// `viewer-dist`.
+fn copy_sidecar_asset_dir_next_to_dev_sidecar(name: &str) {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let src = manifest_dir.join("binaries").join("viewer-dist");
+    let src = manifest_dir.join("binaries").join(name);
     if !src.exists() {
         // Sidecar staging (scripts/prepare-desktop-sidecar.sh) hasn't run
         // yet -- nothing to copy. `cargo tauri dev`/`build` will still
@@ -40,11 +45,11 @@ fn copy_viewer_dist_next_to_dev_sidecar() {
         .expect("OUT_DIR shallower than expected")
         .to_path_buf();
 
-    let dest = profile_dir.join("viewer-dist");
+    let dest = profile_dir.join(name);
     let _ = fs::remove_dir_all(&dest);
     if let Err(error) = copy_dir_recursive(&src, &dest) {
         println!(
-            "cargo:warning=skillmaker-desktop: failed to copy viewer-dist into {}: {error}",
+            "cargo:warning=skillmaker-desktop: failed to copy {name} into {}: {error}",
             dest.display()
         );
     }
@@ -68,6 +73,7 @@ fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> std::io:
 }
 
 fn main() {
-    copy_viewer_dist_next_to_dev_sidecar();
+    copy_sidecar_asset_dir_next_to_dev_sidecar("viewer-dist");
+    copy_sidecar_asset_dir_next_to_dev_sidecar("packaged-skills");
     tauri_build::build();
 }

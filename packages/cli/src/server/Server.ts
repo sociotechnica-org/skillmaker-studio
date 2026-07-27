@@ -70,6 +70,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
+import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 import { loadSkillbook } from "../Skillbook.ts";
 import { ChatSessionManager } from "./ChatSessions.ts";
 import { createRunDispatchHandlers } from "./RunDispatch.ts";
@@ -2082,6 +2083,10 @@ const handleTriggerStationRun = async (
   const actor = await Effect.runPromise(resolveUserActor());
   const runId = crypto.randomUUID();
   const journalPath = join(root, ".skillmaker", "events.jsonl");
+  // D6: William ships inside the product -- station skills the workspace
+  // doesn't carry fall back to the packaged copies, when this build has them
+  // (workspace copies always win, see resolveStationSkillDir).
+  const packagedSkillsDir = locatePackagedSkillsDir();
 
   const program = runStation({
     root,
@@ -2091,6 +2096,7 @@ const handleTriggerStationRun = async (
     provider,
     actor,
     runId,
+    ...(packagedSkillsDir !== undefined ? { packagedSkillsDir } : {}),
   }).pipe(
     Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
     Effect.provide(BunServices.layer),
