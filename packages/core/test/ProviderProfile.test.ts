@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  advertisedModelIds,
   CLAUDE_CODE_PROFILE,
   CODEX_MODEL_COMPAT_STDERR_SIGNATURE,
   CODEX_PROFILE,
@@ -120,5 +121,55 @@ describe("resolveModelLabel / extractModel resolve the alias to its advertised d
     const resolved = CLAUDE_CODE_PROFILE.extractModel(sessionWithDescriptions);
     expect(resolved).toBe("Opus 4.6 - Most capable for complex work");
     expect(resolved).not.toBe("default");
+  });
+});
+
+// Issue #154: the claude provider migrated to
+// @agentclientprotocol/claude-agent-acp (0.63.0, verified live 2026-07-27),
+// whose session/new reports NO `models` key -- the model catalog and
+// current model live only in configOptions[id="model"], with an `options`
+// list carrying the human descriptions.
+describe("@agentclientprotocol/claude-agent-acp shape (issue #154): configOptions-only, with options", () => {
+  const claudeAgentAcpSession = {
+    sessionId: "s1",
+    configOptions: [
+      { id: "mode", currentValue: "acceptEdits" },
+      {
+        id: "model",
+        currentValue: "claude-fable-5[1m]",
+        options: [
+          { value: "default", name: "Default (recommended)", description: "Opus 5 · Best for everyday, complex tasks" },
+          { value: "claude-fable-5[1m]", name: "Fable", description: "Fable 5 · Most capable for your hardest and longest-running tasks" },
+          { value: "sonnet", name: "Sonnet", description: "Sonnet 5 · Efficient for routine tasks" },
+        ],
+      },
+      { id: "effort", currentValue: "medium", options: [{ value: "medium", name: "Medium" }] },
+    ],
+  };
+
+  test("extractModel resolves the current model to its advertised DESCRIPTION (same pooling-hazard reasoning as Fix 2), not the bare option value", () => {
+    const resolved = CLAUDE_CODE_PROFILE.extractModel(claudeAgentAcpSession);
+    expect(resolved).toBe("Fable 5 · Most capable for your hardest and longest-running tasks");
+  });
+
+  test("resolveModelLabel also reads the configOptions options list", () => {
+    expect(resolveModelLabel(claudeAgentAcpSession, "sonnet")).toBe("Sonnet 5 · Efficient for routine tasks");
+    expect(resolveModelLabel(claudeAgentAcpSession, "unknown-id")).toBe("unknown-id");
+  });
+
+  test("a configOptions model entry WITHOUT options still yields the bare currentValue (legacy zed codex adapter)", () => {
+    const session = { sessionId: "s1", configOptions: [{ id: "model", currentValue: "gpt-5.4" }] };
+    expect(CLAUDE_CODE_PROFILE.extractModel(session)).toBe("gpt-5.4");
+  });
+
+  test("advertisedModelIds collects ids across BOTH wire shapes", () => {
+    expect(advertisedModelIds(claudeAgentAcpSession)).toEqual(["default", "claude-fable-5[1m]", "sonnet"]);
+    expect(
+      advertisedModelIds({
+        sessionId: "s1",
+        models: { availableModels: [{ modelId: "default" }, { modelId: "haiku" }] },
+      }),
+    ).toEqual(["default", "haiku"]);
+    expect(advertisedModelIds({ sessionId: "s1" })).toEqual([]);
   });
 });

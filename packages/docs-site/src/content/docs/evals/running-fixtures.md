@@ -87,7 +87,7 @@ Configured in `skillmaker.config.json` (written by `skillmaker init`):
 ```jsonc
 {
   "providers": {
-    "claude-code": { "command": ["npx", "-y", "@zed-industries/claude-code-acp@latest"] },
+    "claude-code": { "command": ["npx", "-y", "@agentclientprotocol/claude-agent-acp@latest"] },
     "codex":       { "command": ["npx", "-y", "@agentclientprotocol/codex-acp@latest"] }
   }
 }
@@ -105,7 +105,7 @@ transcript.
 A **trigger** fixture (see [Fixtures and risk maps](/evals/fixtures-and-risk-maps/))
 grades activation instead of task correctness — `didSkillActivate` scans
 the transcript for evidence the agent invoked the skill, tolerant of the
-shape difference between providers: claude-code-acp exposes a first-class
+shape difference between providers: claude-agent-acp exposes a first-class
 `Skill` tool call, while codex-acp has no dedicated skill tool and instead
 reads the skill file via its native Read/shell tool, detected by a
 `<slug>/SKILL.md` path match.

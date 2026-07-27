@@ -1,8 +1,8 @@
 /**
- * End-to-end: the eval run engine against the REAL `claude-code-acp`
+ * End-to-end: the eval run engine against the REAL `claude-agent-acp`
  * adapter (data-model.md §2.8, plan.md Phase 8). Unlike
  * `test/e2e/phase8.e2e.test.ts` (mocked, always-on, CI-safe), this suite
- * makes a real LLM call through `npx -y @zed-industries/claude-code-acp` and
+ * makes a real LLM call through `npx -y @agentclientprotocol/claude-agent-acp` and
  * needs a real, already-authenticated `claude` CLI on the machine running
  * it -- it is gated on `SKILLMAKER_REAL_ACP=1` and skipped entirely
  * otherwise (including in ordinary CI runs).
@@ -52,7 +52,7 @@ const parseJsonLine = (stream: string): RunCliOutput | undefined => {
   return undefined;
 };
 
-describe.skipIf(!REAL_ACP)("skillmaker run: REAL claude-code-acp adapter (SKILLMAKER_REAL_ACP=1)", () => {
+describe.skipIf(!REAL_ACP)("skillmaker run: REAL claude-agent-acp adapter (SKILLMAKER_REAL_ACP=1)", () => {
   beforeAll(() => {
     scratchDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-phase8-real-"));
     Bun.spawnSync(["git", "init", "-q"], { cwd: scratchDir });
@@ -84,7 +84,7 @@ describe.skipIf(!REAL_ACP)("skillmaker run: REAL claude-code-acp adapter (SKILLM
   });
 
   test(
-    "a real run against claude-code-acp completes (or reports a classified failure, but never hangs)",
+    "a real run against claude-agent-acp completes (or reports a classified failure, but never hangs)",
     () => {
       const result = runCli(
         ["run", "say-hello", "--fixture", "golden-basic", "--provider", "claude-code", "--json"],

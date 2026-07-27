@@ -21,7 +21,7 @@ these two specific providers instead of a single standing `claude-acp`.
 ```jsonc
 {
   "providers": {
-    "claude-code": { "command": ["npx", "-y", "@zed-industries/claude-code-acp@latest"] },
+    "claude-code": { "command": ["npx", "-y", "@agentclientprotocol/claude-agent-acp@latest"] },
     "codex":       { "command": ["codex-acp"] }
   }
 }

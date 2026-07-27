@@ -4,7 +4,7 @@ description: How run authenticates providers, what "Authentication required" / i
 ---
 
 `skillmaker run` and `skillmaker station run` launch each provider's CLI
-(`claude-code-acp`, `codex-acp`) inside an isolated sandbox — a fresh,
+(`claude-agent-acp`, `codex-acp`) inside an isolated sandbox — a fresh,
 per-run config directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) so the run
 can never see or contaminate your real `~/.claude`/`~/.codex` state or
 skills. That isolation is deliberate (see
