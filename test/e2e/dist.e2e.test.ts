@@ -162,7 +162,8 @@ describe.skipIf(!distArtifactsPresent)(
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
       const html = await response.text();
-      expect(html).toContain('id="app-root"');
+      expect(html).toContain("astro-island");
+      expect(html).toContain("Skillmaker Studio");
     });
 
     test("claim file exists at the started port", () => {
