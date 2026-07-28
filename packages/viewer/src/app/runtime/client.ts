@@ -6,6 +6,7 @@
  */
 import { Schema } from "effect";
 import { RuntimeDecodeError, RuntimeFetchError } from "./errors.ts";
+import { apiPath } from "./projectScope.ts";
 
 export const fetchJson = async <S extends Schema.ConstraintDecoder<unknown>>(
   path: string,
@@ -13,7 +14,10 @@ export const fetchJson = async <S extends Schema.ConstraintDecoder<unknown>>(
 ): Promise<S["Type"]> => {
   let response: Response;
   try {
-    response = await fetch(path, { headers: { accept: "application/json" } });
+    // Project scoping happens HERE, at the one fetch boundary: legacy-shaped
+    // `/api/<rest>` paths ride the active project's `/api/projects/:slug`
+    // prefix (projectScope.ts); machine-level routes pass through.
+    response = await fetch(apiPath(path), { headers: { accept: "application/json" } });
   } catch (cause) {
     throw new RuntimeFetchError(path, `network error fetching ${path}: ${String(cause)}`);
   }
@@ -51,7 +55,7 @@ export interface RawJsonResponse {
 export const postJson = async (path: string, payload: unknown): Promise<RawJsonResponse> => {
   let response: Response;
   try {
-    response = await fetch(path, {
+    response = await fetch(apiPath(path), {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(payload),

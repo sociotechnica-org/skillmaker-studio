@@ -15,6 +15,7 @@ export * from "./Run.ts";
 export * from "./Todo.ts";
 export * from "./Journal.ts";
 export * from "./Workspace.ts";
+export * from "./MachineConfig.ts";
 export * from "./Errors.ts";
 export { foldBundleStates, bundleForEvent } from "./Fold.ts";
 export { CUSTODY_EVENT_TYPES, custodyEventsFor } from "./Lineage.ts";
@@ -258,10 +259,13 @@ export {
 export { seedProviderAuth, type AuthSeedResult } from "./AuthSeeding.ts";
 export {
   runStation,
+  resolveStationSkillDir,
   StationPreconditionError,
   buildStationPrompt,
   buildReviewQuestion,
   latestReviseNotes,
+  type ResolveStationSkillDirInput,
+  type ResolvedStationSkill,
   type RunStationInput,
   type RunStationResult,
   type StationProgressEvent,

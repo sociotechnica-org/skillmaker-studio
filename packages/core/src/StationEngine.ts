@@ -2,7 +2,8 @@
  * The station engine — `runStation()` drives one production-state-machine
  * station's work end to end (data-model.md §2.13, plan.md Phase 10): read
  * the bundle's `stations.json` for a state, resolve the station's `skill`
- * (a bundle slug in the SAME workspace whose `output/` is installed into the
+ * (a bundle slug -- the workspace's own copy wins, else the product-packaged
+ * copy, see `resolveStationSkillDir` -- whose `output/` is installed into the
  * sandbox as the skill), build the station prompt (station instructions +
  * the bundle's `design.md` + the latest `revise` notes, if any), run it via
  * `AcpClient` (`Run.kind: "station"`, `station: state`), copy the produced
@@ -77,6 +78,14 @@ export interface RunStationInput {
   readonly runId?: string;
   /** Issue #140's escape hatch (`skillmaker station run --permissive`): `true` restores the pre-#140 approve-everything behavior; default applies the deny-by-default sandbox policy, same as `RunEngine.ts`. */
   readonly permissive?: boolean;
+  /**
+   * D6: William ships inside the product. Directory of product-packaged
+   * skill bundles (the CLI locates it -- `packages/cli/src/PackagedSkills.ts`)
+   * used as the fallback when the workspace has no `<skillsDir>/<slug>/` for
+   * a station's skill. Omit and only workspace skills resolve (the pre-D6
+   * behavior), which is what most tests want.
+   */
+  readonly packagedSkillsDir?: string;
 }
 
 export type StationProgressEvent =
@@ -373,6 +382,72 @@ export const buildReviewQuestion = (state: BundleStage, changedPaths: ReadonlyAr
     : `Review the "${state}" station's changes to ${changedPaths.join(", ")}.`;
 
 // ---------------------------------------------------------------------------
+// Station-skill resolution
+// ---------------------------------------------------------------------------
+
+export interface ResolveStationSkillDirInput {
+  /** The resolved workspace root (`ResolvedWorkspace.root`). */
+  readonly root: string;
+  /** The workspace's skills directory name (`WorkspaceConfig.skillsDir`). */
+  readonly skillsDir: string;
+  /** The station's `skill` slug, e.g. "william-draft-skill-md". */
+  readonly slug: string;
+  /** Product-packaged skills directory, if this build ships one. */
+  readonly packagedSkillsDir?: string | undefined;
+}
+
+export interface ResolvedStationSkill {
+  /** The skill bundle's directory (contains `bundle.json`). */
+  readonly dir: string;
+  readonly source: "workspace" | "packaged";
+}
+
+/**
+ * Resolves a station's `skill` slug to a bundle directory. The workspace's
+ * own `<skillsDir>/<slug>/` wins when it has a `bundle.json` -- so hacking
+ * on William locally (this repo's self-hosted `skills/` workspace) keeps
+ * working, and any workspace can override a packaged skill by drafting its
+ * own copy. Otherwise falls back to the product-packaged copy under
+ * `packagedSkillsDir` (D6, docs/proposals/2026-07-21-simplification.md:
+ * "William and a starter set of research/drafting skills ship inside the
+ * product" -- workspaces no longer hand-carry the William bundles).
+ *
+ * Packaged skills are visible to station resolution ONLY. They are not
+ * workspace bundles: they never appear on the Board, in bundle listings, or
+ * in the index -- which is exactly why this fallback lives here and not in
+ * `WorkspaceService`/`IndexService`.
+ *
+ * Returns `undefined` when neither location has the skill; the caller owns
+ * the precondition error so its message can name both places it looked.
+ */
+export const resolveStationSkillDir = Effect.fn("StationEngine.resolveStationSkillDir")(function* (
+  input: ResolveStationSkillDirInput,
+) {
+  const fs = yield* FileSystem;
+  const path = yield* Path;
+
+  const workspaceDir = path.join(input.root, input.skillsDir, input.slug);
+  const workspaceExists = yield* fs
+    .exists(path.join(workspaceDir, "bundle.json"))
+    .pipe(Effect.mapError(toIOError(`could not check ${workspaceDir}`)));
+  if (workspaceExists) {
+    return { dir: workspaceDir, source: "workspace" } as ResolvedStationSkill;
+  }
+
+  if (input.packagedSkillsDir !== undefined) {
+    const packagedDir = path.join(input.packagedSkillsDir, input.slug);
+    const packagedExists = yield* fs
+      .exists(path.join(packagedDir, "bundle.json"))
+      .pipe(Effect.mapError(toIOError(`could not check ${packagedDir}`)));
+    if (packagedExists) {
+      return { dir: packagedDir, source: "packaged" } as ResolvedStationSkill;
+    }
+  }
+
+  return undefined;
+});
+
+// ---------------------------------------------------------------------------
 // runStation
 // ---------------------------------------------------------------------------
 
@@ -443,17 +518,27 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
   }
   const skillSlug = station.skill;
 
-  const skillBundleDir = path.join(input.root, input.config.skillsDir, skillSlug);
-  const skillBundleJsonExists = yield* fs
-    .exists(path.join(skillBundleDir, "bundle.json"))
-    .pipe(Effect.mapError(toIOError(`could not check ${skillBundleDir}`)));
-  if (!skillBundleJsonExists) {
+  const resolvedSkill = yield* resolveStationSkillDir({
+    root: input.root,
+    skillsDir: input.config.skillsDir,
+    slug: skillSlug,
+    packagedSkillsDir: input.packagedSkillsDir,
+  });
+  if (resolvedSkill === undefined) {
+    // Name BOTH places we looked -- the workspace path the operator can
+    // create, and the packaged fallback (or the fact that this build has
+    // none), so a missing William is diagnosable from the one message.
+    const packagedNote =
+      input.packagedSkillsDir === undefined
+        ? "and no packaged skills directory is available in this build"
+        : `or packaged with the product (checked ${input.packagedSkillsDir}/${skillSlug}/bundle.json)`;
     return yield* Effect.fail(
       StationPreconditionError.make({
-        message: `the "${state}" station for "${input.bundle}" references skill "${skillSlug}", which does not exist as a bundle in this workspace (expected ${input.config.skillsDir}/${skillSlug}/bundle.json)`,
+        message: `the "${state}" station for "${input.bundle}" references skill "${skillSlug}", which does not exist as a bundle in this workspace (expected ${input.config.skillsDir}/${skillSlug}/bundle.json) ${packagedNote}`,
       }),
     );
   }
+  const skillBundleDir = resolvedSkill.dir;
   const skillBundleLayout = yield* detectBundleLayout(skillBundleDir);
   const skillOutputDir = path.join(skillBundleDir, "output");
   const skillOutputExists = yield* fs

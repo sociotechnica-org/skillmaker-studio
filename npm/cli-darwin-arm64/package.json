@@ -9,5 +9,5 @@
   },
   "os": ["darwin"],
   "cpu": ["arm64"],
-  "files": ["bin/skillmaker", "viewer-dist/**"]
+  "files": ["bin/skillmaker", "viewer-dist/**", "packaged-skills/**"]
 }

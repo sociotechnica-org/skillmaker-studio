@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -21,6 +21,7 @@ let bundleDir: string;
 let versionHash: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string = scratchDir) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -215,12 +216,13 @@ describe("skillmaker report: happy path", () => {
 
 describe("skillmaker report: Receive surfaces the report", () => {
   beforeAll(async () => {
-    const server = await startE2eServer({
+    const server = await startE2eRegistryServer({
       command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
       cwd: scratchDir,
     });
     serverProcess = server.process;
     baseUrl = server.baseUrl;
+    projectUrl = server.projectUrls[0] as string;
   }, 60000);
 
   interface FieldReportView {
@@ -234,7 +236,7 @@ describe("skillmaker report: Receive surfaces the report", () => {
   }
 
   test("GET /api/field-reports lists every report, newest first", async () => {
-    const response = await fetch(`${baseUrl}/api/field-reports`);
+    const response = await fetch(`${projectUrl}/field-reports`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { reports: ReadonlyArray<FieldReportView> };
     // Two reports were appended in the "happy path" describe block above.
@@ -247,7 +249,7 @@ describe("skillmaker report: Receive surfaces the report", () => {
   });
 
   test("Ship's changelog picks up a reported entry for the bundle", async () => {
-    const response = await fetch(`${baseUrl}/api/skillbook`);
+    const response = await fetch(`${projectUrl}/skillbook`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       bundles: ReadonlyArray<{
@@ -261,7 +263,7 @@ describe("skillmaker report: Receive surfaces the report", () => {
   });
 
   test("POST /api/events accepts skill.field_report -- Receive's paste form write path", async () => {
-    const response = await fetch(`${baseUrl}/api/events`, {
+    const response = await fetch(`${projectUrl}/events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -274,14 +276,14 @@ describe("skillmaker report: Receive surfaces the report", () => {
     expect(body.status).toBe("appended");
     expect(body.event.type).toBe("skill.field_report");
 
-    const reportsResponse = await fetch(`${baseUrl}/api/field-reports`);
+    const reportsResponse = await fetch(`${projectUrl}/field-reports`);
     const reportsBody = (await reportsResponse.json()) as { reports: ReadonlyArray<FieldReportView> };
     expect(reportsBody.reports).toHaveLength(3);
     expect(reportsBody.reports[0]?.outcome).toBe("surprise");
   });
 
   test("POST /api/events rejects an invalid outcome for skill.field_report", async () => {
-    const response = await fetch(`${baseUrl}/api/events`, {
+    const response = await fetch(`${projectUrl}/events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({

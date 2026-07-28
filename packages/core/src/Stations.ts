@@ -45,9 +45,11 @@ export const DEFAULT_STATIONS_TEMPLATE: typeof StationsFile.Type = {
     researching: {
       doer: "agent",
       // Bundle slug, not "william/research-a-skill" -- same rule as
-      // "drafting" below (station.skill resolves to another bundle in the
-      // SAME workspace, and bundle slugs cannot contain "/"). Real,
-      // working skill as of Phase 19: skills/william-research-a-skill/.
+      // "drafting" below (station.skill resolves to a bundle: the
+      // workspace's own copy if it has one, else the product-packaged copy
+      // per D6 -- StationEngine.ts's resolveStationSkillDir -- and bundle
+      // slugs cannot contain "/"). The packaged copy ships with the CLI
+      // (packages/cli/skills/william-research-a-skill/).
       skill: "william-research-a-skill",
       produces: ["research/"],
       review: true,
@@ -55,9 +57,10 @@ export const DEFAULT_STATIONS_TEMPLATE: typeof StationsFile.Type = {
     drafting: {
       doer: "agent",
       // Bundle slug, not "william/draft-skill-md" -- station.skill resolves
-      // to another bundle in the SAME workspace (StationEngine.ts), and
-      // bundle slugs cannot contain "/" (WorkspaceService.ts's SLUG_PATTERN).
-      // Real, working skill as of Phase 10: skills/william-draft-skill-md/.
+      // to a bundle (workspace copy first, packaged copy as the D6 fallback,
+      // see StationEngine.ts's resolveStationSkillDir), and bundle slugs
+      // cannot contain "/" (WorkspaceService.ts's SLUG_PATTERN). The
+      // packaged copy ships with the CLI (packages/cli/skills/william-draft-skill-md/).
       skill: "william-draft-skill-md",
       produces: ["design.md", "output/SKILL.md"],
       // Friction #16: the researching station's output must reach the

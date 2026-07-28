@@ -21,20 +21,25 @@
 #
 #   default (host) mode -- unchanged, other tooling depends on it
 #   (prepare-desktop-sidecar.sh, install.sh's tarball layout):
-#     dist/skillmaker      compiled binary
-#     dist/viewer-dist/    viewer's built static assets (astro build's dist/)
-#     dist/VERSION         "<package.json version>+<git short sha>[-dirty]"
+#     dist/skillmaker         compiled binary
+#     dist/viewer-dist/       viewer's built static assets (astro build's dist/)
+#     dist/packaged-skills/   product-packaged station skills (D6; the name and
+#                             sibling placement are load-bearing the same way
+#                             viewer-dist's are -- packages/cli/src/PackagedSkills.ts
+#                             walks execPath ancestors for `packaged-skills`)
+#     dist/VERSION            "<package.json version>+<git short sha>[-dirty]"
 #
 #   --platform / --all mode, per platform key:
 #     dist/targets/<key>/skillmaker        (skillmaker.exe for win32-x64)
 #     dist/targets/<key>/viewer-dist/
+#     dist/targets/<key>/packaged-skills/
 #     dist/targets/<key>/VERSION
 #   plus dist/VERSION at the top level (same content, one per run).
 #
 # The win32 layout is deliberately identical apart from the .exe suffix:
-# ViewerDist.ts walks ancestors of dirname(process.execPath) looking for a
-# `viewer-dist` sibling, using path.join throughout, so the same
-# binary-plus-sibling shape works on Windows unchanged.
+# ViewerDist.ts and PackagedSkills.ts walk ancestors of
+# dirname(process.execPath) using path.join throughout, so the same
+# binary-plus-siblings shape works on Windows unchanged.
 #
 # Safe to rerun: each step overwrites its own output only, nothing is
 # appended to or accumulated across runs.
@@ -155,6 +160,15 @@ build_target() {
   rm -rf "${outdir}/viewer-dist"
   cp -r packages/viewer/dist "${outdir}/viewer-dist"
 
+  # D6: William ships inside the product. The checked-in copies under
+  # packages/cli/skills/ (kept in lockstep with the repo's own skills/
+  # workspace by packages/cli/test/PackagedSkills.test.ts) travel next to
+  # the binary so StationEngine's packaged-skill fallback works everywhere
+  # the binary is copied, exactly like viewer-dist -- on every platform.
+  echo "==> build-dist: copying packaged station skills next to the ${key} binary"
+  rm -rf "${outdir}/packaged-skills"
+  cp -r packages/cli/skills "${outdir}/packaged-skills"
+
   echo "$dist_version" >"${outdir}/VERSION"
 }
 
@@ -183,6 +197,7 @@ case "$mode" in
   host)
     echo "    dist/skillmaker"
     echo "    dist/viewer-dist/"
+    echo "    dist/packaged-skills/"
     echo "    dist/VERSION"
     ;;
   platform)

@@ -24,6 +24,9 @@ import { adoptSkill, createSkill } from "./loopApi.ts";
 import { defaultSelection, ModelPicker, type ModelSelection } from "./ModelPicker.tsx";
 import { FADE_R } from "./ui.tsx";
 
+/** Import rows shown before "Show all N" — the list must never bury the compose box. */
+const CANDIDATE_PREVIEW = 10;
+
 export function NewSkillLauncher({
   project,
   onCreated,
@@ -40,6 +43,7 @@ export function NewSkillLauncher({
   const [catalog, setCatalog] = useState<ReadonlyArray<ChatProviderCatalog> | null>(null);
   const [picked, setPicked] = useState<ModelSelection | null>(null);
   const [candidates, setCandidates] = useState<ReadonlyArray<AdoptCandidate>>([]);
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
   const [takenSlugs, setTakenSlugs] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,8 +118,12 @@ export function NewSkillLauncher({
   };
 
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-xl">
+    // Top-anchored at a fixed height, NOT vertically centered: centering made
+    // the compose box bounce when the import list loaded in, and h-full
+    // clipped the top once the list outgrew the viewport. The box never
+    // moves; a long list just makes the page scroll.
+    <div className="flex min-h-full justify-center p-6">
+      <div className="w-full max-w-xl pt-[18vh]">
         <h1 className="pb-4 text-center font-display text-xl">
           What skill would you like to create? Tell us about it.
         </h1>
@@ -190,7 +198,7 @@ export function NewSkillLauncher({
           <section className="pt-6">
             <h2 className="pb-2 text-xs uppercase tracking-widest text-ink-muted">Import one of these?</h2>
             <div className="space-y-1.5">
-              {candidates.map((candidate) => (
+              {(showAllCandidates ? candidates : candidates.slice(0, CANDIDATE_PREVIEW)).map((candidate) => (
                 <button
                   key={candidate.path}
                   type="button"
@@ -206,6 +214,15 @@ export function NewSkillLauncher({
                 </button>
               ))}
             </div>
+            {!showAllCandidates && candidates.length > CANDIDATE_PREVIEW && (
+              <button
+                type="button"
+                className="mt-2 cursor-pointer text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+                onClick={() => setShowAllCandidates(true)}
+              >
+                Show all {candidates.length}
+              </button>
+            )}
           </section>
         )}
       </div>

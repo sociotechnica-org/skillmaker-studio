@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -20,6 +20,7 @@ let scratchDir: string;
 let bundleDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string = scratchDir) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -195,12 +196,13 @@ describe("skillmaker ship: happy path", () => {
 
 describe("skillmaker ship: Ship surfaces the shipment", () => {
   beforeAll(async () => {
-    const server = await startE2eServer({
+    const server = await startE2eRegistryServer({
       command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
       cwd: scratchDir,
     });
     serverProcess = server.process;
     baseUrl = server.baseUrl;
+    projectUrl = server.projectUrls[0] as string;
   }, 60000);
 
   interface SkillbookShipment {
@@ -218,7 +220,7 @@ describe("skillmaker ship: Ship surfaces the shipment", () => {
   }
 
   test("GET /api/skillbook lists every shipment for the bundle, newest first, and a shipped changelog entry", async () => {
-    const response = await fetch(`${baseUrl}/api/skillbook`);
+    const response = await fetch(`${projectUrl}/skillbook`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { bundles: ReadonlyArray<SkillbookBundle> };
     const demo = body.bundles.find((bundle) => bundle.slug === "demo-skill");

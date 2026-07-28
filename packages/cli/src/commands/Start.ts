@@ -1,14 +1,27 @@
 /**
- * `skillmaker start` -- serves the viewer + `/api/*` on one origin
- * (plan.md Phase 3). Unlike every other command, this one keeps the process
- * alive until SIGINT/SIGTERM: it prints its startup banner directly (rather
- * than via the returned `CliResult`, which only flushes once the Effect
- * resolves) because callers -- the e2e harness included -- need to observe
- * "serving" before the command's promise settles.
+ * `skillmaker start` -- serves the viewer + `/api/*` on one origin. Since
+ * the machine-registry re-architecture (director rulings 2026-07-27) this
+ * command serves the REGISTRY ONLY: it ignores cwd entirely, reads the
+ * machine-level project list from `~/.skillmaker-studio/config.json`
+ * (`SKILLMAKER_STUDIO_HOME` overrides the home), and serves every
+ * registered project at `/api/projects/:project/...`. An EMPTY registry is
+ * fine -- the UI can add the first project.
+ *
+ * Unlike every other command, this one keeps the process alive until
+ * SIGINT/SIGTERM: it prints its startup banner directly (rather than via
+ * the returned `CliResult`, which only flushes once the Effect resolves)
+ * because callers -- the e2e harness included -- need to observe "serving"
+ * before the command's promise settles.
  */
-import { IndexService, IndexServiceLayer, Workspace } from "@skillmaker/core";
+import {
+  IndexService,
+  IndexServiceLayer,
+  MachineConfigMalformedError,
+  machineHome,
+  readMachineConfig,
+} from "@skillmaker/core";
 import { Effect } from "effect";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openBrowser } from "../server/BrowserOpener.ts";
@@ -21,6 +34,9 @@ export interface StartOptions {
   readonly port?: number;
   readonly noOpen: boolean;
 }
+
+/** The port when `--port` is not given: the registry has no per-machine config yet, so the CLI's long-advertised default (usage line: "or 4323") is the one source. */
+export const DEFAULT_START_PORT = 4323;
 
 const readCliVersion = (): string => {
   const packageJsonPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
@@ -44,19 +60,23 @@ const waitForShutdown = Effect.callback<void>((resume) => {
   process.on("SIGTERM", handler);
 });
 
-export const runStart = Effect.fn("runStart")(function* (cwd: string, options: StartOptions) {
-  const workspace = yield* Workspace;
-  const resolved = yield* workspace
-    .resolve(cwd)
-    .pipe(Effect.catchTag("WorkspaceNotFoundError", () => Effect.succeed(undefined)));
+export const runStart = Effect.fn("runStart")(function* (_cwd: string, options: StartOptions) {
+  const home = machineHome();
 
-  if (resolved === undefined) {
-    return expectedFailure(
-      "skillmaker start: no skillmaker workspace found (run `skillmaker init` first)\n",
-    );
+  let registeredPaths: ReadonlyArray<string>;
+  try {
+    registeredPaths = readMachineConfig(home).projects.map((entry) => entry.path);
+  } catch (error) {
+    if (error instanceof MachineConfigMalformedError) {
+      return expectedFailure(`skillmaker start: ${error.message}\n`);
+    }
+    throw error;
   }
 
-  const claimPath = join(resolved.root, ".skillmaker", "claims", "server.json");
+  // Single-instance ownership moved with the registry: one claim per
+  // MACHINE home (`<home>/claims/server.json`), no longer per workspace --
+  // the server serves every registered project, so one is enough.
+  const claimPath = join(home, "claims", "server.json");
   const claimStatus = classifyClaim(readClaim(claimPath));
   if (claimStatus.kind === "running") {
     return ok(`skillmaker: already running at http://localhost:${claimStatus.claim.port}\n`);
@@ -72,15 +92,22 @@ export const runStart = Effect.fn("runStart")(function* (cwd: string, options: S
     throw error;
   }
 
-  yield* Effect.gen(function* () {
-    const index = yield* IndexService;
-    yield* index.rebuild();
-  }).pipe(Effect.provide(IndexServiceLayer(resolved.root)));
+  // Warm each healthy registered project's index up front (same cold-start
+  // rationale as the old single-workspace prebuild). A missing/broken
+  // project never blocks startup -- the server reports it per-project.
+  for (const projectRoot of registeredPaths) {
+    if (!existsSync(join(projectRoot, "skillmaker.config.json"))) {
+      continue;
+    }
+    yield* Effect.gen(function* () {
+      const index = yield* IndexService;
+      yield* index.rebuild();
+    }).pipe(Effect.provide(IndexServiceLayer(projectRoot)), Effect.ignore);
+  }
 
-  const port = options.port ?? resolved.config.viewer.port;
+  const port = options.port ?? DEFAULT_START_PORT;
   const handle = startServer({
-    root: resolved.root,
-    config: resolved.config,
+    home,
     port,
     viewerDist,
     version: readCliVersion(),
@@ -89,7 +116,11 @@ export const runStart = Effect.fn("runStart")(function* (cwd: string, options: S
   writeClaim(claimPath, { pid: process.pid, port: handle.port, startedAt: new Date().toISOString() });
 
   const url = `http://localhost:${handle.port}`;
-  process.stdout.write(`skillmaker: serving ${resolved.config.name} at ${url}\n`);
+  const count = registeredPaths.length;
+  process.stdout.write(
+    `skillmaker: serving ${count} registered project${count === 1 ? "" : "s"} at ${url}\n` +
+      (count === 0 ? `skillmaker: registry is empty -- add one with \`skillmaker project add <dir>\` or from the UI\n` : ""),
+  );
   if (!options.noOpen) {
     openBrowser(url);
   }

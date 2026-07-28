@@ -5,6 +5,7 @@
  * client hits same-origin `/api/*` paths.
  */
 import {
+  addMachineProject,
   adoptWorkspace,
   bundleForEvent,
   checkTransition,
@@ -31,7 +32,9 @@ import {
   listUndisposedCrates,
   parseDossier,
   publishBundle,
+  readMachineConfig,
   recordSkillVersion,
+  removeMachineProject,
   resolveSkillVersion,
   runFixture,
   runStation,
@@ -66,14 +69,14 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import type { FileSystem } from "effect/FileSystem";
 import type { Path } from "effect/Path";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve as resolvePath, sep } from "node:path";
 import { resolveUserActor } from "../ActorResolver.ts";
+import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 import { loadSkillbook } from "../Skillbook.ts";
-import { ChatSessionManager } from "./ChatSessions.ts";
-import { createRunDispatchHandlers } from "./RunDispatch.ts";
-import { watchJournal, type JournalWatcherHandle } from "./JournalWatcher.ts";
+import { handleFsList, handleFsMkdir, handleFsValidate } from "./FsBrowse.ts";
+import { ProjectRegistryManager, type OkProjectContext } from "./ProjectRegistry.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
 
 const HEARTBEAT_MS = 15_000;
@@ -120,8 +123,8 @@ const MAX_EVENTS_PAGE_SIZE = 200;
 const RECENTLY_ROUTED_LIMIT = 10;
 
 export interface StartServerOptions {
-  readonly root: string;
-  readonly config: WorkspaceConfig;
+  /** The machine home (`~/.skillmaker-studio`, or `SKILLMAKER_STUDIO_HOME`): where the project registry lives. The server serves the REGISTRY, never a cwd (director ruling 2026-07-27 #2). */
+  readonly home: string;
   readonly port: number;
   readonly viewerDist: string;
   readonly version: string;
@@ -704,30 +707,155 @@ export const shortenHomePath = (path: string, home: string): string => {
 };
 
 /**
- * `GET /api/projects` -- the next shell's sidebar Projects tree (IA doc
- * 2026-07-22 §A). The real machine-level project registry (`~/.skillmaker`)
- * arrives in a later phase; TODAY the server knows exactly one project --
- * the workspace it is running for -- so this returns a one-element array.
- * The ARRAY shape is the contract: when the registry lands, this endpoint
- * grows more elements and the client changes not at all. Skills are the
- * workspace's non-archived bundles off ONE `rebuild()` (`listBundleRecords`),
- * in the server's own stage vocabulary (`idea`...`published`) -- display
- * labels are the viewer's business.
+ * `GET /api/projects` -- the machine-level registry, live (director rulings
+ * 2026-07-27; this endpoint's array shape was the contract all along --
+ * "grows more elements and the client changes not at all"). One row per
+ * REGISTERED project: `slug` (the URL identifier for `/api/projects/:slug/
+ * ...` routes), name derived at read time from the project's own config (or
+ * its basename), and its non-archived skills off that project's own index.
+ * A missing/broken project directory is reported (`ok: false` + why), never
+ * crashed over, and its skills are honestly empty.
  */
-const handleProjects = async (root: string, config: WorkspaceConfig): Promise<Response> => {
-  const bundles = await listBundleRecords(root);
-  const skills = bundles
-    .filter((bundle) => !bundle.archived)
-    .map((bundle) => ({ slug: bundle.slug, stage: bundle.stage, substate: bundle.substate, oneLiner: bundle.oneLiner }));
-  return jsonResponse({
-    projects: [
-      {
-        name: config.name.length > 0 ? config.name : basename(root),
-        path: shortenHomePath(root, homedir()),
-        skills,
-      },
-    ],
-  });
+const handleProjects = async (registry: ProjectRegistryManager): Promise<Response> => {
+  // Reconcile against the registry file on every list: `skillmaker project
+  // add` from a terminal while the server runs must show up on the next
+  // sidebar refresh, and a vanished directory must degrade to a reported
+  // broken row. Cheap: one small JSON read; healthy live contexts are kept.
+  registry.refresh();
+  const projects = await Promise.all(
+    registry.contexts().map(async (context) => {
+      const base = {
+        slug: context.slug,
+        name: context.name,
+        path: shortenHomePath(context.root, homedir()),
+        absolutePath: context.root,
+      };
+      if (context.kind === "broken") {
+        return { ...base, ok: false, error: context.error, skills: [] };
+      }
+      try {
+        const bundles = await listBundleRecords(context.root);
+        const skills = bundles
+          .filter((bundle) => !bundle.archived)
+          .map((bundle) => ({ slug: bundle.slug, stage: bundle.stage, substate: bundle.substate, oneLiner: bundle.oneLiner }));
+        return { ...base, ok: true, skills };
+      } catch (cause) {
+        return { ...base, ok: false, error: `could not read project index: ${String(cause)}`, skills: [] };
+      }
+    }),
+  );
+  return jsonResponse({ projects });
+};
+
+interface RegisterProjectRequestBody {
+  readonly path?: unknown;
+  readonly create?: unknown;
+  readonly init?: unknown;
+}
+
+/**
+ * `POST /api/projects` -- the UI's "New project" door (director ruling
+ * 2026-07-27 #3). Body: `{path, create?, init?}` where `path` is ABSOLUTE
+ * (the server-side picker/typed field supplies it):
+ * - `create: true` -- create the directory first (parent must exist).
+ * - dir lacks `skillmaker.config.json` + `init: true` -- scaffold the
+ *   default workspace via core `Workspace.init` (the same init path
+ *   `skillmaker init` uses; post-#174 defaults included).
+ * - dir lacks the config + no `init` -- 409 `{status: "needs_init"}` so the
+ *   dialog can confirm scaffolding instead of silently writing into an
+ *   arbitrary directory.
+ * Then registers it in the machine registry and refreshes live contexts.
+ */
+const handleRegisterProject = async (
+  home: string,
+  registry: ProjectRegistryManager,
+  request: Request,
+): Promise<Response> => {
+  let body: RegisterProjectRequestBody = {};
+  try {
+    const rawText = await request.text();
+    if (rawText.length > 0) body = JSON.parse(rawText) as RegisterProjectRequestBody;
+  } catch {
+    return jsonResponse({ error: "invalid JSON body" }, 400);
+  }
+  if (typeof body.path !== "string" || body.path.length === 0) {
+    return jsonResponse({ error: "path is required" }, 400);
+  }
+  if (!body.path.startsWith(sep)) {
+    return jsonResponse({ error: "path must be absolute" }, 400);
+  }
+  const path = resolvePath(body.path);
+
+  if (!existsSync(path)) {
+    if (body.create !== true) {
+      return jsonResponse({ error: `no such directory "${path}" (pass create: true to create it)` }, 404);
+    }
+    const parent = dirname(path);
+    if (!existsSync(parent) || !statSync(parent).isDirectory()) {
+      return jsonResponse({ error: `parent directory "${parent}" does not exist` }, 400);
+    }
+    try {
+      mkdirSync(path);
+    } catch (cause) {
+      return jsonResponse({ error: `could not create directory: ${String(cause)}` }, 500);
+    }
+  } else if (!statSync(path).isDirectory()) {
+    return jsonResponse({ error: `"${path}" is not a directory` }, 400);
+  }
+
+  let initialized = false;
+  if (!existsSync(join(path, "skillmaker.config.json"))) {
+    if (body.init !== true) {
+      return jsonResponse(
+        { status: "needs_init", path, error: `"${path}" is not a skillmaker workspace yet (pass init: true to scaffold it)` },
+        409,
+      );
+    }
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const workspace = yield* Workspace;
+          return yield* workspace.init(path);
+        }).pipe(Effect.provide(Layer.provide(WorkspaceLayer, BunServices.layer))),
+      );
+      initialized = true;
+    } catch (cause) {
+      return jsonResponse({ error: `could not initialize workspace: ${String(cause)}` }, 500);
+    }
+  }
+
+  const added = addMachineProject(home, path);
+  registry.refresh();
+  const context = registry.contexts().find((candidate) => candidate.root === path);
+  return jsonResponse(
+    {
+      status: added.status === "added" ? "registered" : "already_registered",
+      initialized,
+      project:
+        context === undefined
+          ? null
+          : { slug: context.slug, name: context.name, path: shortenHomePath(context.root, homedir()), absolutePath: context.root },
+    },
+    added.status === "added" ? 201 : 200,
+  );
+};
+
+/**
+ * `DELETE /api/projects/:slug` -- unregister ONLY (director ruling
+ * 2026-07-27 #2): the directory and everything in it is never touched.
+ */
+const handleUnregisterProject = (
+  home: string,
+  registry: ProjectRegistryManager,
+  slug: string,
+): Response => {
+  const context = registry.bySlug(slug);
+  if (context === undefined) {
+    return jsonResponse({ error: `no registered project "${slug}"` }, 404);
+  }
+  const removed = removeMachineProject(home, context.root);
+  registry.refresh();
+  return jsonResponse({ status: removed.status, path: context.root });
 };
 
 type AppendVersionOutcome =
@@ -2082,6 +2210,10 @@ const handleTriggerStationRun = async (
   const actor = await Effect.runPromise(resolveUserActor());
   const runId = crypto.randomUUID();
   const journalPath = join(root, ".skillmaker", "events.jsonl");
+  // D6: William ships inside the product -- station skills the workspace
+  // doesn't carry fall back to the packaged copies, when this build has them
+  // (workspace copies always win, see resolveStationSkillDir).
+  const packagedSkillsDir = locatePackagedSkillsDir();
 
   const program = runStation({
     root,
@@ -2091,6 +2223,7 @@ const handleTriggerStationRun = async (
     provider,
     actor,
     runId,
+    ...(packagedSkillsDir !== undefined ? { packagedSkillsDir } : {}),
   }).pipe(
     Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
     Effect.provide(BunServices.layer),
@@ -2260,7 +2393,9 @@ const createEventBroadcaster = () => {
 
   return {
     response,
-    onJournalChange: () => broadcast("data: journal\n\n"),
+    // Which project's journal moved rides the payload (director rulings
+    // 2026-07-27): ONE machine-level stream, per-project watchers behind it.
+    onJournalChange: (project: string) => broadcast(`data: ${JSON.stringify({ kind: "journal", project })}\n\n`),
     onHeartbeat: () => broadcast(": heartbeat\n\n"),
   };
 };
@@ -2304,37 +2439,23 @@ const serveStatic = async (viewerDist: string, pathname: string): Promise<Respon
   return indexResponse ?? new Response("Not Found", { status: 404 });
 };
 
-export const startServer = (options: StartServerOptions): ServerHandle => {
-  const { root, config, port, viewerDist, version } = options;
-  const journalPath = join(root, ".skillmaker", "events.jsonl");
-  const broadcaster = createEventBroadcaster();
-
-  const watcherHandle: JournalWatcherHandle = watchJournal(journalPath, broadcaster.onJournalChange);
-  const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);
-  const chatManager = new ChatSessionManager({ root, config });
-  // Fixture-run dispatch (run / run-all / runs-active): the UI's door onto
-  // the SAME RunEngine path as `skillmaker run` -- see RunDispatch.ts for
-  // the concurrency (cap 2, FIFO queue) and orphan-safety choices.
-  const runDispatch = createRunDispatchHandlers({ root, config });
-
-  const server = Bun.serve({
-    port,
-    // Explicit safety net, not a fix by itself: Bun's default per-connection
-    // idle timeout is 10s, which a concurrent-request burst on cold start
-    // (several `/api/*` requests + the events SSE stream all racing to
-    // rebuild the same workspace's index at once, see the workspace-lock
-    // comment in packages/core/src/IndexService.ts) could exceed and
-    // surface as "[Bun.serve]: request timed out after 10 seconds" in the
-    // server log and a hung request in the browser. 30s gives real
-    // (non-runaway) requests headroom without hiding a genuine hang.
-    idleTimeout: 30,
-    async fetch(request) {
-      const url = new URL(request.url);
-      const pathname = url.pathname;
-
-      if (pathname === "/api/health") {
-        return jsonResponse({ ok: true, version });
-      }
+/**
+ * One project's whole `/api/*` surface -- every route the single-workspace
+ * server used to serve at `/api/<rest>` now lives at
+ * `/api/projects/:project/<rest>` (director rulings 2026-07-27; the clean
+ * break -- the viewer is the only client). `pathname` here is the INTERNAL
+ * `/api/<rest>` form with the project prefix already stripped, so the route
+ * matching below reads exactly as it always did; `root`/`config` and the
+ * per-project managers (chat sessions, run dispatch) come off the resolved
+ * project context, threaded per-request from the registry.
+ */
+const handleProjectApi = async (
+  projectContext: OkProjectContext,
+  pathname: string,
+  url: URL,
+  request: Request,
+): Promise<Response> => {
+  const { root, config, chat: chatManager, runDispatch } = projectContext;
 
       if (pathname === "/api/state") {
         return jsonResponse({
@@ -2386,14 +2507,6 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
           return await handleIntake(root);
         } catch (cause) {
           return jsonResponse({ error: `could not list intake: ${String(cause)}` }, 500);
-        }
-      }
-
-      if (pathname === "/api/projects") {
-        try {
-          return await handleProjects(root, config);
-        } catch (cause) {
-          return jsonResponse({ error: `could not list projects: ${String(cause)}` }, 500);
         }
       }
 
@@ -2551,10 +2664,6 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         }
       }
 
-      if (pathname === "/api/events-stream") {
-        return broadcaster.response();
-      }
-
       // Chat surface (D9): per-skill agent sessions. Explicit-start flow:
       //   GET  /api/chat/:skill/state       session + provider + resumable snapshot
       //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume", model?, effort? } -> spawn/resume
@@ -2564,13 +2673,6 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
       //   POST /api/chat/:skill/cancel      cancel the in-flight turn
       //   POST /api/chat/:skill/end         close the live session (stays resumable)
       //   GET  /api/chat/:skill/stream      SSE: buffered replay + live updates
-      // Provider capability catalog for the grouped model picker: models per
-      // provider (learned from the adapters via a cached one-shot probe),
-      // effort levels, and image support. See ChatSessionManager.providersCatalog.
-      if (pathname === "/api/chat/providers" && request.method === "GET") {
-        return jsonResponse({ providers: await chatManager.providersCatalog() });
-      }
-
       if (pathname.startsWith("/api/chat/")) {
         const chatSegments = pathname
           .slice("/api/chat/".length)
@@ -2657,6 +2759,116 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
         return jsonResponse({ error: `unknown chat action "${chatAction}"` }, 404);
       }
 
+      return jsonResponse({ error: `unknown endpoint ${pathname}` }, 404);
+};
+
+export const startServer = (options: StartServerOptions): ServerHandle => {
+  const { home, port, viewerDist, version } = options;
+  const broadcaster = createEventBroadcaster();
+  // The registry manager owns every per-project resource: config, chat
+  // session manager, run dispatch queue, journal watcher (whose change
+  // events carry the project slug into the ONE machine-level SSE stream).
+  const registry = new ProjectRegistryManager({ home, onJournalChange: broadcaster.onJournalChange });
+  const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);
+
+  const server = Bun.serve({
+    port,
+    // Explicit safety net, not a fix by itself: Bun's default per-connection
+    // idle timeout is 10s, which a concurrent-request burst on cold start
+    // (several `/api/*` requests + the events SSE stream all racing to
+    // rebuild the same workspace's index at once, see the workspace-lock
+    // comment in packages/core/src/IndexService.ts) could exceed and
+    // surface as "[Bun.serve]: request timed out after 10 seconds" in the
+    // server log and a hung request in the browser. 30s gives real
+    // (non-runaway) requests headroom without hiding a genuine hang.
+    idleTimeout: 30,
+    async fetch(request) {
+      const url = new URL(request.url);
+      const pathname = url.pathname;
+
+      // ---- Machine-level surface: registry, disk browser, health, SSE ----
+
+      if (pathname === "/api/health") {
+        return jsonResponse({ ok: true, version });
+      }
+
+      if (pathname === "/api/events-stream") {
+        return broadcaster.response();
+      }
+
+      // Provider capability catalog for the grouped model picker -- machine
+      // level (director rulings 2026-07-27): providers are adapters on this
+      // MACHINE. The probe needs some workspace to run in, so it borrows the
+      // first healthy project's manager; an empty registry has no adapters
+      // to probe and honestly reports none.
+      if (pathname === "/api/chat/providers" && request.method === "GET") {
+        const first = registry.firstOk();
+        return jsonResponse({ providers: first === undefined ? [] : await first.chat.providersCatalog() });
+      }
+
+      // Server-side disk browsing for the New-project dialog (ruling #3):
+      // directories only, absolute paths only -- see FsBrowse.ts.
+      if (pathname === "/api/fs/list" && request.method === "GET") {
+        return handleFsList(url);
+      }
+      if (pathname === "/api/fs/validate" && request.method === "GET") {
+        return handleFsValidate(url, (path) => registry.isRegistered(path));
+      }
+      if (pathname === "/api/fs/mkdir" && request.method === "POST") {
+        return handleFsMkdir(request);
+      }
+
+      if (pathname === "/api/projects") {
+        if (request.method === "POST") {
+          return handleRegisterProject(home, registry, request);
+        }
+        try {
+          return await handleProjects(registry);
+        } catch (cause) {
+          return jsonResponse({ error: `could not list projects: ${String(cause)}` }, 500);
+        }
+      }
+
+      // ---- Project-scoped surface: /api/projects/:project/<rest> ----
+
+      if (pathname.startsWith("/api/projects/")) {
+        const afterPrefix = pathname.slice("/api/projects/".length);
+        const slashIndex = afterPrefix.indexOf("/");
+        const rawSlug = slashIndex === -1 ? afterPrefix : afterPrefix.slice(0, slashIndex);
+        if (rawSlug.length === 0) {
+          return jsonResponse({ error: "missing project slug" }, 404);
+        }
+        const projectSlug = decodeURIComponent(rawSlug);
+
+        if (slashIndex === -1 && request.method === "DELETE") {
+          return handleUnregisterProject(home, registry, projectSlug);
+        }
+
+        let context = registry.bySlug(projectSlug);
+        if (context === undefined) {
+          // The registry file may have been edited outside this process
+          // (`skillmaker project add` in a terminal): reconcile once before
+          // giving up on the slug.
+          registry.refresh();
+          context = registry.bySlug(projectSlug);
+        }
+        if (context === undefined) {
+          return jsonResponse({ error: `no registered project "${projectSlug}"` }, 404);
+        }
+        if (context.kind === "broken") {
+          return jsonResponse(
+            { error: `project "${projectSlug}" is unavailable: ${context.error} (${context.root})` },
+            503,
+          );
+        }
+
+        // Re-prefix the remainder as an internal `/api/<rest>` path (raw --
+        // still percent-encoded; the project handlers decode their own
+        // segments exactly as before).
+        const rest = slashIndex === -1 ? "" : afterPrefix.slice(slashIndex);
+        return handleProjectApi(context, `/api${rest}`, url, request);
+      }
+
       if (pathname.startsWith("/api/")) {
         return jsonResponse({ error: `unknown endpoint ${pathname}` }, 404);
       }
@@ -2669,8 +2881,7 @@ export const startServer = (options: StartServerOptions): ServerHandle => {
     port: server.port ?? port,
     stop: async () => {
       clearInterval(heartbeat);
-      watcherHandle.close();
-      await chatManager.stop();
+      await registry.stop();
       await server.stop(true);
     },
   };

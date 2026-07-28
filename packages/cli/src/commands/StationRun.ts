@@ -21,6 +21,7 @@ import {
 import { Effect } from "effect";
 import { Path } from "effect/Path";
 import { resolveUserActor } from "../ActorResolver.ts";
+import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 import { type CliResult, expectedFailure, infraError, ok, usageError } from "../CliResult.ts";
 import { modelDisplayName } from "../ModelDisplay.ts";
 
@@ -80,6 +81,7 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const provider = options.provider ?? DEFAULT_PROVIDER;
   const actor = yield* resolveUserActor();
+  const packagedSkillsDir = locatePackagedSkillsDir();
 
   let updateCount = 0;
   const onProgress = (event: {
@@ -124,6 +126,10 @@ export const runStationRun = Effect.fn("runStationRun")(function* (
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       permissive: options.permissive,
       onProgress,
+      // D6: William ships inside the product -- station skills the workspace
+      // doesn't carry fall back to the packaged copies, when this build has
+      // them (workspace copies always win, see resolveStationSkillDir).
+      ...(packagedSkillsDir !== undefined ? { packagedSkillsDir } : {}),
     }).pipe(Effect.provide(JournalLayer(journalPath))),
   );
 

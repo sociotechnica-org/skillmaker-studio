@@ -11,11 +11,16 @@ export type Skill = {
   readonly awaitingReview?: boolean;
 };
 
-/** A project is a directory that contains skills (IA §A). */
+/** A project is a directory that contains skills (IA §A), registered in the machine registry (2026-07-27 rulings). */
 export type Project = {
+  /** The registry's URL identifier -- every project-scoped API route rides `/api/projects/<slug>`. Placeholder data reuses the name. */
+  readonly slug: string;
   readonly name: string;
   readonly path: string;
   readonly skills: ReadonlyArray<Skill>;
+  /** False when the registered directory is missing/broken -- reported by the server, rendered as a degraded row. Absent on placeholders. */
+  readonly ok?: boolean;
+  readonly error?: string;
 };
 
 export type TaskState = "open" | "in-progress";

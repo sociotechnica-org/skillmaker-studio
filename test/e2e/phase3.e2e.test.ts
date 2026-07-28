@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -19,6 +19,9 @@ let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let port: number;
 let baseUrl: string;
+let projectUrl: string;
+let serverHome: string;
+let projectSlug: string;
 
 const copyToolVersions = (dir: string) => {
   const toolVersions = join(repoRoot, ".tool-versions");
@@ -36,7 +39,7 @@ const runCli = (args: ReadonlyArray<string>, cwd: string) => {
   };
 };
 
-const claimPath = () => join(scratchDir, ".skillmaker", "claims", "server.json");
+const claimPath = () => join(serverHome, "claims", "server.json");
 
 beforeAll(async () => {
   // Build the viewer once (cached across runs -- `dist/` is gitignored but
@@ -65,13 +68,16 @@ beforeAll(async () => {
   expect(runCli(["new", "alpha", "--json"], scratchDir).exitCode).toBe(0);
   expect(runCli(["new", "beta", "--json"], scratchDir).exitCode).toBe(0);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   port = server.port;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
+  serverHome = server.home;
+  projectSlug = server.projectSlugs[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -101,7 +107,7 @@ describe("skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)", () => {
   });
 
   test("GET /api/bundles matches `list --json`", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles`);
+    const response = await fetch(`${projectUrl}/bundles`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { bundles: ReadonlyArray<BundleView> };
     expect(body.bundles.map((b) => b.slug).sort()).toEqual(["alpha", "beta"]);
@@ -140,7 +146,7 @@ describe("skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)", () => {
   });
 
   test("GET /api/unknown is a 404, not the SPA fallback", async () => {
-    const response = await fetch(`${baseUrl}/api/does-not-exist`);
+    const response = await fetch(`${projectUrl}/does-not-exist`);
     expect(response.status).toBe(404);
   });
 
@@ -155,7 +161,7 @@ describe("skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)", () => {
       }
       const decoder = new TextDecoder();
       let buffer = "";
-      while (!buffer.includes("data: journal")) {
+      while (!buffer.includes("\"kind\":\"journal\"")) {
         const { value, done } = await reader.read();
         if (done) {
           throw new Error("SSE stream closed before a journal message arrived");
@@ -175,7 +181,7 @@ describe("skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)", () => {
     });
 
     const buffer = await Promise.race([streamPromise, timeoutPromise]);
-    expect(buffer).toContain("data: journal");
+    expect(buffer).toContain(JSON.stringify({ kind: "journal", project: projectSlug }));
     controller.abort();
   }, 10000);
 

@@ -33,7 +33,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const distBinary = join(repoRoot, "dist", "skillmaker");
@@ -47,6 +47,8 @@ let binaryPath: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let port: number;
 let baseUrl: string;
+let projectUrl: string;
+let serverHome: string;
 
 const runBinary = (args: ReadonlyArray<string>, cwd: string) => {
   const result = Bun.spawnSync([binaryPath, ...args], {
@@ -61,8 +63,9 @@ const runBinary = (args: ReadonlyArray<string>, cwd: string) => {
   };
 };
 
-const claimPath = () =>
-  join(workspaceDir, ".skillmaker", "claims", "server.json");
+// The claim moved with the registry (director rulings 2026-07-27): one per
+// machine home, not per workspace.
+const claimPath = () => join(serverHome, "claims", "server.json");
 
 describe.skipIf(!distArtifactsPresent)(
   "skillmaker distributed binary: golden path (Phase 12a)",
@@ -115,13 +118,15 @@ describe.skipIf(!distArtifactsPresent)(
         (JSON.parse(versionRecord.stdout) as { status: string }).status,
       ).toBe("appended");
 
-      const server = await startE2eServer({
+      const server = await startE2eRegistryServer({
         command: (port) => [binaryPath, "start", "--port", String(port), "--no-open"],
         cwd: workspaceDir,
       });
       serverProcess = server.process;
       port = server.port;
       baseUrl = server.baseUrl;
+      projectUrl = server.projectUrls[0] as string;
+      serverHome = server.home;
       // 90s, not the old 30s: the wait above is readiness-driven with a
       // 60s backstop -- the hook budget must outlast the backstop so a
       // genuine failure surfaces the helper's diagnostic error, not bun's
@@ -149,7 +154,7 @@ describe.skipIf(!distArtifactsPresent)(
     });
 
     test("GET /api/bundles shows the bundle created via the binary", async () => {
-      const response = await fetch(`${baseUrl}/api/bundles`);
+      const response = await fetch(`${projectUrl}/bundles`);
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
         bundles: ReadonlyArray<{ slug: string }>;

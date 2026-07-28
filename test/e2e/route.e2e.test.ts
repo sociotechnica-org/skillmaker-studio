@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -25,6 +25,7 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string = scratchDir) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -433,12 +434,13 @@ describe("skillmaker route: reindex replays all", () => {
 
 describe("skillmaker route: GET /api/intake reflects disposition", () => {
   beforeAll(async () => {
-    const server = await startE2eServer({
+    const server = await startE2eRegistryServer({
       command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
       cwd: scratchDir,
     });
     serverProcess = server.process;
     baseUrl = server.baseUrl;
+    projectUrl = server.projectUrls[0] as string;
   }, 60000);
 
   interface IntakeResponse {
@@ -447,7 +449,7 @@ describe("skillmaker route: GET /api/intake reflects disposition", () => {
   }
 
   test("disposed crates leave the undisposed queue and show up in the recently-routed tail", async () => {
-    const response = await fetch(`${baseUrl}/api/intake`);
+    const response = await fetch(`${projectUrl}/intake`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as IntakeResponse;
 

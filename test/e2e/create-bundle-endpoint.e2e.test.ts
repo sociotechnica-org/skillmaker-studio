@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -22,9 +22,10 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const createBundle = (payload: unknown): Promise<Response> =>
-  fetch(`${baseUrl}/api/bundles`, {
+  fetch(`${projectUrl}/bundles`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -44,12 +45,13 @@ beforeAll(async () => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
   expect(Bun.spawnSync(["bun", cliEntry, "init", "--json"], { cwd: scratchDir }).exitCode).toBe(0);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -76,7 +78,7 @@ describe("POST /api/bundles", () => {
     expect(journalHasBundleCreated("my-first-skill")).toBe(true);
 
     // It shows on the board in the idea stage.
-    const list = (await (await fetch(`${baseUrl}/api/bundles`)).json()) as {
+    const list = (await (await fetch(`${projectUrl}/bundles`)).json()) as {
       bundles: ReadonlyArray<{ slug: string; stage: string }>;
     };
     expect(list.bundles.find((b) => b.slug === "my-first-skill")?.stage).toBe("idea");

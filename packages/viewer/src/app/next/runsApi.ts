@@ -12,6 +12,7 @@
  * journal and reach the rest of the UI through its existing refetch paths.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiPath } from "../runtime/projectScope.ts";
 
 export interface ActiveRun {
   readonly runId: string;
@@ -38,13 +39,13 @@ const asError = async (response: Response): Promise<string> => {
 };
 
 export const fetchRunsActive = async (slug: string): Promise<RunsActive> => {
-  const response = await fetch(`/api/bundles/${encodeURIComponent(slug)}/runs-active`);
+  const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}/runs-active`));
   if (!response.ok) throw new Error(`runs-active: ${response.status}`);
   return (await response.json()) as RunsActive;
 };
 
 export const postRun = async (slug: string, fixture: string): Promise<string | null> => {
-  const response = await fetch(`/api/bundles/${encodeURIComponent(slug)}/run`, {
+  const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}/run`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ fixture }),
@@ -53,7 +54,7 @@ export const postRun = async (slug: string, fixture: string): Promise<string | n
 };
 
 export const postRunAll = async (slug: string): Promise<string | null> => {
-  const response = await fetch(`/api/bundles/${encodeURIComponent(slug)}/run-all`, {
+  const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}/run-all`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({}),

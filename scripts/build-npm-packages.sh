@@ -146,7 +146,7 @@ for key in $platforms; do
     echo "error: dist/targets/${key}/ not found -- run ./scripts/build-dist.sh --platform ${key} (or --all) first." >&2
     exit 1
   fi
-  if [ ! -f "${src}/${binary}" ] || [ ! -d "${src}/viewer-dist" ]; then
+  if [ ! -f "${src}/${binary}" ] || [ ! -d "${src}/viewer-dist" ] || [ ! -d "${src}/packaged-skills" ]; then
     echo "error: ${src}/${binary} and ${src}/viewer-dist/ must exist first -- rerun ./scripts/build-dist.sh." >&2
     exit 1
   fi
@@ -158,6 +158,9 @@ for key in $platforms; do
   cp "${src}/${binary}" "${pkg_out}/bin/${binary}"
   chmod +x "${pkg_out}/bin/${binary}"
   cp -r "${src}/viewer-dist" "${pkg_out}/viewer-dist"
+  # D6: the packaged station skills travel with the binary, same as viewer-dist
+  # (PackagedSkills.ts's execPath-relative walk finds them as a sibling dir).
+  cp -r "${src}/packaged-skills" "${pkg_out}/packaged-skills"
   bun -e "
     const fs = require('node:fs');
     const path = process.argv[1];

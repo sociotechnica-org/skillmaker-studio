@@ -1,8 +1,10 @@
 /** Left sidebar: global views (Board, Tasks) + the Projects → skills spine. */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { setActiveProject, useActiveProject } from "../runtime/projectScope.ts";
 import { fetchTasks, useApiData } from "./api.ts";
 import { PROJECTS, TASKS } from "./data.ts";
 import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, MoonIcon, PlusIcon, SunIcon, TasksIcon } from "./icons.tsx";
+import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { usePresence } from "./presence.ts";
 import { fetchProjects } from "./projectsApi.ts";
 import { applyTheme, currentTheme, type Theme } from "./theme.ts";
@@ -25,6 +27,8 @@ export function Sidebar({
     Object.fromEntries(PROJECTS.map((p) => [p.name, true])),
   );
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const activeProject = useActiveProject();
   const tasks = useApiData(fetchTasks, TASKS);
   const openTaskCount = tasks.filter((t) => t.state === "open").length;
 
@@ -39,7 +43,7 @@ export function Sidebar({
   );
   const runningSlugs = usePresence(visibleSlugs);
 
-  useEffect(() => {
+  const loadProjects = useCallback(() => {
     let cancelled = false;
     void fetchProjects().then((live) => {
       if (cancelled || live === null || live.length === 0) return;
@@ -51,6 +55,8 @@ export function Sidebar({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => loadProjects(), [loadProjects]);
 
   return (
     <div className="flex h-full flex-col">
@@ -83,23 +89,36 @@ export function Sidebar({
           <button
             type="button"
             className="shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
-            title="Register a project directory"
+            title="New project (register a directory)"
+            onClick={() => setNewProjectOpen(true)}
           >
             <PlusIcon />
           </button>
         </div>
         {projects.map((project) => (
           <ProjectSection
-            key={project.name}
+            key={project.slug}
             project={project}
+            active={project.slug === activeProject}
             open={openProjects[project.name] ?? false}
             expanded={showAll[project.name] ?? false}
             center={center}
             running={runningSlugs}
-            onToggle={() => setOpenProjects({ ...openProjects, [project.name]: !(openProjects[project.name] ?? false) })}
+            onToggle={() => {
+              // Selecting a project is REAL now (machine registry): every
+              // center view + the right panel scope to this project's API.
+              setActiveProject(project.slug);
+              setOpenProjects({ ...openProjects, [project.name]: !(openProjects[project.name] ?? false) });
+            }}
             onToggleExpanded={() => setShowAll({ ...showAll, [project.name]: !(showAll[project.name] ?? false) })}
-            onOpenSkill={(slug) => onNavigate({ kind: "skill", project: project.name, slug })}
-            onNewSkill={() => onNavigate({ kind: "new-skill", project: project.name })}
+            onOpenSkill={(slug) => {
+              setActiveProject(project.slug);
+              onNavigate({ kind: "skill", project: project.name, slug });
+            }}
+            onNewSkill={() => {
+              setActiveProject(project.slug);
+              onNavigate({ kind: "new-skill", project: project.name });
+            }}
           />
         ))}
       </div>
@@ -119,6 +138,21 @@ export function Sidebar({
         </a>
         <ThemeToggle />
       </div>
+
+      {newProjectOpen && (
+        <NewProjectDialog
+          onClose={() => setNewProjectOpen(false)}
+          onRegistered={(slug) => {
+            if (slug !== null) {
+              setActiveProject(slug);
+              // A just-registered project is empty (or newly adopted): land
+              // on its New-skill page so the next step is obvious.
+              onNavigate({ kind: "new-skill", project: slug });
+            }
+            loadProjects();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -176,6 +210,7 @@ function NavItem({
 
 function ProjectSection({
   project,
+  active,
   open,
   expanded,
   center,
@@ -186,6 +221,8 @@ function ProjectSection({
   onNewSkill,
 }: {
   readonly project: Project;
+  /** True when this is the ACTIVE project -- the one every center view + right panel is scoped to. */
+  readonly active: boolean;
   readonly open: boolean;
   readonly expanded: boolean;
   readonly center: CenterView;
@@ -201,17 +238,25 @@ function ProjectSection({
 
   return (
     <div className="mb-1">
-      <div className="group flex items-center rounded pr-1 hover:bg-surface/60">
+      <div className={`group flex items-center rounded pr-1 hover:bg-surface/60 ${active ? "bg-surface shadow-sm" : ""}`}>
         <button
           type="button"
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-1 text-left font-display text-sm"
-          title={project.path}
+          title={project.error !== undefined ? `${project.path} — ${project.error}` : project.path}
         >
           <span className="shrink-0 text-ink-muted">
             <ChevronIcon open={open} />
           </span>
-          <span className={`min-w-0 flex-1 ${FADE_R}`}>{project.name}</span>
+          <span className={`min-w-0 flex-1 ${FADE_R} ${project.ok === false ? "text-ink-muted line-through" : ""}`}>
+            {project.name}
+          </span>
+          {/* A registered directory that is missing/broken: reported, never hidden. */}
+          {project.ok === false && (
+            <span className="shrink-0 rounded bg-red-200 px-1.5 text-[10px] text-red-900" title={project.error}>
+              broken
+            </span>
+          )}
         </button>
         <button
           type="button"

@@ -53,13 +53,31 @@ const decodeSkill = (value: unknown): Skill | null => {
 
 const decodeProject = (value: unknown): Project | null => {
   if (typeof value !== "object" || value === null) return null;
-  const raw = value as { readonly name?: unknown; readonly path?: unknown; readonly skills?: unknown };
+  const raw = value as {
+    readonly slug?: unknown;
+    readonly name?: unknown;
+    readonly path?: unknown;
+    readonly skills?: unknown;
+    readonly ok?: unknown;
+    readonly error?: unknown;
+  };
   if (typeof raw.name !== "string" || raw.name.length === 0) return null;
   if (typeof raw.path !== "string") return null;
   const skills = Array.isArray(raw.skills)
     ? raw.skills.map(decodeSkill).filter((skill): skill is Skill => skill !== null)
     : [];
-  return { name: raw.name, path: raw.path, skills };
+  return {
+    // The registry's URL identifier (machine-registry rulings 2026-07-27);
+    // a pre-registry payload without one falls back to the name so the
+    // placeholder path keeps rendering.
+    slug: typeof raw.slug === "string" && raw.slug.length > 0 ? raw.slug : raw.name,
+    name: raw.name,
+    path: raw.path,
+    skills,
+    // Absent `ok` (older payloads) reads as healthy -- never invent a broken row.
+    ok: raw.ok !== false,
+    ...(typeof raw.error === "string" ? { error: raw.error } : {}),
+  };
 };
 
 /**
@@ -81,5 +99,127 @@ export const fetchProjects = async (): Promise<ReadonlyArray<Project> | null> =>
     return decodeProjectsResponse(await response.json());
   } catch {
     return null;
+  }
+};
+
+// -- New-project dialog wiring (machine-registry rulings 2026-07-27 #3) ------
+// The server reads the disk: a browser cannot yield absolute paths from
+// native dialogs, so browsing/validation/creation all go through `/api/fs/*`
+// and registration through `POST /api/projects`.
+
+export interface FsDirEntry {
+  readonly name: string;
+  readonly path: string;
+  readonly isProject: boolean;
+}
+
+export interface FsListing {
+  readonly path: string;
+  readonly parent: string | null;
+  readonly home: string;
+  readonly isProject: boolean;
+  readonly dirs: ReadonlyArray<FsDirEntry>;
+}
+
+/** `GET /api/fs/list?path=` -- one directory level (dirs only). Omit `path` to start at the server's home dir. `null` on any failure. */
+export const fetchDirListing = async (path?: string): Promise<FsListing | null> => {
+  try {
+    const query = path === undefined ? "" : `?path=${encodeURIComponent(path)}`;
+    const response = await fetch(`/api/fs/list${query}`, { headers: { accept: "application/json" } });
+    if (!response.ok) return null;
+    const raw = (await response.json()) as Partial<FsListing>;
+    if (typeof raw.path !== "string" || !Array.isArray(raw.dirs)) return null;
+    return {
+      path: raw.path,
+      parent: typeof raw.parent === "string" ? raw.parent : null,
+      home: typeof raw.home === "string" ? raw.home : "/",
+      isProject: raw.isProject === true,
+      dirs: raw.dirs.filter(
+        (d): d is FsDirEntry =>
+          typeof d === "object" && d !== null && typeof (d as FsDirEntry).name === "string" && typeof (d as FsDirEntry).path === "string",
+      ),
+    };
+  } catch {
+    return null;
+  }
+};
+
+export interface PathValidation {
+  readonly path: string;
+  readonly valid: boolean;
+  readonly reason?: string;
+  readonly isProject?: boolean;
+  readonly registered?: boolean;
+  readonly creatable?: boolean;
+}
+
+/** `GET /api/fs/validate?path=` -- the typed-path field's live validation. `null` on any failure. */
+export const validatePath = async (path: string): Promise<PathValidation | null> => {
+  try {
+    const response = await fetch(`/api/fs/validate?path=${encodeURIComponent(path)}`, {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const raw = (await response.json()) as Partial<PathValidation>;
+    if (typeof raw.path !== "string") return null;
+    return { ...raw, path: raw.path, valid: raw.valid === true };
+  } catch {
+    return null;
+  }
+};
+
+/** `POST /api/fs/mkdir {path}` -- the dialog's "create new folder here" action. Returns an error message, or `null` on success. */
+export const createDirectory = async (path: string): Promise<string | null> => {
+  try {
+    const response = await fetch("/api/fs/mkdir", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    if (response.ok) return null;
+    const body = (await response.json()) as { readonly error?: unknown };
+    return typeof body.error === "string" ? body.error : `mkdir failed (${response.status})`;
+  } catch (cause) {
+    return String(cause);
+  }
+};
+
+export type RegisterProjectResult =
+  | { readonly kind: "registered"; readonly slug: string | null; readonly initialized: boolean }
+  | { readonly kind: "needs_init" }
+  | { readonly kind: "error"; readonly message: string };
+
+/**
+ * `POST /api/projects {path, create?, init?}` -- register (and optionally
+ * create/scaffold) a project. `needs_init` is the dialog's confirm step:
+ * the directory exists but is not a skillmaker workspace yet.
+ */
+export const registerProject = async (
+  path: string,
+  options: { readonly create?: boolean; readonly init?: boolean } = {},
+): Promise<RegisterProjectResult> => {
+  try {
+    const response = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ path, ...options }),
+    });
+    const body = (await response.json()) as {
+      readonly status?: unknown;
+      readonly initialized?: unknown;
+      readonly error?: unknown;
+      readonly project?: { readonly slug?: unknown } | null;
+    };
+    if (response.ok) {
+      return {
+        kind: "registered",
+        slug: typeof body.project?.slug === "string" ? body.project.slug : null,
+        initialized: body.initialized === true,
+      };
+    }
+    if (body.status === "needs_init") return { kind: "needs_init" };
+    return { kind: "error", message: typeof body.error === "string" ? body.error : `register failed (${response.status})` };
+  } catch (cause) {
+    return { kind: "error", message: String(cause) };
   }
 };
