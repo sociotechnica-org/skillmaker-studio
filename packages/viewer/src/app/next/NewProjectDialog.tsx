@@ -239,8 +239,8 @@ export function NewProjectDialog({
               (skillmaker.config.json, skills/, .skillmaker/) and register it?
             </p>
             <div className="flex justify-end gap-2">
-              <Button label="Back" onClick={() => setNeedsInit(false)} disabled={busy} />
-              <Button label="Set up and register" primary onClick={() => void submit(true)} disabled={busy} />
+              <Button label="Cancel" onClick={() => setNeedsInit(false)} disabled={busy} />
+              <Button label="Create project" primary onClick={() => void submit(true)} disabled={busy} />
             </div>
           </div>
         ) : (
