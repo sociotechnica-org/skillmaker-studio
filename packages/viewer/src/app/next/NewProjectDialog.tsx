@@ -127,7 +127,7 @@ export function NewProjectDialog({
     if (validation.valid) {
       if (validation.registered === true) return { text: "Already registered.", tone: "warn" };
       if (validation.isProject === true) return { text: "Existing skillmaker project -- will be registered.", tone: "ok" };
-      return { text: "Directory exists but is not a skillmaker project yet -- it will be set up.", tone: "warn" };
+      return null;
     }
     if (validation.creatable === true) return { text: "Does not exist -- will be created and set up.", tone: "warn" };
     return { text: validation.reason ?? "Invalid path.", tone: "bad" };
