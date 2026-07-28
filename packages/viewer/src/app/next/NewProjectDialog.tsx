@@ -98,8 +98,14 @@ export function NewProjectDialog({
       onClose();
       return;
     }
+    if (result.kind === "needs_init" && !withInit) {
+      // The button already said "Create project" — that IS the consent to
+      // scaffold; retry with init rather than interrogating further.
+      await submit(true);
+      return;
+    }
     if (result.kind === "needs_init") {
-      setNeedsInit(true);
+      setError("Could not set up this directory.");
       return;
     }
     setError(result.message);
@@ -240,7 +246,14 @@ export function NewProjectDialog({
         ) : (
           <div className="mt-3 flex justify-end gap-2">
             <Button label="Cancel" onClick={onClose} disabled={busy} />
-            <Button label={busy ? "Working…" : "Use this directory"} primary onClick={() => void submit(false)} disabled={!canSubmit} />
+            {/* One verb, chosen by what will actually happen: an existing
+                workspace is added; anything else is created (dir + scaffold). */}
+            <Button
+              label={busy ? "Working…" : validation?.isProject === true ? "Add project" : "Create project"}
+              primary
+              onClick={() => void submit(false)}
+              disabled={!canSubmit}
+            />
           </div>
         )}
       </div>
