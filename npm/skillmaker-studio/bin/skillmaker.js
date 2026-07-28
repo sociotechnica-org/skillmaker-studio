@@ -17,8 +17,15 @@ const path = require("node:path");
 
 const PLATFORM_PACKAGES = {
   "darwin-arm64": "@skillmaker/cli-darwin-arm64",
+  "darwin-x64": "@skillmaker/cli-darwin-x64",
   "linux-x64": "@skillmaker/cli-linux-x64",
+  "win32-x64": "@skillmaker/cli-win32-x64",
 };
+
+// The compiled binary's filename inside the platform package's bin/
+// directory. Windows executables need the .exe suffix -- spawnSync of a
+// full path to an .exe works on win32 without a shell.
+const BINARY_NAME = process.platform === "win32" ? "skillmaker.exe" : "skillmaker";
 
 function resolvePlatformBinary() {
   const key = `${process.platform}-${process.arch}`;
@@ -44,7 +51,7 @@ function resolvePlatformBinary() {
     );
   }
 
-  return path.join(path.dirname(packageJsonPath), "bin", "skillmaker");
+  return path.join(path.dirname(packageJsonPath), "bin", BINARY_NAME);
 }
 
 function main() {

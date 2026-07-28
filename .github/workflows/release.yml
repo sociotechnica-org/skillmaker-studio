@@ -1,25 +1,25 @@
 name: Release
 
-# Tag-triggered release build: compiles the `skillmaker` binary for each
-# supported platform and publishes a GitHub Release with a tarball per
-# platform (plan.md Phase 18 "installer experience").
+# Tag-triggered release build: cross-compiles the `skillmaker` binary for
+# every supported platform on a single linux runner (bun's
+# `build --compile --target=...` handles the cross-compilation -- no
+# per-platform runner matrix needed) and publishes a GitHub Release with an
+# archive per platform (plan.md Phase 18 "installer experience").
 #
-# Scope for this pass: the CLI binary + viewer-dist/ + VERSION, tarred up
-# as `skillmaker-<version>-<os>-<arch>.tar.gz`. The Skillmaker.app bundle
-# (macOS, code-signed + notarized) is explicitly OUT of scope here --
-# signing/notarization is a separate follow-up (plan.md Phase 18 scope
-# item (a) mentions the .app bundle as a later addition, not this pass).
+# Scope for this pass: the CLI binary + viewer-dist/ + VERSION per platform,
+# archived as `skillmaker-<version>-<os>-<arch>.tar.gz` (`.zip` for
+# win32-x64). The Skillmaker.app bundle (macOS, code-signed + notarized) is
+# explicitly OUT of scope here -- signing/notarization is a separate
+# follow-up (plan.md Phase 18 scope item (a) mentions the .app bundle as a
+# later addition, not this pass).
 #
-# Platforms: macOS arm64 (macos-14 runner, native Apple Silicon) and Linux
-# x64 (ubuntu-latest). `bun build --compile` produces a binary for the
-# *host* platform it runs on -- there's no cross-compile step here, so each
-# platform gets its own job on a matching runner. macOS x64 (Intel) is a
-# fast-follow, not built here yet.
+# Platforms: darwin-arm64, darwin-x64 (Intel), linux-x64, win32-x64 -- the
+# four keys of scripts/build-dist.sh's --all mode.
 #
 # Also publishes the npm zero-install door (install-simplification.md Phase
-# A.4): each matrix job assembles its `@skillmaker/cli-<platform>-<arch>`
-# package (scripts/build-npm-packages.sh) alongside its tarball, and
-# publish-npm publishes those plus the skillmaker-studio wrapper -- skipped
+# A.4): the build job assembles all four `@skillmaker/cli-<platform>-<arch>`
+# packages plus the skillmaker-studio wrapper
+# (scripts/build-npm-packages.sh --all), and publish-npm publishes them --
 # via trusted publishing (OIDC) -- no NPM_TOKEN secret involved.
 
 on:
@@ -28,56 +28,7 @@ on:
       - "v*"
 
 jobs:
-  build-macos-arm64:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.11
-      - name: Install
-        run: bun install --frozen-lockfile
-        env:
-          # prepare script clones effect source for local research; skip in CI
-          SKIP_EFFECT_CLONE: "1"
-      - name: Build dist artifact
-        run: ./scripts/build-dist.sh
-      - name: Package tarball
-        run: |
-          set -eu
-          version="$(cat dist/VERSION)"
-          # Tar the three artifacts at the archive's top level (not nested
-          # in a wrapper directory) -- install.sh extracts and looks for
-          # ./skillmaker and ./viewer-dist directly.
-          tarball="skillmaker-${version}-darwin-arm64.tar.gz"
-          tar -czf "$tarball" -C dist skillmaker viewer-dist VERSION
-          echo "TARBALL=$tarball" >>"$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: skillmaker-darwin-arm64
-          path: ${{ env.TARBALL }}
-      - name: Build npm packages (platform package + wrapper, Phase A.2/A.3)
-        # Tag is "vX.Y.Z" -- npm packages publish under the bare version
-        # (no leading "v"), same version the GitHub Release above carries.
-        run: ./scripts/build-npm-packages.sh "${GITHUB_REF_NAME#v}"
-      - name: Tar npm packages (preserves the executable bit through upload-artifact's zip hop)
-        run: |
-          set -eu
-          tar -czf npm-cli-darwin-arm64.tar.gz -C dist/npm cli-darwin-arm64
-          tar -czf npm-skillmaker-studio.tar.gz -C dist/npm skillmaker-studio
-      - uses: actions/upload-artifact@v4
-        with:
-          name: npm-cli-darwin-arm64
-          path: npm-cli-darwin-arm64.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          # Built identically by either matrix job (it doesn't embed a
-          # binary) -- only uploaded once here to avoid a duplicate-name
-          # collision with the linux job's own build.
-          name: npm-skillmaker-studio
-          path: npm-skillmaker-studio.tar.gz
-
-  build-linux-x64:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,59 +40,65 @@ jobs:
         env:
           # prepare script clones effect source for local research; skip in CI
           SKIP_EFFECT_CLONE: "1"
-      - name: Build dist artifact
-        run: ./scripts/build-dist.sh
-      - name: Package tarball
+      - name: Build dist artifacts for all platforms (bun cross-compile)
+        run: ./scripts/build-dist.sh --all
+      - name: Package release archives (one per platform)
         run: |
           set -eu
           version="$(cat dist/VERSION)"
-          # Tar the three artifacts at the archive's top level (not nested
-          # in a wrapper directory) -- install.sh extracts and looks for
-          # ./skillmaker and ./viewer-dist directly.
-          tarball="skillmaker-${version}-linux-x64.tar.gz"
-          tar -czf "$tarball" -C dist skillmaker viewer-dist VERSION
-          echo "TARBALL=$tarball" >>"$GITHUB_ENV"
+          # Archive the three artifacts at the archive's top level (not
+          # nested in a wrapper directory) -- install.sh extracts and looks
+          # for ./skillmaker and ./viewer-dist directly. Windows gets a
+          # .zip (the native archive format there); its binary is
+          # skillmaker.exe.
+          for key in darwin-arm64 darwin-x64 linux-x64; do
+            tar -czf "skillmaker-${version}-${key}.tar.gz" \
+              -C "dist/targets/${key}" skillmaker viewer-dist VERSION
+          done
+          (cd dist/targets/win32-x64 &&
+            zip -qr "${GITHUB_WORKSPACE}/skillmaker-${version}-win32-x64.zip" \
+              skillmaker.exe viewer-dist VERSION)
+          ls -l skillmaker-"${version}"-*
       - uses: actions/upload-artifact@v4
         with:
-          name: skillmaker-linux-x64
-          path: ${{ env.TARBALL }}
-      - name: Build npm package (platform package, Phase A.2)
-        run: ./scripts/build-npm-packages.sh "${GITHUB_REF_NAME#v}"
-      - name: Tar npm package (preserves the executable bit through upload-artifact's zip hop)
-        run: tar -czf npm-cli-linux-x64.tar.gz -C dist/npm cli-linux-x64
+          name: skillmaker-release-archives
+          path: |
+            skillmaker-*.tar.gz
+            skillmaker-*.zip
+      - name: Build npm packages (all platform packages + wrapper, Phase A.2/A.3)
+        # Tag is "vX.Y.Z" -- npm packages publish under the bare version
+        # (no leading "v"), same version the GitHub Release above carries.
+        run: ./scripts/build-npm-packages.sh --all "${GITHUB_REF_NAME#v}"
+      - name: Tar npm packages (preserves the executable bit through upload-artifact's zip hop)
+        run: tar -czf npm-packages.tar.gz -C dist/npm .
       - uses: actions/upload-artifact@v4
         with:
-          name: npm-cli-linux-x64
-          path: npm-cli-linux-x64.tar.gz
+          name: npm-packages
+          path: npm-packages.tar.gz
 
   publish-release:
-    needs: [build-macos-arm64, build-linux-x64]
+    needs: [build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          # Restrict to the release-tarball artifacts (name prefix
-          # "skillmaker-") -- without this, merge-multiple would flatten
-          # the npm-* artifacts' identically-named package.json files into
-          # the same directory too, silently clobbering each other
-          # (harmless today since only *.tar.gz is globbed below, but
-          # fragile to leave implicit).
-          pattern: skillmaker-*
+          name: skillmaker-release-archives
           path: artifacts
-          merge-multiple: true
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.tar.gz
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
           generate_release_notes: true
 
-  # Publishes the zero-install npm door (Phase A.4): the two platform
+  # Publishes the zero-install npm door (Phase A.4): the four platform
   # packages built above plus the skillmaker-studio wrapper that resolves
   # between them.
   publish-npm:
-    needs: [build-macos-arm64, build-linux-x64]
+    needs: [build]
     runs-on: ubuntu-latest
     # Trusted publishing (OIDC): npm authenticates via a per-run token minted
     # against this repo+workflow's registered trusted publisher -- no
@@ -153,19 +110,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          # Restrict to this job's own tarball artifacts -- avoids pulling
-          # in the unrelated release tarballs (name prefix "skillmaker-").
-          pattern: npm-*
+          name: npm-packages
           path: artifacts
-          merge-multiple: true
       - name: Extract npm packages (restores the executable bit tar preserved)
         run: |
           set -eu
           mkdir -p pkgs
-          for tarball in artifacts/*.tar.gz; do
-            tar -xzf "$tarball" -C pkgs
-          done
-          ls -l pkgs/cli-darwin-arm64/bin pkgs/cli-linux-x64/bin pkgs/skillmaker-studio/bin
+          tar -xzf artifacts/npm-packages.tar.gz -C pkgs
+          ls -l pkgs/*/bin
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -174,7 +126,7 @@ jobs:
         run: |
           npm install -g npm@latest
           npm --version
-      - name: Publish platform + wrapper packages
+      - name: Publish established platform packages + wrapper
         run: |
           set -eu
           # cd into each package rather than passing the path: a bare
@@ -182,6 +134,38 @@ jobs:
           # and gets resolved as a git spec, not a directory (v0.3.0's
           # publish failed exactly this way).
           for dir in pkgs/cli-darwin-arm64 pkgs/cli-linux-x64 pkgs/skillmaker-studio; do
+            echo "==> npm publish ${dir}"
+            (cd "${dir}" && npm publish --access public)
+          done
+      # NEW packages (first shipped with the win32/darwin-x64 work): kept in
+      # their own step so a failure here is unambiguous and does NOT block
+      # the established packages above (they publish first).
+      #
+      # ONE-TIME SETUP REQUIRED before this step can succeed: each package
+      # below needs a trusted publisher registered on npmjs.com (until then,
+      # `npm publish` fails 404/403 on the PUT). Register, under the
+      # @skillmaker org, for EACH of:
+      #
+      #   package @skillmaker/cli-win32-x64
+      #     -> GitHub repo: sociotechnica-org/skillmaker-studio
+      #     -> workflow file: release.yml
+      #     -> environment: (none)
+      #   package @skillmaker/cli-darwin-x64
+      #     -> GitHub repo: sociotechnica-org/skillmaker-studio
+      #     -> workflow file: release.yml
+      #     -> environment: (none)
+      #
+      # npmjs.com > package (after first manual claim) or org > Publishing
+      # access > "Trusted publisher" > GitHub Actions. Note: npm requires
+      # the package to exist before a trusted publisher can be attached; if
+      # registration isn't possible pre-publish, do the first publish of
+      # each from a maintainer machine (`npm publish --access public` inside
+      # the run's npm-packages artifact dirs), then register, and later tags
+      # publish via OIDC like the other three.
+      - name: Publish NEW platform packages (win32-x64, darwin-x64 -- needs one-time trusted-publisher registration, see comment above)
+        run: |
+          set -eu
+          for dir in pkgs/cli-darwin-x64 pkgs/cli-win32-x64; do
             echo "==> npm publish ${dir}"
             (cd "${dir}" && npm publish --access public)
           done

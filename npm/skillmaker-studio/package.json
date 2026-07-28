@@ -13,6 +13,8 @@
   "files": ["bin/skillmaker.js"],
   "optionalDependencies": {
     "@skillmaker/cli-darwin-arm64": "0.0.0",
-    "@skillmaker/cli-linux-x64": "0.0.0"
+    "@skillmaker/cli-darwin-x64": "0.0.0",
+    "@skillmaker/cli-linux-x64": "0.0.0",
+    "@skillmaker/cli-win32-x64": "0.0.0"
   }
 }
