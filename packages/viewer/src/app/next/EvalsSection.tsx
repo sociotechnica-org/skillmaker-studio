@@ -413,6 +413,12 @@ function FixtureBlock({
           <span className="text-[10px] text-rose-700">fixture unreadable</span>
         )}
       </div>
+      {/* The authored purpose (prompt.md's leading comment): why this
+          fixture exists and what grading asks — its own line, never leaked
+          into the prompt preview. */}
+      {glance !== undefined && glance.state === "ready" && glance.value.purpose !== null && (
+        <div className="text-[11px] italic text-ink-muted/90">{glance.value.purpose}</div>
+      )}
       <div className={`text-xs text-ink-muted ${FADE_R}`}>
         {glance === undefined || glance.state === "loading"
           ? "Loading fixture…"

@@ -168,14 +168,33 @@ export const promptSummary = (detail: {
   readonly legacyPrompt: string | null;
   readonly context: string | null;
 }): string | null => {
-  const text = detail.promptMd ?? detail.legacyPrompt ?? detail.context;
-  if (text === null) return null;
+  const raw = detail.promptMd ?? detail.legacyPrompt ?? detail.context;
+  if (raw === null) return null;
+  // Authoring comments are the fixture's PURPOSE (fixturePurpose renders
+  // them as their own line) -- the summary is the task prose the agent sees.
+  const text = raw.replace(/<!--[\s\S]*?-->/g, "");
   const line = text
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l.length > 0 && !l.startsWith("#"));
   if (line === undefined) return null;
   return line.length > 160 ? `${line.slice(0, 159).trimEnd()}…` : line;
+};
+
+/**
+ * The fixture's authored PURPOSE: the leading HTML comment `Fixtures.ts`
+ * scaffolds into `prompt.md` ("why this fixture exists, what grading asks,
+ * which risk it covers"). Invisible in rendered markdown by design; the
+ * Eval tab surfaces it as the fixture's purpose line instead of letting it
+ * leak into the prompt preview (director ruling, 2026-07-28).
+ */
+export const fixturePurpose = (promptMd: string | null): string | null => {
+  if (promptMd === null) return null;
+  const match = /^\s*<!--([\s\S]*?)-->/.exec(promptMd);
+  if (match === null || match[1] === undefined) return null;
+  const text = match[1].replace(/\s+/g, " ").trim();
+  if (text.length === 0) return null;
+  return text.length > 240 ? `${text.slice(0, 239).trimEnd()}…` : text;
 };
 
 /** Claims grouped by family in first-appearance order (rule 1: grouped by Input / Reasoning / Output / Adversarial / Chain). */

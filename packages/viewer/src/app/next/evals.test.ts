@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  fixturePurpose,
   buildGapTodoPayload,
   bundleModels,
   claimFixtureCases,
@@ -200,6 +201,32 @@ describe("promptSummary", () => {
     const summary = promptSummary({ promptMd: "y".repeat(300), legacyPrompt: null, context: null });
     expect(summary?.length).toBe(160);
     expect(summary?.endsWith("…")).toBe(true);
+  });
+
+  test("authoring comments never leak into the summary — the task prose shows", () => {
+    const promptMd = "<!-- trigger-basic: does NOT name the skill by slug.\n     Covers risk IN-2. -->\n\nI've got a design.md file sitting here.";
+    expect(promptSummary({ promptMd, legacyPrompt: null, context: null })).toBe("I've got a design.md file sitting here.");
+  });
+});
+
+describe("fixturePurpose", () => {
+  test("the leading authoring comment becomes the purpose line, whitespace collapsed", () => {
+    const promptMd = "<!-- trigger-basic: does NOT name the skill by slug\n     (Fixtures.ts's trigger convention).\n     Covers risk IN-2. -->\n\nTask prose.";
+    expect(fixturePurpose(promptMd)).toBe(
+      "trigger-basic: does NOT name the skill by slug (Fixtures.ts's trigger convention). Covers risk IN-2.",
+    );
+  });
+
+  test("no leading comment, empty comment, or no prompt: null", () => {
+    expect(fixturePurpose("Just prose.")).toBeNull();
+    expect(fixturePurpose("<!--   -->\nProse.")).toBeNull();
+    expect(fixturePurpose(null)).toBeNull();
+  });
+
+  test("long purposes are capped at 240 characters with an ellipsis", () => {
+    const purpose = fixturePurpose(`<!-- ${"z".repeat(400)} -->`);
+    expect(purpose?.length).toBe(240);
+    expect(purpose?.endsWith("…")).toBe(true);
   });
 });
 

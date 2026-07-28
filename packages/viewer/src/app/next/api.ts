@@ -21,7 +21,7 @@ import { useJournalTick } from "./liveRefresh.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
 import { latestReviewOutcome, pendingReview } from "../runtime/reviewPanel.ts";
 import type { BundleDetailResponse, BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
-import { claimFixtureCases, promptSummary, unclaimedFixtureCases } from "./evals.ts";
+import { claimFixtureCases, fixturePurpose, promptSummary, unclaimedFixtureCases } from "./evals.ts";
 import type { BundleFile, Claim, ClaimStatus, Project, Skill, SkillLoop, SkillPage, Stage, Task, WireStage } from "./types.ts";
 
 /**
@@ -274,6 +274,7 @@ export const fetchBundleFile = async (slug: string, path: string): Promise<strin
 
 /** What the claim accordion shows per fixture: prompt summary + answer-key presence (IA §C rule 2). */
 export type FixtureGlance = {
+  readonly purpose: string | null;
   readonly summary: string | null;
   readonly hasAnswerKey: boolean;
   readonly checkCount: number;
@@ -284,6 +285,7 @@ export type FixtureGlance = {
 export const fetchFixtureGlance = async (slug: string, caseName: string): Promise<FixtureGlance> => {
   const detail = await getFixtureDetail(slug, caseName);
   return {
+    purpose: fixturePurpose(detail.promptMd),
     summary: promptSummary(detail),
     hasAnswerKey: detail.grading !== null && detail.grading.answerKey !== null && detail.grading.answerKey.trim().length > 0,
     checkCount: detail.grading?.checks.length ?? 0,
