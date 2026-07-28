@@ -18,11 +18,22 @@ the run, (4) verify npm.
 - You can push tags to the repo and `gh` is authenticated.
 - npm publishing uses **trusted publishing (OIDC)** as of v0.5.0: each
   package (`skillmaker-studio`, `@skillmaker/cli-darwin-arm64`,
-  `@skillmaker/cli-linux-x64`) has this repo + `release.yml` registered as
+  `@skillmaker/cli-darwin-x64`, `@skillmaker/cli-linux-x64`,
+  `@skillmaker/cli-win32-x64`) has this repo + `release.yml` registered as
   a trusted publisher on npmjs.com, and `publish-npm` carries
   `id-token: write`. No `NPM_TOKEN` secret exists or is needed. A NEW
-  package would need its trusted publisher registered before its first
-  tag run.
+  package needs its trusted publisher registered before its first tag run
+  (registration: npmjs.com > @skillmaker org > package > Settings >
+  Publishing access > Trusted publisher > GitHub Actions, with repo
+  `sociotechnica-org/skillmaker-studio`, workflow `release.yml`, no
+  environment). `@skillmaker/cli-win32-x64` and `@skillmaker/cli-darwin-x64`
+  were added after v0.5.0 -- their first successful publish requires this
+  one-time registration; until then the workflow's final "Publish NEW
+  platform packages" step fails 404/403 while the established three still
+  publish fine. If npm won't let you register a trusted publisher for a
+  package that doesn't exist yet, do the first publish manually from the
+  run's `npm-packages` artifact (`cd` into each package dir, `npm publish
+  --access public`), then register.
 
 ## Version touchpoints
 
@@ -32,8 +43,9 @@ There is exactly **one tracked file to bump**: the root `package.json`
 - `dist/VERSION` — written by `scripts/build-dist.sh` as
   `<root package.json version>+<git sha>`; names the release tarballs
   (`skillmaker-<version>-<os>-<arch>.tar.gz`).
-- `npm/skillmaker-studio/package.json`, `npm/cli-darwin-arm64/package.json`,
-  `npm/cli-linux-x64/package.json` — tracked **templates that stay
+- `npm/skillmaker-studio/package.json` and the four
+  `npm/cli-<platform>-<arch>/package.json` templates (darwin-arm64,
+  darwin-x64, linux-x64, win32-x64) — tracked **templates that stay
   `"0.0.0"`**. Do NOT bump them. `scripts/build-npm-packages.sh` stamps the
   real version (and the wrapper's `optionalDependencies` pins) at build
   time from the tag (`${GITHUB_REF_NAME#v}`).
@@ -67,28 +79,33 @@ from the tag. If they disagree, the GitHub Release and npm disagree.
    ```sh
    npm view skillmaker-studio version         # expect X.Y.Z
    npm view @skillmaker/cli-darwin-arm64 version
+   npm view @skillmaker/cli-darwin-x64 version
    npm view @skillmaker/cli-linux-x64 version
+   npm view @skillmaker/cli-win32-x64 version
    npx -y skillmaker-studio@X.Y.Z --help      # smoke: wrapper resolves + spawns the binary
    ```
 
 ## What the workflow does (in order)
 
-1. `build-macos-arm64` (macos-14) and `build-linux-x64` (ubuntu-latest), in
-   parallel; no cross-compile — each host builds its own binary via
-   `./scripts/build-dist.sh`, tars `skillmaker` + `viewer-dist/` + `VERSION`,
-   then runs `./scripts/build-npm-packages.sh "${GITHUB_REF_NAME#v}"` to
-   assemble its `@skillmaker/cli-<platform>-<arch>` package. The macOS job
-   also assembles + uploads the `skillmaker-studio` wrapper (built
-   identically on either host; uploaded once to avoid an artifact-name
-   collision). npm packages ride as tarballs to preserve the executable bit
-   through upload-artifact's zip hop.
-2. `publish-release`: downloads the `skillmaker-*` tarball artifacts and
-   creates the GitHub Release with generated notes.
-3. `check-npm-token` → `publish-npm` (skipped, not failed, without the
-   secret): extracts the npm tarballs and publishes, in this order:
-   `@skillmaker/cli-darwin-arm64`, `@skillmaker/cli-linux-x64`,
-   `skillmaker-studio` — each via `(cd "$dir" && npm publish --access
-   public)`.
+1. `build` (ubuntu-latest, single job): `./scripts/build-dist.sh --all`
+   cross-compiles the binary for all four platforms (bun
+   `build --compile --target=bun-<platform>` — no per-platform runners),
+   archives each platform's `skillmaker[.exe]` + `viewer-dist/` + `VERSION`
+   (`.tar.gz` for the unix targets, `.zip` for win32-x64), then
+   `./scripts/build-npm-packages.sh --all "${GITHUB_REF_NAME#v}"` assembles
+   all four `@skillmaker/cli-<platform>-<arch>` packages plus the
+   `skillmaker-studio` wrapper. npm packages ride as one tarball
+   (`npm-packages.tar.gz`) to preserve the executable bit through
+   upload-artifact's zip hop.
+2. `publish-release`: downloads the release archives and creates the
+   GitHub Release with generated notes.
+3. `publish-npm` (OIDC): extracts the npm tarball and publishes in two
+   steps — first the established `@skillmaker/cli-darwin-arm64`,
+   `@skillmaker/cli-linux-x64`, `skillmaker-studio`; then, in a separate
+   final step, the newer `@skillmaker/cli-darwin-x64` and
+   `@skillmaker/cli-win32-x64` (so a missing trusted-publisher
+   registration fails loudly without blocking the established three) —
+   each via `(cd "$dir" && npm publish --access public)`.
 
 Not published by the workflow: `@skillmaker/cli` (claimed 2026-07-20 as a
 v0.0.1 placeholder per the install-simplification proposal; it stays a

@@ -4,16 +4,29 @@
 # first -- this script does NOT compile anything itself, it only packages
 # what build-dist.sh produced).
 #
-#   1. `@skillmaker/cli-<platform>-<arch>` -- one platform package for the
-#      HOST this script runs on (esbuild/biome-style optionalDependencies
-#      layout: `os`/`cpu` fields, no postinstall). The template package.json
-#      lives at npm/cli-<platform>-<arch>/package.json (tracked in git,
-#      version "0.0.0"); this script copies the compiled binary + viewer
-#      assets in next to it and stamps the real version.
+#   1. `@skillmaker/cli-<platform>-<arch>` -- one platform package per
+#      requested platform (esbuild/biome-style optionalDependencies layout:
+#      `os`/`cpu` fields, no postinstall). The template package.json lives
+#      at npm/cli-<platform>-<arch>/package.json (tracked in git, version
+#      "0.0.0"); this script copies the compiled binary + viewer assets in
+#      next to it and stamps the real version.
 #   2. `skillmaker-studio` -- the wrapper package (bin name stays
 #      `skillmaker`). Its launcher (npm/skillmaker-studio/bin/skillmaker.js)
 #      is static, tracked source; this script only stamps its version and
 #      its optionalDependencies' version pins.
+#
+# Modes (mirroring build-dist.sh):
+#
+#   build-npm-packages.sh [version]                    host platform only,
+#       reads the legacy flat dist/ layout (dist/skillmaker + dist/viewer-dist)
+#   build-npm-packages.sh --platform <key> [version]   one platform, reads
+#       dist/targets/<key>/ (from `build-dist.sh --platform <key>`)
+#   build-npm-packages.sh --all [version]              all four platforms,
+#       reads dist/targets/<key>/ for each (from `build-dist.sh --all`)
+#
+# Platform keys: darwin-arm64, darwin-x64, linux-x64, win32-x64. The win32
+# binary is `skillmaker.exe` (matching npm/cli-win32-x64/package.json's
+# `files` list and the wrapper launcher's win32 lookup).
 #
 # Output (gitignored, safe to rerun -- each run replaces dist/npm/ wholesale):
 #   dist/npm/cli-<platform>-<arch>/   ready to `npm publish` or `npm pack`
@@ -28,9 +41,68 @@ set -eu
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-if [ ! -f dist/skillmaker ] || [ ! -d dist/viewer-dist ] || [ ! -f dist/VERSION ]; then
-  echo "error: dist/skillmaker, dist/viewer-dist/, and dist/VERSION must exist first." >&2
-  echo "       run ./scripts/build-dist.sh (builds for the current host only)." >&2
+ALL_PLATFORMS="darwin-arm64 darwin-x64 linux-x64 win32-x64"
+
+usage() {
+  echo "usage: $0 [--platform <key> | --all] [version]" >&2
+  echo "       keys: ${ALL_PLATFORMS}" >&2
+  exit 2
+}
+
+binary_name_for() {
+  case "$1" in
+    win32-x64) echo "skillmaker.exe" ;;
+    *) echo "skillmaker" ;;
+  esac
+}
+
+host_platform_key() {
+  case "$(uname -s)" in
+    Darwin) p="darwin" ;;
+    Linux) p="linux" ;;
+    *)
+      echo "error: unsupported host OS '$(uname -s)' (supported: Darwin, Linux; use --platform)" >&2
+      exit 1
+      ;;
+  esac
+  case "$(uname -m)" in
+    arm64 | aarch64) a="arm64" ;;
+    x86_64 | amd64) a="x64" ;;
+    *)
+      echo "error: unsupported host arch '$(uname -m)' (supported: arm64, x64)" >&2
+      exit 1
+      ;;
+  esac
+  echo "${p}-${a}"
+}
+
+mode="host"
+platform_arg=""
+version_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --all)
+      mode="all"
+      ;;
+    --platform)
+      [ $# -ge 2 ] || usage
+      mode="platform"
+      platform_arg="$2"
+      shift
+      ;;
+    -*)
+      usage
+      ;;
+    *)
+      [ -z "$version_arg" ] || usage
+      version_arg="$1"
+      ;;
+  esac
+  shift
+done
+
+if [ ! -f dist/VERSION ]; then
+  echo "error: dist/VERSION must exist first -- run ./scripts/build-dist.sh." >&2
   exit 1
 fi
 
@@ -41,57 +113,59 @@ fi
 # npm allows build metadata in a version, but a local/dev build shouldn't
 # imply it's the tagged release, so we drop the metadata and use the bare
 # version for `npm pack` smoke-testing).
-version="${1:-$(cut -d+ -f1 dist/VERSION)}"
+version="${version_arg:-$(cut -d+ -f1 dist/VERSION)}"
 
-# Host platform/arch, mapped to this repo's package-name vocabulary. Only
-# the two combinations release.yml's matrix actually builds are supported;
-# anything else is a hard error rather than silently producing a package
-# nothing can install.
-host_os="$(uname -s)"
-host_arch="$(uname -m)"
-case "$host_os" in
-  Darwin) platform="darwin" ;;
-  Linux) platform="linux" ;;
-  *)
-    echo "error: unsupported host OS '$host_os' (supported: Darwin, Linux)" >&2
-    exit 1
-    ;;
+case "$mode" in
+  host) platforms="$(host_platform_key)" ;;
+  platform) platforms="$platform_arg" ;;
+  all) platforms="$ALL_PLATFORMS" ;;
 esac
-case "$host_arch" in
-  arm64|aarch64) arch="arm64" ;;
-  x86_64|amd64) arch="x64" ;;
-  *)
-    echo "error: unsupported host arch '$host_arch' (supported: arm64, x64)" >&2
-    exit 1
-    ;;
-esac
-
-platform_dir="cli-${platform}-${arch}"
-if [ ! -d "npm/${platform_dir}" ]; then
-  echo "error: no npm/${platform_dir} template (supported: cli-darwin-arm64, cli-linux-x64)" >&2
-  exit 1
-fi
-
-echo "==> build-npm-packages: version ${version}, platform package ${platform_dir}"
 
 out="dist/npm"
 rm -rf "$out"
 mkdir -p "$out"
 
-echo "==> build-npm-packages: assembling @skillmaker/${platform_dir}"
-pkg_out="${out}/${platform_dir}"
-mkdir -p "${pkg_out}/bin"
-cp "npm/${platform_dir}/package.json" "${pkg_out}/package.json"
-cp dist/skillmaker "${pkg_out}/bin/skillmaker"
-chmod +x "${pkg_out}/bin/skillmaker"
-cp -r dist/viewer-dist "${pkg_out}/viewer-dist"
-bun -e "
-  const fs = require('node:fs');
-  const path = process.argv[1];
-  const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
-  pkg.version = process.argv[2];
-  fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
-" "${pkg_out}/package.json" "$version"
+echo "==> build-npm-packages: version ${version}, platforms: ${platforms}"
+
+for key in $platforms; do
+  platform_dir="cli-${key}"
+  if [ ! -d "npm/${platform_dir}" ]; then
+    echo "error: no npm/${platform_dir} template (supported: ${ALL_PLATFORMS})" >&2
+    exit 1
+  fi
+
+  # Where build-dist.sh put this platform's artifacts: dist/targets/<key>/
+  # in --platform/--all mode; the legacy flat dist/ layout as a host-mode
+  # fallback (only valid for the host's own platform key).
+  binary="$(binary_name_for "$key")"
+  if [ -d "dist/targets/${key}" ]; then
+    src="dist/targets/${key}"
+  elif [ "$mode" = "host" ] && [ -f "dist/skillmaker" ]; then
+    src="dist"
+  else
+    echo "error: dist/targets/${key}/ not found -- run ./scripts/build-dist.sh --platform ${key} (or --all) first." >&2
+    exit 1
+  fi
+  if [ ! -f "${src}/${binary}" ] || [ ! -d "${src}/viewer-dist" ]; then
+    echo "error: ${src}/${binary} and ${src}/viewer-dist/ must exist first -- rerun ./scripts/build-dist.sh." >&2
+    exit 1
+  fi
+
+  echo "==> build-npm-packages: assembling @skillmaker/${platform_dir} (from ${src}/)"
+  pkg_out="${out}/${platform_dir}"
+  mkdir -p "${pkg_out}/bin"
+  cp "npm/${platform_dir}/package.json" "${pkg_out}/package.json"
+  cp "${src}/${binary}" "${pkg_out}/bin/${binary}"
+  chmod +x "${pkg_out}/bin/${binary}"
+  cp -r "${src}/viewer-dist" "${pkg_out}/viewer-dist"
+  bun -e "
+    const fs = require('node:fs');
+    const path = process.argv[1];
+    const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+    pkg.version = process.argv[2];
+    fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+  " "${pkg_out}/package.json" "$version"
+done
 
 echo "==> build-npm-packages: assembling skillmaker-studio"
 wrapper_out="${out}/skillmaker-studio"
@@ -111,6 +185,8 @@ bun -e "
 " "${wrapper_out}/package.json" "$version"
 
 echo "==> build-npm-packages: done"
-echo "    ${pkg_out}/"
+for key in $platforms; do
+  echo "    ${out}/cli-${key}/"
+done
 echo "    ${wrapper_out}/"
 echo "    (npm pack each dir, or npm publish from each dir, to actually publish)"
