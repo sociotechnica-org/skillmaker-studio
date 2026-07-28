@@ -2,13 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
+import { layer as JournalLayer } from "../src/JournalService.ts";
 import { DEFAULT_STATIONS_TEMPLATE, Station } from "../src/Stations.ts";
 import {
   _internal,
   buildReviewQuestion,
   buildStationPrompt,
   latestReviseNotes,
+  resolveStationSkillDir,
+  runStation,
+  type StationPreconditionError,
 } from "../src/StationEngine.ts";
+import { defaultConfig } from "../src/Workspace.ts";
+import { withTempDir as withEffectTempDir } from "./support/TestLayer.ts";
 
 const {
   filterToProduces,
@@ -385,6 +392,115 @@ describe("latestReviseNotes", () => {
       },
     ];
     expect(latestReviseNotes(events, "example-skill", "drafting")).toBe("second round");
+  });
+});
+
+describe("resolveStationSkillDir (D6: workspace copy wins, packaged copy is the fallback)", () => {
+  const writeSkillBundle = (dir: string, slug: string): void => {
+    mkdirSync(join(dir, slug, "output"), { recursive: true });
+    writeFileSync(join(dir, slug, "bundle.json"), JSON.stringify({ slug }));
+    writeFileSync(join(dir, slug, "output", "SKILL.md"), `skill ${slug}`);
+  };
+
+  test("the workspace's own copy wins even when a packaged copy exists", async () => {
+    const resolved = await withEffectTempDir((dir) =>
+      Effect.gen(function* () {
+        mkdirSync(join(dir, "workspace"), { recursive: true });
+        writeSkillBundle(join(dir, "workspace", "skills"), "william-draft-skill-md");
+        writeSkillBundle(join(dir, "packaged"), "william-draft-skill-md");
+        return yield* resolveStationSkillDir({
+          root: join(dir, "workspace"),
+          skillsDir: "skills",
+          slug: "william-draft-skill-md",
+          packagedSkillsDir: join(dir, "packaged"),
+        });
+      }),
+    );
+    expect(resolved?.source).toBe("workspace");
+    expect(resolved?.dir.includes("workspace")).toBe(true);
+  });
+
+  test("falls back to the packaged copy when the workspace has none", async () => {
+    const resolved = await withEffectTempDir((dir) =>
+      Effect.gen(function* () {
+        mkdirSync(join(dir, "workspace", "skills"), { recursive: true });
+        writeSkillBundle(join(dir, "packaged"), "william-draft-skill-md");
+        return yield* resolveStationSkillDir({
+          root: join(dir, "workspace"),
+          skillsDir: "skills",
+          slug: "william-draft-skill-md",
+          packagedSkillsDir: join(dir, "packaged"),
+        });
+      }),
+    );
+    expect(resolved?.source).toBe("packaged");
+    expect(resolved?.dir.includes("packaged")).toBe(true);
+  });
+
+  test("returns undefined when neither location has the skill (caller owns the error)", async () => {
+    const resolved = await withEffectTempDir((dir) =>
+      Effect.gen(function* () {
+        mkdirSync(join(dir, "workspace", "skills"), { recursive: true });
+        mkdirSync(join(dir, "packaged"), { recursive: true });
+        return yield* resolveStationSkillDir({
+          root: join(dir, "workspace"),
+          skillsDir: "skills",
+          slug: "william-draft-skill-md",
+          packagedSkillsDir: join(dir, "packaged"),
+        });
+      }),
+    );
+    expect(resolved).toBeUndefined();
+  });
+
+  test("no packagedSkillsDir at all (the pre-D6 shape): only the workspace resolves", async () => {
+    const resolved = await withEffectTempDir((dir) =>
+      Effect.gen(function* () {
+        mkdirSync(join(dir, "workspace", "skills"), { recursive: true });
+        return yield* resolveStationSkillDir({
+          root: join(dir, "workspace"),
+          skillsDir: "skills",
+          slug: "william-draft-skill-md",
+        });
+      }),
+    );
+    expect(resolved).toBeUndefined();
+  });
+});
+
+describe("runStation precondition when a station's skill resolves nowhere", () => {
+  test("the error names BOTH the workspace path and the packaged fallback", async () => {
+    const outcome = await withEffectTempDir((dir) =>
+      Effect.gen(function* () {
+        // A real-enough bundle whose drafting station references a skill
+        // that exists neither in the workspace nor in the packaged dir.
+        const bundleDir = join(dir, "skills", "example-skill");
+        mkdirSync(bundleDir, { recursive: true });
+        writeFileSync(join(bundleDir, "bundle.json"), JSON.stringify({ slug: "example-skill" }));
+        writeFileSync(join(bundleDir, "stations.json"), `${JSON.stringify(DEFAULT_STATIONS_TEMPLATE, null, 2)}\n`);
+        const packagedDir = join(dir, "packaged");
+        mkdirSync(packagedDir, { recursive: true });
+        mkdirSync(join(dir, ".skillmaker"), { recursive: true });
+        return yield* Effect.result(
+          runStation({
+            root: dir,
+            config: defaultConfig("test-workspace"),
+            bundle: "example-skill",
+            state: "drafting",
+            actor,
+            packagedSkillsDir: packagedDir,
+          }).pipe(Effect.provide(JournalLayer(join(dir, ".skillmaker", "events.jsonl")))),
+        );
+      }),
+    );
+    expect(outcome._tag).toBe("Failure");
+    if (outcome._tag === "Failure") {
+      const failure = outcome.failure as StationPreconditionError;
+      expect(failure._tag).toBe("StationPreconditionError");
+      expect(failure.message).toContain("skills/william-draft-skill-md/bundle.json");
+      expect(failure.message).toContain("packaged");
+      expect(failure.message).toContain(join("packaged", "william-draft-skill-md", "bundle.json"));
+    }
   });
 });
 

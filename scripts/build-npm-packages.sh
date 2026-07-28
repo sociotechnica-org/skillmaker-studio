@@ -28,8 +28,8 @@ set -eu
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-if [ ! -f dist/skillmaker ] || [ ! -d dist/viewer-dist ] || [ ! -f dist/VERSION ]; then
-  echo "error: dist/skillmaker, dist/viewer-dist/, and dist/VERSION must exist first." >&2
+if [ ! -f dist/skillmaker ] || [ ! -d dist/viewer-dist ] || [ ! -d dist/packaged-skills ] || [ ! -f dist/VERSION ]; then
+  echo "error: dist/skillmaker, dist/viewer-dist/, dist/packaged-skills/, and dist/VERSION must exist first." >&2
   echo "       run ./scripts/build-dist.sh (builds for the current host only)." >&2
   exit 1
 fi
@@ -85,6 +85,9 @@ cp "npm/${platform_dir}/package.json" "${pkg_out}/package.json"
 cp dist/skillmaker "${pkg_out}/bin/skillmaker"
 chmod +x "${pkg_out}/bin/skillmaker"
 cp -r dist/viewer-dist "${pkg_out}/viewer-dist"
+# D6: the packaged station skills travel with the binary, same as viewer-dist
+# (PackagedSkills.ts's execPath-relative walk finds them as a sibling dir).
+cp -r dist/packaged-skills "${pkg_out}/packaged-skills"
 bun -e "
   const fs = require('node:fs');
   const path = process.argv[1];

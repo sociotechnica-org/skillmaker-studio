@@ -39,7 +39,8 @@
     "externalBin": ["binaries/skillmaker"],
     "macOS": {
       "files": {
-        "MacOS/viewer-dist": "binaries/viewer-dist"
+        "MacOS/viewer-dist": "binaries/viewer-dist",
+        "MacOS/packaged-skills": "binaries/packaged-skills"
       }
     }
   }

@@ -8,9 +8,13 @@
 #
 # Output layout (repo-root-relative, gitignored -- `dist/` is already in
 # .gitignore):
-#   dist/skillmaker      compiled binary
-#   dist/viewer-dist/    viewer's built static assets (astro build's dist/)
-#   dist/VERSION         "<package.json version>+<git short sha>[-dirty]"
+#   dist/skillmaker        compiled binary
+#   dist/viewer-dist/      viewer's built static assets (astro build's dist/)
+#   dist/packaged-skills/  product-packaged station skills (D6; the name and
+#                          sibling placement are load-bearing the same way
+#                          viewer-dist's are -- packages/cli/src/PackagedSkills.ts
+#                          walks execPath ancestors for `packaged-skills`)
+#   dist/VERSION           "<package.json version>+<git short sha>[-dirty]"
 #
 # Safe to rerun: each step overwrites its own output only, nothing is
 # appended to or accumulated across runs.
@@ -41,6 +45,15 @@ echo "==> build-dist: copying viewer assets next to the binary"
 rm -rf dist/viewer-dist
 cp -r packages/viewer/dist dist/viewer-dist
 
+echo "==> build-dist: copying packaged station skills next to the binary"
+# D6: William ships inside the product. The checked-in copies under
+# packages/cli/skills/ (kept in lockstep with the repo's own skills/
+# workspace by packages/cli/test/PackagedSkills.test.ts) travel next to the
+# binary so StationEngine's packaged-skill fallback works everywhere the
+# binary is copied, exactly like viewer-dist.
+rm -rf dist/packaged-skills
+cp -r packages/cli/skills dist/packaged-skills
+
 echo "==> build-dist: writing dist/VERSION"
 package_version="$(bun -e "console.log(require('./package.json').version)")"
 git_sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -52,4 +65,5 @@ echo "${package_version}+${git_sha}" >dist/VERSION
 echo "==> build-dist: done"
 echo "    dist/skillmaker"
 echo "    dist/viewer-dist/"
+echo "    dist/packaged-skills/"
 echo "    dist/VERSION ($(cat dist/VERSION))"

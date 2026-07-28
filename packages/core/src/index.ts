@@ -258,10 +258,13 @@ export {
 export { seedProviderAuth, type AuthSeedResult } from "./AuthSeeding.ts";
 export {
   runStation,
+  resolveStationSkillDir,
   StationPreconditionError,
   buildStationPrompt,
   buildReviewQuestion,
   latestReviseNotes,
+  type ResolveStationSkillDirInput,
+  type ResolvedStationSkill,
   type RunStationInput,
   type RunStationResult,
   type StationProgressEvent,

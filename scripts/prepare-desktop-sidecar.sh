@@ -49,6 +49,17 @@ echo "==> prepare-desktop-sidecar: staging viewer-dist/"
 rm -rf "$binaries_dir/viewer-dist"
 cp -r dist/viewer-dist "$binaries_dir/viewer-dist"
 
+# D6: the packaged station skills travel with the sidecar binary the same
+# way viewer-dist does (packages/cli/src/PackagedSkills.ts's execPath-relative
+# walk looks for a sibling `packaged-skills/`). Tolerate an older dist/ that
+# predates them rather than hard-failing a desktop build.
+if [ -d dist/packaged-skills ]; then
+	echo "==> prepare-desktop-sidecar: staging packaged-skills/"
+	rm -rf "$binaries_dir/packaged-skills"
+	cp -r dist/packaged-skills "$binaries_dir/packaged-skills"
+fi
+
 echo "==> prepare-desktop-sidecar: done"
 echo "    $binaries_dir/skillmaker-${target_triple}"
 echo "    $binaries_dir/viewer-dist/"
+echo "    $binaries_dir/packaged-skills/"
