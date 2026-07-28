@@ -1,4 +1,5 @@
 import type { FC } from "react";
+import { useProjectBootstrap } from "./runtime/useProjectBootstrap.ts";
 import { AppShell } from "./components/AppShell.tsx";
 import { Board } from "./components/Board.tsx";
 import { Lab } from "./components/Lab.tsx";
@@ -52,10 +53,25 @@ const Routes: FC = () => {
   }
 };
 
+/**
+ * Machine registry (2026-07-27 rulings): every `/api/*` data route is now
+ * project-scoped, so the classic shell resolves the ACTIVE project before
+ * mounting any data-fetching route -- otherwise the first fetch wave goes
+ * out unscoped and 404s. This shell has no project picker (the next shell
+ * does); it simply follows the stored/first project.
+ */
+const Bootstrapped: FC = () => {
+  const status = useProjectBootstrap();
+  if (status === "loading") {
+    return <p className="p-6 text-sm text-neutral-500 dark:text-neutral-400">Loading projects…</p>;
+  }
+  return <Routes />;
+};
+
 const App: FC = () => (
   <RouterProvider>
     <AppShell>
-      <Routes />
+      <Bootstrapped />
     </AppShell>
   </RouterProvider>
 );

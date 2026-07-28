@@ -15,6 +15,8 @@
  * - The right panel exists on skill pages only.
  */
 import { useState } from "react";
+import { setActiveProject } from "../runtime/projectScope.ts";
+import { useProjectBootstrap } from "../runtime/useProjectBootstrap.ts";
 import { usePanelResize } from "./hooks.ts";
 import { CollapseIcon, ExpandIcon, OverviewIcon, PanelLeftIcon, PanelRightIcon } from "./icons.tsx";
 import { NewSkillLauncher } from "./NewSkillLauncher.tsx";
@@ -32,9 +34,14 @@ function TopBarControls({ slug, pinned, onPin }: { readonly slug: string; readon
 import type { CenterView } from "./types.ts";
 
 export default function NextShell() {
+  // Machine registry (2026-07-27 rulings): resolve the ACTIVE project up
+  // front -- stored selection if still registered, else the first healthy
+  // project. Hooks re-fetch when the selection lands/changes.
+  useProjectBootstrap();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
-  const [center, setCenter] = useState<CenterView>({ kind: "skill", project: "skills", slug: "to-tickets" });
+  // Land on the Board: with many projects there is no one hardcodable skill.
+  const [center, setCenter] = useState<CenterView>({ kind: "board" });
   const [overviewOpen, setOverviewOpen] = useState(true);
   // A center-panel "open in Files" request: RightPanel consumes + clears it.
   const [fileRequest, setFileRequest] = useState<string | null>(null);
@@ -160,7 +167,16 @@ export default function NextShell() {
           {onSkillPage && !rightOpen && <span className="w-7 shrink-0" />}
         </header>
         <main className="relative flex-1 overflow-y-auto">
-          {center.kind === "board" && <BoardView onOpenSkill={(project, slug) => setCenter({ kind: "skill", project, slug })} />}
+          {center.kind === "board" && (
+            <BoardView
+              onOpenSkill={(project, slug) => {
+                // A board card may belong to a different project than the
+                // active one -- opening it switches the scope too.
+                setActiveProject(project.slug);
+                setCenter({ kind: "skill", project: project.name, slug });
+              }}
+            />
+          )}
           {center.kind === "tasks" && <TasksView />}
           {center.kind === "skill" && (
             <SkillView

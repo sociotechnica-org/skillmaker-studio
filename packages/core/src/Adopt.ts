@@ -35,6 +35,9 @@ const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make
 /** Directory names never descended into during discovery (§3B.1) -- shared with `IndexService.ts`'s bundle scan (`Versions.ts`'s `WORKSPACE_SCAN_SKIP_DIR_NAMES`), not an independent copy. */
 const SKIP_DIR_NAMES: ReadonlySet<string> = WORKSPACE_SCAN_SKIP_DIR_NAMES;
 
+/** The only hidden directories discovery descends into -- established per-project skill homes; everything else dot-prefixed is machinery (caches, vendored repos, tool state). */
+const SKILL_HOME_DOT_DIRS: ReadonlySet<string> = new Set([".agents", ".claude", ".claude-plugin"]);
+
 /** Marker for a SKILL.md that is compiler output, not hand-authored (§3B.5b, gstack). */
 const GENERATED_MARKER_PATTERN = /AUTO-GENERATED/i;
 
@@ -285,6 +288,19 @@ export const walk = Effect.fn("Adopt.walk")(function* (root: string) {
 
       if (info.type === "Directory") {
         if (SKIP_DIR_NAMES.has(entry)) {
+          continue;
+        }
+        // Hidden directories are machinery, not authored content: plugin
+        // caches (.claude/plugins), vendored checkouts (.repos), tool state.
+        // The ONLY dot-dirs discovery enters are the known skill homes --
+        // .agents and .claude -- and inside those, only their skills/
+        // subtree (a plugin cache under .claude/plugins must never surface
+        // its wares as import candidates; 2026-07-27 fresh-skill walk).
+        if (entry.startsWith(".") && !SKILL_HOME_DOT_DIRS.has(entry)) {
+          continue;
+        }
+        const parentName = basename(dir);
+        if (SKILL_HOME_DOT_DIRS.has(parentName) && entry !== "skills") {
           continue;
         }
         if (entry === "evals" || entry === "tests") {

@@ -21,6 +21,7 @@
  *     for the component's lifetime -- no retry hammering.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { apiPath } from "../runtime/projectScope.ts";
 import { subscribeJournalTicks } from "./liveRefresh.ts";
 
 export const MAX_SWEEP = 20;
@@ -63,8 +64,8 @@ const sweepPresence = async (slugs: ReadonlyArray<string>): Promise<ReadonlySet<
   const verdicts = await Promise.all(
     bounded.map(async (slug) => {
       const [runs, chat] = await Promise.all([
-        fetchGlance(`/api/bundles/${encodeURIComponent(slug)}/runs-active`),
-        fetchGlance(`/api/chat/${encodeURIComponent(slug)}/state`),
+        fetchGlance(apiPath(`/api/bundles/${encodeURIComponent(slug)}/runs-active`)),
+        fetchGlance(apiPath(`/api/chat/${encodeURIComponent(slug)}/state`)),
       ]);
       if (runs === null && chat === null) return { slug, running: false, reachable: false };
       return {

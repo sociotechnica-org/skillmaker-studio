@@ -20,6 +20,10 @@ describe("decodeProjectsResponse", () => {
     });
     expect(decoded).toEqual([
       {
+        // No slug on the wire (pre-registry payload): falls back to the
+        // name; absent `ok` reads healthy.
+        slug: "skillmaker-studio",
+        ok: true,
         name: "skillmaker-studio",
         path: "~/Documents/code/skillmaker-studio",
         skills: [
@@ -70,8 +74,22 @@ describe("decodeProjectsResponse", () => {
       ],
     });
     expect(decoded).toEqual([
-      { name: "ok", path: "/ok", skills: [{ slug: "good", stage: "Idea", oneLiner: "g", awaitingReview: false }] },
+      { slug: "ok", ok: true, name: "ok", path: "/ok", skills: [{ slug: "good", stage: "Idea", oneLiner: "g", awaitingReview: false }] },
     ]);
+  });
+
+  test("decodes the machine-registry payload: slug is the identifier, broken rows keep ok:false + error", () => {
+    const decoded = decodeProjectsResponse({
+      projects: [
+        { slug: "alpha", name: "Alpha", path: "~/a", ok: true, skills: [] },
+        { slug: "ghost-abc123", name: "ghost", path: "~/g", ok: false, error: "directory does not exist", skills: [] },
+      ],
+    });
+    expect(decoded?.map((p) => [p.slug, p.ok])).toEqual([
+      ["alpha", true],
+      ["ghost-abc123", false],
+    ]);
+    expect(decoded?.[1]?.error).toBe("directory does not exist");
   });
 
   test("returns null (keep the placeholder) for non-conforming payloads", () => {
@@ -83,7 +101,7 @@ describe("decodeProjectsResponse", () => {
 
   test("tolerates a missing skills array (a project with no skills yet)", () => {
     expect(decodeProjectsResponse({ projects: [{ name: "bare", path: "/bare" }] })).toEqual([
-      { name: "bare", path: "/bare", skills: [] },
+      { slug: "bare", ok: true, name: "bare", path: "/bare", skills: [] },
     ]);
   });
 });

@@ -5,7 +5,7 @@ import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
 import { SkillPageView } from "./SkillPage.tsx";
 import { STAGES } from "./types.ts";
 import { Button, FADE_R, STAGE_TINT } from "./ui.tsx";
-import type { SkillPage } from "./types.ts";
+import type { Project, SkillPage } from "./types.ts";
 
 /** One fetch per skill page, shared by content, overview column, and overlay. */
 export function useSkillPage(slug: string): SkillPage {
@@ -13,7 +13,7 @@ export function useSkillPage(slug: string): SkillPage {
   return useApiData(fetcher, SKILL_PAGE);
 }
 
-export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: string, slug: string) => void }) {
+export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: Project, slug: string) => void }) {
   const projects = useApiData(fetchProjects, PROJECTS);
   return (
     <div className="p-6">
@@ -29,7 +29,7 @@ export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: str
                   <button
                     key={`${p.name}/${s.slug}`}
                     type="button"
-                    onClick={() => onOpenSkill(p.name, s.slug)}
+                    onClick={() => onOpenSkill(p, s.slug)}
                     className="mb-2 block w-full rounded bg-surface p-2 text-left shadow-sm hover:shadow"
                   >
                     <div className={`font-display text-sm ${FADE_R}`}>{s.slug}</div>

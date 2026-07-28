@@ -7,6 +7,7 @@ import type { Claim, Project, SkillPage, Task } from "./types.ts";
 
 export const PROJECTS: ReadonlyArray<Project> = [
   {
+    slug: "skills",
     name: "skills",
     path: "~/Documents/code/skills",
     skills: [
@@ -20,6 +21,7 @@ export const PROJECTS: ReadonlyArray<Project> = [
     ],
   },
   {
+    slug: "skillmaker-studio",
     name: "skillmaker-studio",
     path: "~/Documents/code/skillmaker-studio",
     skills: [

@@ -19,6 +19,7 @@
  * single catch-up tick on success -- never a thundering refetch.
  */
 import { useEffect, useState } from "react";
+import { getActiveProject } from "../runtime/projectScope.ts";
 
 // -- pure part: debounce + backoff (unit-tested in liveRefresh.test.ts) --
 
@@ -111,7 +112,21 @@ const connect = (): void => {
     // arrives in a single refetch wave, not one per subscriber.
     if (recovered) debounced?.signal();
   };
-  stream.onmessage = () => debounced?.signal();
+  stream.onmessage = (event) => {
+    // Machine-registry SSE payloads name WHICH project's journal moved
+    // (`{"kind":"journal","project":"<slug>"}`, director rulings
+    // 2026-07-27): only the active project's appends trigger a refetch
+    // wave. Unparseable/legacy payloads tick unconditionally -- refetching
+    // too eagerly is safe, missing a change is not.
+    try {
+      const payload = JSON.parse(String(event.data)) as { readonly project?: unknown };
+      const active = getActiveProject();
+      if (typeof payload.project === "string" && active !== null && payload.project !== active) return;
+    } catch {
+      // not JSON -- fall through to a tick
+    }
+    debounced?.signal();
+  };
   stream.onerror = () => {
     stream.close();
     if (source !== stream) return; // superseded by teardown/reconnect
