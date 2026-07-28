@@ -233,15 +233,9 @@ export function NewProjectDialog({
         {error !== null && <div className="pt-2 text-xs text-red-700 dark:text-red-400">{error}</div>}
 
         {needsInit ? (
-          <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-700 dark:bg-amber-950">
-            <p className="pb-2">
-              This directory is not a skillmaker workspace yet. Set it up with the default scaffold
-              (skillmaker.config.json, skills/, .skillmaker/) and register it?
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button label="Cancel" onClick={() => setNeedsInit(false)} disabled={busy} />
-              <Button label="Create project" primary onClick={() => void submit(true)} disabled={busy} />
-            </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button label="Cancel" onClick={() => setNeedsInit(false)} disabled={busy} />
+            <Button label="Create project" primary onClick={() => void submit(true)} disabled={busy} />
           </div>
         ) : (
           <div className="mt-3 flex justify-end gap-2">
