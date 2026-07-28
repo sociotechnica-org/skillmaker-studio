@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -33,6 +33,7 @@ const fakeAdapterSuccess = join(import.meta.dir, "fixtures", "fake-acp-success.c
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd: scratchDir, stdout: "pipe", stderr: "pipe" });
@@ -102,7 +103,7 @@ interface CatalogEntryJson {
 }
 
 const fetchCatalog = async (): Promise<ReadonlyArray<CatalogEntryJson>> => {
-  const response = await fetch(`${baseUrl}/api/catalog`);
+  const response = await fetch(`${projectUrl}/catalog`);
   expect(response.status).toBe(200);
   const body = (await response.json()) as { entries: ReadonlyArray<CatalogEntryJson> };
   return body.entries;
@@ -116,7 +117,7 @@ interface RecentlyRoutedJson {
 }
 
 const fetchRecentlyRouted = async (): Promise<ReadonlyArray<RecentlyRoutedJson>> => {
-  const response = await fetch(`${baseUrl}/api/intake`);
+  const response = await fetch(`${projectUrl}/intake`);
   expect(response.status).toBe(200);
   const body = (await response.json()) as { recentlyRouted: ReadonlyArray<RecentlyRoutedJson> };
   return body.recentlyRouted;
@@ -159,12 +160,13 @@ beforeAll(async () => {
   expect(runCli(["init", "--json"]).exitCode).toBe(0);
   setProviderCommand(["node", fakeAdapterSuccess]);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {

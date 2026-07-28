@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -30,6 +30,7 @@ let scratchDir: string;
 let bundleDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -278,16 +279,17 @@ describe("grade + measurements: the CLI door", () => {
 describe("phase 9 server surface", () => {
   beforeAll(async () => {
     setProviderCommand(["node", fakeAdapterSuccess]);
-    const server = await startE2eServer({
+    const server = await startE2eRegistryServer({
       command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
       cwd: scratchDir,
     });
     serverProcess = server.process;
     baseUrl = server.baseUrl;
+    projectUrl = server.projectUrls[0] as string;
   }, 30000);
 
   test("GET /api/bundles/:slug includes measurements[]", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/graded-skill`);
+    const response = await fetch(`${projectUrl}/bundles/graded-skill`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       measurements: ReadonlyArray<{ fixtureCase: string; n: number }>;
@@ -297,7 +299,7 @@ describe("phase 9 server surface", () => {
   });
 
   test("GET /api/bundles/:slug/runs/:runId returns run, parsed transcript, artifacts, grading history (newest first), and checks", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/graded-skill/runs/${firstRunId}`);
+    const response = await fetch(`${projectUrl}/bundles/graded-skill/runs/${firstRunId}`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       run: { id: string; status: string; fixtureCase: string };
@@ -325,12 +327,12 @@ describe("phase 9 server surface", () => {
   });
 
   test("GET run detail 404s for an unknown run id", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/graded-skill/runs/no-such-run`);
+    const response = await fetch(`${projectUrl}/bundles/graded-skill/runs/no-such-run`);
     expect(response.status).toBe(404);
   });
 
   test("POST run.graded on an infra-error run is a 409", async () => {
-    const response = await fetch(`${baseUrl}/api/events`, {
+    const response = await fetch(`${projectUrl}/events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ type: "run.graded", payload: { id: infraRunId, verdict: "pass" } }),
@@ -341,7 +343,7 @@ describe("phase 9 server surface", () => {
   });
 
   test("POST run.graded on a nonexistent run is a 409", async () => {
-    const response = await fetch(`${baseUrl}/api/events`, {
+    const response = await fetch(`${projectUrl}/events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ type: "run.graded", payload: { id: "no-such-run", verdict: "pass" } }),
@@ -350,7 +352,7 @@ describe("phase 9 server surface", () => {
   });
 
   test("POST run.graded on a completed run appends (the panel's write path)", async () => {
-    const response = await fetch(`${baseUrl}/api/events`, {
+    const response = await fetch(`${projectUrl}/events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -373,7 +375,7 @@ describe("phase 9 server surface", () => {
 
   test("artifact files are readable via the file endpoint allowlist", async () => {
     const response = await fetch(
-      `${baseUrl}/api/bundles/graded-skill/file?path=${encodeURIComponent(
+      `${projectUrl}/bundles/graded-skill/file?path=${encodeURIComponent(
         `runs/${firstRunId}/artifacts/fake-output.md`,
       )}`,
     );
@@ -384,7 +386,7 @@ describe("phase 9 server surface", () => {
 
   test("response.md is readable via the file endpoint allowlist", async () => {
     const response = await fetch(
-      `${baseUrl}/api/bundles/graded-skill/file?path=${encodeURIComponent(`runs/${firstRunId}/response.md`)}`,
+      `${projectUrl}/bundles/graded-skill/file?path=${encodeURIComponent(`runs/${firstRunId}/response.md`)}`,
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as { content: string };
@@ -402,7 +404,7 @@ describe("phase 9 server surface", () => {
     ];
     for (const attempt of attempts) {
       const response = await fetch(
-        `${baseUrl}/api/bundles/graded-skill/file?path=${encodeURIComponent(attempt)}`,
+        `${projectUrl}/bundles/graded-skill/file?path=${encodeURIComponent(attempt)}`,
       );
       expect(response.status).toBe(404);
     }
@@ -410,7 +412,7 @@ describe("phase 9 server surface", () => {
 
   test("POST /api/bundles/:slug/fixtures/:case/run returns a run id immediately and the run completes in the background", async () => {
     const before = Date.now();
-    const response = await fetch(`${baseUrl}/api/bundles/graded-skill/fixtures/golden-basic/run`, {
+    const response = await fetch(`${projectUrl}/bundles/graded-skill/fixtures/golden-basic/run`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "claude-code" }),
@@ -441,19 +443,19 @@ describe("phase 9 server surface", () => {
   }, 30000);
 
   test("triggering a run for an unknown provider is a 400; unknown fixture a 409; unknown bundle a 404", async () => {
-    const badProvider = await fetch(`${baseUrl}/api/bundles/graded-skill/fixtures/golden-basic/run`, {
+    const badProvider = await fetch(`${projectUrl}/bundles/graded-skill/fixtures/golden-basic/run`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "nope" }),
     });
     expect(badProvider.status).toBe(400);
 
-    const badFixture = await fetch(`${baseUrl}/api/bundles/graded-skill/fixtures/no-such-case/run`, {
+    const badFixture = await fetch(`${projectUrl}/bundles/graded-skill/fixtures/no-such-case/run`, {
       method: "POST",
     });
     expect(badFixture.status).toBe(409);
 
-    const badBundle = await fetch(`${baseUrl}/api/bundles/no-such-bundle/fixtures/golden-basic/run`, {
+    const badBundle = await fetch(`${projectUrl}/bundles/no-such-bundle/fixtures/golden-basic/run`, {
       method: "POST",
     });
     expect(badBundle.status).toBe(404);

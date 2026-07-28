@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -25,6 +25,7 @@ let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let port: number;
 let baseUrl: string;
+let projectUrl: string;
 let bundleDir: string;
 
 const copyToolVersions = (dir: string) => {
@@ -153,7 +154,7 @@ interface BundleDetailResponse {
 }
 
 const getBundleDetail = async (slug: string): Promise<{ status: number; body: BundleDetailResponse }> => {
-  const response = await fetch(`${baseUrl}/api/bundles/${encodeURIComponent(slug)}`);
+  const response = await fetch(`${projectUrl}/bundles/${encodeURIComponent(slug)}`);
   const text = await response.text();
   let body: BundleDetailResponse;
   try {
@@ -170,7 +171,7 @@ interface BundlesResponse {
 }
 
 const getBundles = async (): Promise<{ status: number; body: BundlesResponse }> => {
-  const response = await fetch(`${baseUrl}/api/bundles`);
+  const response = await fetch(`${projectUrl}/bundles`);
   const body = (await response.json()) as BundlesResponse;
   return { status: response.status, body };
 };
@@ -200,13 +201,14 @@ beforeAll(async () => {
 
   bundleDir = join(scratchDir, "skills", "frame-the-problem");
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   port = server.port;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {

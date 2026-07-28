@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -32,6 +32,7 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 let recordedHash = ""; // "sha256:<hex>", captured from `version record --json`
 const bareHex = (): string => recordedHash.replace(/^sha256:/, "");
@@ -58,12 +59,13 @@ beforeAll(async () => {
 
   writeFileSync(join(bundleDir(), "output", "SKILL.md"), "# Demo Skill\n\nDo the demo thing.\n");
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -120,7 +122,7 @@ describe("version snapshots through the CLI door", () => {
 
 describe("version snapshots over HTTP", () => {
   test("bundle detail's versions[] carries snapshot: true for a kept version", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/demo-skill`);
+    const response = await fetch(`${projectUrl}/bundles/demo-skill`);
     expect(response.status).toBe(200);
     const detail = (await response.json()) as {
       versions: ReadonlyArray<{ hash: string; snapshot: boolean }>;
@@ -134,7 +136,7 @@ describe("version snapshots over HTTP", () => {
   });
 
   test("GET versions/:hash/files lists the kept content (bare hex works)", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/demo-skill/versions/${bareHex()}/files`);
+    const response = await fetch(`${projectUrl}/bundles/demo-skill/versions/${bareHex()}/files`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       hash: string;
@@ -148,7 +150,7 @@ describe("version snapshots over HTTP", () => {
 
   test("GET versions/:hash/file reads one snapshot file", async () => {
     const response = await fetch(
-      `${baseUrl}/api/bundles/demo-skill/versions/${bareHex()}/file?path=output/SKILL.md`,
+      `${projectUrl}/bundles/demo-skill/versions/${bareHex()}/file?path=output/SKILL.md`,
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as { path: string; content: string };
@@ -157,19 +159,19 @@ describe("version snapshots over HTTP", () => {
 
   test("traversal and outside-the-snapshot paths 404, never leak", async () => {
     const traversal = await fetch(
-      `${baseUrl}/api/bundles/demo-skill/versions/${bareHex()}/file?path=..%2F..%2F..%2Fdesign.md`,
+      `${projectUrl}/bundles/demo-skill/versions/${bareHex()}/file?path=..%2F..%2F..%2Fdesign.md`,
     );
     expect(traversal.status).toBe(404);
     const outside = await fetch(
-      `${baseUrl}/api/bundles/demo-skill/versions/${bareHex()}/file?path=bundle.json`,
+      `${projectUrl}/bundles/demo-skill/versions/${bareHex()}/file?path=bundle.json`,
     );
     expect(outside.status).toBe(404);
-    const unknownHash = await fetch(`${baseUrl}/api/bundles/demo-skill/versions/ffffffffffff/files`);
+    const unknownHash = await fetch(`${projectUrl}/bundles/demo-skill/versions/ffffffffffff/files`);
     expect(unknownHash.status).toBe(404);
   });
 
   test("the files-tab walk does not recurse into snapshots", async () => {
-    const response = await fetch(`${baseUrl}/api/bundles/demo-skill/files`);
+    const response = await fetch(`${projectUrl}/bundles/demo-skill/files`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { files: ReadonlyArray<{ path: string }> };
     expect(body.files.length).toBeGreaterThan(0);
@@ -195,13 +197,13 @@ describe("pre-snapshot receipts stay honest", () => {
     };
     appendFileSync(join(scratchDir, ".skillmaker", "events.jsonl"), `${JSON.stringify(event)}\n`);
 
-    const detail = await fetch(`${baseUrl}/api/bundles/demo-skill`);
+    const detail = await fetch(`${projectUrl}/bundles/demo-skill`);
     const body = (await detail.json()) as { versions: ReadonlyArray<{ hash: string; snapshot: boolean }> };
     const ghost = body.versions.find((version) => version.hash === ghostHash);
     expect(ghost).toBeDefined();
     expect(ghost?.snapshot).toBe(false);
 
-    const files = await fetch(`${baseUrl}/api/bundles/demo-skill/versions/${ghostHash.slice(7)}/files`);
+    const files = await fetch(`${projectUrl}/bundles/demo-skill/versions/${ghostHash.slice(7)}/files`);
     expect(files.status).toBe(404);
     const error = (await files.json()) as { error: string };
     expect(error.error).toContain("recorded before snapshots existed");
@@ -216,7 +218,7 @@ describe("record-version endpoint snapshots too (same core path)", () => {
   test("POST record-version after a content change keeps the NEW content under a NEW hash", async () => {
     writeFileSync(join(bundleDir(), "output", "SKILL.md"), "# Demo Skill\n\nDo the demo thing, v2.\n");
 
-    const response = await fetch(`${baseUrl}/api/bundles/demo-skill/record-version`, {
+    const response = await fetch(`${projectUrl}/bundles/demo-skill/record-version`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ label: "v2" }),

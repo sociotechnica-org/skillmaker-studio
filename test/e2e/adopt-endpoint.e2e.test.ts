@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -25,9 +25,10 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
 
 const adopt = (payload: unknown): Promise<Response> =>
-  fetch(`${baseUrl}/api/adopt`, {
+  fetch(`${projectUrl}/adopt`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -54,12 +55,13 @@ beforeAll(async () => {
     "---\nname: Release Notes\ndescription: Writes release notes from a changelog.\n---\n\n# Release Notes\n",
   );
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 60000);
 
 afterAll(async () => {
@@ -100,7 +102,7 @@ describe("POST /api/adopt", () => {
     ).toBe(true);
 
     // And it is now a first-class bundle on the board.
-    const list = (await (await fetch(`${baseUrl}/api/bundles`)).json()) as {
+    const list = (await (await fetch(`${projectUrl}/bundles`)).json()) as {
       bundles: ReadonlyArray<{ slug: string; stage: string }>;
     };
     expect(list.bundles.find((b) => b.slug === "release-notes")?.stage).toBe("idea");

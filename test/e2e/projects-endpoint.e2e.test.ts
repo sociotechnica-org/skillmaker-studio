@@ -1,19 +1,21 @@
 /**
- * `GET /api/projects` -- the next shell's sidebar Projects source. Today the
- * server serves exactly ONE project (the workspace it is running for); the
- * machine-level registry (IA doc §A, `~/.skillmaker`) lands later. Locked at
- * the HTTP boundary the sidebar uses:
- *   1. The response is an ARRAY of projects (the registry-proof shape) with
- *      one element: the workspace's name and root path.
- *   2. Skills are the workspace's bundles with slug/stage/oneLiner, in the
- *      server's own stage vocabulary.
- *   3. An archived bundle does not appear.
+ * `GET /api/projects` -- the machine-level registry, live (director rulings
+ * 2026-07-27). Locked at the HTTP boundary the sidebar uses:
+ *   1. The response is an ARRAY of registered projects, each carrying the
+ *      URL `slug` for its `/api/projects/:slug/...` routes.
+ *   2. Name derives from the project's own skillmaker.config.json at read
+ *      time (init defaults it to the directory basename) -- the registry
+ *      itself stores only paths.
+ *   3. Skills are the project's bundles with slug/stage/oneLiner, in the
+ *      server's own stage vocabulary; an archived bundle does not appear.
+ *   4. Project-scoped routes resolve through the slug; an unknown slug is
+ *      an honest 404.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { startE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -21,11 +23,15 @@ const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
 let scratchDir: string;
 let serverProcess: ReturnType<typeof Bun.spawn> | undefined;
 let baseUrl: string;
+let projectUrl: string;
+let projectSlug: string;
 
 interface ProjectsResponse {
   readonly projects: ReadonlyArray<{
+    readonly slug: string;
     readonly name: string;
     readonly path: string;
+    readonly ok: boolean;
     readonly skills: ReadonlyArray<{ readonly slug: string; readonly stage: string; readonly oneLiner: string }>;
   }>;
 }
@@ -39,16 +45,18 @@ beforeAll(async () => {
   expect(Bun.spawnSync(["bun", cliEntry, "new", "first-skill", "--json"], { cwd: scratchDir }).exitCode).toBe(0);
   expect(Bun.spawnSync(["bun", cliEntry, "new", "shelved-skill", "--json"], { cwd: scratchDir }).exitCode).toBe(0);
 
-  const server = await startE2eServer({
+  const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   serverProcess = server.process;
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
+  projectSlug = server.projectSlugs[0] as string;
 
   // Archive the second bundle through the allowlisted event door -- the same
-  // path the viewer's own archive action uses.
-  const archived = await fetch(`${baseUrl}/api/events`, {
+  // path the viewer's own archive action uses, now project-scoped.
+  const archived = await fetch(`${projectUrl}/events`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ type: "bundle.archived", payload: { bundle: "shelved-skill" } }),
@@ -67,20 +75,25 @@ afterAll(async () => {
 });
 
 describe("GET /api/projects", () => {
-  test("serves the workspace as the one project, skills included, archived excluded", async () => {
+  test("serves the registered project with its slug, derived name, and skills; archived excluded", async () => {
     const response = await fetch(`${baseUrl}/api/projects`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as ProjectsResponse;
 
-    // The ARRAY shape is the contract -- one element today.
+    // The ARRAY shape is the contract -- one registered project here.
     expect(Array.isArray(body.projects)).toBe(true);
     expect(body.projects).toHaveLength(1);
 
     const project = body.projects[0];
     if (project === undefined) throw new Error("unreachable: length asserted above");
 
+    // Slug is the URL identifier the harness computed with core's own rule.
+    expect(project.slug).toBe(projectSlug);
+    expect(project.ok).toBe(true);
+
     // Name comes from skillmaker.config.json's `name` (init defaults it to
-    // the directory basename).
+    // the directory basename) -- derived at read time, never stored in the
+    // registry.
     const config = JSON.parse(readFileSync(join(scratchDir, "skillmaker.config.json"), "utf8")) as {
       name: string;
     };
@@ -98,5 +111,15 @@ describe("GET /api/projects", () => {
     const first = project.skills.find((skill) => skill.slug === "first-skill");
     expect(first?.stage).toBe("idea");
     expect(typeof first?.oneLiner).toBe("string");
+  });
+
+  test("project-scoped routes resolve through the slug; an unknown slug 404s", async () => {
+    const catalog = await fetch(`${projectUrl}/catalog`);
+    expect(catalog.status).toBe(200);
+    const entries = ((await catalog.json()) as { entries: ReadonlyArray<{ slug: string }> }).entries;
+    expect(entries.map((entry) => entry.slug)).toContain("first-skill");
+
+    const missing = await fetch(`${baseUrl}/api/projects/no-such-project/catalog`);
+    expect(missing.status).toBe(404);
   });
 });

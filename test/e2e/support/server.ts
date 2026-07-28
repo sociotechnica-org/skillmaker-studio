@@ -31,6 +31,14 @@
  * <url>" shape from the 22 originals.
  */
 
+// Relative import (not "@skillmaker/core"): test/e2e is not a workspace
+// package, so the bare specifier resolves through whatever node_modules
+// happens to be above it -- wrong in git worktrees. The source path is exact.
+import { computeProjectSlugs } from "../../../packages/core/src/MachineConfig.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
 const POLL_INTERVAL_MS = 100;
 const DEFAULT_TIMEOUT_MS = 45_000;
 const MAX_ATTEMPTS = 3;
@@ -146,4 +154,56 @@ export const startE2eServer = async (options: StartE2eServerOptions): Promise<St
   throw new Error(
     `server never became healthy at ${lastBaseUrl} after ${failures.length} attempt(s):\n${failures.join("\n")}`,
   );
+};
+
+export interface StartE2eRegistryServerOptions extends StartE2eServerOptions {
+  /**
+   * Workspace directories to register in the temp machine registry before
+   * the server starts. Defaults to `[cwd]` -- the classic "one scratch
+   * workspace" harness shape keeps working with zero extra wiring.
+   */
+  readonly projects?: ReadonlyArray<string>;
+}
+
+export interface StartedE2eRegistryServer extends StartedE2eServer {
+  /** The temp `SKILLMAKER_STUDIO_HOME` this server ran against (never the real `~/.skillmaker-studio`). */
+  readonly home: string;
+  /** URL slug per registered project, in registration order (core's own slug rule). */
+  readonly projectSlugs: ReadonlyArray<string>;
+  /** `<baseUrl>/api/projects/<slug>` per registered project, in registration order -- prefix for every project-scoped route. */
+  readonly projectUrls: ReadonlyArray<string>;
+}
+
+/**
+ * `startE2eServer` for the machine-registry world (director rulings
+ * 2026-07-27): `skillmaker start` serves the REGISTRY ONLY and ignores cwd,
+ * so this helper writes a temp machine home (`SKILLMAKER_STUDIO_HOME`),
+ * registers the given workspace dirs in it, and hands back each project's
+ * `/api/projects/:slug` URL prefix alongside the usual handle. The registry
+ * file is written directly (the schema is core's `MachineConfig`, one tiny
+ * JSON file) -- spawning `skillmaker project add` per dir would only slow
+ * every suite down.
+ */
+export const startE2eRegistryServer = async (
+  options: StartE2eRegistryServerOptions,
+): Promise<StartedE2eRegistryServer> => {
+  const projects = (options.projects ?? [options.cwd]).map((dir) => resolve(dir));
+  const home = mkdtempSync(join(tmpdir(), "skillmaker-e2e-home-"));
+  writeFileSync(
+    join(home, "config.json"),
+    `${JSON.stringify({ projects: projects.map((path) => ({ path })) }, null, 2)}\n`,
+  );
+
+  const slugsByPath = computeProjectSlugs(projects);
+  const started = await startE2eServer({
+    ...options,
+    env: { ...options.env, SKILLMAKER_STUDIO_HOME: home },
+  });
+  const projectSlugs = projects.map((path) => slugsByPath.get(path) as string);
+  return {
+    ...started,
+    home,
+    projectSlugs,
+    projectUrls: projectSlugs.map((slug) => `${started.baseUrl}/api/projects/${slug}`),
+  };
 };

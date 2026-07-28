@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startE2eServer, type StartedE2eServer } from "./support/server.ts";
+import { startE2eRegistryServer, type StartedE2eRegistryServer } from "./support/server.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
@@ -32,8 +32,9 @@ const FIXTURES = ["alpha", "bravo", "charlie"] as const;
 
 let scratchDir: string;
 let gateFile: string;
-let server: StartedE2eServer;
+let server: StartedE2eRegistryServer;
 let baseUrl: string;
+let projectUrl: string;
 
 const runCli = (args: ReadonlyArray<string>, cwd: string) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -41,12 +42,12 @@ const runCli = (args: ReadonlyArray<string>, cwd: string) => {
 };
 
 const getJson = async (path: string): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}${path}`);
+  const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`);
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 };
 
 const postJson = async (path: string, payload: unknown): Promise<{ status: number; body: Record<string, unknown> }> => {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -118,11 +119,12 @@ beforeAll(async () => {
   config.providers["claude-code"] = { command: ["node", fakeGatedAdapter, gateFile] };
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
-  server = await startE2eServer({
+  server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
     cwd: scratchDir,
   });
   baseUrl = server.baseUrl;
+  projectUrl = server.projectUrls[0] as string;
 }, 90_000);
 
 afterAll(() => {
