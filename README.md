@@ -13,19 +13,24 @@ their evidence.
 ## Getting started
 
 ```sh
-cd your-project        # any directory that holds (or should hold) skills
 npx skillmaker-studio start
 ```
+
+Then add your first project from the sidebar's **+** — point it at any
+directory that holds (or should hold) skills, or create a new one. The
+Studio runs once per machine and remembers your projects in
+`~/.skillmaker-studio/config.json`; `start` works from anywhere.
 
 Or install once and use the `skillmaker` bin day to day:
 
 ```sh
 npm i -g skillmaker-studio
+skillmaker project add .   # register a project from the terminal instead
 skillmaker start
 ```
 
-npm resolves a compiled platform binary (macOS arm64 and Linux x64 today) —
-no postinstall scripts, no runtime downloads. There is also a
+npm resolves a compiled platform binary (macOS arm64 + x64, Linux x64,
+and Windows x64) — no postinstall scripts, no runtime downloads. There is also a
 [`/skillmaker` skill](packages/skill/skillmaker/SKILL.md) for driving the
 same CLI from inside Claude Code or Codex.
 
@@ -75,7 +80,9 @@ working in the Studio see and change the same state.
 
 Early software. The chat panel and eval runs drive a real coding agent, so
 they require Claude Code or Codex installed and authenticated on your
-machine.
+machine. The Windows build is new in 0.6.0 and lightly traveled — please
+[open an issue](https://github.com/sociotechnica-org/skillmaker-studio/issues)
+if anything misbehaves there.
 
 ## Repo layout
 
