@@ -363,6 +363,18 @@ export function useApiStatus<T>(fetcher: () => Promise<T>): { readonly data?: T;
   return state;
 }
 
+/**
+ * Placeholder data is a DEV posture only (`astro dev` with no server). In a
+ * production build an API failure must never cosplay as a populated
+ * workspace -- a fresh install that 500s on /api/projects was rendering the
+ * block-out demo projects as if they were the user's own (2026-07-28,
+ * first Windows field report). Arrays degrade to empty; object shapes keep
+ * the fallback skeleton (they're only reachable behind real list data).
+ */
+const PLACEHOLDERS_OK: boolean = import.meta.env.DEV;
+
+const emptyLike = <T,>(fallback: T): T => (Array.isArray(fallback) ? ([] as T) : fallback);
+
 export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
   const tick = useJournalTick();
   const project = useActiveProject();
@@ -384,5 +396,5 @@ export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
     };
   }, [fetcher, tick, project]);
 
-  return data ?? fallback;
+  return data ?? (PLACEHOLDERS_OK ? fallback : emptyLike(fallback));
 }

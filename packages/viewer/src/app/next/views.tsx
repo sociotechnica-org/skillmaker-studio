@@ -47,9 +47,9 @@ export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: Pro
 
 export function TasksView() {
   const { data, status } = useApiStatus(fetchTasks);
-  // Placeholders only when the server is absent — never flash them at a
-  // live server that's about to answer (possibly with an empty list).
-  const tasks = status === "error" ? TASKS : (data ?? []);
+  // Placeholders are a DEV posture only (see api.ts's PLACEHOLDERS_OK):
+  // in prod an API error shows an empty list, never demo tasks.
+  const tasks = status === "error" ? (import.meta.env.DEV ? TASKS : []) : (data ?? []);
   return (
     <div className="p-6">
       <h1 className="pb-4 font-display text-2xl">Tasks</h1>
