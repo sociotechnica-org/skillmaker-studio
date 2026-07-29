@@ -41,6 +41,24 @@ where the rest of this site documents merged, runnable features, not here:
   William's actual working environment: real `design.md`s, fixtures by
   failure class, a risk map, recorded versions, and measured runs on both
   providers, staged through the board like any other bundle.
+- **The machine-level project registry.** `skillmaker start` now serves
+  every project registered at `~/.skillmaker-studio/config.json` and
+  ignores the directory it's run from; projects are added with
+  [`skillmaker project add/list/remove`](/cli/project/) or the viewer's
+  New-project dialog (browse, create, and auto-init a directory). See
+  [`skillmaker start`](/cli/start/).
+- **Published on npm, four platforms.** `npm install -g skillmaker-studio`
+  ships prebuilt binaries for macOS arm64/x64, Linux x64, and Windows x64
+  (Windows is new and lightly tested). See [Install](/getting-started/install/).
+- **William ships inside the product.** Station skills
+  (`william-research-a-skill`, `william-draft-skill-md`) are packaged with
+  the CLI and resolve as a fallback when the workspace has no copy of its
+  own — no more hand-carrying the William bundles into every workspace.
+  See [The Skill Bundle](/concepts/skill-bundle/#stationsjson--per-bundle-work-config).
+- **Version content snapshots.** `skillmaker version record` snapshots the
+  recorded content under the bundle (`.skillmaker/versions/`), and
+  `version show` lists it back — version history no longer depends on git.
+  See [Versions and drift](/concepts/versions-and-drift/).
 - **Phase 20 — six real personas, six friction logs, four fix PRs
   (v0.2.0 → v0.2.1).** Six fresh-install stories (first bundle, model
   selection, vendored-adopt, publish/storefront, maintain/re-earn,
@@ -57,11 +75,18 @@ where the rest of this site documents merged, runnable features, not here:
 
 ## What's coming
 
-- **Desktop app: Windows/Linux and a signed, downloadable build.** The
-  macOS build-from-source shell is documented in
-  [Desktop app](/getting-started/desktop-app/); a cross-platform,
-  installable version is still ahead, along with an in-app reconnect for
-  the "attached-but-dead server" limitation noted there.
+- **Desktop app: Windows/Linux, a signed downloadable build, and
+  registry-era rework.** The macOS build-from-source shell is documented
+  in [Desktop app](/getting-started/desktop-app/); a cross-platform,
+  installable version is still ahead (the *CLI* now ships prebuilt for
+  four platforms via npm, but the desktop shell doesn't), along with
+  updating the shell's per-workspace picker/claim logic for the
+  machine-level project registry and an in-app reconnect for the
+  "attached-but-dead server" limitation noted there.
+- **The viewer's Publish tab.** The Publish tab's Publish/Revert buttons
+  are intentionally disabled while the UI publish flow is redesigned
+  around the version snapshot store; [`skillmaker publish`](/cli/publish/)
+  is the working door today.
 - **Iteration ergonomics: a `runs list` command and grading at volume.**
   Story 6's friction log found real pain grading 8+ runs in a row: no
   `skillmaker runs list` (run ids currently live only in dir names, and

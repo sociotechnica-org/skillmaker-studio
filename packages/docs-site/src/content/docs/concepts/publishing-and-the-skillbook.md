@@ -11,10 +11,12 @@ than folding "shipped" and "documented" into one step.
 
 ## Publish: one contract, two doors
 
-`skillmaker publish <slug>` and the viewer's guided publish flow
-(`POST /api/bundles/:slug/publish`) both call the same
-`@skillmaker/core` `publishBundle` function. Same guards, same targets,
-same results, whichever door you use.
+`skillmaker publish <slug>` and the server's publish route
+(`POST /api/projects/:project/bundles/:slug/publish`) both call the same
+`@skillmaker/core` `publishBundle` function — same guards, same targets,
+same results, whichever door you use. Note that the viewer's Publish tab
+buttons are currently disabled while the UI publish flow is redesigned
+around the version snapshot store; today the CLI is the working door.
 
 ### The guard
 
@@ -81,7 +83,8 @@ documentation for a workspace's entire skill set — to a self-contained
 static site: one `index.html` plus one page per bundle, written to
 `.skillmaker/skillbook/` by default (a build artifact, not git-tracked).
 The same `loadSkillbook` aggregation function backs the server's
-`GET /api/skillbook` endpoint and the viewer's `/skillbook` route, so the
+`GET /api/projects/:project/skillbook` endpoint and the viewer's skillbook
+view, so the
 CLI-built site and the live viewer page never disagree on facts.
 
 A bundle's skillbook page pulls together:

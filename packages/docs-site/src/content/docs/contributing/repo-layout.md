@@ -9,9 +9,12 @@ in each package's own README:
 ```text
 packages/core/            # @skillmaker/core — domain: schemas, journal, fold, machine, index
 packages/cli/             # @skillmaker/cli — the skillmaker CLI + server (bin: skillmaker)
+packages/cli/skills/      # product-packaged station skills (William) shipped inside the CLI
 packages/viewer/          # @skillmaker/viewer — Astro 5 + React 19 + Tailwind 4 board
+packages/desktop/         # Tauri v2 desktop shell around the compiled CLI
 packages/marketing-site/  # @skillmaker/marketing-site — public landing site
 packages/docs-site/       # @skillmaker/docs-site — this documentation site (Astro + Starlight)
+npm/                      # npm packaging: skillmaker-studio + per-platform binary packages
 docs/                     # product plans and design docs
 test/e2e/                 # end-to-end tests that spawn the real CLI
 skills/                   # the repo's own self-hosted Skillmaker workspace

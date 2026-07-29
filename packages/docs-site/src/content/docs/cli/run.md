@@ -4,7 +4,7 @@ description: Run a fixture case through an ACP provider.
 ---
 
 ```text
-skillmaker run <slug> --fixture <case> [--provider <id>] [--model <id>] [--timeout <s>]
+skillmaker run <slug> --fixture <case> [--provider <id>] [--model <id>] [--timeout <s>] [--permissive]
 ```
 
 Drives one eval run end to end: installs the bundle's `output/` as a skill
@@ -20,6 +20,7 @@ session, and diffs the workspace into `artifacts/`.
 | `--provider <id>` | Provider id from `skillmaker.config.json`; defaults to `claude-code` |
 | `--model <id>` | Model id from the provider's advertised `session/new` `models.availableModels` (e.g. `default`, `sonnet`, `haiku`); defaults to the provider's own default |
 | `--timeout <s>` | Prompt timeout in seconds; defaults to `300` |
+| `--permissive` | Approve every agent permission request. The default **denies** any request reaching outside the run's sandbox directory; either way, each decision is logged in the transcript |
 | `--json` | Emit machine-readable JSON instead of text |
 
 ### `--model`

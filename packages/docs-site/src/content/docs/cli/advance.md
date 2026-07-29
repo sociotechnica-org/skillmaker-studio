@@ -10,8 +10,9 @@ skillmaker advance <slug> [--to <stage>] [--back <stage> --reason <text>] [--ove
 Moves a bundle one step along `idea → researching → drafting → evaluating →
 published`, subject to the guards in
 [the production state machine](/concepts/state-machine/). This is the same
-guard function the viewer's `POST /api/events` uses — the CLI and the
-viewer are two doors onto one contract.
+guard function the viewer's server writes through
+(`POST /api/projects/:project/events`) — the CLI and the viewer are two
+doors onto one contract.
 
 ## Options
 

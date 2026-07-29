@@ -29,9 +29,13 @@ the exact same output+design content twice is a no-op; recording the same
 content under a *different* label is reported as a conflict rather than
 silently overwriting the earlier label.
 
-There is no version file anywhere in the bundle — the only record is the
-journal event; `skillmaker status` and the bundle-detail viewer tab both
-read the latest one.
+Recording also **snapshots the version's content** into
+`<bundle>/.skillmaker/versions/<bare-hash>/`, so version history doesn't
+depend on git — a recorded version's files can be listed and read back
+later (`skillmaker version show <slug> <hash>`, or the viewer's version
+pivot) even after the live `output/` has moved on. The journal event
+remains the record of *that* a version exists; `skillmaker status` and the
+viewer both read the latest one.
 
 ## Drift
 

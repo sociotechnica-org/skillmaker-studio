@@ -17,6 +17,19 @@ There's no downloadable installer yet — build it yourself from a checkout
 or tested on Windows or Linux.
 :::
 
+:::caution[The shell predates the machine-level project registry]
+The CLI's `skillmaker start` now serves the machine-level **project
+registry** and ignores the directory it's launched from (see
+[`skillmaker start`](/cli/start/)), but this shell still thinks in
+per-workspace terms: it picks a workspace folder, checks that folder's old
+per-workspace claim file (`.skillmaker/claims/server.json`, which the
+registry-era CLI no longer writes), and spawns the sidecar with that
+folder as its working directory. In practice the spawned server serves
+whatever projects are *registered*, not the picked folder — register the
+folder first (`skillmaker project add <path>`) and treat the picker as
+vestigial until the shell is updated for the registry.
+:::
+
 ## Building it
 
 In addition to the [prerequisites for installing from source](/getting-started/install/),
