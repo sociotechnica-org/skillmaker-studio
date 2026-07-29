@@ -63,9 +63,9 @@ detect_platform() {
 
   # Match what .github/workflows/release.yml actually publishes today.
   case "$platform" in
-    darwin-arm64 | linux-x64) ;;
+    darwin-arm64 | darwin-x64 | linux-x64) ;;
     *)
-      fail "no published skillmaker build for '$platform' yet (only darwin-arm64 and linux-x64 are published so far)"
+      fail "no published skillmaker build for '$platform' yet (only darwin-arm64, darwin-x64, and linux-x64 are published so far)"
       ;;
   esac
 }
