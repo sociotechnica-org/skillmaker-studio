@@ -1510,11 +1510,11 @@ export const layer = (
           .pipe(Effect.mapError(toIndexError(`could not create ${dbDir}`)));
 
         // Atomic rebuild: populate a fresh temp db file, then rename it
-        // over `studio.db`. A concurrent process with `studio.db` already
-        // open by file descriptor keeps its old, complete snapshot
-        // (POSIX rename semantics) -- it never observes a half-written
-        // database. Only after a successful rename do we close and reopen
-        // this process's own handle.
+        // over `studio.db`. On Windows the destination cannot be replaced
+        // while our own SQLite connection still has it open, so close that
+        // connection before the rename and reopen it immediately after.
+        // POSIX concurrent readers still keep their old, complete snapshot
+        // by file descriptor; they never observe a half-written database.
         const tempPath = join(dbDir, `studio.db.tmp-${crypto.randomUUID()}`);
 
         yield* Effect.try({
@@ -1537,10 +1537,14 @@ export const layer = (
               tempDb.close();
             }
 
-            renameSync(tempPath, dbPath);
-
             handle.current.close();
-            handle.current = new Database(dbPath, { create: true });
+            try {
+              renameSync(tempPath, dbPath);
+            } finally {
+              // Keep the service usable even when replacement fails (for
+              // example, another Windows process has studio.db open).
+              handle.current = new Database(dbPath, { create: true });
+            }
           },
           catch: (cause) => {
             try {

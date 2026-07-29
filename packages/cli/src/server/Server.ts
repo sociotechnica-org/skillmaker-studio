@@ -75,7 +75,7 @@ import { basename, dirname, extname, join, relative, resolve as resolvePath, sep
 import { resolveUserActor } from "../ActorResolver.ts";
 import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 import { loadSkillbook } from "../Skillbook.ts";
-import { handleFsList, handleFsMkdir, handleFsValidate } from "./FsBrowse.ts";
+import { handleFsList, handleFsMkdir, handleFsValidate, normalizeAbsolutePath } from "./FsBrowse.ts";
 import { ProjectRegistryManager, type OkProjectContext } from "./ProjectRegistry.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
 
@@ -781,10 +781,10 @@ const handleRegisterProject = async (
   if (typeof body.path !== "string" || body.path.length === 0) {
     return jsonResponse({ error: "path is required" }, 400);
   }
-  if (!body.path.startsWith(sep)) {
+  const path = normalizeAbsolutePath(body.path);
+  if (path === undefined) {
     return jsonResponse({ error: "path must be absolute" }, 400);
   }
-  const path = resolvePath(body.path);
 
   if (!existsSync(path)) {
     if (body.create !== true) {
