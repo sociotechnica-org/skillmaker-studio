@@ -98,16 +98,22 @@ export function SkillView({
   readonly onOpenFile: (path: string) => void;
 }) {
   const page = useSkillPage(slug);
+  // The overview card FLOATS OVER the page (z-10) so the full-bleed tab
+  // surface and its separator run beneath it uninterrupted; the content
+  // makes room via right padding, not a layout column that would notch
+  // the surface.
   return (
-    <div className="flex min-h-full">
+    <div className="relative flex min-h-full">
       <div className="min-w-0 flex-1">
-        <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} />
+        <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} rightInset={overviewOpen} />
       </div>
-      <div className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${overviewOpen ? "w-[244px]" : "w-0"}`}>
-        <div className="sticky top-0 mr-[10px] mt-[10px]">
-          <OverviewCard slug={slug} />
+      {overviewOpen && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[244px]">
+          <div className="pointer-events-auto sticky top-[10px] mr-[10px] mt-[10px]">
+            <OverviewCard slug={slug} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

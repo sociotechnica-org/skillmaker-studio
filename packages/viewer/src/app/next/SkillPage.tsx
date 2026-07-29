@@ -28,11 +28,14 @@ export function SkillPageView({
   page,
   pinned,
   onOpenFile,
+  rightInset = false,
 }: {
   readonly slug: string;
   readonly page: SkillPageData;
   readonly pinned: string;
   readonly onOpenFile: (path: string) => void;
+  /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */
+  readonly rightInset?: boolean;
 }) {
   const [tab, setTab] = useState<CenterTab>("overview");
 
@@ -65,7 +68,7 @@ export function SkillPageView({
 
   return (
     <div className="flex min-h-full flex-col">
-      <div className="w-full px-6 pt-4">
+      <div className="w-full px-6 pt-4 transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 268 : 24 }}>
         <div className="mx-auto max-w-3xl">
           {page.loop !== null && <ReviewSurface loop={page.loop} />}
 
@@ -88,8 +91,10 @@ export function SkillPageView({
         </div>
       </div>
 
-      {/* full-bleed tab surface: separator line + tinted ground to the bottom */}
-      <div className="flex-1 border-t border-neutral-900/50 bg-well">
+      {/* full-bleed tab surface: separator line + tinted ground to the
+          bottom. The inset is padding INSIDE this layer so the well and its
+          separator keep painting under the floating overview card. */}
+      <div className="flex-1 border-t border-neutral-900/50 bg-well transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 244 : 0 }}>
         <div className="mx-auto max-w-3xl px-6 py-5">
           {tab === "overview" && <OverviewTab page={page} pinned={pinned} onOpenFile={onOpenFile} />}
           {tab === "research" && <ResearchTab slug={slug} onOpenFile={onOpenFile} />}
