@@ -79,7 +79,7 @@ Options:
   --json            Emit machine-readable JSON instead of text
   --name <name>     (new) Display name for the bundle; defaults to a title-cased slug
                     (route) --as new/fork: display-name override; --as upgrade: version label override
-  --port <n>        (start) Port to serve on; overrides skillmaker.config.json
+  --port <n>        (start) Port to serve on; defaults to 4323
   --no-open         (start) Do not open a browser on startup
   --question <text> (review request) Question for the reviewer
   --decision <d>    (review resolve) approve | revise (required)
