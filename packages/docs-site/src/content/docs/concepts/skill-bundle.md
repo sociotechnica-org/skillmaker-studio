@@ -122,10 +122,15 @@ bundle's config is frozen at creation time:
 }
 ```
 
-A station's `skill` names another Skill Bundle in the **same workspace**
-(bundle slugs never contain `/`), not a path — `skillmaker start`'s own
-`StationEngine` resolves it and installs that bundle's `output/` as the
-ACP skill for the run.
+A station's `skill` names another Skill Bundle by slug (slugs never
+contain `/`), not a path. Resolution is **workspace-wins with a packaged
+fallback**: if the workspace has its own `skills/<slug>/`, that copy is
+used; otherwise the slug resolves to the product-packaged copy shipped
+inside skillmaker itself (William and the starter research/drafting
+skills, e.g. `william-research-a-skill` / `william-draft-skill-md`) — so a
+fresh workspace can run agent stations without hand-carrying the William
+bundles, and any workspace can override a packaged skill by drafting its
+own copy under the same slug.
 
 Stations describe **how the work of each production state gets done**.
 Agent-driven station execution (`skillmaker station run`) is built and, in

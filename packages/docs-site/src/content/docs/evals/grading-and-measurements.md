@@ -11,7 +11,7 @@ that grading step and the measurement cells built on top of it
 
 ## The run detail read-out
 
-Clicking a run in the viewer's Evals tab opens the run detail surface: the
+Clicking a run in the viewer's Eval tab opens the run detail surface: the
 run's header (status, model, timing), the full transcript rendered
 role-by-role (agent messages, the prompt, tool calls and raw protocol
 collapsed to expandable one-liners, permission decisions highlighted), the
@@ -50,7 +50,7 @@ downstream, including measurements, sees one current verdict per run.
 A **measurement cell** is `n` graded runs aggregated for one exact
 `(bundle, fixture case, skill version hash, provider, model)` tuple —
 never pooled across any of those five dimensions (the two-axis honesty law;
-see [Coverage vs. validation](/evals/coverage-vs-validation/)). The Evals
+see [Coverage vs. validation](/evals/coverage-vs-validation/)). The Eval
 tab and `skillmaker measurements <slug>` render the same cells; the SQLite
 `measurements` view (data-model.md §2.11) computes them straight from
 `runs`, so nothing is stored redundantly.

@@ -23,9 +23,10 @@ plus an orthogonal `archived` flag. Each stage also has a **substate**:
 
 Every stage change is journaled as a `bundle.stage_changed` event, and
 every one is checked against a guard before it's allowed to append — the
-CLI (`advance`, `review request`) and the server's `POST /api/events` share
-the exact same guard function, so there is no way to move a bundle from the
-viewer that the CLI would reject, or vice versa.
+CLI (`advance`, `review request`) and the server's
+`POST /api/projects/:project/events` share the exact same guard function,
+so there is no way to move a bundle from the viewer that the CLI would
+reject, or vice versa.
 
 | Transition | Guard |
 |---|---|

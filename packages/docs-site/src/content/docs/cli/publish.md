@@ -9,10 +9,11 @@ skillmaker publish <slug> [--target <id>]
 
 Publishes a Skill Bundle to the targets configured for it in
 `skillmaker.config.json`'s `publishTargets` — the same `publishBundle`
-function the server's `POST /api/bundles/:slug/publish` route runs (one
-contract, two doors: the CLI and the viewer's guided publish flow produce
-identical results). Requires a workspace and at least one configured
-target; fails with a clear message if either is missing.
+function the server's `POST /api/projects/:project/bundles/:slug/publish`
+route runs (one contract, two doors). The viewer's Publish tab buttons are
+currently disabled while the UI publish flow is redesigned, so this
+command is the working door today. Requires a workspace and at least one
+configured target; fails with a clear message if either is missing.
 
 ## Publish targets
 

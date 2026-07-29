@@ -66,7 +66,7 @@ export default defineConfig({
           label: "Getting Started",
           items: [
             { label: "Introduction", slug: "getting-started/introduction" },
-            { label: "Install from source", slug: "getting-started/install" },
+            { label: "Install", slug: "getting-started/install" },
             { label: "Your first Skill Bundle", slug: "getting-started/first-bundle" },
             { label: "Adopting an existing repo", slug: "getting-started/adopting-an-existing-repo" },
             { label: "Provider auth & troubleshooting", slug: "getting-started/provider-auth" },
@@ -102,6 +102,7 @@ export default defineConfig({
             { label: "status", slug: "cli/status" },
             { label: "reindex", slug: "cli/reindex" },
             { label: "start", slug: "cli/start" },
+            { label: "project", slug: "cli/project" },
             { label: "review request", slug: "cli/review-request" },
             { label: "review resolve", slug: "cli/review-resolve" },
             { label: "advance", slug: "cli/advance" },

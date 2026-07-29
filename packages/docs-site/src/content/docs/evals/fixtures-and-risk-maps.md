@@ -87,8 +87,9 @@ works but produces a warning suggesting the move to `prompt.md` — see
 }
 ```
 
-`grading.checks` is rendered as a checklist in the (planned) read-out UI —
-see the [Roadmap](/roadmap/). The answer key is grading-only and is never
+`grading.checks` is rendered as a checklist in the viewer's grading panel —
+see [Grading and measurements](/evals/grading-and-measurements/). The
+answer key is grading-only and is never
 copied into the agent's run workspace; adversarial fixtures may plant
 untrusted-input attacks under `files/`.
 

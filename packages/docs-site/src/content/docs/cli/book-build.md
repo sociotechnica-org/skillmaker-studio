@@ -10,7 +10,7 @@ skillmaker book build [--out <dir>]
 Renders the **Skillbook** — generated documentation for a workspace's whole
 skill set — to a self-contained static site: one `index.html` plus one page
 per bundle. Uses the same `loadSkillbook` data aggregation the server's
-`GET /api/skillbook` endpoint uses (one generator over existing facts,
+`GET /api/projects/:project/skillbook` endpoint uses (one generator over existing facts,
 rendered two ways), so the CLI build and the viewer's `/skillbook` route
 never disagree. Requires an existing workspace; works at any stage — a
 bundle still at `idea` gets a page too.

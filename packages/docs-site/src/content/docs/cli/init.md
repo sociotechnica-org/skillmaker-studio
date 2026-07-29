@@ -45,4 +45,6 @@ skillmaker: already initialized at /path/to/workspace
 ## See also
 
 [Your first Skill Bundle](/getting-started/first-bundle/) walks this
-command end to end with real output.
+command end to end with real output. An initialized workspace is what
+[`skillmaker project add`](/cli/project/) registers for
+[`skillmaker start`](/cli/start/) to serve.

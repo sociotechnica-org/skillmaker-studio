@@ -5,6 +5,8 @@ description: Import pre-existing SKILL.md files as in-place Skill Bundles.
 
 ```text
 skillmaker adopt [path] [--source <url-or-path>] [--ref <ref>]
+skillmaker adopt --triage [path]
+skillmaker adopt --from-manifest [file]
 ```
 
 Imports pre-existing `SKILL.md` files — from a skills repo you didn't build
@@ -47,7 +49,13 @@ rather than demanding a rewrite.
 | `path` | Directory to scan for `SKILL.md` files. Defaults to the current directory. |
 | `--source <url-or-path>` | Upstream repo/path this batch was imported from; recorded on each adopted skill's marker |
 | `--ref <ref>` | Ref/tag/commit alongside `--source`; ignored without `--source` |
+| `--triage` | Sweep without acting: write `adopt-manifest.md` at the workspace root, one row per discovered skill |
+| `--from-manifest [file]` | Execute a triage manifest (default `adopt-manifest.md` at the workspace root) as individual adoptions |
 | `--json` | Emit a structured report instead of text |
+
+`--triage` / `--from-manifest` split adoption into a review-then-act pair:
+the sweep challenges provable arrivals instead of silently adopting them,
+and the manifest is yours to edit before executing it.
 
 ### `--source` / `--ref` (upstream provenance)
 

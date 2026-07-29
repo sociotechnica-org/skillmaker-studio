@@ -43,13 +43,21 @@ The event types your workspace can actually produce right now:
 
 | Event | Fired by |
 |---|---|
-| `bundle.created` | `skillmaker new` |
+| `bundle.created` | `skillmaker new` / `adopt` (and the viewer's new-skill launcher) |
 | `bundle.stage_changed` | `skillmaker advance` (guarded — see [the state machine](/concepts/state-machine/)) |
+| `bundle.gate_decided` | The publish gate (`gate: "publish"`, approved/declined) |
+| `bundle.archived` / `bundle.restored` | Archiving and restoring a bundle |
 | `review.requested` | `skillmaker review request` |
 | `review.resolved` | the viewer's review panel, or `skillmaker review resolve` (`approve` / `revise`) |
-| `skill.version_recorded` | `skillmaker version record` |
+| `skill.version_recorded` | `skillmaker version record` (and the auto-record before a first run) |
+| `skill.published` | `skillmaker publish`, once per target |
+| `skill.shipped` / `skill.field_report` | `skillmaker ship` / `skillmaker report` |
+| `skill.received` / `skill.routed` | `skillmaker receive` / `skillmaker route` (the intake dock) |
 | `todo.opened` / `todo.updated` / `todo.status_changed` | `skillmaker todo add/done/start/drop/reopen` and the viewer's todo panel |
 | `run.started` / `run.completed` | `skillmaker run` |
+| `run.graded` | `skillmaker grade` and the viewer's grading panel |
+| `run.repaired` | `skillmaker run repair` |
+| `station.started` | `skillmaker station run` |
 
 File edits themselves are never journaled — git is their history, and
 `reindex` scans the files directly. The journal stays thin: ids and

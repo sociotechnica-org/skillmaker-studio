@@ -1,9 +1,32 @@
 ---
 title: Install
-description: One-line install for macOS arm64 and Linux x64, or build from source.
+description: Install from npm, the one-line curl script, or build from source.
 ---
 
-## One-command install
+## From npm (recommended)
+
+`skillmaker` ships on npm as
+[`skillmaker-studio`](https://www.npmjs.com/package/skillmaker-studio) with
+prebuilt binaries for **macOS arm64, macOS x64 (Intel), Linux x64, and
+Windows x64**:
+
+```sh
+npm install -g skillmaker-studio
+skillmaker --help
+```
+
+or zero-install:
+
+```sh
+npx skillmaker-studio --help
+```
+
+The right platform binary is pulled in automatically as an optional
+dependency. Windows support is new and lightly tested — if you hit
+something broken there, please
+[open an issue](https://github.com/sociotechnica-org/skillmaker-studio/issues).
+
+## One-command install (curl)
 
 ```sh
 curl -fsSL https://skillmaker.studio/install.sh | sh
@@ -12,8 +35,8 @@ curl -fsSL https://skillmaker.studio/install.sh | sh
 This detects your OS/arch, downloads the matching release tarball from the
 latest GitHub Release (`sociotechnica-org/skillmaker-studio`), and installs
 `skillmaker` (plus the viewer assets it needs) to `~/.skillmaker/bin`.
-Re-run the same command to upgrade. Supported platforms today: macOS arm64
-and Linux x64. macOS x64 (Intel) and Linux arm64 are fast-follows.
+Re-run the same command to upgrade. The curl script supports macOS arm64
+and Linux x64 today — on other platforms, use the npm install above.
 
 ## Installing from source
 
@@ -86,5 +109,5 @@ Copy both to somewhere on `PATH` and `skillmaker` works exactly like the
 ## Next: create your first Skill Bundle
 
 Continue to [Your first Skill Bundle](/getting-started/first-bundle/) —
-it walks `init` → `new` → `start` in a brand-new directory with real CLI
-output.
+it walks `init` → `new` → `project add` → `start` in a brand-new directory
+with real CLI output.

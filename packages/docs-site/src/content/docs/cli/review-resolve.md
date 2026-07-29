@@ -14,7 +14,7 @@ substate back to `working`. This is the CLI's half of the
 — the other half is [`skillmaker review request`](/cli/review-request/).
 
 `review resolve` writes through the exact same journal path the viewer's
-review panel POSTs to (`POST /api/events`, guarded by the same
+review panel POSTs to (`POST /api/projects/:project/events`, guarded by the same
 "is this bundle actually awaiting review at this stage?" check). Two doors,
 one journal: a solo publisher can approve or send back work from the
 terminal alone and never needs to open the browser, and CI automation can

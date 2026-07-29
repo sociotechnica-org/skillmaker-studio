@@ -1,6 +1,6 @@
 ---
 title: Your first Skill Bundle
-description: init → new → start, with real CLI output, end to end.
+description: init → new → project add → start, with real CLI output, end to end.
 ---
 
 This walkthrough was run verbatim against the real CLI in a brand-new
@@ -33,8 +33,8 @@ my-skills/
     events.jsonl
 ```
 
-`skillmaker.config.json` is the tracked app config (skills directory, viewer
-port, provider commands, publish targets). `.skillmaker/events.jsonl` is the
+`skillmaker.config.json` is the tracked app config (skills directory,
+provider commands, publish targets). `.skillmaker/events.jsonl` is the
 journal — the append-only, git-tracked history of every decision this
 workspace ever records. There's no `skills/` directory yet; it's created
 lazily by `skillmaker new`.
@@ -107,18 +107,36 @@ reading, so they're always consistent with what's on disk — delete
 `.skillmaker/studio.db` at any time and the next `list`/`status`/`start`
 rebuilds it from scratch with `reindex`'s output byte-identical.
 
-## 4. Open the board
+## 4. Register the project and open the board
+
+`skillmaker start` serves a **machine-level project registry** rather than
+the current directory, so register the workspace once (from inside it):
+
+```sh
+skillmaker project add .
+```
+
+```text
+skillmaker: registered /path/to/my-skills
+```
+
+then start the server — from anywhere, it no longer matters where:
 
 ```sh
 skillmaker start
 ```
 
-This serves the board and its API on one origin (default port `4323`) and
-opens your browser. You should see **My First Skill** as a card in the
-`idea` column. Confirm the API is live from another terminal:
+This serves the board and its API for every registered project on one
+origin (default port `4323`) and opens your browser. You should see
+**My First Skill** as a card in the `idea` column. (If the server was
+already running, the sidebar's **New project** button is the other door —
+it can browse to the directory, or create and initialize a fresh one,
+without touching the terminal.) Confirm the API is live from another
+terminal — project routes are scoped by the project's slug, its directory
+basename:
 
 ```sh
-curl -s http://localhost:4323/api/bundles
+curl -s http://localhost:4323/api/projects/my-skills/bundles
 ```
 
 ```json

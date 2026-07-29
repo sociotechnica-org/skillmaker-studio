@@ -98,9 +98,11 @@ use either provider. `--provider <id>` selects which one to run against
 (defaults to `claude-code`); `--timeout <seconds>` bounds the prompt
 (defaults to 300). Both providers ride your already-logged-in CLI session
 (`claude` / `codex`) — no separate API key needed for either. Permission
-requests from the agent during a run are auto-approved and logged as a
-synthetic transcript entry, so nothing the agent did is hidden from the
-transcript.
+requests from the agent during a run are **denied by default when they
+reach outside the run's sandbox directory** (pass `--permissive` to
+auto-approve everything, the older behavior); every permission decision is
+logged as a synthetic transcript entry either way, so nothing the agent
+did — or was refused — is hidden from the transcript.
 
 A **trigger** fixture (see [Fixtures and risk maps](/evals/fixtures-and-risk-maps/))
 grades activation instead of task correctness — `didSkillActivate` scans
