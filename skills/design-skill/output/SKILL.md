@@ -1,6 +1,6 @@
 ---
 name: design-skill
-description: Designs a skill from notes.md by writing design.md and evals.json. Use when handed a skill directory containing research notes and asked to define the skill's intent, triggers, numbered workflow, failure hypotheses, and proof specs without drafting the skill's SKILL.md.
+description: Designs a skill from notes.md by writing design/design.md and design/evals.json. Use when handed a skill directory containing research notes and asked to define the skill's intent, triggers, numbered workflow, failure hypotheses, and proof specs without drafting the skill's SKILL.md.
 ---
 
 You are designing a skill in the skill directory you were given. Produce the
@@ -10,7 +10,8 @@ target skill's `SKILL.md`. Follow these steps in order.
 1. **Read the available design inputs.**
 
    Read `research/notes.md`. Also read `bundle.json`, the user's answers in the
-   current conversation, and any existing `design.md` or `evals.json`.
+   current conversation, and any existing `design/design.md` or
+   `design/evals.json`.
 
    If no `notes.md` exists, or it contains no substantive facts, constraints,
    failure cases, or open questions: **stop and write nothing.** State plainly
@@ -28,7 +29,7 @@ target skill's `SKILL.md`. Follow these steps in order.
    user to decide it. Proceed with a clearly stated assumption only when the
    choice is low-risk, reversible, and does not change those boundaries.
 
-3. **Write or update `design.md` in the skill directory.**
+3. **Write or update `design/design.md` in the skill directory.**
 
    Preserve still-valid authored content when revising an existing file. Use
    the bundle slug from `bundle.json` when available; otherwise use the skill
@@ -57,7 +58,7 @@ target skill's `SKILL.md`. Follow these steps in order.
    numbered procedure: inputs to inspect, decisions to make, files to change,
    conditions that require asking the user, and the exact stopping condition.
 
-4. **Write or update `evals.json` in the skill directory.**
+4. **Write or update `design/evals.json` in the skill directory.**
 
    Extract every distinct way the proposed skill could go wrong from the
    research's failure cases, edge cases, gotchas, and the user's answers. Turn
@@ -103,18 +104,20 @@ target skill's `SKILL.md`. Follow these steps in order.
 
 5. **Check both artifacts before stopping.**
 
-   Confirm that `design.md` has the correct `bundle` frontmatter and all three
+   Confirm that `design/design.md` has the correct `bundle` frontmatter and all three
    required sections; the Intent is one line; the triggers are concrete; and
-   the workflow is numbered. Parse `evals.json` as JSON. Confirm that every
+   the workflow is numbered. Parse `design/evals.json` as JSON. Confirm that every
    failure-hypothesis object has a unique id, a nonempty observable `failure`, a
    `mustNever` beginning with the required phrase, and a nonempty `proofSpecs`
    array whose objects contain `name`, `setup`, and `expectedBehavior`.
 
 6. **Stay in design scope.**
 
-   Create or edit only `design.md` and `evals.json`. The skill must never draft
-   or modify `SKILL.md` or `output/SKILL.md`; modify `notes.md`; create eval
+   Create the `design/` folder when it does not exist, then create or edit only
+   `design/design.md` and `design/evals.json`. The skill must never draft or
+   modify `SKILL.md` or `output/SKILL.md`; modify `notes.md`; edit a root-level
+   `design.md` or `evals.json`; create eval
    fixtures; edit `bundle.json`, `stations.json`, or journal state; run the
    designed skill; advance a workflow stage; publish; or ship. Stop after the
-   two design artifacts are valid, then summarize the decisions and any open
+   two design artifacts in `design/` are valid, then summarize the decisions and any open
    questions for the user.
