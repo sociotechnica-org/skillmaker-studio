@@ -1085,8 +1085,28 @@ export const layer = (
         riskCoverageRecords: ReadonlyArray<RiskCoverageRecord>,
         warningRecords: ReadonlyArray<WarningRecord>,
         runRecords: ReadonlyArray<RunIndexRecord>,
+        replaceExisting = false,
       ): void => {
         const run = db.transaction(() => {
+          if (replaceExisting) {
+            // Windows cannot rename a database over a path held open by a
+            // concurrent reader. Its fallback rebuilds the existing file
+            // in one transaction, so readers observe either the complete
+            // old snapshot or the complete new one.
+            for (const table of [
+              "bundles",
+              "skill_versions",
+              "todos",
+              "events",
+              "fixtures",
+              "risk_coverage",
+              "warnings",
+              "runs",
+            ]) {
+              db.run(`DELETE FROM ${table}`);
+            }
+          }
+
           const insertBundle = db.query(
             "INSERT INTO bundles (slug, name, one_liner, tags_json, created, stage, substate, archived, design_hash, output_hash, drift, upstream_json, stage_changed_at, ever_received) VALUES ($slug, $name, $oneLiner, $tags, $created, $stage, $substate, $archived, $designHash, $outputHash, $drift, $upstreamJson, $stageChangedAt, $everReceived)",
           );
@@ -1540,11 +1560,37 @@ export const layer = (
             handle.current.close();
             try {
               renameSync(tempPath, dbPath);
-            } finally {
-              // Keep the service usable even when replacement fails (for
-              // example, another Windows process has studio.db open).
+            } catch (cause) {
               handle.current = new Database(dbPath, { create: true });
+              if (process.platform !== "win32") {
+                throw cause;
+              }
+
+              // A Windows reader may legitimately keep the destination
+              // locked. Preserve atomicity at the SQLite level instead of
+              // failing the rebuild: DELETE + repopulate commit together.
+              createSchema(handle.current);
+              populate(
+                handle.current,
+                records,
+                todoRecords,
+                events,
+                versionRecords,
+                fixtureRecords,
+                riskCoverageRecords,
+                warnings,
+                runRecords,
+                true,
+              );
+              try {
+                unlinkSync(tempPath);
+              } catch {
+                // The outer error path has the same best-effort cleanup;
+                // a stale temp cache is harmless if Windows still holds it.
+              }
+              return;
             }
+            handle.current = new Database(dbPath, { create: true });
           },
           catch: (cause) => {
             try {
