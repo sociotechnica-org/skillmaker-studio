@@ -105,7 +105,7 @@ target skill's `SKILL.md`. Follow these steps in order.
 
    Consolidate duplicate failure cases only when the resulting hypothesis still
    preserves every distinct constraint. Do not invent, extrapolate, or insert
-   any failure hypothesis that is not indicated in `research/notes.md`. If the
+   any failure hypothesis or proof spec that is not indicated in `research/notes.md`. If the
    notes mark a possible failure as uncertain, preserve that uncertainty and
    ask the user before turning it into a mandatory prohibition.
 
