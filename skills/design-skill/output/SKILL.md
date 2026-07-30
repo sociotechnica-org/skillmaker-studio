@@ -1,6 +1,6 @@
 ---
 name: design-skill
-description: Designs a skill from notes.md and the user's answers by writing design.md and evals.json. Use when handed a skill directory containing research notes and asked to define the skill's intent, triggers, numbered workflow, failure hypotheses, and proof specs without drafting the skill's SKILL.md.
+description: Designs a skill from notes.md by writing design.md and evals.json. Use when handed a skill directory containing research notes and asked to define the skill's intent, triggers, numbered workflow, failure hypotheses, and proof specs without drafting the skill's SKILL.md.
 ---
 
 You are designing a skill in the skill directory you were given. Produce the
@@ -9,8 +9,7 @@ target skill's `SKILL.md`. Follow these steps in order.
 
 1. **Read the available design inputs.**
 
-   Read `notes.md`. If the project stores the file at `research/notes.md`, read
-   that file as `notes.md`. Also read `bundle.json`, the user's answers in the
+   Read `research/notes.md`. Also read `bundle.json`, the user's answers in the
    current conversation, and any existing `design.md` or `evals.json`.
 
    If no `notes.md` exists, or it contains no substantive facts, constraints,
@@ -74,6 +73,8 @@ target skill's `SKILL.md`. Follow these steps in order.
        {
          "id": "FH-1",
          "failure": "An observable description of how the skill could go wrong.",
+         "probability": "High | Medium | Low",
+         "impact": "High | Medium | Low",
          "mustNever": "The skill must never ...",
          "proofSpecs": [
            {
@@ -87,7 +88,7 @@ target skill's `SKILL.md`. Follow these steps in order.
    }
    ```
 
-   Number hypothesis ids consecutively as `FH-1`, `FH-2`, and so on. Start
+   Hypothesis IDs should come from notes.md. Start
    every `mustNever` value with the exact words `The skill must never` and make
    it a direct behavioral prohibition. Give every hypothesis at least one
    proof-spec object. Use a unique kebab-case `name` for each proof spec, make
