@@ -60,11 +60,18 @@ target skill's `SKILL.md`. Follow these steps in order.
 
 4. **Write or update `design/evals.json` in the skill directory.**
 
-   Extract every distinct way the proposed skill could go wrong from the
-   research's failure cases, edge cases, gotchas, and the user's answers. Turn
-   each into an observable failure hypothesis and an explicit `mustNever`
-   constraint. Associate one or more proof specs with that same hypothesis;
-   never place proof specs in a disconnected top-level list.
+   Use `research/notes.md` as the exclusive source of failure hypotheses. Insert
+   a hypothesis only when the notes explicitly indicate that way the proposed
+   skill could go wrong in a failure case, edge case, gotcha, or `must never`
+   statement. Do not derive a new hypothesis from general knowledge, the skill
+   topic, the current prompt, or the user's answers. The user's answers may
+   clarify an indicated hypothesis, but they may not introduce another one.
+
+   Turn each notes-indicated failure into an observable hypothesis and an
+   explicit `mustNever` constraint. Associate one or more proof specs grounded
+   in the notes with that same hypothesis; never place proof specs in a
+   disconnected top-level list. If the notes indicate no failure hypotheses,
+   write an empty `failureHypotheses` array rather than making up evals.
 
    Write valid JSON with this exact schema:
 
@@ -97,10 +104,10 @@ target skill's `SKILL.md`. Follow these steps in order.
    observable enough to evaluate as pass or fail.
 
    Consolidate duplicate failure cases only when the resulting hypothesis still
-   preserves every distinct constraint. Do not invent failure hypotheses that
-   are unsupported by the notes or the user's answers. If the source marks a
-   possible failure as uncertain, preserve that uncertainty and ask the user
-   before turning it into a mandatory prohibition.
+   preserves every distinct constraint. Do not invent, extrapolate, or insert
+   any failure hypothesis that is not indicated in `research/notes.md`. If the
+   notes mark a possible failure as uncertain, preserve that uncertainty and
+   ask the user before turning it into a mandatory prohibition.
 
 5. **Check both artifacts before stopping.**
 
