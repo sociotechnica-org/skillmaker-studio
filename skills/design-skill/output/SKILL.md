@@ -1,6 +1,6 @@
 ---
 name: design-skill
-description: Refines an initial design.md with evidence from research/notes.md and creates evals.json. Use when handed a skill directory containing an initial design and research notes and asked to complete the skill's intent, triggers, workflow, failure hypotheses, and proof specs without drafting SKILL.md.
+description: Takes a skill's initial intent and evidence from research to create a refined design, including risks to eval. Use when handed a skill directory containing an initial design and research notes and asked to complete the skill's intent, triggers, workflow, failure hypotheses, and proof specs.  Do not use to write SKILL.md.
 ---
 
 You are designing a skill in the skill directory you were given. Start from the
