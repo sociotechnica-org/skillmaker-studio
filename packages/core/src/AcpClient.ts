@@ -19,8 +19,8 @@
  * context (stderr, JSON-RPC code, a `likelyInfra` hint) for `RunEngine` to
  * decide `infra-error` vs `failed` (data-model.md §2.8).
  */
-import { realpathSync } from "node:fs";
-import { isAbsolute as pathIsAbsolute, relative as pathRelative, resolve as pathResolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute as pathIsAbsolute, join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { Schema } from "effect";
 import { Effect } from "effect";
 import { advertisedModelIds, CLAUDE_CODE_PROFILE, resolveModelLabel, type ProviderProfile } from "./ProviderProfile.ts";
@@ -50,6 +50,49 @@ export const stripClaudeCodeEnv = (
     out[key] = value;
   }
   return out;
+};
+
+/** Windows environment-variable names are case-insensitive, even though a
+ * plain JS object may contain either spelling. */
+const envValue = (
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): string | undefined => {
+  const entry = Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase());
+  return entry?.[1];
+};
+
+/**
+ * Resolves the configured ACP launcher before handing it to Bun's subprocess
+ * API. This matters on Windows, where npm exposes `npx` as `npx.cmd` and a
+ * direct `uv_spawn("npx")` can fail even though the shell can run it.
+ *
+ * Desktop/GUI processes can also retain a stale PATH after Node is installed.
+ * The official Windows Node installer puts npx under `%ProgramFiles%/nodejs`,
+ * so use that narrow fallback for the built-in npx-backed providers. Custom
+ * commands are never rewritten when they cannot be resolved.
+ */
+export const resolveAdapterCommand = (
+  command: ReadonlyArray<string>,
+  env: Readonly<Record<string, string | undefined>>,
+): ReadonlyArray<string> => {
+  const executable = command[0];
+  if (executable === undefined) return command;
+
+  const searchPath = envValue(env, "PATH");
+  const resolved = Bun.which(executable, searchPath === undefined ? undefined : { PATH: searchPath });
+  if (resolved !== null) return [resolved, ...command.slice(1)];
+
+  if (process.platform === "win32" && /^(?:npx|npx\.cmd)$/i.test(executable)) {
+    const programFilesRoots = [envValue(env, "ProgramFiles"), envValue(env, "ProgramFiles(x86)")]
+      .filter((root): root is string => root !== undefined && root.length > 0);
+    for (const root of programFilesRoots) {
+      const candidate = pathJoin(root, "nodejs", "npx.cmd");
+      if (existsSync(candidate)) return [candidate, ...command.slice(1)];
+    }
+  }
+
+  return command;
 };
 
 // ---------------------------------------------------------------------------
@@ -500,7 +543,7 @@ export class AcpClient {
     const env = stripClaudeCodeEnv({ ...process.env, ...(this.opts.env ?? {}) });
     try {
       this.proc = Bun.spawn({
-        cmd: [...this.opts.command],
+        cmd: [...resolveAdapterCommand(this.opts.command, env)],
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",

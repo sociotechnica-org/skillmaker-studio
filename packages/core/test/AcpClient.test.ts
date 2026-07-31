@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -11,6 +11,7 @@ import {
   isPermissionCancelled,
   makeSandboxPermissionPolicy,
   permissiveApprovePolicy,
+  resolveAdapterCommand,
   runAcpSession,
   stripClaudeCodeEnv,
   type PermissionDecision,
@@ -43,6 +44,38 @@ describe("stripClaudeCodeEnv", () => {
 
   test("handles an empty env", () => {
     expect(stripClaudeCodeEnv({})).toEqual({});
+  });
+});
+
+describe("resolveAdapterCommand", () => {
+  test("resolves a PATH command to an absolute executable and preserves its arguments", () => {
+    const resolved = resolveAdapterCommand(["node", "--version"], process.env);
+    expect(resolved[0]).not.toBe("node");
+    expect(resolved.slice(1)).toEqual(["--version"]);
+  });
+
+  test("leaves an unknown custom adapter command untouched", () => {
+    const command = ["definitely-not-a-real-skillmaker-adapter", "--acp"];
+    expect(resolveAdapterCommand(command, { PATH: "" })).toEqual(command);
+  });
+
+  test("on Windows, finds the standard Node npx.cmd even when PATH is stale", () => {
+    if (process.platform !== "win32") return;
+    const fakeProgramFiles = mkdtempSync(join(tmpdir(), "skillmaker-program-files-"));
+    const fakeNodeDir = join(fakeProgramFiles, "nodejs");
+    const fakeNpx = join(fakeNodeDir, "npx.cmd");
+    try {
+      mkdirSync(fakeNodeDir);
+      writeFileSync(fakeNpx, "@echo off\r\n");
+      const resolved = resolveAdapterCommand(["npx", "-y", "example-package"], {
+        PATH: "",
+        ProgramFiles: fakeProgramFiles,
+      });
+      expect(resolved[0]?.toLowerCase()).toBe(fakeNpx.toLowerCase());
+      expect(resolved.slice(1)).toEqual(["-y", "example-package"]);
+    } finally {
+      rmSync(fakeProgramFiles, { recursive: true, force: true });
+    }
   });
 });
 
