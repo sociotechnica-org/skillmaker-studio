@@ -17,7 +17,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, join, posix, win32 } from "node:path";
 import { DEFAULT_CONFIG_FILENAME } from "@skillmaker/core";
 
 const jsonResponse = (body: unknown, status = 200): Response =>
@@ -29,6 +29,18 @@ const jsonResponse = (body: unknown, status = 200): Response =>
 const isProjectDir = (dir: string): boolean => existsSync(join(dir, DEFAULT_CONFIG_FILENAME));
 
 /**
+ * Normalize an absolute path supplied by the viewer without assuming that
+ * the process's default path dialect matches the client. This matters for
+ * Windows release binaries: drive-letter and UNC paths do not begin with
+ * `path.sep`, and must be recognized explicitly.
+ */
+export const normalizeAbsolutePath = (raw: string): string | undefined => {
+  if (raw.startsWith("/") && posix.isAbsolute(raw)) return posix.resolve(raw);
+  if (win32.isAbsolute(raw)) return win32.resolve(raw);
+  return undefined;
+};
+
+/**
  * `GET /api/fs/list?path=<abs>` -- one directory level: subdirectories only,
  * each flagged `isProject` when it carries a `skillmaker.config.json`.
  * Omitted `path` starts at the user's home directory (the natural root for
@@ -36,12 +48,13 @@ const isProjectDir = (dir: string): boolean => existsSync(join(dir, DEFAULT_CONF
  */
 export const handleFsList = (url: URL): Response => {
   const raw = url.searchParams.get("path") ?? homedir();
-  if (!isAbsolute(raw)) {
+  const normalized = normalizeAbsolutePath(raw);
+  if (normalized === undefined) {
     return jsonResponse({ error: "path must be absolute" }, 400);
   }
   let real: string;
   try {
-    real = realpathSync(resolve(raw));
+    real = realpathSync(normalized);
   } catch {
     return jsonResponse({ error: `no such directory "${raw}"` }, 404);
   }
@@ -92,10 +105,10 @@ export const handleFsValidate = (url: URL, isRegistered: (path: string) => boole
   if (raw === null || raw.length === 0) {
     return jsonResponse({ error: "path is required" }, 400);
   }
-  if (!isAbsolute(raw)) {
+  const normalized = normalizeAbsolutePath(raw);
+  if (normalized === undefined) {
     return jsonResponse({ path: raw, valid: false, reason: "path must be absolute" });
   }
-  const normalized = resolve(raw);
   if (!existsSync(normalized)) {
     const parent = dirname(normalized);
     const parentIsDir = existsSync(parent) && statSync(parent).isDirectory();
@@ -140,10 +153,10 @@ export const handleFsMkdir = async (request: Request): Promise<Response> => {
   if (typeof raw !== "string" || raw.length === 0) {
     return jsonResponse({ error: "path is required" }, 400);
   }
-  if (!isAbsolute(raw)) {
+  const normalized = normalizeAbsolutePath(raw);
+  if (normalized === undefined) {
     return jsonResponse({ error: "path must be absolute" }, 400);
   }
-  const normalized = resolve(raw);
   if (basename(normalized).startsWith(".")) {
     return jsonResponse({ error: "refusing to create a hidden directory" }, 400);
   }

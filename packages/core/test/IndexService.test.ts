@@ -314,7 +314,7 @@ describe("IndexService.rebuild", () => {
     );
   });
 
-  test("rebuild is atomic: a concurrently-open reader keeps its old snapshot until it reopens", async () => {
+  test("rebuild is atomic: a concurrent reader observes a complete old or new snapshot", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
         const workspace = yield* Workspace;
@@ -371,6 +371,9 @@ describe("IndexService.rebuild", () => {
           // test -- the stale handle NEVER observes the new/replaced
           // data -- so both are accepted here; only a successful read
           // returning the *new* count would indicate a real problem.
+          // Windows cannot replace a path held by this reader, so rebuild
+          // falls back to one SQLite transaction in the existing file; an
+          // idle reader then sees the complete new snapshot instead.
           let afterCountOnOldHandle: number | undefined;
           let staleReadThrew = false;
           try {
@@ -381,7 +384,10 @@ describe("IndexService.rebuild", () => {
             staleReadThrew = true;
           }
           if (!staleReadThrew) {
-            expect(afterCountOnOldHandle).toBe(1);
+            if (afterCountOnOldHandle === undefined) {
+              throw new Error("concurrent reader returned no bundle count");
+            }
+            expect(process.platform === "win32" ? [1, 2] : [1]).toContain(afterCountOnOldHandle);
           }
           concurrentReader.close();
 
