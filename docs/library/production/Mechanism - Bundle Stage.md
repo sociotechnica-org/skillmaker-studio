@@ -84,3 +84,21 @@ Verified: `packages/core/src/Fold.ts`'s `bundle.created` and
 `bundle.stage_changed` cases both set `stageChangedAt: event.at` on the
 next `BundleState`; `packages/core/test/Fold.test.ts` covers the
 created-only, forward, and backward-move cases explicitly.
+
+## OPEN QUESTION: DECLARED STAGES VS DERIVED READINESS
+
+Contested, not resolved — this card records the shipped declared-stage
+model; the from-scratch walk put its future in question
+(`docs/friction/e2e-readiness.md`, "Design directions surfaced by the
+walk"). Evidence from the walk: the stage field said "Idea" through
+completed research and active design — nobody advanced it (the agent
+correctly refuses to, the director wasn't prompted to, and chat-path work
+ignores stages entirely); the artifacts and tabs carried the true state
+while the stage field carried nothing. Candidate alternative: stages as
+**derived readiness** from artifact existence (research/notes.md exists ✓,
+design.md exists ✓, …) — the director's "the Research tab IS the station"
+direction, which is PMS's ready/confirm Board mechanic
+(`docs/proposals/2026-07-25-pms-harvest.md` §5) arriving via the
+from-scratch test. The fork: either chat work learns to advance stages
+(the CLI-funneling direction) or stages learn to derive from artifacts.
+No ruling yet.

@@ -6,6 +6,7 @@ status: migrated
 links:
   contains:
     - "./Reference - Publish Target"
+    - "./Mechanism - Provenance Stamp"
   related_to:
     - "./Entity - Skill Version"
     - "./Mechanism - Drift Hint"
@@ -78,3 +79,18 @@ The shipped code implements three target kinds
 than data-model.md §2.2's single `git-dir` example — a real extension
 beyond the doc, described in `Reference - Publish Target` rather than
 silently treated as the doc's ground truth.
+
+## IN FLIGHT (PR #185): THE PUBLISH DOOR
+
+The E2E walk flagged "Publish step has no UI" as a blocker
+(`docs/friction/e2e-readiness.md`); the director ruled the fix 2026-08-03
+and PR #185 builds it: one core function behind three doors (CLI
+`skillmaker publish <slug> --to user|project`, server
+`POST .../publish`, and the Publish tab's now-live buttons), publishing
+the selected version's `output/` to exactly two audiences — all my agents
+(`user`) or this project's agents (`project`) — with a provenance stamp
+written atop the installed `SKILL.md` and an `evidence` field added to
+`skill.published` ([[Mechanism - Provenance Stamp]]). Revert to a
+recorded version's snapshot rides the same doors. This card's HOW
+(guard, `publishBundle`, workspace-level targets) describes what is
+merged today; the two-audience door is in flight, not shipped.

@@ -22,7 +22,7 @@ these two specific providers instead of a single standing `claude-acp`.
 {
   "providers": {
     "claude-code": { "command": ["npx", "-y", "@agentclientprotocol/claude-agent-acp@latest"] },
-    "codex":       { "command": ["codex-acp"] }
+    "codex":       { "command": ["npx", "-y", "@agentclientprotocol/codex-acp@latest"] }
   }
 }
 ```
@@ -50,8 +50,17 @@ Per-machine overrides (auth-adjacent bits, local provider paths) live in
 `.skillmaker/local.json`, deep-merged over the tracked config — never
 committed, so credentials never land in the workspace's git history.
 
+Post-registry note (2026-07-27 re-architecture): provider *config* stays
+per-project in `skillmaker.config.json`, but the viewer's provider
+catalog endpoint, `/api/chat/providers`, is **machine-level** — adapters
+are programs on the machine, so the capability probe borrows the first
+healthy registered project's workspace (empty registry ⇒
+`{providers: []}`). See [[../machine/Mechanism - Machine Registry]].
+
 Verified: `skillmaker.config.json` (repo root) has exactly the `providers`
-shape above with `claude-code` and `codex` entries.
+shape above with `claude-code` and `codex` entries (both adapters now the
+`@agentclientprotocol/*` packages — the deprecated
+`@zed-industries/claude-code-acp` pin is gone, per the #154 migration).
 `packages/core/src/ProviderProfile.ts` — `CLAUDE_CODE_PROFILE` /
 `CODEX_PROFILE` confirm the `skillInstallDir` split
 (`.claude/skills` vs `.agents/skills`) and `resolveProviderProfile()`

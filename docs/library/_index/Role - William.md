@@ -7,7 +7,9 @@ links:
   related_to:
     - "../production/Economy - Station Doer"
     - "../production/Mechanism - Guarded Transition"
+    - "../production/Mechanism - Packaged Station Skills"
     - "../runs/Entity - Run"
+    - "../runs/Mechanism - Agent-Home Injection"
 ---
 
 ## WHAT
@@ -76,6 +78,17 @@ the target bundle's relevant files (plus any `review.resolved: revise`
 notes), and — on success — appends `review.requested`, putting the target
 bundle into `awaiting-review`; a human resolves it in the viewer.
 
+**William now ships inside the product** (D6, delivered 2026-07-27 via
+PR #171 after the from-scratch walk found every workspace had to
+hand-carry his bundles — `docs/friction/fresh-skill.md` entry 1): packaged
+copies of both bundles live in `packages/cli/skills/` and ship in the npm
+tarball and desktop sidecar; station-skill resolution is workspace-wins
+with a packaged fallback ([[../production/Mechanism - Packaged Station
+Skills]]), so hacking on William locally still overrides the shipped
+copy. His guidance also reaches the **chat** path: chat sessions install
+both William skills into the provider's agent home before the session
+starts ([[../runs/Mechanism - Agent-Home Injection]]).
+
 Verified: `packages/core/src/Stations.ts` (`DEFAULT_STATIONS_TEMPLATE`,
 both `researching.skill: "william-research-a-skill"` and
 `drafting.skill: "william-draft-skill-md"` now naming real bundles);
@@ -85,3 +98,7 @@ both `researching.skill: "william-research-a-skill"` and
 research-a-skill/evals/risk-map.md` (honest-gaps section on the ungraded
 `golden-basic` fixture); `packages/core/src/StationEngine.ts`
 (`runStation`, the skill-install + prompt + `review.requested` flow).
+Packaged-distribution claims re-verified 2026-08-03:
+`packages/cli/src/PackagedSkills.ts` (locator, doc comment citing D6) and
+`packages/cli/src/server/ChatSessions.ts` (`HELPER_SKILL_SLUGS` is exactly
+`["william-research-a-skill", "william-draft-skill-md"]`).
