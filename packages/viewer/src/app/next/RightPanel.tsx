@@ -415,6 +415,15 @@ function UserMessage({
   readonly context?: string;
   readonly images?: ReadonlyArray<ChatItemImage>;
 }) {
+  // The orientation opening is machine context with no user words: just the
+  // collapsed chip, no empty bubble.
+  if (text.length === 0 && images.length === 0 && context !== undefined) {
+    return (
+      <div className="flex flex-col items-end pt-3">
+        <ContextChip context={context} />
+      </div>
+    );
+  }
   return (
     <div className="group flex flex-col items-end pt-3">
       {context !== undefined && <ContextChip context={context} />}
@@ -731,13 +740,15 @@ function ChatTab({
             state={chat.state}
             provider={selection.provider}
             onStart={(provider, mode) =>
-              chat.start(
-                provider,
-                mode,
-                selection.model !== undefined
+              // No pending user message on this path: ask for the
+              // agent-speaks-first orientation opening (the server skips it
+              // for a genuine resume, which replays its own history).
+              chat.start(provider, mode, {
+                ...(selection.model !== undefined
                   ? { model: selection.model, ...(selection.effort !== undefined ? { effort: selection.effort } : {}) }
-                  : undefined,
-              )
+                  : {}),
+                orient: true,
+              })
             }
           />
         )}

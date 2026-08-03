@@ -157,6 +157,25 @@ describe("first-prompt production context (Blocker #5)", () => {
     expect(item.text).toBe("improve the README");
   });
 
+  test("a live orientation opening (empty text + context) stays a context-only user item", () => {
+    const opening = `${preamble}\n\nOrient the director: read the bundle's current state.`;
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "", context: opening, t: "2026-07-23T09:00:00.000Z" },
+    ]);
+    expect(items).toEqual([{ kind: "user", text: "", context: opening, t: "2026-07-23T09:00:00.000Z" }]);
+  });
+
+  test("a replayed orientation opening (sentinel, NO separator, chunked) becomes all context, no user text", () => {
+    const wire = `${preamble}\n\nOrient the director: read the bundle's current state.`;
+    const mid = Math.floor(wire.length / 2);
+    const items = chatItemsFromEvents([userChunk(wire.slice(0, mid)), userChunk(wire.slice(mid))]);
+    expect(items).toHaveLength(1);
+    const item = items[0];
+    if (item === undefined || item.kind !== "user") throw new Error("expected a user item");
+    expect(item.context).toBe(wire);
+    expect(item.text).toBe("");
+  });
+
   test("a replayed re-orientation line splits too; ordinary user text never does", () => {
     const reorientation = 'Re-orientation: we\'re still in Skillmaker Studio working on the skillmaker bundle "s" (stage: drafting).';
     const items = chatItemsFromEvents([

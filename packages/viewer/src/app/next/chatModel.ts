@@ -96,7 +96,9 @@ export const splitPreamble = (
 ): { readonly context: string; readonly text: string } | undefined => {
   if (!PREAMBLE_SENTINELS.some((sentinel) => text.startsWith(sentinel))) return undefined;
   const cut = text.indexOf(PREAMBLE_SEPARATOR);
-  if (cut === -1) return undefined;
+  // No separator -> the whole prompt was machine-authored (the orientation
+  // opening: preamble + orient instruction, no user words) -> all context.
+  if (cut === -1) return { context: text, text: "" };
   return { context: text.slice(0, cut), text: text.slice(cut + PREAMBLE_SEPARATOR.length) };
 };
 

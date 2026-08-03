@@ -27,6 +27,7 @@ let baseUrl: string;
 let projectUrl: string;
 
 const SKILL = "example-skill";
+const ORIENT_SKILL = "orient-skill";
 
 const runCli = (args: ReadonlyArray<string>, cwd: string) => {
   const result = Bun.spawnSync(["bun", cliEntry, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -122,6 +123,13 @@ beforeAll(async () => {
 
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
   expect(runCli(["new", SKILL, "--json"], scratchDir).exitCode).toBe(0);
+
+  // A second bundle for the agent-speaks-first (orient) test, with a real
+  // one-liner so the preamble's mission clause is observable.
+  expect(runCli(["new", ORIENT_SKILL, "--json"], scratchDir).exitCode).toBe(0);
+  const orientBundlePath = join(scratchDir, "skills", ORIENT_SKILL, "bundle.json");
+  const orientBundle = JSON.parse(readFileSync(orientBundlePath, "utf8")) as Record<string, unknown>;
+  writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: "orients the director" }, null, 2)}\n`);
 
   // A William helper bundle in the workspace, to observe agent-home injection.
   const williamDir = join(scratchDir, "skills", "william-draft-skill-md");
@@ -377,6 +385,54 @@ describe("chat sessions (D9)", () => {
       expect(String(userEvent?.context)).toStartWith("Re-orientation:");
     } finally {
       stream.close();
+    }
+  }, 30_000);
+
+  test("agent speaks first: orient start sends the preamble + orientation instruction alone, then user sends carry no second preamble", async () => {
+    const started = await postJson(`/api/chat/${ORIENT_SKILL}/session`, {
+      provider: "claude-code",
+      mode: "new",
+      orient: true,
+    });
+    expect(started.status).toBe(200);
+
+    const stream = openStream(`/api/chat/${ORIENT_SKILL}/stream`);
+    try {
+      // The opening turn was dispatched by the server itself -- no user
+      // message posted -- and streams like any other turn.
+      await waitFor(
+        async () => (eventTypes(stream.events).includes("turn_ended") ? true : undefined),
+        "orientation turn to end",
+      );
+      const text = agentTextOf(stream.events);
+      expect(text).toContain("turn 1: You're inside Skillmaker Studio.");
+      expect(text).toContain("orients the director"); // the bundle's one-liner
+      expect(text).toContain("Orient the director");
+      // Preamble ALONE: machine context only, no separator, no user words.
+      expect(text).not.toContain("\n\n---\n\n");
+
+      // The stream's user_message event is context-only (the panel renders
+      // just the collapsed chip, no user bubble).
+      const opening = stream.events.find((event) => event.type === "user_message");
+      expect(opening?.text).toBe("");
+      expect(String(opening?.context)).toStartWith("You're inside Skillmaker Studio.");
+      expect(String(opening?.context)).toContain("Orient the director");
+
+      // A later user send is an ordinary prompt: no second preamble.
+      await waitFor(async () => {
+        const body = (await getJson(`/api/chat/${ORIENT_SKILL}/state`)).body as unknown as ChatStateBody;
+        return body.active?.status === "ready" ? true : undefined;
+      }, "session ready after the orientation turn");
+      const sent = await postJson(`/api/chat/${ORIENT_SKILL}/message`, { text: "sounds right, go on" });
+      expect(sent.status).toBe(202);
+      await waitFor(
+        async () => (agentTextOf(stream.events).includes("turn 2: sounds right, go on") ? true : undefined),
+        "second turn to echo",
+      );
+      expect(agentTextOf(stream.events).split("You're inside Skillmaker Studio.").length - 1).toBe(1);
+    } finally {
+      stream.close();
+      await postJson(`/api/chat/${ORIENT_SKILL}/end`, {});
     }
   }, 30_000);
 

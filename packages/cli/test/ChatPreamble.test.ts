@@ -12,7 +12,9 @@ import { join } from "node:path";
 import {
   buildChatPreamble,
   buildChatReorientation,
+  deriveArtifactStage,
   NEXT_STEP_BY_STAGE,
+  ORIENTATION_INSTRUCTION,
   PREAMBLE_SENTINEL,
   PREAMBLE_SEPARATOR,
   readPreambleContext,
@@ -22,16 +24,15 @@ import {
 const STAGES: ReadonlyArray<PreambleStage> = ["idea", "researching", "drafting", "evaluating", "published"];
 
 describe("buildChatPreamble", () => {
-  const context = { oneLiner: "turn READMEs into onboarding docs", stage: "idea" as const };
+  const context = { oneLiner: "turn READMEs into onboarding docs", stage: "idea" as const, derivedStage: "idea" as const };
 
-  test("carries the director's template facts: studio, mission, one-liner, slug, stage", () => {
+  test("carries the director's template facts: studio, mission, one-liner, slug", () => {
     const preamble = buildChatPreamble("readme-onboarding", "skills", context);
     expect(preamble).toStartWith(PREAMBLE_SENTINEL);
     expect(preamble).toContain("create a reusable SKILL");
     expect(preamble).toContain("turn READMEs into onboarding docs");
     expect(preamble).toContain("(slug: readme-onboarding)");
     expect(preamble).toContain("ship its SKILL.md");
-    expect(preamble).toContain("at stage idea");
   });
 
   test("points at the agent-home William guidance and the skillmaker CLI, and states direct-edit reality", () => {
@@ -50,10 +51,10 @@ describe("buildChatPreamble", () => {
     expect(preamble).toContain("human-gated");
   });
 
-  test("every stage maps to its ruled next step, closed by the do-the-step instruction", () => {
-    for (const stage of STAGES) {
-      const preamble = buildChatPreamble("s", "skills", { oneLiner: "x", stage });
-      expect(preamble).toContain(`The current step is: ${NEXT_STEP_BY_STAGE[stage]}.`);
+  test("the current step is phrased from the DERIVED stage; the declared stage is secondary honesty", () => {
+    for (const derivedStage of STAGES) {
+      const preamble = buildChatPreamble("s", "skills", { oneLiner: "x", stage: "idea", derivedStage });
+      expect(preamble).toContain(`The current step is: ${NEXT_STEP_BY_STAGE[derivedStage]}.`);
       expect(preamble).toContain("Do the STEP, not the skill's task itself.");
     }
     expect(NEXT_STEP_BY_STAGE.idea).toBe("clarify intent and research");
@@ -63,20 +64,30 @@ describe("buildChatPreamble", () => {
     expect(NEXT_STEP_BY_STAGE.published).toBe("maintain and improve");
   });
 
+  test("never asserts the declared stage as truth: it appears only in the may-lag honesty clause", () => {
+    // The live-tested lie: journal says "idea", artifacts say everything exists.
+    const preamble = buildChatPreamble("s", "skills", { oneLiner: "x", stage: "idea", derivedStage: "published" });
+    expect(preamble).not.toContain("at stage idea");
+    expect(preamble).toContain(`The current step is: ${NEXT_STEP_BY_STAGE.published}.`);
+    expect(preamble).toContain('the declared stage is "idea"');
+    expect(preamble).toContain("may lag the artifacts");
+    expect(preamble).toContain("human gates");
+  });
+
   test("an empty one-liner drops the clause instead of rendering an empty dash", () => {
-    const preamble = buildChatPreamble("s", "skills", { oneLiner: "  ", stage: "idea" });
+    const preamble = buildChatPreamble("s", "skills", { oneLiner: "  ", stage: "idea", derivedStage: "idea" });
     expect(preamble).toContain("create a reusable SKILL as a skillmaker bundle");
     expect(preamble).not.toContain("-- --");
   });
 });
 
 describe("buildChatReorientation", () => {
-  test("one line: slug, stage, current step, do-the-step", () => {
-    const line = buildChatReorientation("readme-onboarding", { oneLiner: "", stage: "drafting" });
+  test("one line: slug, artifact-derived current step, declared stage as honesty, do-the-step", () => {
+    const line = buildChatReorientation("readme-onboarding", { oneLiner: "", stage: "researching", derivedStage: "drafting" });
     expect(line).toStartWith("Re-orientation:");
     expect(line).toContain('"readme-onboarding"');
-    expect(line).toContain("stage: drafting");
-    expect(line).toContain(NEXT_STEP_BY_STAGE.drafting);
+    expect(line).toContain(`current step, from the artifacts: ${NEXT_STEP_BY_STAGE.drafting}`);
+    expect(line).toContain("declared stage: researching");
     expect(line).toContain("Do the STEP");
     expect(line).not.toContain("\n");
   });
@@ -113,13 +124,28 @@ describe("readPreambleContext", () => {
       expect(readPreambleContext(root, "skills", "my-skill")).toEqual({
         oneLiner: "does the thing",
         stage: "drafting",
+        derivedStage: "idea",
       });
     });
   });
 
-  test("degrades honestly: no bundle.json, no journal -> empty one-liner, stage idea", () => {
+  test("degrades honestly: no bundle.json, no journal, no artifacts -> empty one-liner, everything idea", () => {
     withScratch((root) => {
-      expect(readPreambleContext(root, "skills", "ghost")).toEqual({ oneLiner: "", stage: "idea" });
+      expect(readPreambleContext(root, "skills", "ghost")).toEqual({ oneLiner: "", stage: "idea", derivedStage: "idea" });
+    });
+  });
+
+  test("probes the artifacts too: a bundle whose journal never moved still derives its real position", () => {
+    withScratch((root) => {
+      const bundleDir = join(root, "skills", "my-skill");
+      mkdirSync(join(bundleDir, "research"), { recursive: true });
+      writeFileSync(join(bundleDir, "research", "notes.md"), "# Notes\n\nFindings.\n");
+      // No journal at all: declared stage degrades to idea, derived stage does not.
+      expect(readPreambleContext(root, "skills", "my-skill")).toEqual({
+        oneLiner: "",
+        stage: "idea",
+        derivedStage: "researching",
+      });
     });
   });
 
@@ -140,10 +166,118 @@ describe("readPreambleContext", () => {
   });
 });
 
+describe("deriveArtifactStage (the current step comes from what exists, not what's declared)", () => {
+  const withBundle = (run: (bundleDir: string) => void): void => {
+    const root = mkdtempSync(join(tmpdir(), "skillmaker-derive-test-"));
+    try {
+      const bundleDir = join(root, "skills", "s");
+      mkdirSync(bundleDir, { recursive: true });
+      run(bundleDir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  // The skeleton `skillmaker new` writes: frontmatter, title, section
+  // headings, comment hints -- and NO prose (WorkspaceService.ts).
+  const scaffoldDesign = [
+    "---",
+    "bundle: s",
+    "---",
+    "# Design — S",
+    "",
+    "## Intent",
+    "<!-- What outcome this skill produces and for whom. -->",
+    "",
+    "## Failure hypotheses",
+    "<!-- | # | How it could fail | Risk family | -->",
+    "",
+  ].join("\n");
+
+  test("an empty bundle is at idea", () => {
+    withBundle((bundleDir) => {
+      expect(deriveArtifactStage(bundleDir)).toBe("idea");
+    });
+  });
+
+  test("research/notes.md alone -> researching; a scaffold-only design.md does not advance it", () => {
+    withBundle((bundleDir) => {
+      mkdirSync(join(bundleDir, "research"), { recursive: true });
+      writeFileSync(join(bundleDir, "research", "notes.md"), "# Notes\n\nFindings.\n");
+      expect(deriveArtifactStage(bundleDir)).toBe("researching");
+      writeFileSync(join(bundleDir, "design.md"), scaffoldDesign);
+      expect(deriveArtifactStage(bundleDir)).toBe("researching");
+    });
+  });
+
+  test("design.md with real prose under a heading -> drafting", () => {
+    withBundle((bundleDir) => {
+      writeFileSync(
+        join(bundleDir, "design.md"),
+        `${scaffoldDesign.replace(
+          "<!-- What outcome this skill produces and for whom. -->",
+          "Turns a repo's README into an onboarding doc.",
+        )}`,
+      );
+      expect(deriveArtifactStage(bundleDir)).toBe("drafting");
+    });
+  });
+
+  test("output/SKILL.md -> evaluating; a fixture case -> published (the furthest artifact wins)", () => {
+    withBundle((bundleDir) => {
+      mkdirSync(join(bundleDir, "output"), { recursive: true });
+      writeFileSync(join(bundleDir, "output", "SKILL.md"), "---\nname: s\n---\nDo the thing.\n");
+      expect(deriveArtifactStage(bundleDir)).toBe("evaluating");
+      mkdirSync(join(bundleDir, "evals", "fixtures", "trigger-basic"), { recursive: true });
+      expect(deriveArtifactStage(bundleDir)).toBe("published");
+    });
+  });
+
+  test("an empty or dotfile-only fixtures dir does not count as evals", () => {
+    withBundle((bundleDir) => {
+      mkdirSync(join(bundleDir, "evals", "fixtures"), { recursive: true });
+      writeFileSync(join(bundleDir, "evals", "fixtures", ".gitkeep"), "");
+      expect(deriveArtifactStage(bundleDir)).toBe("idea");
+    });
+  });
+
+  test("the live-tested lie end to end: everything exists, journal still says idea -> step reads maintain-and-improve, stage disclosed as declared-only", () => {
+    withBundle((bundleDir) => {
+      mkdirSync(join(bundleDir, "research"), { recursive: true });
+      writeFileSync(join(bundleDir, "research", "notes.md"), "notes\n");
+      writeFileSync(join(bundleDir, "design.md"), "Real design prose.\n");
+      mkdirSync(join(bundleDir, "output"), { recursive: true });
+      writeFileSync(join(bundleDir, "output", "SKILL.md"), "skill\n");
+      mkdirSync(join(bundleDir, "evals", "fixtures", "case-1"), { recursive: true });
+      const root = join(bundleDir, "..", "..");
+      const context = readPreambleContext(root, "skills", "s");
+      expect(context.stage).toBe("idea");
+      expect(context.derivedStage).toBe("published");
+      const preamble = buildChatPreamble("s", "skills", context);
+      expect(preamble).toContain("The current step is: maintain and improve.");
+      expect(preamble).toContain('the declared stage is "idea"');
+    });
+  });
+});
+
+describe("ORIENTATION_INSTRUCTION (agent speaks first)", () => {
+  test("asks for a state check, a stand-up summary, and ONE forward question -- briefly", () => {
+    expect(ORIENTATION_INSTRUCTION).toContain("Orient the director");
+    expect(ORIENTATION_INSTRUCTION).toContain("skillmaker CLI");
+    expect(ORIENTATION_INSTRUCTION).toContain("where things stand");
+    expect(ORIENTATION_INSTRUCTION).toContain("one question");
+    expect(ORIENTATION_INSTRUCTION).toContain("Keep it short");
+  });
+
+  test("never contains the separator (the whole opening prompt must read as machine context)", () => {
+    expect(ORIENTATION_INSTRUCTION).not.toContain(PREAMBLE_SEPARATOR);
+  });
+});
+
 describe("wire composition constants", () => {
   test("the separator isolates the user's words from the machine context (the viewer splits on it)", () => {
     expect(PREAMBLE_SEPARATOR).toBe("\n\n---\n\n");
-    const preamble = buildChatPreamble("s", "skills", { oneLiner: "", stage: "idea" });
+    const preamble = buildChatPreamble("s", "skills", { oneLiner: "", stage: "idea", derivedStage: "idea" });
     // The preamble itself must never contain the separator, or the
     // viewer's split lands mid-context.
     expect(preamble).not.toContain(PREAMBLE_SEPARATOR);
