@@ -202,14 +202,20 @@ describe("chat sessions (D9)", () => {
       );
 
       const text = agentTextOf(stream.events);
-      // Multi-prompt over one session: the fake counts turns.
-      expect(text).toContain("turn 1: You are the working agent"); // preamble on turn 1
-      expect(text).toContain("hello agent");
+      // Multi-prompt over one session: the fake counts turns. Turn 1
+      // carries the production-context preamble (Blocker #5): mission,
+      // slug, stage-appropriate step, William pointer -- then the user's
+      // own words after the separator.
+      expect(text).toContain("turn 1: You're inside Skillmaker Studio.");
+      expect(text).toContain(`(slug: ${SKILL})`);
+      expect(text).toContain("The current step is: clarify intent and research.");
+      expect(text).toContain("william-");
+      expect(text).toContain("\n\n---\n\nhello agent");
       expect(text).toContain("turn 2: and again");
       // The preamble names the skillmaker CLI as the studio-state door (D6)
       // and goes only on the FIRST prompt.
       expect(text).toContain("skillmaker");
-      expect(text.split("You are the working agent").length - 1).toBe(1);
+      expect(text.split("You're inside Skillmaker Studio.").length - 1).toBe(1);
       // Tool-call chips stream through.
       const kinds = stream.events
         .filter((event) => event.type === "update")
@@ -342,13 +348,33 @@ describe("chat sessions (D9)", () => {
     expect(state.active?.sessionId).toBe(sessionId);
 
     // The provider's session/load replay arrives through the stream buffer:
-    // a fresh SSE connect sees the replayed history.
+    // a fresh SSE connect sees the replayed history -- ORIGINAL preamble
+    // included, because it was part of the first wire prompt.
     const stream = openStream(`/api/chat/${SKILL}/stream`);
     try {
       await waitFor(
         async () => (agentTextOf(stream.events).includes("turn 1:") ? true : undefined),
         "replayed history on the stream",
       );
+
+      // The first post-resume prompt carries the one-line re-orientation
+      // (not the full preamble -- the replay already has that), exposed to
+      // the panel via the user_message event's context field.
+      const sent = await postJson(`/api/chat/${SKILL}/message`, { text: "where were we?" });
+      expect(sent.status).toBe(202);
+      await waitFor(
+        async () => (agentTextOf(stream.events).includes("where were we?") ? true : undefined),
+        "post-resume turn to echo",
+      );
+      const text = agentTextOf(stream.events);
+      expect(text).toContain("Re-orientation:");
+      expect(text).toContain("\n\n---\n\nwhere were we?");
+      // Full preamble only once (the replayed original), never re-sent.
+      expect(text.split("You're inside Skillmaker Studio.").length - 1).toBe(1);
+      const userEvent = stream.events.find(
+        (event) => event.type === "user_message" && event.text === "where were we?",
+      );
+      expect(String(userEvent?.context)).toStartWith("Re-orientation:");
     } finally {
       stream.close();
     }

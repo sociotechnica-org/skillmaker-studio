@@ -43,6 +43,8 @@ export type ChatItem =
       readonly kind: "user";
       readonly text: string;
       readonly t: string;
+      /** Machine-authored production context (the first-prompt preamble / resume re-orientation) prepended server-side; rendered as a collapsed chip, never as message text. */
+      readonly context?: string;
       readonly images?: ReadonlyArray<ChatItemImage>;
     }
   | { readonly kind: "agent"; readonly text: string; readonly t: string }
@@ -76,6 +78,26 @@ const decodeItemImages = (raw: unknown): ReadonlyArray<ChatItemImage> => {
     });
   }
   return out;
+};
+
+/**
+ * The server's first-prompt preamble markers (keep in sync with
+ * packages/cli/src/server/ChatSessions.ts). Live `user_message` events
+ * carry the preamble in a separate `context` field -- but a RESUMED
+ * session's history arrives as the provider's replay of the raw wire
+ * prompt, preamble inlined. `splitPreamble` peels it back off so the
+ * replayed transcript renders the same collapsed context chip.
+ */
+const PREAMBLE_SENTINELS = ["You're inside Skillmaker Studio.", "Re-orientation:"] as const;
+const PREAMBLE_SEPARATOR = "\n\n---\n\n";
+
+export const splitPreamble = (
+  text: string,
+): { readonly context: string; readonly text: string } | undefined => {
+  if (!PREAMBLE_SENTINELS.some((sentinel) => text.startsWith(sentinel))) return undefined;
+  const cut = text.indexOf(PREAMBLE_SEPARATOR);
+  if (cut === -1) return undefined;
+  return { context: text.slice(0, cut), text: text.slice(cut + PREAMBLE_SEPARATOR.length) };
 };
 
 const asText = (content: unknown): string | undefined =>
@@ -164,6 +186,7 @@ export const chatItemsFromEvents = (events: ReadonlyArray<unknown>): ReadonlyArr
         kind: "user",
         text: raw.text,
         t,
+        ...(typeof raw.context === "string" && raw.context.length > 0 ? { context: raw.context } : {}),
         ...(images.length > 0 ? { images } : {}),
       });
       continue;
@@ -245,5 +268,12 @@ export const chatItemsFromEvents = (events: ReadonlyArray<unknown>): ReadonlyArr
     }
   }
 
-  return items;
+  // Replayed history (resume) inlines the preamble in the first user
+  // message's text -- peel it back into a context chip once the chunks
+  // have fully coalesced.
+  return items.map((item) => {
+    if (item.kind !== "user" || item.context !== undefined) return item;
+    const split = splitPreamble(item.text);
+    return split === undefined ? item : { ...item, context: split.context, text: split.text };
+  });
 };

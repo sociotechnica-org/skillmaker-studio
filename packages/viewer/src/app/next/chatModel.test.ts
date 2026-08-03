@@ -133,6 +133,45 @@ describe("chatItemsFromEvents", () => {
   });
 });
 
+describe("first-prompt production context (Blocker #5)", () => {
+  const preamble =
+    "You're inside Skillmaker Studio. Your job is to help me create a reusable SKILL -- x -- as a skillmaker bundle (slug: s).";
+
+  test("a live user_message's context field rides on the user item, separate from the text", () => {
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "improve the README", context: preamble, t: "2026-07-23T09:00:00.000Z" },
+    ]);
+    expect(items).toEqual([
+      { kind: "user", text: "improve the README", context: preamble, t: "2026-07-23T09:00:00.000Z" },
+    ]);
+  });
+
+  test("a resumed session's replayed first prompt (preamble inlined, chunked) splits back into context + text", () => {
+    const wire = `${preamble}\n\n---\n\nimprove the README`;
+    const mid = Math.floor(wire.length / 2);
+    const items = chatItemsFromEvents([userChunk(wire.slice(0, mid)), userChunk(wire.slice(mid))]);
+    expect(items).toHaveLength(1);
+    const item = items[0];
+    if (item === undefined || item.kind !== "user") throw new Error("expected a user item");
+    expect(item.context).toBe(preamble);
+    expect(item.text).toBe("improve the README");
+  });
+
+  test("a replayed re-orientation line splits too; ordinary user text never does", () => {
+    const reorientation = 'Re-orientation: we\'re still in Skillmaker Studio working on the skillmaker bundle "s" (stage: drafting).';
+    const items = chatItemsFromEvents([
+      userChunk(`${reorientation}\n\n---\n\nkeep going`),
+      agentChunk("ok"),
+      userChunk("plain message with a\n\n---\n\nrule in it"),
+    ]);
+    expect(items).toEqual([
+      { kind: "user", text: "keep going", context: reorientation, t: "2026-07-23T10:00:00.000Z" },
+      { kind: "agent", text: "ok", t: "2026-07-23T10:00:00.000Z" },
+      { kind: "user", text: "plain message with a\n\n---\n\nrule in it", t: "2026-07-23T10:00:00.000Z" },
+    ]);
+  });
+});
+
 describe("user_message image attachments", () => {
   test("well-formed images ride on the user item; malformed entries drop; absent stays absent", () => {
     const items = chatItemsFromEvents([

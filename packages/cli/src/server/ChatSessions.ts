@@ -182,18 +182,110 @@ export const prepareAgentHome = (
 };
 
 // ---------------------------------------------------------------------------
-// First-prompt preamble (agent-first, D6)
+// First-prompt preamble (agent-first, D6; e2e-readiness Blocker #5)
 // ---------------------------------------------------------------------------
 
-export const buildChatPreamble = (skill: string, skillsDir: string): string =>
-  [
-    `You are the working agent for the skill "${skill}" in this project.`,
+/**
+ * Blocker #5's fix: a launcher- or panel-started session's first prompt
+ * used to be the user's raw brief, and a bare agent read "improve the
+ * README" as *do it now* instead of "build the skill that does this."
+ * The template below is the director's own hand-written recovery message
+ * from the 2026-07-29 walk (docs/friction/e2e-readiness.md), parameterized
+ * from the bundle: slug, one-liner, stage, and the stage-appropriate next
+ * step. Prepended SERVER-SIDE so every path (launcher hand-off, panel
+ * start, CLI/agent-layer) gets it and the provider's transcript records it.
+ */
+
+/** The preamble's first line -- also the sentinel the viewer uses to split a REPLAYED first prompt (resume history) back into context chip + user message. Keep in sync with chatModel.ts. */
+export const PREAMBLE_SENTINEL = "You're inside Skillmaker Studio.";
+
+/** Separates machine-authored context from the user's own words inside one wire prompt. Keep in sync with chatModel.ts. */
+export const PREAMBLE_SEPARATOR = "\n\n---\n\n";
+
+const STAGES = ["idea", "researching", "drafting", "evaluating", "published"] as const;
+export type PreambleStage = (typeof STAGES)[number];
+
+/** The stage-appropriate "current step" line -- encodes the real pipeline (research -> design.md co-authored in chat -> draft -> evals -> publish), so the product states the next step instead of relying on the director's memory. */
+export const NEXT_STEP_BY_STAGE: Readonly<Record<PreambleStage, string>> = {
+  idea: "clarify intent and research",
+  researching: "research, then surface open questions",
+  drafting: "draft from design.md",
+  evaluating: "author/run evals",
+  published: "maintain and improve",
+};
+
+export interface PreambleContext {
+  readonly oneLiner: string;
+  readonly stage: PreambleStage;
+}
+
+/**
+ * Reads the bundle facts the preamble is parameterized from, tolerantly
+ * and synchronously (no Effect/SQLite machinery -- this runs inline in a
+ * message send): the one-liner from `<skillsDir>/<slug>/bundle.json`, the
+ * stage folded from `.skillmaker/events.jsonl` the same way Fold.ts does
+ * (last `bundle.stage_changed` wins; default `idea`). Anything missing or
+ * malformed degrades to the default, never throws.
+ */
+export const readPreambleContext = (root: string, skillsDir: string, slug: string): PreambleContext => {
+  let oneLiner = "";
+  try {
+    const identity: unknown = JSON.parse(readFileSync(join(root, skillsDir, slug, "bundle.json"), "utf8"));
+    if (isRecord(identity) && typeof identity.oneLiner === "string") oneLiner = identity.oneLiner;
+  } catch {
+    // No bundle.json (or malformed): the preamble drops the one-liner clause.
+  }
+  let stage: PreambleStage = "idea";
+  try {
+    const lines = readFileSync(join(root, ".skillmaker", "events.jsonl"), "utf8").split("\n");
+    for (const line of lines) {
+      if (line.trim().length === 0) continue;
+      let event: unknown;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!isRecord(event) || event.type !== "bundle.stage_changed" || !isRecord(event.payload)) continue;
+      if (event.payload.bundle !== slug) continue;
+      const to = event.payload.to;
+      if (typeof to === "string" && (STAGES as ReadonlyArray<string>).includes(to)) {
+        stage = to as PreambleStage;
+      }
+    }
+  } catch {
+    // No journal yet: a brand-new bundle is honestly at "idea".
+  }
+  return { oneLiner, stage };
+};
+
+export const buildChatPreamble = (skill: string, skillsDir: string, context: PreambleContext): string => {
+  const mission =
+    context.oneLiner.trim().length > 0
+      ? `Your job is to help me create a reusable SKILL -- ${context.oneLiner.trim()} -- as a skillmaker bundle (slug: ${skill}) that will eventually ship its SKILL.md.`
+      : `Your job is to help me create a reusable SKILL as a skillmaker bundle (slug: ${skill}) that will eventually ship its SKILL.md.`;
+  return [
+    `${PREAMBLE_SENTINEL} ${mission} The bundle is at stage ${context.stage}.`,
     ``,
-    `- The skill's bundle lives at ${skillsDir}/${skill}/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).`,
+    `- The bundle lives at ${skillsDir}/${skill}/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).`,
+    `- The pipeline is research/notes.md -> design.md (co-authored in this conversation) -> output/SKILL.md -> evals -> publish; stage moves are human-gated.`,
+    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,
     `- Studio state -- todos, fixtures, runs, stages -- is read and changed through the \`skillmaker\` CLI (run \`skillmaker --help\` to see commands). Prefer the CLI over editing .skillmaker/ files by hand.`,
     `- You are working DIRECTLY in the project; edits are real, not sandboxed.`,
     ``,
+    `The current step is: ${NEXT_STEP_BY_STAGE[context.stage]}. Do the STEP, not the skill's task itself.`,
   ].join("\n");
+};
+
+/**
+ * The resumed-session variant: ACP `session/load` replays the whole prior
+ * conversation (original preamble included, for sessions started after this
+ * shipped), so re-sending the full preamble would be noise -- but the stage
+ * may have moved since, and pre-preamble sessions have nothing to replay.
+ * One honest line covers both.
+ */
+export const buildChatReorientation = (skill: string, context: PreambleContext): string =>
+  `Re-orientation: we're still in Skillmaker Studio working on the skillmaker bundle "${skill}" (stage: ${context.stage}; current step: ${NEXT_STEP_BY_STAGE[context.stage]}). Do the STEP, not the skill's task itself.`;
 
 // ---------------------------------------------------------------------------
 // Stream events
@@ -238,6 +330,8 @@ export type ChatStreamEvent =
       readonly type: "user_message";
       readonly text: string;
       readonly t: string;
+      /** The machine-authored preamble/re-orientation prepended to this message on the wire (first prompt only). Carried SEPARATELY from `text` so the panel can render it as a collapsed context chip instead of a wall of text before the user's words. */
+      readonly context?: string;
       /** Image attachments (base64 + mimeType) sent with the message; the panel renders thumbnails from these on live delivery AND buffer replay. */
       readonly images?: ReadonlyArray<ChatImageAttachment>;
     }
@@ -687,9 +781,10 @@ export class ChatSessionManager {
 
   /**
    * One prompt turn. Concurrent prompts are REJECTED with 409 (see module
-   * doc). The first prompt of a FRESH (non-resumed) session carries the
-   * preamble naming the skill, its bundle paths, and the `skillmaker` CLI
-   * as the studio-state door (D6).
+   * doc). The first prompt of a FRESH session carries the full production
+   * preamble (mission, slug, one-liner, stage, next step, william pointer,
+   * the `skillmaker` CLI as the studio-state door -- D6 + Blocker #5); the
+   * first prompt of a RESUMED session carries a one-line re-orientation.
    */
   async sendMessage(
     skill: string,
@@ -708,11 +803,20 @@ export class ChatSessionManager {
       if (problem !== undefined) return { ok: false, status: 413, error: problem };
     }
 
+    // First prompt of the LIVE session gets minute-zero production context
+    // (Blocker #5): a fresh session (resume-fallback included -- it has no
+    // history to replay) gets the full preamble; a genuinely resumed one
+    // gets the one-line re-orientation (session/load already replayed the
+    // original preamble, but the stage may have moved since).
     const isFirstPrompt = !chat.events.some((event) => event.type === "user_message");
-    const promptText =
-      isFirstPrompt && !chat.handle.resumed
-        ? `${buildChatPreamble(skill, this.config.skillsDir)}${text}`
-        : text;
+    let context: string | undefined;
+    if (isFirstPrompt) {
+      const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill);
+      context = chat.handle.resumed
+        ? buildChatReorientation(skill, bundleContext)
+        : buildChatPreamble(skill, this.config.skillsDir, bundleContext);
+    }
+    const promptText = context !== undefined ? `${context}${PREAMBLE_SEPARATOR}${text}` : text;
 
     chat.status = "running";
     chat.lastActivityAt = Date.now();
@@ -720,6 +824,7 @@ export class ChatSessionManager {
       type: "user_message",
       text,
       t: new Date().toISOString(),
+      ...(context !== undefined ? { context } : {}),
       ...(images.length > 0 ? { images } : {}),
     });
     this.broadcastState(chat);
