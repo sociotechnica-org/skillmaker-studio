@@ -10,6 +10,7 @@ import {
   bundleForEvent,
   checkTransition,
   computeBundleHashes,
+  computeInstalledDrift,
   computeMeasurements,
   custodyEventsFor,
   deriveIntakeVerdict,
@@ -22,6 +23,7 @@ import {
   guardStatus,
   hashReceivedCrate,
   isIdentityGrantingDisposition,
+  isInstallAudience,
   isTerminalStatus,
   isUnverified,
   IndexService,
@@ -32,7 +34,10 @@ import {
   listUndisposedCrates,
   parseDossier,
   publishBundle,
+  publishToInstallTargets,
   readMachineConfig,
+  readRememberedInstallTargets,
+  resolveInstallDir,
   recordSkillVersion,
   removeMachineProject,
   resolveSkillVersion,
@@ -51,6 +56,8 @@ import {
   type BundleStage,
   type BundleRecord,
   type DossierSections,
+  type InstallTargetKind,
+  type InstalledDrift,
   type IntakeStakes,
   type FixtureCaseRecord,
   type FixtureRecord,
@@ -1253,7 +1260,62 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   const instructionsRelPath = layout === "output-dir" ? "output/SKILL.md" : "SKILL.md";
   const instructionsPath = existsSync(join(bundleDir, instructionsRelPath)) ? instructionsRelPath : null;
 
+  // The install door's facts (director rulings 2026-08-03, InstallPublish.ts):
+  // remembered audiences off bundle.json, each audience's resolved path,
+  // the last install publish for it (off the SAME uncapped `events` read),
+  // and drift of the INSTALLED copy against that last-published version --
+  // the Studio-born twin of the live drift hint. For an in-place bundle
+  // the single "in-place" row IS the D4c passthrough (its installed drift
+  // is the bundle's own live drift, already on `bundle.drift`).
+  const rememberedAudiences = await Effect.runPromise(
+    readRememberedInstallTargets(bundleDir).pipe(Effect.provide(BunServices.layer)),
+  );
+  const installPublishEvents = events.filter(
+    (event): event is Extract<JournalEvent, { type: "skill.published" }> =>
+      event.type === "skill.published" && event.payload.bundle === slug,
+  );
+  const lastInstallPublish = (target: InstallTargetKind) =>
+    [...installPublishEvents].reverse().find((event) => event.payload.target === target);
+  const installAudienceKinds: ReadonlyArray<InstallTargetKind> =
+    layout === "in-place" ? ["in-place"] : ["user", "project"];
+  const home = homedir();
+  const publishTargetRows = [];
+  for (const audience of installAudienceKinds) {
+    const targetPath =
+      audience === "in-place" ? bundleDir : resolveInstallDir(audience, root, slug);
+    const last = lastInstallPublish(audience);
+    let installedDrift: InstalledDrift | null = null;
+    if (audience !== "in-place" && last !== undefined) {
+      installedDrift = await Effect.runPromise(
+        computeInstalledDrift(targetPath, last.payload.versionHash).pipe(
+          Effect.provide(BunServices.layer),
+        ),
+      );
+    }
+    publishTargetRows.push({
+      audience,
+      path: targetPath,
+      displayPath: shortenHomePath(targetPath, home),
+      remembered:
+        audience === "in-place" ? true : rememberedAudiences.includes(audience),
+      lastPublished:
+        last === undefined
+          ? null
+          : {
+              versionHash: last.payload.versionHash,
+              at: last.at,
+              evidence: last.payload.evidence ?? null,
+            },
+      installedDrift,
+    });
+  }
+
   return jsonResponse({
+    publish: {
+      inPlace: layout === "in-place",
+      remembered: rememberedAudiences,
+      targets: publishTargetRows,
+    },
     bundle,
     guardStatus: guardStatus(events, slug),
     events: recentEvents,
@@ -2254,15 +2316,24 @@ const handleSkillbook = async (root: string, config: WorkspaceConfig): Promise<R
 
 interface PublishRequestBody {
   readonly target?: unknown;
+  readonly to?: unknown;
+  readonly version?: unknown;
 }
 
 /**
- * `POST /api/bundles/:slug/publish` -- the viewer's post-publish "Publish to
- * targets" step (Phase 17's guided publish flow, extended). Runs the SAME
- * `publishBundle` core function the CLI's `skillmaker publish` command runs
- * (`../commands/Publish.ts`) -- one contract, two doors. `target` in the
- * body is optional (default: every configured target), mirroring the CLI's
- * `--target` flag.
+ * `POST /api/bundles/:slug/publish` -- one endpoint, two doors, exactly
+ * mirroring the CLI's `skillmaker publish` (`../commands/Publish.ts`):
+ *
+ * - THE INSTALL DOOR (director rulings 2026-08-03): body `{to?: "user" |
+ *   "project", version?: "<hash-prefix>"}` runs the SAME
+ *   `publishToInstallTargets` core function the CLI's `--to`/`--version`
+ *   flags run -- write the selected version's output to an install target,
+ *   stamp it, journal it, remember the audience. A body with neither
+ *   field still takes this door when the bundle has remembered audiences
+ *   (the viewer's one-click re-publish) or the workspace has no legacy
+ *   `publishTargets` configured.
+ * - THE LEGACY TARGETS DOOR: body `{target?: "<id>"}` runs `publishBundle`
+ *   against skillmaker.config.json's configured targets, unchanged.
  */
 const handlePublish = async (
   root: string,
@@ -2275,14 +2346,9 @@ const handlePublish = async (
     return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
   }
 
-  if (config.publishTargets.length === 0) {
-    return jsonResponse(
-      { error: "no publishTargets configured in skillmaker.config.json -- nothing to publish to" },
-      409,
-    );
-  }
-
   let target: string | undefined;
+  let to: string | undefined;
+  let version: string | undefined;
   const rawText = await request.text();
   if (rawText.length > 0) {
     let body: unknown;
@@ -2291,12 +2357,24 @@ const handlePublish = async (
     } catch {
       return jsonResponse({ error: "invalid JSON body" }, 400);
     }
-    const rawTarget = (body as PublishRequestBody).target;
-    if (rawTarget !== undefined) {
-      if (typeof rawTarget !== "string") {
+    const parsed = body as PublishRequestBody;
+    if (parsed.target !== undefined) {
+      if (typeof parsed.target !== "string") {
         return jsonResponse({ error: "target must be a string" }, 400);
       }
-      target = rawTarget;
+      target = parsed.target;
+    }
+    if (parsed.to !== undefined) {
+      if (!isInstallAudience(parsed.to)) {
+        return jsonResponse({ error: `unknown "to" audience (expected "user" or "project")` }, 400);
+      }
+      to = parsed.to;
+    }
+    if (parsed.version !== undefined) {
+      if (typeof parsed.version !== "string") {
+        return jsonResponse({ error: "version must be a string" }, 400);
+      }
+      version = parsed.version;
     }
   }
 
@@ -2307,6 +2385,64 @@ const handlePublish = async (
   const bundleDir = await resolveBundleDir(root, config, slug);
   const journalPath = join(root, ".skillmaker", "events.jsonl");
   const actor = await Effect.runPromise(resolveUserActor());
+
+  // Door selection -- the same rule as the CLI: --target forces the legacy
+  // door; --to/--version force the install door; a bare publish installs
+  // when there is a remembered audience or no legacy target to fall to.
+  const remembered = await Effect.runPromise(
+    readRememberedInstallTargets(bundleDir).pipe(Effect.provide(BunServices.layer)),
+  );
+  const wantsInstallDoor =
+    target === undefined &&
+    (to !== undefined || version !== undefined || remembered.length > 0 || config.publishTargets.length === 0);
+
+  if (wantsInstallDoor) {
+    const installOutcome = await Effect.runPromise(
+      publishToInstallTargets({
+        workspaceRoot: root,
+        bundleDir,
+        bundle: slug,
+        actor,
+        ...(to !== undefined && isInstallAudience(to) ? { to } : {}),
+        ...(version !== undefined ? { version } : {}),
+      }).pipe(
+        Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
+        Effect.provide(BunServices.layer),
+        Effect.map((result) => ({ kind: "ok" as const, result })),
+        Effect.catchTag("PublishGuardError", (error) =>
+          Effect.succeed({ kind: "rejected" as const, status: 409, reason: error.reason }),
+        ),
+        Effect.catchTag("InstallTargetError", (error) =>
+          Effect.succeed({ kind: "rejected" as const, status: 409, reason: error.reason }),
+        ),
+        Effect.catchTag("InstallVersionNotFoundError", (error) =>
+          Effect.succeed({
+            kind: "rejected" as const,
+            status: 400,
+            reason: `no recorded version of "${error.bundle}" matches "${error.version}"`,
+          }),
+        ),
+        Effect.catchTag("InstallSnapshotMissingError", (error) =>
+          Effect.succeed({
+            kind: "rejected" as const,
+            status: 409,
+            reason: `version ${shortHash(error.versionHash)} of "${error.bundle}" was recorded before the snapshot store existed -- its content is gone, so it cannot be re-published`,
+          }),
+        ),
+      ),
+    );
+    if (installOutcome.kind === "rejected") {
+      return jsonResponse({ error: installOutcome.reason }, installOutcome.status);
+    }
+    return jsonResponse({ status: "published", ...installOutcome.result });
+  }
+
+  if (config.publishTargets.length === 0) {
+    return jsonResponse(
+      { error: "no publishTargets configured in skillmaker.config.json -- nothing to publish to" },
+      409,
+    );
+  }
 
   const outcome = await Effect.runPromise(
     publishBundle({

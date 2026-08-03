@@ -8,7 +8,7 @@
  */
 import { useCallback, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
-import { fetchBundleFile, useApiData } from "./api.ts";
+import { fetchBundleFile, postPublish, useApiData } from "./api.ts";
 import { EvalsSection } from "./EvalsSection.tsx";
 import { AdvanceControls, ReviewSurface } from "./ReviewSurface.tsx";
 import type { SkillPage as SkillPageData, SkillVersion } from "./types.ts";
@@ -99,7 +99,7 @@ export function SkillPageView({
           {tab === "overview" && <OverviewTab page={page} pinned={pinned} onOpenFile={onOpenFile} />}
           {tab === "research" && <ResearchTab slug={slug} onOpenFile={onOpenFile} />}
           {tab === "eval" && <EvalsSection page={page} />}
-          {tab === "publish" && <PublishTab page={page} pinned={pinned} />}
+          {tab === "publish" && <PublishTab slug={slug} page={page} pinned={pinned} />}
         </div>
       </div>
     </div>
@@ -361,30 +361,138 @@ function ResearchTab({
   );
 }
 
-function PublishTab({ page, pinned }: { readonly page: SkillPageData; readonly pinned: string }) {
+/**
+ * The install door (director rulings 2026-08-03): publish writes the
+ * latest recorded version's output to an install target an agent actually
+ * reads. First publish on a bundle with no remembered target shows the two
+ * audience choices INLINE on the row (no modal, no path field); after
+ * that, one-click Publish to the remembered target, shown as quiet text.
+ * Revert per version row (snapshot-backed, #169). Every act lands a
+ * `skill.published` journal event + a provenance stamp in the installed
+ * copy; the confirmation line below echoes the stamp's facts.
+ */
+function PublishTab({
+  slug,
+  page,
+  pinned,
+}: {
+  readonly slug: string;
+  readonly page: SkillPageData;
+  readonly pinned: string;
+}) {
+  const pub = page.publish;
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const rememberedTargets = pub === null ? [] : pub.targets.filter((t) => t.remembered);
+  const canRevert = pub !== null && (pub.inPlace || rememberedTargets.length > 0);
+
+  const act = async (body: { readonly to?: "user" | "project"; readonly version?: string }) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setFlash(null);
+    try {
+      const result = await postPublish(slug, body);
+      const short = result.versionHash.replace(/^sha256:/, "").slice(0, 8);
+      const label = result.versionLabel !== null ? ` (${result.versionLabel})` : "";
+      const paths = result.results.map((r) => r.path).join(", ");
+      setFlash(`Published ${short}${label} → ${paths} · ${result.evidence}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const publishButton = () => {
+    if (pub === null) {
+      return (
+        <button
+          type="button"
+          className="rounded bg-amber-600 px-2.5 py-1 font-display text-xs text-white opacity-50"
+          title="Publishing needs the server"
+          disabled
+        >
+          Publish
+        </button>
+      );
+    }
+    if (pub.inPlace || rememberedTargets.length > 0) {
+      return (
+        <button
+          type="button"
+          className="cursor-pointer rounded bg-amber-600 px-2.5 py-1 font-display text-xs text-white hover:bg-amber-700 disabled:cursor-default disabled:opacity-50"
+          disabled={busy}
+          onClick={() => void act({})}
+        >
+          Publish
+        </button>
+      );
+    }
+    // First publish: the two audiences, inline -- no modal, no path field.
+    return (
+      <span className="flex shrink-0 items-center gap-1.5">
+        <span className="text-xs text-ink-muted">Publish to</span>
+        <button
+          type="button"
+          className="cursor-pointer rounded bg-amber-600 px-2.5 py-1 font-display text-xs text-white hover:bg-amber-700 disabled:cursor-default disabled:opacity-50"
+          title="~/.claude/skills — every agent on this machine"
+          disabled={busy}
+          onClick={() => void act({ to: "user" })}
+        >
+          All my agents
+        </button>
+        <button
+          type="button"
+          className="cursor-pointer rounded border border-border bg-canvas px-2.5 py-1 font-display text-xs text-ink-muted hover:text-ink disabled:cursor-default disabled:opacity-50"
+          title=".claude/skills in this project"
+          disabled={busy}
+          onClick={() => void act({ to: "project" })}
+        >
+          This project's agents
+        </button>
+      </span>
+    );
+  };
+
+  const draftSubtitle = () => {
+    if (pub === null) return page.drift;
+    if (pub.inPlace) return "adopted in place — publish writes to the skill's own live directory";
+    if (rememberedTargets.length > 0) {
+      return `→ ${rememberedTargets.map((t) => t.displayPath).join(", ")}`;
+    }
+    return page.drift;
+  };
+
   return (
     <div className="text-sm">
       <p className="text-ink-muted">
-        Publishing writes the selected draft over the skill's live <span className="font-mono text-xs">SKILL.md</span>, stamped
-        with its evidence state.
+        Publishing installs the latest recorded version where agents read skills, stamped with its evidence state.
+        The chosen target is remembered.
       </p>
+
+      {flash !== null && <p className="pt-2 text-xs text-emerald-700">{flash}</p>}
+      {error !== null && <p className="pt-2 text-xs text-red-600">{error}</p>}
+      {rememberedTargets.some((t) => t.installedDrift === "installed-edited") && (
+        <p className="pt-2 text-xs text-amber-700">
+          The installed copy has been hand-edited since the last publish — re-publishing overwrites those edits.
+        </p>
+      )}
+      {rememberedTargets.some((t) => t.installedDrift === "not-installed") && (
+        <p className="pt-2 text-xs text-amber-700">
+          The installed copy is missing from its remembered target — publish to reinstall it.
+        </p>
+      )}
 
       <h3 className="pt-3 font-display text-xs uppercase text-ink-muted">Versions</h3>
       <div className="mt-1 space-y-1">
         <VersionRow
           active={pinned === CURRENT_DRAFT}
           title="Current draft"
-          subtitle={page.drift}
-          action={
-            <button
-              type="button"
-              className="rounded bg-amber-600 px-2.5 py-1 font-display text-xs text-white opacity-50"
-              title="Publish flow lands with the version snapshot store — design in progress"
-              disabled
-            >
-              Publish
-            </button>
-          }
+          subtitle={draftSubtitle()}
+          action={publishButton()}
         />
         {page.versions.map((v) => (
           <VersionRow
@@ -395,9 +503,20 @@ function PublishTab({ page, pinned }: { readonly page: SkillPageData; readonly p
             action={
               <button
                 type="button"
-                className="rounded border border-border px-2.5 py-1 font-display text-xs text-ink-muted opacity-50"
-                title="Revert requires the version snapshot store (versions are hashes today, not content)"
-                disabled
+                className={`rounded border border-border px-2.5 py-1 font-display text-xs text-ink-muted ${
+                  canRevert && v.snapshot && !busy ? "cursor-pointer hover:text-ink" : "opacity-50"
+                }`}
+                title={
+                  pub === null
+                    ? "Revert needs the server"
+                    : !v.snapshot
+                      ? "This version was recorded before the snapshot store — its content was not kept"
+                      : !canRevert
+                        ? "Publish once first — revert re-installs to the same target"
+                        : "Write this version's snapshot to the published target"
+                }
+                disabled={!canRevert || !v.snapshot || busy}
+                onClick={() => void act({ version: v.hash })}
               >
                 Revert
               </button>
@@ -406,6 +525,19 @@ function PublishTab({ page, pinned }: { readonly page: SkillPageData; readonly p
         ))}
         {page.versions.length === 0 && <p className="text-xs text-ink-muted">No versions recorded yet.</p>}
       </div>
+      {rememberedTargets.some((t) => t.lastPublished !== null) && (
+        <p className="pt-3 text-xs text-ink-muted">
+          {rememberedTargets
+            .filter((t) => t.lastPublished !== null)
+            .map((t) => {
+              const last = t.lastPublished as NonNullable<typeof t.lastPublished>;
+              const short = last.versionHash.replace(/^sha256:/, "").slice(0, 8);
+              const when = new Date(last.at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+              return `Last published ${short} → ${t.displayPath} on ${when}${last.evidence !== null ? ` · ${last.evidence}` : ""}`;
+            })
+            .join(" — ")}
+        </p>
+      )}
       <p className="pt-3 text-xs text-ink-muted">
         Evidence per version lives in the Eval tab — pin a version in the top bar and switch tabs to see its measurements.
       </p>

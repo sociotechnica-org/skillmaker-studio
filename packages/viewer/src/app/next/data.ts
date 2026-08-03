@@ -30,5 +30,7 @@ export const SKILL_PAGE: SkillPage = {
   claims: [],
   // No live runs/measurements: the tree renders claims-only and inert.
   evals: null,
+  // No install-door facts: the Publish tab's buttons stay inert.
+  publish: null,
   events: [],
 };

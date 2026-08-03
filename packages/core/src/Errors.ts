@@ -108,6 +108,33 @@ export class UnknownPublishTargetKindError extends Schema.TaggedErrorClass<Unkno
   },
 ) {}
 
+/** The install door (`skillmaker publish --to`, InstallPublish.ts) could not resolve where to publish: no audience given and none remembered, an unknown `--to` value, or `--to` on an in-place-adopted bundle whose live directory IS the install location. */
+export class InstallTargetError extends Schema.TaggedErrorClass<InstallTargetError>()(
+  "InstallTargetError",
+  {
+    bundle: Schema.String,
+    reason: Schema.String,
+  },
+) {}
+
+/** `skillmaker publish --version <hash>` named a prefix matching no recorded version of this bundle. */
+export class InstallVersionNotFoundError extends Schema.TaggedErrorClass<InstallVersionNotFoundError>()(
+  "InstallVersionNotFoundError",
+  {
+    bundle: Schema.String,
+    version: Schema.String,
+  },
+) {}
+
+/** A revert-shaped install publish targeted a version recorded before the snapshot store existed (#169): the receipt is real but its content is gone, so there is nothing honest to write. */
+export class InstallSnapshotMissingError extends Schema.TaggedErrorClass<InstallSnapshotMissingError>()(
+  "InstallSnapshotMissingError",
+  {
+    bundle: Schema.String,
+    versionHash: Schema.String,
+  },
+) {}
+
 /** `skillmaker ship` was attempted for a bundle with no `skill.version_recorded` event at all -- there is nothing to ship (issue #66: "errors if the bundle has no recorded version"). */
 export class ShipNoVersionError extends Schema.TaggedErrorClass<ShipNoVersionError>()(
   "ShipNoVersionError",

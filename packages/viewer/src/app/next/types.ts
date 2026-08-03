@@ -123,6 +123,34 @@ export type SkillVersion = {
   readonly shortHash: string;
   readonly label: string | null;
   readonly recordedAt: string;
+  /** Whether this version's content snapshot exists (`<bundle>/.skillmaker/versions/<hash>/`, #169) -- the Revert button's precondition. Receipts recorded before snapshots honestly stay false. */
+  readonly snapshot: boolean;
+};
+
+/** The install door's audience words (director rulings 2026-08-03). */
+export type PublishAudience = "user" | "project";
+
+/** One Publish-tab target row (wire: BundleDetailResponse.publish.targets). */
+export type SkillPublishTarget = {
+  readonly audience: PublishAudience | "in-place";
+  readonly path: string;
+  /** `~`-shortened for the quiet "→ ~/.claude/skills/…" line. */
+  readonly displayPath: string;
+  readonly remembered: boolean;
+  readonly lastPublished: {
+    readonly versionHash: string;
+    readonly at: string;
+    readonly evidence: string | null;
+  } | null;
+  /** Drift of the INSTALLED copy against the last-published version; `null` before any publish (and for in-place rows). */
+  readonly installedDrift: "not-installed" | "in-sync" | "installed-edited" | null;
+};
+
+/** The Publish tab's install-door facts; `null` on placeholders and pre-install-door servers. */
+export type SkillPublish = {
+  readonly inPlace: boolean;
+  readonly remembered: ReadonlyArray<PublishAudience>;
+  readonly targets: ReadonlyArray<SkillPublishTarget>;
 };
 
 /** Everything the Skill page renders (wire: GET /api/bundles/:slug + instructions file). */
@@ -141,6 +169,8 @@ export type SkillPage = {
   readonly claims: ReadonlyArray<Claim>;
   /** Live tree data (runs/measurements/versions); `null` on placeholders. */
   readonly evals: EvalsData | null;
+  /** Install-door facts for the Publish tab; `null` on placeholders and pre-install-door servers (buttons stay inert). */
+  readonly publish: SkillPublish | null;
   readonly events: ReadonlyArray<{ readonly type: string; readonly at: string }>;
 };
 
