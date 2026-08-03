@@ -13,8 +13,42 @@ export function useSkillPage(slug: string): SkillPage {
   return useApiData(fetcher, SKILL_PAGE);
 }
 
-export function BoardView({ onOpenSkill }: { readonly onOpenSkill: (project: Project, slug: string) => void }) {
-  const projects = useApiData(fetchProjects, PROJECTS);
+export function BoardView({
+  onOpenSkill,
+  onCreateProject,
+}: {
+  readonly onOpenSkill: (project: Project, slug: string) => void;
+  /** Opens the shell's New-project dialog (the Sidebar's own). */
+  readonly onCreateProject: () => void;
+}) {
+  // "all" scope: the Board renders every project, so any project's journal
+  // append (new skill, stage change) refreshes it -- not just the active one.
+  const { data, status } = useApiStatus(fetchProjects, { scope: "all" });
+  const projects = data ?? PROJECTS;
+
+  // First-run welcome (e2e-readiness blocker): a LIVE server with an EMPTY
+  // registry renders a centered next action, not five empty stage columns.
+  // Serverless astro dev (status "error") keeps the placeholder board.
+  if (status === "live" && projects.length === 0) {
+    return (
+      <div className="flex min-h-full items-center justify-center p-6">
+        <div className="pb-16 text-center">
+          <h1 className="pb-2 font-display text-2xl">Welcome to Skillmaker Studio</h1>
+          <p className="pb-5 text-sm text-ink-muted">
+            Register a project — a directory where your skills will live — and start your first skill.
+          </p>
+          <button
+            type="button"
+            className="cursor-pointer rounded bg-amber-600 px-4 py-2 font-display text-sm text-white shadow hover:bg-amber-700"
+            onClick={onCreateProject}
+          >
+            Create your first project
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       <h1 className="pb-4 font-display text-2xl">Board</h1>

@@ -75,6 +75,50 @@ describe("parseMarkdown blocks", () => {
     expect((blocks[0] as { items: ReadonlyArray<unknown> }).items).toHaveLength(2);
   });
 
+  test("list items with two-space-indented continuation lines stay one item (walk pattern)", () => {
+    // The 2026-07-29 walk's exact breakage: correct CommonMark source
+    // (bullet + two-space-indented wrapped lines) rendered as broken root
+    // paragraphs. The continuation must join its item, not leak out.
+    const source = [
+      "- **Evidence hierarchy**: primary sources (GitHub's own docs) outrank",
+      "  secondary write-ups; every claim in the notes cites at least one",
+      "  primary source.",
+      "- **Failure cases**: a README that documents the wrong install path",
+      "  is worse than no README.",
+    ].join("\n");
+    const blocks = parseMarkdown(source);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ kind: "list", ordered: false });
+    const items = (blocks[0] as { items: ReadonlyArray<ReadonlyArray<InlineNode>> }).items;
+    expect(items).toHaveLength(2);
+    expect(textOf(items[0] ?? [])).toBe(
+      "Evidence hierarchy: primary sources (GitHub's own docs) outrank secondary write-ups; every claim in the notes cites at least one primary source.",
+    );
+    expect(textOf(items[1] ?? [])).toBe(
+      "Failure cases: a README that documents the wrong install path is worse than no README.",
+    );
+  });
+
+  test("ordered list continuation lines join their item too", () => {
+    const blocks = parseMarkdown("1. first line\n   wraps here\n2. second");
+    expect(blocks).toHaveLength(1);
+    const items = (blocks[0] as { items: ReadonlyArray<ReadonlyArray<InlineNode>> }).items;
+    expect(items.map(textOf)).toEqual(["first line wraps here", "second"]);
+  });
+
+  test("an UNINDENTED line after a list still ends it (paragraph, not continuation)", () => {
+    const blocks = parseMarkdown("- item\nplain paragraph");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]?.kind).toBe("list");
+    expect(blocks[1]?.kind).toBe("paragraph");
+  });
+
+  test("an indented line with no open list stays a paragraph", () => {
+    const blocks = parseMarkdown("  just indented text");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.kind).toBe("paragraph");
+  });
+
   test("fenced code keeps content verbatim, records language", () => {
     const blocks = parseMarkdown("```ts\nconst x = 1;\n# not a heading\n```");
     expect(blocks).toHaveLength(1);

@@ -87,16 +87,65 @@ export const createTrailingDebounce = (
 export const backoffMs = (attempt: number): number =>
   Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, Math.min(attempt, 30)), BACKOFF_CAP_MS);
 
+/**
+ * Does one SSE payload concern the ACTIVE project? Project-tagged payloads
+ * (`{"kind":"journal","project":"<slug>"}`) match against the active slug;
+ * untagged/unparseable payloads answer `true` -- refetching too eagerly is
+ * safe, missing a change is not. Pure (unit-tested).
+ */
+export const payloadConcernsActive = (data: string, activeProject: string | null): boolean => {
+  try {
+    const payload = JSON.parse(data) as { readonly project?: unknown };
+    if (typeof payload.project === "string" && activeProject !== null && payload.project !== activeProject) {
+      return false;
+    }
+  } catch {
+    // not JSON -- concerns everyone
+  }
+  return true;
+};
+
+/** Scope routing for one debounced burst: "all" listeners tick on any append, "active" listeners only when the burst touched the active project. Pure (unit-tested). */
+export const scopeWantsBurst = (
+  scope: "active" | "all",
+  burst: { readonly any: boolean; readonly active: boolean },
+): boolean => (scope === "all" ? burst.any : burst.active);
+
 // -- singleton subscription (one EventSource per page) --
 
-const listeners = new Set<() => void>();
+/**
+ * Which journal appends a listener cares about: `"active"` (default) ticks
+ * only for the active project's appends -- right for every project-scoped
+ * view; `"all"` ticks for ANY project's appends -- required by the surfaces
+ * that render every project at once (Sidebar's project spine, the Board).
+ */
+export type TickScope = "active" | "all";
+
+const listeners = new Map<() => void, TickScope>();
 let source: EventSource | undefined;
 let debounced: Debounced | undefined;
 let reconnectHandle: ReturnType<typeof setTimeout> | undefined;
 let attempt = 0;
 
+// What the current debounce burst saw: any append at all, and whether any
+// of them belonged to the active project (or was untagged/unparseable).
+let burstAny = false;
+let burstActive = false;
+
 const notify = () => {
-  for (const listener of [...listeners]) listener();
+  const burst = { any: burstAny, active: burstActive };
+  burstAny = false;
+  burstActive = false;
+  for (const [listener, scope] of [...listeners]) {
+    if (scopeWantsBurst(scope, burst)) listener();
+  }
+};
+
+/** Note one upstream event for the debounce, tagged with whether it concerns the active project. */
+const signalBurst = (concernsActive: boolean): void => {
+  burstAny = true;
+  if (concernsActive) burstActive = true;
+  debounced?.signal();
 };
 
 const connect = (): void => {
@@ -109,23 +158,18 @@ const connect = (): void => {
     const recovered = attempt > 0;
     attempt = 0;
     // One catch-up tick after a drop -- anything missed while offline
-    // arrives in a single refetch wave, not one per subscriber.
-    if (recovered) debounced?.signal();
+    // arrives in a single refetch wave, not one per subscriber. Everyone
+    // catches up, whatever their scope.
+    if (recovered) signalBurst(true);
   };
   stream.onmessage = (event) => {
     // Machine-registry SSE payloads name WHICH project's journal moved
     // (`{"kind":"journal","project":"<slug>"}`, director rulings
-    // 2026-07-27): only the active project's appends trigger a refetch
-    // wave. Unparseable/legacy payloads tick unconditionally -- refetching
-    // too eagerly is safe, missing a change is not.
-    try {
-      const payload = JSON.parse(String(event.data)) as { readonly project?: unknown };
-      const active = getActiveProject();
-      if (typeof payload.project === "string" && active !== null && payload.project !== active) return;
-    } catch {
-      // not JSON -- fall through to a tick
-    }
-    debounced?.signal();
+    // 2026-07-27): "active"-scoped listeners tick only for the active
+    // project's appends; "all"-scoped listeners (Sidebar, Board) tick for
+    // every append. Unparseable/legacy payloads tick everyone --
+    // refetching too eagerly is safe, missing a change is not.
+    signalBurst(payloadConcernsActive(String(event.data), getActiveProject()));
   };
   stream.onerror = () => {
     stream.close();
@@ -152,6 +196,8 @@ const teardown = (): void => {
   debounced?.cancel();
   debounced = undefined;
   attempt = 0;
+  burstAny = false;
+  burstActive = false;
 };
 
 /**
@@ -159,8 +205,8 @@ const teardown = (): void => {
  * shared EventSource; the last unsubscriber closes it. Returns the
  * unsubscribe function.
  */
-export const subscribeJournalTicks = (listener: () => void): (() => void) => {
-  listeners.add(listener);
+export const subscribeJournalTicks = (listener: () => void, scope: TickScope = "active"): (() => void) => {
+  listeners.set(listener, scope);
   if (listeners.size === 1) {
     debounced = createTrailingDebounce(notify);
     connect();
@@ -174,10 +220,11 @@ export const subscribeJournalTicks = (listener: () => void): (() => void) => {
 /**
  * A number that bumps (debounced) on journal activity. Put it in a fetch
  * effect's dependency list to refetch on journal change; without a server
- * it stays 0 forever.
+ * it stays 0 forever. Scope `"all"` for surfaces that render every
+ * project's data (Sidebar, Board); default `"active"` for the rest.
  */
-export const useJournalTick = (): number => {
+export const useJournalTick = (scope: TickScope = "active"): number => {
   const [tick, setTick] = useState(0);
-  useEffect(() => subscribeJournalTicks(() => setTick((t) => t + 1)), []);
+  useEffect(() => subscribeJournalTicks(() => setTick((t) => t + 1), scope), [scope]);
   return tick;
 };

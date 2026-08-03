@@ -51,6 +51,10 @@ export default function NextShell() {
   // Set by the new-skill launcher: the chat panel starts a session for this
   // skill whose first prompt is the launcher's message, then clears it.
   const [chatIntro, setChatIntro] = useState<ChatIntro | null>(null);
+  // New-project dialog state lives HERE (not in Sidebar) so the Board's
+  // empty-registry welcome opens the very same dialog (e2e-readiness
+  // blocker: first run must offer a next action).
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
 
   const left = usePanelResize("left", "sm-next-leftw", 256, 180, 440);
   // The right panel may eat almost everything: the center keeps ~300px.
@@ -125,7 +129,12 @@ export default function NextShell() {
         style={{ width: sidebarOpen ? left.width : 0 }}
       >
         <div className="h-full" style={{ width: left.width }}>
-          <Sidebar center={center} onNavigate={setCenter} />
+          <Sidebar
+            center={center}
+            onNavigate={setCenter}
+            newProjectOpen={newProjectOpen}
+            onNewProjectOpenChange={setNewProjectOpen}
+          />
         </div>
         {sidebarOpen && (
           <div
@@ -175,6 +184,7 @@ export default function NextShell() {
                 setActiveProject(project.slug);
                 setCenter({ kind: "skill", project: project.name, slug });
               }}
+              onCreateProject={() => setNewProjectOpen(true)}
             />
           )}
           {center.kind === "tasks" && <TasksView />}
