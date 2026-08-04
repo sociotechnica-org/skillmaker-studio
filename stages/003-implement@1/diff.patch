@@ -1,0 +1,273 @@
+diff --git a/packages/cli/src/server/ChatSessions.ts b/packages/cli/src/server/ChatSessions.ts
+index 6938e40..273f997 100644
+--- a/packages/cli/src/server/ChatSessions.ts
++++ b/packages/cli/src/server/ChatSessions.ts
+@@ -43,6 +43,7 @@ import { Effect } from "effect";
+ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+ import { homedir } from "node:os";
+ import { join } from "node:path";
++import { HEARTBEAT_MS } from "./Sse.ts";
+ 
+ // ---------------------------------------------------------------------------
+ // Tunables
+@@ -689,16 +690,20 @@ export class ChatSessionManager {
+     const encoder = new TextEncoder();
+     const chat = this.live.get(skill);
+     let subscriber: ((event: ChatStreamEvent) => void) | undefined;
++    let heartbeat: ReturnType<typeof setInterval> | undefined;
+     const stream = new ReadableStream<Uint8Array>({
+       start: (controller) => {
+-        const sendEvent = (event: ChatStreamEvent) => {
++        const enqueue = (frame: string) => {
+           try {
+-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
++            controller.enqueue(encoder.encode(frame));
+           } catch {
+-            // Client disconnected; cancel() will unsubscribe shortly.
++            // Cancellation can race a heartbeat write (#194); cancel() owns cleanup.
+           }
+         };
+-        controller.enqueue(encoder.encode(": connected\n\n"));
++        const sendEvent = (event: ChatStreamEvent) => {
++          enqueue(`data: ${JSON.stringify(event)}\n\n`);
++        };
++        enqueue(": connected\n\n");
+         sendEvent({ type: "state", state: this.state(skill) });
+         if (chat !== undefined) {
+           for (const event of chat.events) sendEvent(event);
+@@ -706,8 +711,10 @@ export class ChatSessionManager {
+           chat.subscribers.add(sendEvent);
+           chat.lastActivityAt = Date.now();
+         }
++        heartbeat = setInterval(() => enqueue(": keepalive\n\n"), HEARTBEAT_MS);
+       },
+       cancel: () => {
++        if (heartbeat !== undefined) clearInterval(heartbeat);
+         if (chat !== undefined && subscriber !== undefined) chat.subscribers.delete(subscriber);
+       },
+     });
+diff --git a/packages/cli/src/server/JournalWatcher.ts b/packages/cli/src/server/JournalWatcher.ts
+index b2bd3a5..c7f1622 100644
+--- a/packages/cli/src/server/JournalWatcher.ts
++++ b/packages/cli/src/server/JournalWatcher.ts
+@@ -12,7 +12,7 @@
+  * watcher falls back to the project root, waits for `.skillmaker/` to
+  * appear, then re-attaches to it (and fires once for whatever created it).
+  */
+-import { existsSync, watch, type FSWatcher } from "node:fs";
++import { existsSync, statSync, watch, type FSWatcher } from "node:fs";
+ import { basename, dirname } from "node:path";
+ 
+ const DEBOUNCE_MS = 100;
+@@ -42,13 +42,27 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal
+   };
+ 
+   let watcher: FSWatcher | undefined;
++  const journalSignature = (): string | undefined => {
++    try {
++      const stat = statSync(journalPath);
++      return `${stat.size}:${stat.mtimeMs}`;
++    } catch {
++      return undefined;
++    }
++  };
+ 
+   const watchJournalDir = (): void => {
++    const beforeWatch = journalSignature();
+     watcher = watch(dir, (_eventType, changedFilename) => {
+       if (changedFilename === null || changedFilename === filename) {
+         debounced();
+       }
+     });
++    // The 2026-08-03 freshness-family guarantee includes the write that races
++    // native watcher registration, which Bun can otherwise miss.
++    setTimeout(() => {
++      if (!closed && journalSignature() !== beforeWatch) debounced();
++    }, 0);
+   };
+ 
+   // `.skillmaker/` not there yet: watch the project root until it appears,
+diff --git a/packages/cli/src/server/Server.ts b/packages/cli/src/server/Server.ts
+index e0431dc..fab5088 100644
+--- a/packages/cli/src/server/Server.ts
++++ b/packages/cli/src/server/Server.ts
+@@ -84,10 +84,9 @@ import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
+ import { loadSkillbook } from "../Skillbook.ts";
+ import { handleFsList, handleFsMkdir, handleFsValidate, normalizeAbsolutePath } from "./FsBrowse.ts";
+ import { ProjectRegistryManager, type OkProjectContext } from "./ProjectRegistry.ts";
++import { HEARTBEAT_MS } from "./Sse.ts";
+ import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
+ 
+-const HEARTBEAT_MS = 15_000;
+-
+ /**
+  * The v1 event catalog (data-model.md §2.9) is much larger than this --
+  * `POST /api/events` only ever accepts the subset a human/agent can
+diff --git a/packages/cli/src/server/Sse.ts b/packages/cli/src/server/Sse.ts
+new file mode 100644
+index 0000000..885e5bd
+--- /dev/null
++++ b/packages/cli/src/server/Sse.ts
+@@ -0,0 +1,2 @@
++/** Shared cadence for SSE comments that keep Bun connections active. */
++export const HEARTBEAT_MS = 15_000;
+diff --git a/packages/cli/test/ChatSessions.test.ts b/packages/cli/test/ChatSessions.test.ts
+new file mode 100644
+index 0000000..733ed04
+--- /dev/null
++++ b/packages/cli/test/ChatSessions.test.ts
+@@ -0,0 +1,64 @@
++import { defaultConfig } from "@skillmaker/core";
++import { describe, expect, spyOn, test } from "bun:test";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { ChatSessionManager } from "../src/server/ChatSessions.ts";
++import { HEARTBEAT_MS } from "../src/server/Sse.ts";
++
++const readFrame = async (reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> => {
++  const { value, done } = await reader.read();
++  expect(done).toBeFalse();
++  return new TextDecoder().decode(value);
++};
++
++describe("ChatSessionManager.streamResponse", () => {
++  test("keeps no-session streams alive without adding chat events and cleans up every response timer", async () => {
++    const root = mkdtempSync(join(tmpdir(), "skillmaker-chat-stream-test-"));
++    const intervals: Array<{
++      readonly callback: () => void;
++      readonly delay: number | undefined;
++      readonly handle: ReturnType<typeof setInterval>;
++    }> = [];
++    const setIntervalSpy = spyOn(globalThis, "setInterval");
++    const clearIntervalSpy = spyOn(globalThis, "clearInterval");
++    setIntervalSpy.mockImplementation(
++      ((callback: () => void, delay?: number) => {
++        const handle = { callback, delay } as unknown as ReturnType<typeof setInterval>;
++        intervals.push({ callback, delay, handle });
++        return handle;
++      }) as typeof setInterval,
++    );
++    clearIntervalSpy.mockImplementation((() => undefined) as typeof clearInterval);
++
++    const manager = new ChatSessionManager({ root, config: defaultConfig("chat-stream-test") });
++    try {
++      const readers = Array.from({ length: 3 }, () => manager.streamResponse("no-session").body?.getReader());
++      expect(readers.every((reader) => reader !== undefined)).toBe(true);
++
++      for (const reader of readers) {
++        expect(await readFrame(reader as ReadableStreamDefaultReader<Uint8Array>)).toBe(": connected\n\n");
++        const stateFrame = await readFrame(reader as ReadableStreamDefaultReader<Uint8Array>);
++        expect(stateFrame).toStartWith("data: ");
++        expect(JSON.parse(stateFrame.slice("data: ".length))).toMatchObject({
++          type: "state",
++          state: { skill: "no-session", active: null },
++        });
++      }
++
++      const heartbeats = intervals.filter((interval) => interval.delay === HEARTBEAT_MS);
++      expect(heartbeats).toHaveLength(3);
++      heartbeats[0]?.callback();
++      expect(await readFrame(readers[0] as ReadableStreamDefaultReader<Uint8Array>)).toBe(": keepalive\n\n");
++
++      await Promise.all(readers.map((reader) => (reader as ReadableStreamDefaultReader<Uint8Array>).cancel()));
++      expect(clearIntervalSpy.mock.calls.map(([handle]) => handle)).toEqual(expect.arrayContaining(heartbeats.map(({ handle }) => handle)));
++      expect(clearIntervalSpy.mock.calls).toHaveLength(3);
++    } finally {
++      manager.stop();
++      setIntervalSpy.mockRestore();
++      clearIntervalSpy.mockRestore();
++      rmSync(root, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/test/e2e/chat-keepalive.e2e.test.ts b/test/e2e/chat-keepalive.e2e.test.ts
+new file mode 100644
+index 0000000..76f66c7
+--- /dev/null
++++ b/test/e2e/chat-keepalive.e2e.test.ts
+@@ -0,0 +1,84 @@
++import { afterAll, beforeAll, describe, expect, test } from "bun:test";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { startE2eRegistryServer, type StartedE2eRegistryServer } from "./support/server.ts";
++
++const repoRoot = join(import.meta.dir, "..", "..");
++const cliEntry = join(repoRoot, "packages", "cli", "src", "main.ts");
++
++let scratchDir: string;
++let server: StartedE2eRegistryServer;
++let projectUrl: string;
++
++beforeAll(async () => {
++  scratchDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-keepalive-"));
++  Bun.spawnSync(["git", "init", "-q"], { cwd: scratchDir });
++  const initialized = Bun.spawnSync(["bun", cliEntry, "init", "--json"], { cwd: scratchDir, stdout: "pipe", stderr: "pipe" });
++  expect(initialized.exitCode).toBe(0);
++  server = await startE2eRegistryServer({
++    command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
++    cwd: scratchDir,
++  });
++  projectUrl = server.projectUrls[0] as string;
++}, 60_000);
++
++afterAll(async () => {
++  server?.process.kill("SIGTERM");
++  await server?.process.exited;
++  if (scratchDir !== undefined) rmSync(scratchDir, { recursive: true, force: true });
++});
++
++describe("chat stream keepalive (#194)", () => {
++  test("keeps a no-session stream open beyond Bun's idle timeout without changing its data frames", async () => {
++    const controller = new AbortController();
++    const response = await fetch(`${projectUrl}/chat/no-session/stream`, { signal: controller.signal });
++    expect(response.ok).toBe(true);
++    const reader = (response.body as ReadableStream<Uint8Array>).getReader();
++    const decoder = new TextDecoder();
++    const frames: Array<{ readonly text: string; readonly receivedAt: number }> = [];
++    let buffer = "";
++    let done = false;
++    const connectedAt = Date.now();
++    const heartbeatDeadline = connectedAt + 30_500;
++    try {
++      while (frames.filter((frame) => frame.text === ": keepalive\n\n").length < 2) {
++        const remaining = heartbeatDeadline - Date.now();
++        const next = await Promise.race([
++          reader.read(),
++          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("keepalives did not arrive on time")), remaining)),
++        ]);
++        if (next.done) {
++          done = true;
++          break;
++        }
++        buffer += decoder.decode(next.value, { stream: true });
++        const parts = buffer.split("\n\n");
++        buffer = parts.pop() ?? "";
++        for (const part of parts) frames.push({ text: `${part}\n\n`, receivedAt: Date.now() });
++      }
++
++      expect(done).toBe(false);
++      await new Promise((resolve) => setTimeout(resolve, Math.max(0, connectedAt + 31_000 - Date.now())));
++      const postTimeoutRead = await Promise.race([
++        reader.read().then((next) => (next.done ? "closed" : "unexpected frame")),
++        new Promise<"open">((resolve) => setTimeout(() => resolve("open"), 100)),
++      ]);
++      expect(postTimeoutRead).toBe("open");
++      expect(frames.filter((frame) => frame.text === ": connected\n\n")).toHaveLength(1);
++      const dataFrames = frames.filter((frame) => frame.text.startsWith("data: "));
++      expect(dataFrames).toHaveLength(1);
++      expect(JSON.parse(dataFrames[0]?.text.slice("data: ".length) ?? "")).toMatchObject({
++        type: "state",
++        state: { skill: "no-session", active: null },
++      });
++      const keepalives = frames.filter((frame) => frame.text === ": keepalive\n\n");
++      expect(keepalives.length).toBeGreaterThanOrEqual(2);
++      expect(keepalives[1]?.receivedAt - (keepalives[0]?.receivedAt ?? 0)).toBeGreaterThan(10_000);
++      expect(keepalives[1]?.receivedAt - (keepalives[0]?.receivedAt ?? 0)).toBeLessThan(22_000);
++    } finally {
++      await reader.cancel();
++      controller.abort();
++    }
++  }, 40_000);
++});
