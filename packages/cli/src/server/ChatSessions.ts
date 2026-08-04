@@ -58,9 +58,10 @@ const PROBE_TIMEOUT_MS = 45_000;
 
 /**
  * Skillmaker's own helper skills (William material), injected via the agent
- * home. Issue #190 completes D6's product-shipping ruling: a workspace can
- * override a helper while ordinary projects receive the packaged copy, so
- * agents do not search outside the project for guidance we already ship.
+ * home. Issue #190 applies D6 in
+ * docs/proposals/2026-07-21-simplification.md: a workspace can override a
+ * helper while ordinary projects receive the packaged copy, so agents do not
+ * search outside the project for guidance we already ship.
  */
 const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
 

@@ -89,13 +89,11 @@ describe("prepareAgentHome (#190)", () => {
     expect(existsSync(join(workspace, "skills", DRAFT))).toBe(false);
   });
 
-  test("uses workspace helpers ahead of packaged copies, including root-layout helpers", () => {
+  test("installs workspace helpers when packaged lookup is unavailable, including root-layout helpers", () => {
     writeHelper(join(workspace, "skills"), RESEARCH, "workspace research", "root");
     writeHelper(join(workspace, "skills"), DRAFT, "workspace draft");
-    writeHelper(packaged, RESEARCH, "packaged research");
-    writeHelper(packaged, DRAFT, "packaged draft");
 
-    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
+    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => undefined);
 
     expect(prepared.installedHelpers).toEqual([
       { slug: RESEARCH, source: "workspace" },
@@ -109,6 +107,7 @@ describe("prepareAgentHome (#190)", () => {
     writeHelper(join(workspace, "skills"), RESEARCH, "workspace root", "root");
     writeHelper(join(workspace, "skills"), RESEARCH, "workspace output");
     writeHelper(packaged, DRAFT, "packaged draft", "root");
+    writeHelper(packaged, DRAFT, "packaged output");
 
     const prepared = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
 
@@ -117,7 +116,7 @@ describe("prepareAgentHome (#190)", () => {
       { slug: DRAFT, source: "packaged" },
     ]);
     expect(readFileSync(join(agentSkill(RESEARCH), "SKILL.md"), "utf8")).toBe("workspace output");
-    expect(readFileSync(join(agentSkill(DRAFT), "SKILL.md"), "utf8")).toBe("packaged draft");
+    expect(readFileSync(join(agentSkill(DRAFT), "SKILL.md"), "utf8")).toBe("packaged output");
   });
 
   test("leaves an unresolved helper destination untouched", () => {
