@@ -77,5 +77,5 @@ npm install -g skillmaker-studio
 
 See [Install](/getting-started/install/) for the other install routes
 (curl script, from source), and
-[Your first Skill Bundle](/getting-started/first-bundle/) for a full
-walkthrough with real output.
+[Your first skill](/getting-started/first-bundle/) for the guided tour
+these commands sit behind.

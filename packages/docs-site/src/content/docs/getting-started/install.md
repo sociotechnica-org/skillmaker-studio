@@ -106,8 +106,8 @@ bun run build:dist
 Copy both to somewhere on `PATH` and `skillmaker` works exactly like the
 `bun packages/cli/src/main.ts` invocation above, from any directory.
 
-## Next: create your first Skill Bundle
+## Next: make your first skill
 
-Continue to [Your first Skill Bundle](/getting-started/first-bundle/) —
-it walks `init` → `new` → `project add` → `start` in a brand-new directory
-with real CLI output.
+Continue to [Your first skill](/getting-started/first-bundle/) — the guided
+tour from `skillmaker start` through research, design, drafting, and evals,
+with an agent doing the production work.

@@ -24,10 +24,9 @@ mocked end-to-end.
 - **Fresh-install discipline.** Every phase's QA starts from `skillmaker
   init` in a brand-new directory at least once, so first-run experience and
   migration debt surface immediately instead of accumulating silently in a
-  long-lived test workspace. This docs site's own
-  [getting-started walkthrough](/getting-started/first-bundle/) was
-  produced exactly that way — run verbatim in a fresh directory while
-  writing the page, with real output pasted in.
+  long-lived test workspace. This docs site's original getting-started
+  walkthrough was produced exactly that way — run verbatim in a fresh
+  directory while writing the page, with real output pasted in.
 
 ## Test workspace pattern
 
