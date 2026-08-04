@@ -43,6 +43,20 @@ export class BundleIdentity extends Schema.Class<BundleIdentity>("BundleIdentity
   created: Schema.String,
   /** Advisory: which agents the skill is written for (e.g. "claude-code"). */
   targets: Schema.Array(Schema.String),
+  /**
+   * The REMEMBERED install audiences (director rulings 2026-08-03,
+   * InstallPublish.ts): where this bundle's output has been published --
+   * `"user"` (~/.claude/skills, all my agents) and/or `"project"` (the
+   * workspace's own .claude/skills). Symbolic words, never absolute paths,
+   * so the fact survives the bundle moving between machines (each machine
+   * resolves them locally). Lives here rather than skillmaker.config.json
+   * because the choice is per-bundle and must travel WITH the bundle in
+   * git. Written only by `InstallPublish.rememberInstallTargets` (a
+   * lossless JSON merge, never a schema re-encode), so hand-added fields
+   * on bundle.json survive. Additive-optional: absent = never published
+   * through the install door.
+   */
+  publishTargets: Schema.optionalKey(Schema.Array(Schema.Literals(["user", "project"]))),
 }) {}
 
 /**

@@ -117,9 +117,18 @@ export class SkillPublishedEvent extends Schema.Class<SkillPublishedEvent>(
   payload: Schema.Struct({
     bundle: Schema.String,
     versionHash: Schema.String,
-    /** Publish-target id from skillmaker.config.json. */
+    /** Publish-target id from skillmaker.config.json, or -- for the install door (director rulings 2026-08-03, InstallPublish.ts) -- the audience word `"user"` / `"project"` / `"in-place"`. */
     target: Schema.String,
     url: Schema.optionalKey(Schema.String),
+    /**
+     * The evidence state at the published version (director rulings
+     * 2026-08-03): the honest measurements summary, e.g. "3 of 23 claims
+     * measured" -- derived by the SAME claim/fixture/measurement join the
+     * viewer's Evals tree uses (InstallPublish.measuredClaimsEvidence),
+     * never restated by hand. Additive-optional: events written before the
+     * install door existed decode unchanged.
+     */
+    evidence: Schema.optionalKey(Schema.String),
     /**
      * Present only on a re-publish that actually changed the target's
      * generated artifacts (e.g. the generator's output shape evolved since

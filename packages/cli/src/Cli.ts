@@ -62,7 +62,7 @@ Commands:
   advance <slug>          Move a bundle along the state machine (guarded)
   version record <slug>   Record a version: hash design.md + output/ and snapshot its content into the bundle (idempotent on content)
   version show <slug> <hash>   List a recorded version's snapshot files (hash may be a prefix, bare or sha256:-prefixed)
-  publish <slug>          Publish a bundle to its configured publishTargets (§2.14)
+  publish <slug>          Publish a bundle to its install target (--to user|project, remembered per bundle; --version <hash> re-publishes an older snapshot) or, with --target, to its configured publishTargets (§2.14)
   ship <slug>             Ship a recorded version to a destination, with its measurement receipts snapshotted (§2.9, issue #66)
   report <slug>           Record a field report on a shipped skill -- what the wild says back (§2.9, issue #67)
   receive <path>          Receive an arriving skill crate at the dock: copy it to receiving/<intake-id>/ and record skill.received (§2.9, issue #90)
@@ -91,8 +91,10 @@ Options:
   --triage          (adopt) Sweep and write adopt-manifest.md at the workspace root; acts on nothing (issue #92)
   --from-manifest [file]  (adopt) Execute a triage manifest as individual acts; defaults to adopt-manifest.md at the workspace root (issue #92)
   --target <id>     (publish) Publish-target id from skillmaker.config.json; defaults to all configured
+  --to <audience>   (publish) Install audience: user (all my agents, ~/.claude/skills) or project (this project's agents, .claude/skills); remembered in bundle.json
   --purpose <text>  (ship) Free-text reason the skill is shipping, e.g. "eval harness for team X"
   --version <hash>  (ship, report) Recorded version hash-prefix; ship defaults to the latest recorded version, report leaves it unset when omitted
+                    (publish) Recorded version hash-prefix to install from its snapshot -- the revert-shaped publish
   --outcome <o>     (report) worked | failed | surprise (required)
   --note <text>     (report) Free-text field report (required)
   --from <dest>     (report) Where the report came from, e.g. "acme-agent-fleet"; optional
@@ -429,7 +431,9 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     case "publish": {
       const slug = positionalAfterCommand(argv);
       const target = flagValue(argv, "--target");
-      return yield* runPublish(cwd, slug, { json, target });
+      const to = flagValue(argv, "--to");
+      const version = flagValue(argv, "--version");
+      return yield* runPublish(cwd, slug, { json, target, to, version });
     }
     case "ship": {
       const slug = positionalAfterCommand(argv);

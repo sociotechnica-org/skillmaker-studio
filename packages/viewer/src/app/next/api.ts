@@ -212,6 +212,7 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
         shortHash: v.hash.replace(/^sha256:/, "").slice(0, 8),
         label: v.label ?? null,
         recordedAt: v.recordedAt,
+        snapshot: v.snapshot ?? false,
       }))
       .reverse(),
     loop: toLoop(detail),
@@ -244,11 +245,55 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       })),
       unclaimed: unclaimedFixtureCases(detail.fixtures, detail.riskCoverage.map((r) => r.riskId)),
     },
+    publish: detail.publish ?? null,
     // `at` stays the raw ISO timestamp: the unread-dot stamps compare
     // `type-at` pairs, and a day-granular display date made two same-day
     // events indistinguishable (the dot never re-fired). Format at render
     // time if these ever become visible copy.
     events: detail.events.slice(0, 5).map((e) => ({ type: e.type, at: e.at })),
+  };
+};
+
+/** `POST /api/bundles/:slug/publish` (install door) response -- what the Publish tab's confirmation line renders. */
+export type PublishActionResult = {
+  readonly versionHash: string;
+  readonly versionLabel: string | null;
+  readonly evidence: string;
+  readonly results: ReadonlyArray<{
+    readonly target: "user" | "project" | "in-place";
+    readonly path: string;
+    readonly status: "published" | "already_published";
+  }>;
+};
+
+/**
+ * `POST /api/bundles/:slug/publish` -- the install door (director rulings
+ * 2026-08-03; ≈ `skillmaker publish <slug> --to user|project` /
+ * `--version <hash>`). Same core function as the CLI; a body with neither
+ * field is the one-click re-publish to the remembered target(s). Throws
+ * with the server's own error prose on rejection (guard failures carry the
+ * honest reason -- drift, no version recorded, no audience chosen).
+ */
+export const postPublish = async (
+  slug: string,
+  body: { readonly to?: "user" | "project"; readonly version?: string },
+): Promise<PublishActionResult> => {
+  const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}/publish`), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    throw new Error(typeof payload.error === "string" ? payload.error : `publish failed (${response.status})`);
+  }
+  return {
+    versionHash: typeof payload.versionHash === "string" ? payload.versionHash : "",
+    versionLabel: typeof payload.versionLabel === "string" ? payload.versionLabel : null,
+    evidence: typeof payload.evidence === "string" ? payload.evidence : "",
+    results: Array.isArray(payload.results)
+      ? (payload.results as PublishActionResult["results"])
+      : [],
   };
 };
 

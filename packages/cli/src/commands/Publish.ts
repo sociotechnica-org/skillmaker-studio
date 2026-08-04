@@ -1,11 +1,35 @@
 /**
- * `skillmaker publish <slug> [--target <id>]` -- publishes a Skill Bundle to
- * its configured `publishTargets` (default: all of them; data-model.md
- * §2.14, §2.2). Runs the same `@skillmaker/core` `publishBundle` the
- * server's `POST /api/bundles/:slug/publish` runs -- one contract, two
- * doors, same as `advance`/`version record`.
+ * `skillmaker publish <slug>` -- two doors behind one command:
+ *
+ * - THE INSTALL DOOR (director rulings 2026-08-03, InstallPublish.ts):
+ *   `--to user|project` writes the selected version's `output/` to an
+ *   install target an agent actually reads (`~/.claude/skills/<slug>` /
+ *   `<project>/.claude/skills/<slug>`), stamps it, journals it with its
+ *   evidence state, and REMEMBERS the choice in bundle.json. A later bare
+ *   `skillmaker publish <slug>` re-publishes to the remembered target(s);
+ *   `--version <hash>` is a revert-shaped publish from the snapshot store.
+ *   Adopted in-place bundles publish to their own live directory (D4c).
+ *
+ * - THE LEGACY TARGETS DOOR: `--target <id>` (or a workspace with
+ *   configured `publishTargets` and no remembered install audience) runs
+ *   `publishBundle` against skillmaker.config.json's targets (git-dir /
+ *   marketplace kinds), unchanged.
+ *
+ * Both run the same core functions the server's
+ * `POST /api/bundles/:slug/publish` runs -- one contract, two doors, same
+ * as `advance`/`version record`.
  */
-import { JournalLayer, publishBundle, Workspace, type PublishBundleResult } from "@skillmaker/core";
+import {
+  isInstallAudience,
+  JournalLayer,
+  publishBundle,
+  publishToInstallTargets,
+  readRememberedInstallTargets,
+  shortHash,
+  Workspace,
+  type InstallPublishResult,
+  type PublishBundleResult,
+} from "@skillmaker/core";
 import { Effect } from "effect";
 import { Path } from "effect/Path";
 import { resolveUserActor } from "../ActorResolver.ts";
@@ -14,6 +38,10 @@ import { type CliResult, expectedFailure, ok, usageError } from "../CliResult.ts
 export interface PublishOptions {
   readonly json: boolean;
   readonly target?: string;
+  /** Install audience: `user` (all my agents) or `project` (this project's agents). */
+  readonly to?: string;
+  /** A recorded version's hash prefix -- a revert-shaped install publish from the snapshot store. */
+  readonly version?: string;
 }
 
 export const runPublish = Effect.fn("runPublish")(function* (
@@ -34,9 +62,9 @@ export const runPublish = Effect.fn("runPublish")(function* (
     return expectedFailure("skillmaker publish: no skillmaker workspace found (run `skillmaker init` first)\n");
   }
 
-  if (resolved.config.publishTargets.length === 0) {
-    return expectedFailure(
-      "skillmaker publish: no publishTargets configured in skillmaker.config.json -- nothing to publish to\n",
+  if (options.to !== undefined && !isInstallAudience(options.to)) {
+    return usageError(
+      `skillmaker publish: unknown --to "${options.to}" (expected "user" or "project")\n\nUsage: skillmaker publish <slug> --to user|project [--version <hash>]\n`,
     );
   }
 
@@ -44,6 +72,62 @@ export const runPublish = Effect.fn("runPublish")(function* (
   const bundleDir = path.join(resolved.root, resolved.config.skillsDir, slug);
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
+
+  // Door selection: an explicit --target always means the legacy config
+  // targets; --to/--version always mean the install door; a bare publish
+  // takes the install door when the bundle has remembered audiences (or is
+  // adopted in place -- publishToInstallTargets resolves that itself), and
+  // falls back to the legacy door only when config targets exist.
+  const remembered = yield* readRememberedInstallTargets(bundleDir);
+  const wantsInstallDoor =
+    options.target === undefined && (options.to !== undefined || options.version !== undefined || remembered.length > 0);
+  const legacyAvailable = resolved.config.publishTargets.length > 0;
+
+  if (wantsInstallDoor || (!legacyAvailable && options.target === undefined)) {
+    const installOutcome = yield* publishToInstallTargets({
+      workspaceRoot: resolved.root,
+      bundleDir,
+      bundle: slug,
+      actor,
+      ...(options.to !== undefined && isInstallAudience(options.to) ? { to: options.to } : {}),
+      ...(options.version !== undefined ? { version: options.version } : {}),
+    }).pipe(
+      Effect.provide(JournalLayer(journalPath)),
+      Effect.map((result) => ({ kind: "ok" as const, result })),
+      Effect.catchTag("PublishGuardError", (error) =>
+        Effect.succeed({ kind: "guard" as const, reason: error.reason }),
+      ),
+      Effect.catchTag("InstallTargetError", (error) =>
+        Effect.succeed({ kind: "target" as const, reason: error.reason }),
+      ),
+      Effect.catchTag("InstallVersionNotFoundError", (error) =>
+        Effect.succeed({
+          kind: "guard" as const,
+          reason: `no recorded version of "${error.bundle}" matches "${error.version}" ("skillmaker version show ${error.bundle}" lists them)`,
+        }),
+      ),
+      Effect.catchTag("InstallSnapshotMissingError", (error) =>
+        Effect.succeed({
+          kind: "guard" as const,
+          reason: `version ${shortHash(error.versionHash)} of "${error.bundle}" was recorded before the snapshot store existed -- its content is gone, so it cannot be re-published`,
+        }),
+      ),
+    );
+
+    if (installOutcome.kind === "guard" || installOutcome.kind === "target") {
+      if (options.json) {
+        return expectedFailure(`${JSON.stringify({ status: "rejected", slug, reason: installOutcome.reason })}\n`);
+      }
+      return expectedFailure(`skillmaker publish: ${installOutcome.reason}\n`);
+    }
+    return summarizeInstall(slug, installOutcome.result, options.json);
+  }
+
+  if (resolved.config.publishTargets.length === 0) {
+    return expectedFailure(
+      "skillmaker publish: no publishTargets configured in skillmaker.config.json -- nothing to publish to\n",
+    );
+  }
 
   const outcome = yield* publishBundle({
     workspaceRoot: resolved.root,
@@ -86,6 +170,31 @@ export const runPublish = Effect.fn("runPublish")(function* (
 
   return summarize(slug, outcome.result, options.json);
 });
+
+const summarizeInstall = (slug: string, result: InstallPublishResult, json: boolean): CliResult => {
+  if (json) {
+    return ok(
+      `${JSON.stringify({
+        status: "published",
+        slug,
+        versionHash: result.versionHash,
+        ...(result.versionLabel !== undefined ? { versionLabel: result.versionLabel } : {}),
+        evidence: result.evidence,
+        stamped: result.stamped,
+        remembered: result.remembered,
+        results: result.results,
+      })}\n`,
+    );
+  }
+  const version = `${shortHash(result.versionHash)}${result.versionLabel !== undefined ? ` (${result.versionLabel})` : ""}`;
+  const lines = result.results.map((entry) => {
+    const noun = entry.status === "already_published" ? "already installed" : "installed";
+    return `  ${entry.target}: ${noun} -> ${entry.path}`;
+  });
+  return ok(
+    `skillmaker: ${slug} ${version} published -- ${result.evidence}\n${lines.join("\n")}\n`,
+  );
+};
 
 const summarize = (slug: string, result: PublishBundleResult, json: boolean): CliResult => {
   if (json) {
