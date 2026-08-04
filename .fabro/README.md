@@ -47,22 +47,23 @@ Director rulings on PR #188:
    the server holds **one active GitHub App config**, which today is
    `fabro-of-alexandria` (GetAlexandria-owned, **private**, so not
    installable on `sociotechnica-org` as-is). With the shared server
-   decided, the app strategy must be either an org-owned app made to
-   cover BOTH repos, or a server-side config change. The recommended
-   route and exact clicks are below — it is the director's next manual
-   step.
+   decided, the app strategy had to be either an org-owned app made to
+   cover BOTH repos, or a server-side config change. Resolved 2026-08
+   by making the app public — see the install record below.
 2. **Models (ruled):** scope and the verification judge run
    `gpt-5.6-sol` at high reasoning; implement, verify, review, and
    prepare-PR run `gpt-5.6-terra` at medium. Set in
    `workflows/sms-feature/workflow.fabro` (per-node) with the terra
    default in `workflow.toml`.
-3. **GitHub App not installed yet.** The workflow expects a bot with
-   `contents: write` and `pull_requests: write` on
-   `sociotechnica-org/skillmaker-studio`. Until the install below is
-   done, preflight will fail GitHub repository access and auto-PR
-   cannot work.
+3. **GitHub App: INSTALLED (2026-08).** `fabro-of-alexandria` was made
+   public and installed org-wide on `sociotechnica-org`, so the server
+   mints scoped tokens (`contents: write`, `pull_requests: write`) for
+   this repo with no server-side config change. `fabro preflight
+   sms-feature` passes end to end (repo access, sandbox, both models,
+   token minting). The section below is kept as the record of how it
+   was done.
 
-## Director-only: GitHub App install (next manual step)
+## GitHub App install (done — kept as the record)
 
 Background from how `fabro-of-alexandria` was set up (see
 `alexandria-internal/docs/plans/fabro-setup/plan.md`, "GitHub App
@@ -70,8 +71,9 @@ Ownership And Multi-Org Use"): Fabro-generated apps start private, a
 private app can only be installed on the org that owns it, and fabro-st
 can hold only one app config.
 
-**Recommended: make `fabro-of-alexandria` public and install it on this
-repo.** It covers both repos with zero server-side config change —
+**Route taken (2026-08): `fabro-of-alexandria` made public and
+installed org-wide on sociotechnica-org.** It covers both repos with
+zero server-side config change —
 fabro-st already trusts this app, so its `app_id`/`client_id`/secrets
 all stay untouched. Exact clicks:
 

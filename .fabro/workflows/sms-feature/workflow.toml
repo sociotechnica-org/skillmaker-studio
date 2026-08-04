@@ -28,14 +28,12 @@ reasoning_effort = "medium"
 [[run.prepare.steps]]
 command = ["./.fabro/scripts/fabro-setup-env"]
 
-# Placeholder identity until the director installs the GitHub App on
-# sociotechnica-org/skillmaker-studio (see .fabro/README.md). If the
-# recommended route is taken -- making fabro-of-alexandria public and
-# installing it here -- this becomes
-# "285810526+fabro-of-alexandria[bot]@users.noreply.github.com".
+# The fabro-of-alexandria GitHub App (made public 2026-08, installed
+# org-wide on sociotechnica-org) is the bot identity for this factory;
+# same numeric id alexandria's config uses. See .fabro/README.md.
 [run.git.author]
 name = "Fabro"
-email = "fabro-of-skillmaker[bot]@users.noreply.github.com"
+email = "285810526+fabro-of-alexandria[bot]@users.noreply.github.com"
 
 # The server mints a scoped installation token with these permissions and
 # injects it as GITHUB_TOKEN in the sandbox. Requires the GitHub App
