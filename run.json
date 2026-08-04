@@ -1,0 +1,519 @@
+{
+  "title": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing",
+  "spec": {
+    "run_id": "01KZ77BKMTF836C1KHDHAES1M2",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": {
+          "type": "inline",
+          "value": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/196\n\n## Summary\n\nThe chat preamble tells every agent \"Your guidance skills are installed in your\nagent home -- read the relevant william-* skill before acting.\" When seeding\ninstalled nothing, that sentence is false, and the agent does what a competent\nagent should: it goes looking for the skills it was promised. `prepareAgentHome`\nalready returns exactly the fact needed to tell the truth — `installedHelpers` —\nand the call site throws it away.\n\n## Motivation / Problem\n\nAn instruction that names an artifact which isn't there is worse than no\ninstruction: it converts a missing dependency into a filesystem search. In the\nlive session that produced this ticket, the agent's first move was\n`ls ~/.skillmaker/agent-home/claude-code/skills/`, and when that came back\nempty it escalated to `find / -maxdepth 8 -type d -iname \"william-*\"` and a\nsweep of the operator's other repos. Each of those is a path outside the\nproject, so each one raised a permission card.\n\nThis is a *distinct* defect from the seeding bug (#190). Fixing #190 makes the\nhelpers present in shipped builds — but a source checkout with no packaged\nskills directory, or a future helper slug that fails to resolve, will still be\nannounced as installed. The preamble should assert only what is true at the\nmoment it is written.\n\n## Observed behavior\n\nFresh project on v0.6.2, chat session started on a new bundle. The agent home\ncontains no `skills/` directory. The preamble nonetheless states the skills are\ninstalled, and the session opens with a multi-command hunt across the machine\nfor `william-*` before any bundle work begins.\n\n## Current shape\n\nThe claim, `packages/cli/src/server/ChatSessions.ts:324`:\n\n```ts\n    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n```\n\nIt is unconditional — a constant line in the preamble array, with no input from\nwhether seeding succeeded.\n\nMeanwhile `prepareAgentHome` computes and returns precisely that\n(`ChatSessions.ts:160`, `:179-181`):\n\n```ts\n): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n```\n```ts\n    installed.push(slug);\n  }\n  return { home, installedHelpers: installed };\n```\n\nand both call sites discard it — `ChatSessions.ts:598` and `:793`:\n\n```ts\n    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n```\n\nThe trap worth naming: the information needed to be honest is already computed,\nalready returned, and already at the call site. This is not a missing capability;\nit is a discarded return value.\n\n## Proposed contract\n\nThe helper line is conditional on what actually installed:\n\n| `installedHelpers` | Preamble line |\n|---|---|\n| non-empty | `- Your guidance skills (<slugs>) are installed in your agent home -- read the relevant one before acting.` |\n| empty | line omitted entirely |\n\n**Decisions:**\n\n- When helpers installed, the line **names the slugs actually present**, so the\n  agent reads what exists rather than guessing at a family name.\n- When none installed, the line is **omitted**, not replaced with an apology.\n  An agent told nothing about guidance skills proceeds on the bundle; an agent\n  told they are \"missing\" may go hunting anyway.\n- Partial installs name only the slugs that landed.\n- `installedHelpers` is threaded to the preamble builder. `PreambleContext`\n  gains a field; no other preamble line changes.\n- The re-orientation preamble (`buildChatReorientation`, `ChatSessions.ts:349`)\n  does not mention helpers today and does not gain a mention.\n- No UI, no journal event, no warning surface. The scope is the preamble string.\n\n## Acceptance criteria\n\n- [ ] With helpers installed, the preamble states they are installed and names\n      the installed slugs.\n- [ ] With no helpers installed, the preamble contains no sentence asserting\n      guidance skills are available anywhere.\n- [ ] Partial install: only the slugs that actually landed are named.\n- [ ] Negative: the preamble never names a slug absent from the agent home.\n- [ ] Regression: every other preamble line — bundle layout, pipeline, CLI\n      guidance, direct-in-project warning, and the derived-stage \"current step\"\n      sentence — is byte-identical to today.\n- [ ] Regression: `packages/cli/test/ChatPreamble.test.ts` passes, extended\n      rather than rewritten.\n- [ ] Regression: `PREAMBLE_SENTINEL` is unchanged — the viewer splits replayed\n      first prompts on it (`chatModel.ts`).\n- [ ] Tests cover: helpers-present, helpers-absent, and partial-install.\n\n## Implementation notes\n\nBoth call sites already destructure the result; the change is to keep the second\nfield and pass it through. Prefer threading it into `PreambleContext` over\nrecomputing installation state inside the preamble builder — the builder is\ndeliberately synchronous and filesystem-light.\n\nScope fences:\n\n- **Do not fix the seeding here.** That is #190. This issue is about the\n  preamble telling the truth about whatever seeding did.\n- **Do not add a user-facing warning.** A missing helper is not a condition the\n  director needs a banner for.\n- **Do not change `PREAMBLE_SENTINEL` or the separator** — the viewer parses on\n  both.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — the claim (:324), the preamble\n  builder (:320-329), `prepareAgentHome` (:156-182), call sites (:598, :793)\n- `packages/cli/test/ChatPreamble.test.ts` — existing coverage\n\n---\n\n**Related:** #190 (packaged-skills fallback for the agent home). #190 makes the\nhelpers present; this makes the preamble honest when they aren't.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n"
+        },
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {
+          "agent_backend": "api"
+        },
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5.6-terra",
+          "fallbacks": {},
+          "controls": {
+            "reasoning_effort": "medium",
+            "speed": null
+          }
+        },
+        "git": {
+          "author": {
+            "name": "Fabro",
+            "email": "285810526+fabro-of-alexandria[bot]@users.noreply.github.com"
+          }
+        },
+        "prepare": {
+          "steps": [
+            {
+              "type": "command",
+              "command": [
+                "./.fabro/scripts/fabro-setup-env"
+              ]
+            }
+          ],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt"
+        },
+        "checkpoint": {
+          "exclude_globs": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ],
+          "skip_git_hooks": false,
+          "commit_timeout_ms": 30000
+        },
+        "clone": {
+          "enabled": true
+        },
+        "run_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "meta_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "environment": {
+          "id": "daytona",
+          "provider": "daytona",
+          "image": {
+            "docker": null,
+            "dockerfile": null
+          },
+          "resources": {
+            "cpu": null,
+            "memory": null,
+            "disk": null
+          },
+          "network": {
+            "mode": "allow_all",
+            "allow": []
+          },
+          "lifecycle": {
+            "preserve": false,
+            "stop_on_terminal": true,
+            "auto_stop": "1h"
+          },
+          "labels": {
+            "project": "skillmaker-studio",
+            "workflow": "sms-feature",
+            "host": "railway"
+          },
+          "env": {}
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null
+        },
+        "agent": {
+          "fabro_tools": false,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": {
+          "enabled": true,
+          "draft": true,
+          "auto_merge": false,
+          "merge_strategy": "squash"
+        },
+        "artifacts": {
+          "include": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ]
+        },
+        "integrations": {
+          "github": {
+            "permissions": {
+              "contents": "write",
+              "pull_requests": "write"
+            }
+          }
+        }
+      }
+    },
+    "graph": {
+      "name": "SmsFeature",
+      "nodes": {
+        "review_judge": {
+          "id": "review_judge",
+          "attrs": {
+            "prompt": {
+              "String": "# ReviewJudge\n\nYou are the single review-and-verdict gate before the PR. Review the\nimplementation diff against the scope plan (under `docs/proposals/`, named\nby the scope stage) and the house rules, read the gates output from the\nprevious stage, and deliver ONE verdict. Do not edit any files.\n\nCheck:\n\n- The diff stays within the plan's scope and package boundaries: domain\n  logic and schemas in `packages/core`, deterministic CLI/server behavior\n  in `packages/cli`, browser UI in `packages/viewer`.\n- Comments are plain English prose explaining WHY, citing issues, dated\n  proposals, and rulings (`packages/core/src/Todo.ts` is the standard).\n- Behavior changes have tests (black-box CLI tests for CLI behavior,\n  `test/e2e` for server-surface changes).\n- No files under `docs/library` were freehand-edited outside an approved\n  library migration.\n- The deterministic gates output shows the repo gates passed on the final\n  diff.\n\nGrading bar — this line is load-bearing: a mergeable change with noted\nimperfections is a PASSING grade — perfectionism is the expensive failure\nmode; note imperfections in the PR body instead of bouncing. Only route\nFix for real defects: broken or untested behavior, scope/plan mismatch,\nboundary violations, failing gates. Style nits, minor gaps, and \"could be\nbetter\" observations go in a short \"Imperfections to note in the PR body\"\nlist in your response, which the Prepare PR stage will include.\n\nVerdicts (exactly one):\n\n- **ready** — the change is mergeable. List any imperfections for the PR\n  body, then route to Prepare PR.\n- **fix** — a real defect blocks merge. Allowed AT MOST ONCE per run (the\n  graph enforces this: this node runs at most twice, so on your second\n  run Fix is off the table — choose ready or surface). Give concrete,\n  actionable fix items so the implement stage can act without guessing.\n- **surface** — you and the implementation cannot converge (e.g. the fix\n  round did not resolve the defect, or the plan itself is wrong). Stop\n  the run with a clear summary of the disagreement for a human.\n\nEnd with exactly one routing JSON object:\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"verdict\":\"ready\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"verdict\":\"fix\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Surface\",\"outcome\":\"failed\",\"failure_reason\":\"<one-line summary of the disagreement>\",\"context_updates\":{\"verdict\":\"surface\"}}\n```\n"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "goal_gate": {
+              "Boolean": true
+            },
+            "backend": {
+              "String": "api"
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "label": {
+              "String": "ReviewJudge"
+            },
+            "max_visits": {
+              "Integer": 3
+            }
+          }
+        },
+        "validate_gates": {
+          "id": "validate_gates",
+          "attrs": {
+            "label": {
+              "String": "Run repo gates"
+            },
+            "max_visits": {
+              "Integer": 5
+            },
+            "script": {
+              "String": "./.fabro/scripts/fabro-validate"
+            },
+            "shape": {
+              "String": "parallelogram"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            }
+          }
+        },
+        "start": {
+          "id": "start",
+          "attrs": {
+            "label": {
+              "String": "Start"
+            },
+            "shape": {
+              "String": "Mdiamond"
+            }
+          }
+        },
+        "scope": {
+          "id": "scope",
+          "attrs": {
+            "backend": {
+              "String": "api"
+            },
+            "label": {
+              "String": "Scope"
+            },
+            "max_visits": {
+              "Integer": 2
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "prompt": {
+              "String": "# Scope\n\nWrite a durable technical implementation plan for the requested\nSkillmaker Studio feature to\n`docs/proposals/<yyyy-mm-dd>-<stable-feature-slug>.md` (refine an\nexisting relevant plan instead of duplicating it). Do not edit\nimplementation files in this stage.\n\n## The repository\n\nSkillmaker Studio is a bun + Effect TypeScript monorepo (bun workspaces):\n\n- `packages/core` — the domain engine: skills, evals, journal, todos,\n  triage. Effect-first; schemas live here and everything else consumes\n  them.\n- `packages/cli` — the `skillmaker` CLI and the local server the Studio\n  UI rides on. Command data on stdout, diagnostics on stderr, stable\n  exit codes.\n- `packages/viewer` — the Studio browser UI (Astro + React).\n- `packages/desktop`, `packages/docs-site`, `packages/marketing-site`,\n  `packages/skill` — touch these only when the goal names them.\n- `test/e2e` — black-box end-to-end tests over the CLI and server\n  surfaces.\n- `docs/proposals/` — dated proposal/plan documents. Do not\n  freehand-edit `docs/library` (the live product context library)\n  unless the plan explicitly owns a library migration.\n\nRepository gates (mirrors `.github/workflows/ci.yml`): typecheck core\nand cli, `bun test packages`, `bun test test/e2e`, and\n`bun run build:viewer` when the viewer changes. A script node runs these\nafter implementation; plan work that passes them.\n\nHouse comment style — plan for it now so implementation inherits it:\ncomments are plain English prose that explains WHY the code is shaped\nthis way, not what it does, and cites sources — issue numbers, dated\nproposals, rulings — the way `packages/core/src/Todo.ts` does.\n\n## Plan expectations\n\n- Keep work scoped to the packages and surfaces named by the goal, with\n  domain logic in core, deterministic CLI/server behavior in cli,\n  browser UI state in viewer.\n- Include tests for changed behavior, and risks, acceptance criteria,\n  and deferred follow-ups.\n\nEnd your response with `Plan ready for implementation: <plan-path>` and\na brief summary; the implement stage reads the plan file from disk.\n"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            }
+          }
+        },
+        "implement": {
+          "id": "implement",
+          "attrs": {
+            "backend": {
+              "String": "api"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "label": {
+              "String": "Implement"
+            },
+            "max_visits": {
+              "Integer": 5
+            },
+            "prompt": {
+              "String": "# Implement\n\nImplement the plan under `docs/proposals/` named by the scope stage.\nPackage-local README/guidance files own workflow and testing for the\npackages you touch.\n\nRules:\n\n- Stay scoped to the plan and its package boundaries: domain logic and\n  schemas in `packages/core`, deterministic CLI/server behavior in\n  `packages/cli` (data on stdout, diagnostics on stderr, stable exit\n  codes, black-box tests for behavior), browser UI state in\n  `packages/viewer`. If the plan cannot be implemented coherently\n  without expanding scope, implement the smallest coherent slice and\n  leave a clear blocking note in your final response.\n- Do not freehand-edit `docs/library` (the live product context\n  library) unless the plan explicitly owns a library migration.\n- Comments in the house style: plain English prose explaining WHY,\n  citing issues, dated proposals, and rulings, the way\n  `packages/core/src/Todo.ts` does.\n- If you are here after a gate failure or a ReviewJudge fix verdict,\n  read that stage's output from context and fix exactly what it names.\n  Retries are capped in the graph, so make the fix count.\n\nGates. Before finishing, run and pass ALL of:\n\n```bash\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun test test/e2e --timeout 30000\n```\n\nAND, whenever the diff touches `packages/viewer`:\n\n```bash\nbun run build:viewer\n```\n\nA script node reruns the same gates right after this stage; a failure\nroutes straight back here. Summarize the implemented changes at the end.\n"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            }
+          }
+        },
+        "handoff": {
+          "id": "handoff",
+          "attrs": {
+            "shape": {
+              "String": "tab"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "label": {
+              "String": "Prepare PR"
+            },
+            "max_visits": {
+              "Integer": 2
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "prompt": {
+              "String": "# Prepare PR\n\nPrepare the final pull request context.\n\nFabro's configured `[run.pull_request]` finalization creates the pull\nrequest after this node. Write the PR title and body to these files:\n\n- `/tmp/fabro-pr-title.txt`\n- `/tmp/fabro-pr-body.md`\n\nThe body must be honest reviewer context, not a sales pitch. Include:\n\n- Suggested PR title.\n- What changed and why, tied to the plan in `docs/proposals/`.\n- Validation: which gates ran (typecheck core/cli, `bun test packages`,\n  `bun test test/e2e`, `bun run build:viewer` if the viewer changed) and\n  their actual results.\n- The ReviewJudge's \"imperfections to note in the PR body\" list, carried\n  over verbatim from that stage's output. Noted imperfections are the\n  deal — the judge passes mergeable-with-notes changes on the promise\n  that the notes reach the reviewer.\n- Any remaining risks, known gaps, skipped checks, or manual follow-up —\n  stated plainly. If something was not verified, say so; do not imply\n  coverage that does not exist.\n\nKeep the summary concise and specific to Skillmaker Studio. Do not\ndescribe this as a handoff to a human; write it as PR-ready reviewer\ncontext.\n\nThe title file must contain exactly one line. The body file must contain\nMarkdown suitable for a draft pull request body.\n"
+            },
+            "backend": {
+              "String": "api"
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "label": {
+              "String": "Exit"
+            },
+            "shape": {
+              "String": "Msquare"
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "scope",
+          "attrs": {}
+        },
+        {
+          "from": "scope",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "scope",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "implement",
+          "to": "validate_gates",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "implement",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "validate_gates",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=failed"
+            },
+            "label": {
+              "String": "Fix validation"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "review_judge",
+          "attrs": {
+            "label": {
+              "String": "Validation OK"
+            },
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "review_judge",
+          "to": "handoff",
+          "attrs": {
+            "condition": {
+              "String": "verdict=ready"
+            },
+            "label": {
+              "String": "Ready"
+            }
+          }
+        },
+        {
+          "from": "review_judge",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "verdict=fix"
+            },
+            "label": {
+              "String": "Fix"
+            }
+          }
+        },
+        {
+          "from": "review_judge",
+          "to": "exit",
+          "attrs": {
+            "label": {
+              "String": "Surface"
+            }
+          }
+        },
+        {
+          "from": "handoff",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "stall_timeout": {
+          "Duration": {
+            "secs": 18000,
+            "nanos": 0
+          }
+        },
+        "max_node_visits": {
+          "Integer": 5
+        },
+        "default_fidelity": {
+          "String": "summary:high"
+        },
+        "goal": {
+          "String": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/196\n\n## Summary\n\nThe chat preamble tells every agent \"Your guidance skills are installed in your\nagent home -- read the relevant william-* skill before acting.\" When seeding\ninstalled nothing, that sentence is false, and the agent does what a competent\nagent should: it goes looking for the skills it was promised. `prepareAgentHome`\nalready returns exactly the fact needed to tell the truth — `installedHelpers` —\nand the call site throws it away.\n\n## Motivation / Problem\n\nAn instruction that names an artifact which isn't there is worse than no\ninstruction: it converts a missing dependency into a filesystem search. In the\nlive session that produced this ticket, the agent's first move was\n`ls ~/.skillmaker/agent-home/claude-code/skills/`, and when that came back\nempty it escalated to `find / -maxdepth 8 -type d -iname \"william-*\"` and a\nsweep of the operator's other repos. Each of those is a path outside the\nproject, so each one raised a permission card.\n\nThis is a *distinct* defect from the seeding bug (#190). Fixing #190 makes the\nhelpers present in shipped builds — but a source checkout with no packaged\nskills directory, or a future helper slug that fails to resolve, will still be\nannounced as installed. The preamble should assert only what is true at the\nmoment it is written.\n\n## Observed behavior\n\nFresh project on v0.6.2, chat session started on a new bundle. The agent home\ncontains no `skills/` directory. The preamble nonetheless states the skills are\ninstalled, and the session opens with a multi-command hunt across the machine\nfor `william-*` before any bundle work begins.\n\n## Current shape\n\nThe claim, `packages/cli/src/server/ChatSessions.ts:324`:\n\n```ts\n    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n```\n\nIt is unconditional — a constant line in the preamble array, with no input from\nwhether seeding succeeded.\n\nMeanwhile `prepareAgentHome` computes and returns precisely that\n(`ChatSessions.ts:160`, `:179-181`):\n\n```ts\n): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n```\n```ts\n    installed.push(slug);\n  }\n  return { home, installedHelpers: installed };\n```\n\nand both call sites discard it — `ChatSessions.ts:598` and `:793`:\n\n```ts\n    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n```\n\nThe trap worth naming: the information needed to be honest is already computed,\nalready returned, and already at the call site. This is not a missing capability;\nit is a discarded return value.\n\n## Proposed contract\n\nThe helper line is conditional on what actually installed:\n\n| `installedHelpers` | Preamble line |\n|---|---|\n| non-empty | `- Your guidance skills (<slugs>) are installed in your agent home -- read the relevant one before acting.` |\n| empty | line omitted entirely |\n\n**Decisions:**\n\n- When helpers installed, the line **names the slugs actually present**, so the\n  agent reads what exists rather than guessing at a family name.\n- When none installed, the line is **omitted**, not replaced with an apology.\n  An agent told nothing about guidance skills proceeds on the bundle; an agent\n  told they are \"missing\" may go hunting anyway.\n- Partial installs name only the slugs that landed.\n- `installedHelpers` is threaded to the preamble builder. `PreambleContext`\n  gains a field; no other preamble line changes.\n- The re-orientation preamble (`buildChatReorientation`, `ChatSessions.ts:349`)\n  does not mention helpers today and does not gain a mention.\n- No UI, no journal event, no warning surface. The scope is the preamble string.\n\n## Acceptance criteria\n\n- [ ] With helpers installed, the preamble states they are installed and names\n      the installed slugs.\n- [ ] With no helpers installed, the preamble contains no sentence asserting\n      guidance skills are available anywhere.\n- [ ] Partial install: only the slugs that actually landed are named.\n- [ ] Negative: the preamble never names a slug absent from the agent home.\n- [ ] Regression: every other preamble line — bundle layout, pipeline, CLI\n      guidance, direct-in-project warning, and the derived-stage \"current step\"\n      sentence — is byte-identical to today.\n- [ ] Regression: `packages/cli/test/ChatPreamble.test.ts` passes, extended\n      rather than rewritten.\n- [ ] Regression: `PREAMBLE_SENTINEL` is unchanged — the viewer splits replayed\n      first prompts on it (`chatModel.ts`).\n- [ ] Tests cover: helpers-present, helpers-absent, and partial-install.\n\n## Implementation notes\n\nBoth call sites already destructure the result; the change is to keep the second\nfield and pass it through. Prefer threading it into `PreambleContext` over\nrecomputing installation state inside the preamble builder — the builder is\ndeliberately synchronous and filesystem-light.\n\nScope fences:\n\n- **Do not fix the seeding here.** That is #190. This issue is about the\n  preamble telling the truth about whatever seeding did.\n- **Do not add a user-facing warning.** A missing helper is not a condition the\n  director needs a banner for.\n- **Do not change `PREAMBLE_SENTINEL` or the separator** — the viewer parses on\n  both.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — the claim (:324), the preamble\n  builder (:320-329), `prepareAgentHome` (:156-182), call sites (:598, :793)\n- `packages/cli/test/ChatPreamble.test.ts` — existing coverage\n\n---\n\n**Related:** #190 (packaged-skills fallback for the agent home). #190 makes the\nhelpers present; this makes the preamble honest when they aren't.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n"
+        },
+        "rankdir": {
+          "String": "LR"
+        }
+      }
+    },
+    "graph_source": "digraph SmsFeature {\n    graph [\n        goal=\"Implement a Skillmaker Studio feature with one combined review-judge gate before the PR.\",\n        default_fidelity=\"summary:high\",\n        max_node_visits=5,\n        stall_timeout=\"5h\"\n    ]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    // Reshaped after the first real batch (2026-08-04): the old 9-node\n    // graph verified three times (deterministic gates + LLM verify +\n    // verification judge) with unbounded retry loops, and three runs were\n    // cancelled after heavy cycling (implement x5, verify x3 observed;\n    // ~$8/PR, ~$25 total). Director ruling: one combined ReviewJudge\n    // stage, and loop caps enforced in the graph via per-node max_visits\n    // (fabro terminates the run when a node exceeds its cap, so the caps\n    // are structural, not prompt suggestions).\n    //\n    // CAP SEMANTICS (learned the hard way, first run on the reshaped\n    // graph, 2026-08-04): fabro increments the visit counter on ENTRY\n    // and fails when `visits >= max_visits` -- BEFORE executing the node\n    // (fabro-core executor.rs, \"(>= semantics)\"). So max_visits=N allows\n    // only N-1 executions; a node meant to execute K times needs\n    // max_visits=K+1, and max_visits=1 fails on the very first entry.\n    // The graph-level max_node_visits has the same >= rule AND is\n    // checked in addition to per-node caps (both apply; the docs'\n    // \"per-node overrides graph-level\" is not what 0.315 executes), so\n    // it must be >= the largest per-node cap. Every cap below is\n    // therefore intended-executions + 1.\n    //\n    // Model split unchanged in spirit (director ruling, PR #188):\n    // sol-high where the graph makes judgment calls (scope, the judge);\n    // terra-medium for the in-loop worker stages.\n    scope [\n        label=\"Scope\",\n        prompt=\"@prompts/scope.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        max_visits=2,  // executes exactly once (K=1, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // Worst case 4 executions: 1 initial + at most 2 gate-failure\n    // bounces + at most 1 ReviewJudge fix bounce. A further bounce of\n    // either kind exceeds the cap and fails the run with the previous\n    // stage's (gates/judge) output as the last captured stage.\n    implement [\n        label=\"Implement\",\n        prompt=\"@prompts/implement.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        max_visits=5,  // <=4 executions (K=4, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // Deterministic gates; runs once after every implement execution, so\n    // its cap mirrors implement's.\n    validate_gates [\n        shape=parallelogram,\n        label=\"Run repo gates\",\n        script=\"./.fabro/scripts/fabro-validate\",\n        max_visits=5,  // <=4 executions (K=4, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // One combined stage replacing the old review + verify +\n    // verification-judge trio. max_visits=3 allows exactly 2 executions,\n    // which makes \"fix\" a once-per-run route structurally: execution 1\n    // may route Fix, execution 2 must land Ready or Surface (a second\n    // Fix would need a third execution, which the cap rejects).\n    // goal_gate=true makes a Surface verdict (outcome=failed)\n    // fail the run at exit, so [run.pull_request] never opens a PR for a\n    // surfaced run. `fabro validate` warns that this goal gate has no\n    // retry_target; that is deliberate -- a retry target would re-run the\n    // loop that Surface exists to stop, and with no target fabro fails\n    // the run, which is the intended surface-to-a-human behavior.\n    review_judge [\n        label=\"ReviewJudge\",\n        prompt=\"@prompts/review-judge.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        max_visits=3,  // <=2 executions (K=2, cap=K+1)\n        goal_gate=true,\n        timeout=\"90m\"\n    ]\n\n    handoff [\n        shape=tab,\n        label=\"Prepare PR\",\n        prompt=\"@prompts/handoff.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        max_visits=2,  // executes exactly once (K=1, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    start -> scope\n    scope -> implement [condition=\"outcome=succeeded\"]\n    scope -> exit\n    implement -> validate_gates [condition=\"outcome=succeeded\"]\n    implement -> exit\n    validate_gates -> implement    [label=\"Fix validation\", condition=\"outcome=failed\"]\n    validate_gates -> review_judge [label=\"Validation OK\", condition=\"outcome=succeeded\"]\n    validate_gates -> exit\n\n    review_judge -> handoff   [label=\"Ready\", condition=\"verdict=ready\"]\n    review_judge -> implement [label=\"Fix\", condition=\"verdict=fix\"]\n    // Surface (and any non-verdict failure) falls through to exit; the\n    // judge sets outcome=failed on Surface and goal_gate turns that into\n    // a failed run with the judge's summary as the last stage output.\n    review_judge -> exit [label=\"Surface\"]\n    handoff -> exit\n}\n",
+    "workflow_slug": "sms-feature",
+    "source_directory": "/Users/jessmartin/Documents/code/skillmaker-studio",
+    "provenance": {
+      "server": {
+        "version": "0.315.0-nightly.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.315.0-nightly.0",
+        "name": "fabro-cli",
+        "version": "0.315.0-nightly.0"
+      },
+      "subject": {
+        "kind": "user",
+        "identity": {
+          "issuer": "https://github.com",
+          "subject": "27258"
+        },
+        "login": "jessmartin",
+        "auth_method": "github"
+      }
+    },
+    "manifest_blob": "4dd82e3eec23c41820a614f1dc6a25b58649a7f4b8dd4ea5c27f26414ec87f1a",
+    "definition_blob": "ce22ba452e9e25456de18cacc04a4120c37e2d85f8834e31be7156bbbc5853e9",
+    "git": {
+      "origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+      "branch": "main",
+      "sha": "42c79d35e47b64662d36f366bf1ee2df6ef0c4cf",
+      "dirty": "clean",
+      "push_outcome": {
+        "type": "not_attempted"
+      }
+    }
+  },
+  "web_url": "https://fabro-st.up.railway.app/runs/01KZ77BKMTF836C1KHDHAES1M2",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-08-04T20:27:35.087440498Z",
+  "last_event_at": "2026-08-04T20:27:47.486036149Z",
+  "pending_control": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "sandbox": {
+    "kind": "ready",
+    "plan": {
+      "provider": "daytona"
+    },
+    "instance": {
+      "provider": "daytona",
+      "snapshot": "daytona-medium",
+      "runtime": {
+        "id": "fabro-01KZ77BKMTF836C1KHDHAES1M2",
+        "working_directory": "/home/daytona/workspace/skillmaker-studio",
+        "repo_cloned": true,
+        "clone_origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+        "clone_branch": "main",
+        "workspace_root": "/home/daytona/workspace",
+        "repos_root": "/home/daytona/repos",
+        "primary_repo_path": "/home/daytona/repos/sociotechnica-org/skillmaker-studio",
+        "primary_repo_link": "/home/daytona/workspace/skillmaker-studio"
+      }
+    }
+  },
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "stages": {}
+}
