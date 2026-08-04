@@ -325,10 +325,44 @@ export class LineageRecord extends Schema.Class<LineageRecord>("LineageRecord")(
   upstream: Schema.NullOr(Schema.Struct({ source: Schema.String, ref: Schema.NullOr(Schema.String) })),
 }) {}
 
+/**
+ * One install-door target row (director rulings 2026-08-03, core's
+ * InstallPublish.ts): an audience ("user" = ~/.claude/skills, "project" =
+ * the workspace's .claude/skills, "in-place" = an adopted bundle's own live
+ * directory), its resolved path, whether it is the remembered choice, the
+ * last install publish to it, and the INSTALLED copy's drift against that
+ * last-published version (`null` before any publish, and for in-place rows
+ * whose drift is the bundle's own live drift).
+ */
+export class PublishTargetView extends Schema.Class<PublishTargetView>("PublishTargetView")({
+  audience: Schema.Literals(["user", "project", "in-place"]),
+  path: Schema.String,
+  /** `~`-shortened for quiet display ("→ ~/.claude/skills/improve-readme"). */
+  displayPath: Schema.String,
+  remembered: Schema.Boolean,
+  lastPublished: Schema.NullOr(
+    Schema.Struct({
+      versionHash: Schema.String,
+      at: Schema.String,
+      evidence: Schema.NullOr(Schema.String),
+    }),
+  ),
+  installedDrift: Schema.NullOr(Schema.Literals(["not-installed", "in-sync", "installed-edited"])),
+}) {}
+
+/** The Publish tab's install-door facts, derived server-side per request -- never a store. */
+export class PublishInfo extends Schema.Class<PublishInfo>("PublishInfo")({
+  inPlace: Schema.Boolean,
+  remembered: Schema.Array(Schema.Literals(["user", "project"])),
+  targets: Schema.Array(PublishTargetView),
+}) {}
+
 export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   "BundleDetailResponse",
 )({
   bundle: BundleRecord,
+  /** Install-door facts (director rulings 2026-08-03). Optional: absent on pre-install-door servers, in which case the Publish tab stays inert. */
+  publish: Schema.optionalKey(PublishInfo),
   guardStatus: GuardStatus,
   events: Schema.Array(EventView),
   versions: Schema.Array(VersionRecord),

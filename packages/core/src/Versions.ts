@@ -138,10 +138,21 @@ export interface HashOutputTreeOptions {
    * `Adopt.ts` added (`ADOPT_EXCLUDED_NAMES`).
    */
   readonly excludeTopLevel?: ReadonlySet<string>;
+  /**
+   * When present, each file is read AS TEXT and passed through this before
+   * hashing (keyed by its forward-slash relative path). Exists for exactly
+   * one caller today: `InstallPublish.computeInstalledDrift`, which must
+   * hash an INSTALLED copy with the provenance stamp stripped out of
+   * `SKILL.md` -- the stamp is publish metadata, not skill content, and
+   * counting it as drift would make every published copy read as
+   * hand-edited. Never used when computing a bundle's own recorded version
+   * hashes.
+   */
+  readonly transformContent?: (relativePath: string, content: string) => string;
 }
 
 /** One file the output-tree walk selected: its full on-disk path and its forward-slash-normalized path relative to the walked dir. */
-interface CollectedOutputFile {
+export interface CollectedOutputFile {
   readonly fullPath: string;
   readonly relativePath: string;
 }
@@ -154,7 +165,7 @@ interface CollectedOutputFile {
  * of files the output hash covered, by construction rather than by keeping
  * two walks in sync.
  */
-const collectOutputFiles = Effect.fn("Versions.collectOutputFiles")(function* (
+export const collectOutputFiles = Effect.fn("Versions.collectOutputFiles")(function* (
   dir: string,
   options?: HashOutputTreeOptions,
 ) {
@@ -195,8 +206,17 @@ export const hashOutputTree = Effect.fn("Versions.hashOutputTree")(function* (
   options?: HashOutputTreeOptions,
 ) {
   const files = yield* collectOutputFiles(dir, options);
+  const transform = options?.transformContent;
   const pairs: Array<readonly [string, string]> = [];
   for (const file of files) {
+    if (transform !== undefined) {
+      const fs = yield* FileSystem;
+      const content = yield* fs
+        .readFileString(file.fullPath)
+        .pipe(Effect.mapError(toIOError(`could not read ${file.fullPath}`)));
+      pairs.push([file.relativePath, `sha256:${sha256Hex(transform(file.relativePath, content))}`]);
+      continue;
+    }
     const fileHash = yield* hashFile(file.fullPath);
     pairs.push([file.relativePath, fileHash]);
   }
