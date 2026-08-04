@@ -54,6 +54,18 @@ already exists). Follow these steps in order.
    or `evals/`, mention it in your final message -- do not edit those
    directories yourself.
 
-6. **Stop once `output/SKILL.md` reflects `design.md`.** Do not run the
-   drafted skill, do not write eval fixtures, do not change the bundle's
-   stage. Those are separate, human-gated steps.
+6. **Finish according to your mode.**
+
+   **If you are running unattended** (a station sandbox — no human in the
+   conversation): stop once `output/SKILL.md` reflects `design.md`. Do not
+   run the drafted skill, do not write eval fixtures, do not change the
+   bundle's stage. Those are separate, human-gated steps.
+
+   **If you are in a conversation with the director** (a live chat where a
+   human can answer you): the same limits hold — but end with a hand-off,
+   not silence: "the draft is ready for your review; after you approve it,
+   the next step is authoring evals from design.md's failure hypotheses —
+   want me to?" Do not author evals unprompted. When evals do get
+   authored, scope each fixture to ONE failure hypothesis (or one tight
+   cluster of related risks): grading is run-level, so a fixture that
+   probes five risks at once cannot be graded honestly.

@@ -88,10 +88,22 @@ workflow` and `## Failure hypotheses` sections next.
    different station; leave a note in your final message instead of
    editing it.
 
-6. **Stop once `research/notes.md` reflects your research.** Do not draft
-   `design.md` or `output/SKILL.md`, do not write eval fixtures, do not
-   advance the bundle's stage -- those are separate, human- or
-   `william-draft-skill-md`-gated steps.
+6. **Finish according to your mode.** The skill runs in two settings and
+   the ending differs (e2e-readiness walk, 2026-07-29: station-shaped
+   "write notes, stop" is correct for stations and too passive for
+   conversation -- the walk ended with eight open questions buried at the
+   bottom of notes.md and dead silence):
+   - **Unattended (station sandbox, no human present):** stop once
+     `research/notes.md` reflects your research. Do not draft `design.md`
+     or `output/SKILL.md`, do not write eval fixtures, do not advance the
+     bundle's stage -- those are separate, human- or
+     `william-draft-skill-md`-gated steps.
+   - **In conversation with the director (live chat):** after writing the
+     notes, surface the open questions ONE AT A TIME, folding each answer
+     back into `research/notes.md`, and loop until they are cleared or
+     explicitly parked. Then hand off: research is done, the next artifact
+     is `design.md`, co-authored with the director -- offer to work
+     through it together. Never draft design.md unprompted.
 
 ## Failure hypotheses
 
@@ -102,6 +114,7 @@ workflow` and `## Failure hypotheses` sections next.
 | 3 | A stated-but-unconfident fact is written into `research/notes.md` as if it were settled, with no hedge or open-question flag, and a later drafter treats it as ground truth | OUT |
 | 4 | The agent edits files outside `research/` (e.g. touches `design.md` or `output/`), which the station engine's copyback filter would then also have to guard against | OUT |
 | 5 | `research/notes.md` restates the topic and general platitudes without any concrete, checkable facts or edge cases -- research that reads as if it happened but adds nothing a drafter couldn't have guessed | RE |
+| 6 | In a live conversation, the agent ends station-style -- writes the notes, names the count of open questions, and goes silent -- so the questions stay buried in the file and the human is never asked (observed on the 2026-07-29 walk) | RE |
 
 ## Proof spec
 
