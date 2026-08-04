@@ -1,0 +1,41 @@
+diff --git a/packages/cli/src/server/JournalWatcher.ts b/packages/cli/src/server/JournalWatcher.ts
+index c7f1622..b2bd3a5 100644
+--- a/packages/cli/src/server/JournalWatcher.ts
++++ b/packages/cli/src/server/JournalWatcher.ts
+@@ -12,7 +12,7 @@
+  * watcher falls back to the project root, waits for `.skillmaker/` to
+  * appear, then re-attaches to it (and fires once for whatever created it).
+  */
+-import { existsSync, statSync, watch, type FSWatcher } from "node:fs";
++import { existsSync, watch, type FSWatcher } from "node:fs";
+ import { basename, dirname } from "node:path";
+ 
+ const DEBOUNCE_MS = 100;
+@@ -42,27 +42,13 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal
+   };
+ 
+   let watcher: FSWatcher | undefined;
+-  const journalSignature = (): string | undefined => {
+-    try {
+-      const stat = statSync(journalPath);
+-      return `${stat.size}:${stat.mtimeMs}`;
+-    } catch {
+-      return undefined;
+-    }
+-  };
+ 
+   const watchJournalDir = (): void => {
+-    const beforeWatch = journalSignature();
+     watcher = watch(dir, (_eventType, changedFilename) => {
+       if (changedFilename === null || changedFilename === filename) {
+         debounced();
+       }
+     });
+-    // The 2026-08-03 freshness-family guarantee includes the write that races
+-    // native watcher registration, which Bun can otherwise miss.
+-    setTimeout(() => {
+-      if (!closed && journalSignature() !== beforeWatch) debounced();
+-    }, 0);
+   };
+ 
+   // `.skillmaker/` not there yet: watch the project root until it appears,
