@@ -1,0 +1,6 @@
+{
+  "script": "./.fabro/scripts/fabro-validate",
+  "command": "exec 2>&1\n./.fabro/scripts/fabro-validate",
+  "language": "shell",
+  "timeout_ms": 5400000
+}
