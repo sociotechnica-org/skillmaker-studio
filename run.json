@@ -491,7 +491,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-04T20:27:47.497049179Z",
-  "last_event_at": "2026-08-04T20:49:58.757013226Z",
+  "last_event_at": "2026-08-04T20:50:04.195561583Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -1098,9 +1098,9 @@
       }
     },
     {
-      "seq": 0,
+      "seq": 819,
       "checkpoint": {
-        "timestamp": "2026-08-04T20:49:58.976972542Z",
+        "timestamp": "2026-08-04T20:50:03.150455204Z",
         "current_node": "handoff",
         "completed_nodes": [
           "start",
@@ -1112,45 +1112,59 @@
         ],
         "node_retries": {},
         "context_values": {
-          "command.output": "blob://sha256/48520d3008e7a1d1967fc210d3b3b43fa8ba3ca075fd770cf4110b72f81c9d2a",
           "internal.retry_count.validate_gates": 0,
-          "graph.rankdir": "LR",
-          "preferred_label": "Ready",
-          "internal.retry_count.start": 0,
-          "last_stage": "handoff",
-          "outcome": "succeeded",
-          "internal.retry_count.scope": 0,
-          "graph.max_node_visits": "5",
-          "response.implement": "Implemented Issue #196 in the CLI chat-session flow.\n\n- `prepareAgentHome`’s actual `installedHelpers` result is retained on the live session and passed to both fresh full-preamble paths.\n- The guidance bullet now appears only when helpers installed, names only those slugs in returned order, and is omitted entirely when none installed.\n- Re-orientation remains unchanged; sentinel and separator are unchanged.\n- Extended [ChatPreamble.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatPreamble.test.ts) for helpers present, absent, partial, and byte-identical non-helper content.\n- Extended [chat-sessions.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/chat-sessions.e2e.test.ts) to cover the partial real session handoff in both first-message and agent-first paths.\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused preamble tests (23 tests)\n- Passed: focused chat-session E2E (8 tests)\n- Passed: `bun run build:viewer` (needed to make E2E server available)\n- Passed: `bun test test/e2e --timeout 30000` (370 passed, 16 expected skips)\n\nOne required gate remains blocked by an unrelated, reproducible existing failure:\n\n- `bun test packages` fails only at `packages/cli/test/JournalWatcher.test.ts`, `watchJournal > fires (debounced) on appends to an existing journal`—the callback never fires within its 3-second wait. All 1,062 other package tests passed. I left that watcher behavior untouched to keep this issue scoped.",
           "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
-          "internal.retry_count.implement": 0,
-          "failure_class": "",
-          "thread.scope.current_node": "implement",
-          "failure_signature": "",
-          "last_response": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requeste",
-          "internal.node_visit_count": 1,
-          "thread.implement.current_node": "validate_gates",
-          "graph.default_fidelity": "summary:high",
-          "internal.retry_count.review_judge": 0,
-          "thread.review_judge.current_node": "handoff",
-          "internal.retry_count.handoff": 0,
-          "response.review_judge": "**ready** — the change is mergeable and matches the approved scope.\n\nThe implementation threads the actual installed-helper list through both fresh-preamble paths, conditionally names only installed slugs, omits the line for an empty list, and leaves reorientation, sentinel, separator, and unrelated preamble content unchanged. Unit and E2E coverage exercise present, absent, partial-install, first-message, and agent-first cases. Changes stay within the planned CLI/server and test boundaries; no `docs/library` files changed. The final deterministic gates passed.\n\nImperfections to note in the PR body:\n\n- An existing `sendMessage` comment still describes the full preamble as containing a “william pointer,” although that pointer is now conditional.\n- The unchanged reorientation builder is tested with an empty helper list, but there is no explicit non-empty-list assertion that helpers remain omitted from reorientation.\n\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"verdict\":\"ready\"}}",
-          "graph.goal": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/196\n\n## Summary\n\nThe chat preamble tells every agent \"Your guidance skills are installed in your\nagent home -- read the relevant william-* skill before acting.\" When seeding\ninstalled nothing, that sentence is false, and the agent does what a competent\nagent should: it goes looking for the skills it was promised. `prepareAgentHome`\nalready returns exactly the fact needed to tell the truth — `installedHelpers` —\nand the call site throws it away.\n\n## Motivation / Problem\n\nAn instruction that names an artifact which isn't there is worse than no\ninstruction: it converts a missing dependency into a filesystem search. In the\nlive session that produced this ticket, the agent's first move was\n`ls ~/.skillmaker/agent-home/claude-code/skills/`, and when that came back\nempty it escalated to `find / -maxdepth 8 -type d -iname \"william-*\"` and a\nsweep of the operator's other repos. Each of those is a path outside the\nproject, so each one raised a permission card.\n\nThis is a *distinct* defect from the seeding bug (#190). Fixing #190 makes the\nhelpers present in shipped builds — but a source checkout with no packaged\nskills directory, or a future helper slug that fails to resolve, will still be\nannounced as installed. The preamble should assert only what is true at the\nmoment it is written.\n\n## Observed behavior\n\nFresh project on v0.6.2, chat session started on a new bundle. The agent home\ncontains no `skills/` directory. The preamble nonetheless states the skills are\ninstalled, and the session opens with a multi-command hunt across the machine\nfor `william-*` before any bundle work begins.\n\n## Current shape\n\nThe claim, `packages/cli/src/server/ChatSessions.ts:324`:\n\n```ts\n    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n```\n\nIt is unconditional — a constant line in the preamble array, with no input from\nwhether seeding succeeded.\n\nMeanwhile `prepareAgentHome` computes and returns precisely that\n(`ChatSessions.ts:160`, `:179-181`):\n\n```ts\n): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n```\n```ts\n    installed.push(slug);\n  }\n  return { home, installedHelpers: installed };\n```\n\nand both call sites discard it — `ChatSessions.ts:598` and `:793`:\n\n```ts\n    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n```\n\nThe trap worth naming: the information needed to be honest is already computed,\nalready returned, and already at the call site. This is not a missing capability;\nit is a discarded return value.\n\n## Proposed contract\n\nThe helper line is conditional on what actually installed:\n\n| `installedHelpers` | Preamble line |\n|---|---|\n| non-empty | `- Your guidance skills (<slugs>) are installed in your agent home -- read the relevant one before acting.` |\n| empty | line omitted entirely |\n\n**Decisions:**\n\n- When helpers installed, the line **names the slugs actually present**, so the\n  agent reads what exists rather than guessing at a family name.\n- When none installed, the line is **omitted**, not replaced with an apology.\n  An agent told nothing about guidance skills proceeds on the bundle; an agent\n  told they are \"missing\" may go hunting anyway.\n- Partial installs name only the slugs that landed.\n- `installedHelpers` is threaded to the preamble builder. `PreambleContext`\n  gains a field; no other preamble line changes.\n- The re-orientation preamble (`buildChatReorientation`, `ChatSessions.ts:349`)\n  does not mention helpers today and does not gain a mention.\n- No UI, no journal event, no warning surface. The scope is the preamble string.\n\n## Acceptance criteria\n\n- [ ] With helpers installed, the preamble states they are installed and names\n      the installed slugs.\n- [ ] With no helpers installed, the preamble contains no sentence asserting\n      guidance skills are available anywhere.\n- [ ] Partial install: only the slugs that actually landed are named.\n- [ ] Negative: the preamble never names a slug absent from the agent home.\n- [ ] Regression: every other preamble line — bundle layout, pipeline, CLI\n      guidance, direct-in-project warning, and the derived-stage \"current step\"\n      sentence — is byte-identical to today.\n- [ ] Regression: `packages/cli/test/ChatPreamble.test.ts` passes, extended\n      rather than rewritten.\n- [ ] Regression: `PREAMBLE_SENTINEL` is unchanged — the viewer splits replayed\n      first prompts on it (`chatModel.ts`).\n- [ ] Tests cover: helpers-present, helpers-absent, and partial-install.\n\n## Implementation notes\n\nBoth call sites already destructure the result; the change is to keep the second\nfield and pass it through. Prefer threading it into `PreambleContext` over\nrecomputing installation state inside the preamble builder — the builder is\ndeliberately synchronous and filesystem-light.\n\nScope fences:\n\n- **Do not fix the seeding here.** That is #190. This issue is about the\n  preamble telling the truth about whatever seeding did.\n- **Do not add a user-facing warning.** A missing helper is not a condition the\n  director needs a banner for.\n- **Do not change `PREAMBLE_SENTINEL` or the separator** — the viewer parses on\n  both.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — the claim (:324), the preamble\n  builder (:320-329), `prepareAgentHome` (:156-182), call sites (:598, :793)\n- `packages/cli/test/ChatPreamble.test.ts` — existing coverage\n\n---\n\n**Related:** #190 (packaged-skills fallback for the agent home). #190 makes the\nhelpers present; this makes the preamble honest when they aren't.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
-          "internal.fidelity": "summary:high",
-          "current_node": "handoff",
+          "last_stage": "handoff",
           "response.scope": "Created the durable implementation plan at [2026-08-04-honest-chat-helper-preamble.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\nIt verifies the current data flow, scopes changes to chat session state and preamble construction, and covers helpers-present, helpers-absent, partial installation, both fresh-prompt paths, and byte-identical regressions. No implementation files were edited; the current focused test baseline passes all 20 tests.\n\nPlan ready for implementation: docs/proposals/2026-08-04-honest-chat-helper-preamble.md",
-          "internal.run_id": "01KZ77BKMTF836C1KHDHAES1M2",
-          "thread.validate_gates.current_node": "review_judge",
-          "thread.start.current_node": "scope",
+          "command.output": "blob://sha256/48520d3008e7a1d1967fc210d3b3b43fa8ba3ca075fd770cf4110b72f81c9d2a",
+          "current_node": "handoff",
+          "internal.node_visit_count": 1,
+          "thread.review_judge.current_node": "handoff",
           "internal.thread_id": "review_judge",
+          "internal.retry_count.scope": 0,
+          "response.review_judge": "**ready** — the change is mergeable and matches the approved scope.\n\nThe implementation threads the actual installed-helper list through both fresh-preamble paths, conditionally names only installed slugs, omits the line for an empty list, and leaves reorientation, sentinel, separator, and unrelated preamble content unchanged. Unit and E2E coverage exercise present, absent, partial-install, first-message, and agent-first cases. Changes stay within the planned CLI/server and test boundaries; no `docs/library` files changed. The final deterministic gates passed.\n\nImperfections to note in the PR body:\n\n- An existing `sendMessage` comment still describes the full preamble as containing a “william pointer,” although that pointer is now conditional.\n- The unchanged reorientation builder is tested with an empty helper list, but there is no explicit non-empty-list assertion that helpers remain omitted from reorientation.\n\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"verdict\":\"ready\"}}",
+          "failure_signature": "",
+          "internal.fidelity": "summary:high",
           "verdict": "ready",
+          "thread.implement.current_node": "validate_gates",
+          "thread.start.current_node": "scope",
+          "internal.run_id": "01KZ77BKMTF836C1KHDHAES1M2",
+          "outcome": "succeeded",
+          "internal.retry_count.start": 0,
           "graph.stall_timeout": "18000000ms",
-          "response.handoff": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requested files should contain:\n\n`/tmp/fabro-pr-title.txt`\n```text\nfix(cli): make chat helper preamble reflect installed skills\n```\n\n`/tmp/fabro-pr-body.md`\n```md\n## Summary\n\nImplements the honest chat-helper preamble plan in\n[`docs/proposals/2026-08-04-honest-chat-helper-preamble.md`](docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\n`prepareAgentHome`'s `installedHelpers` result is now retained and passed to\nboth fresh full-preamble paths. The guidance-skills bullet:\n\n- appears only when one or more helpers were actually installed;\n- names only the installed helper slugs, in returned order; and\n- is omitted entirely when no helpers installed.\n\nThe re-orientation preamble, `PREAMBLE_SENTINEL`, separator, and unrelated\npreamble content remain unchanged. Tests cover helpers present, absent, and\npartially installed, including first-message and agent-first session paths.\n\n## Validation\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused chat-preamble tests (23 tests)\n- Passed: focused chat-session E2E tests (8 tests)\n- Passed: `bun test packages` in the final `fabro-validate` gate\n- Passed: `bun test test/e2e --timeout 30000` in the final gate\n  (370 passed, 16 expected skips)\n- The viewer did not change, so the final validation gate skipped the viewer\n  build. `bun run build:viewer` was also run during implementation and passed.\n\nAn earlier implementation-stage `bun test packages` run encountered an existing\n`JournalWatcher.test.ts` debounce timeout; the final validation rerun passed all\nrepo gates.\n\n## Imperfections to note\n\n- An existing `sendMessage` comment still describes the full preamble as containing a “william pointer,” although that pointer is now conditional.\n- The unchanged reorientation builder is tested with an empty helper list, but there is no explicit non-empty-list assertion that helpers remain omitted from reorientation.\n\n## Remaining risks / follow-up\n\nNo remaining failing validation checks. The stale `sendMessage` comment and the\nmissing explicit non-empty-helper re-orientation assertion are documented above;\nneither changes runtime behavior for this issue.\n```"
+          "response.implement": "Implemented Issue #196 in the CLI chat-session flow.\n\n- `prepareAgentHome`’s actual `installedHelpers` result is retained on the live session and passed to both fresh full-preamble paths.\n- The guidance bullet now appears only when helpers installed, names only those slugs in returned order, and is omitted entirely when none installed.\n- Re-orientation remains unchanged; sentinel and separator are unchanged.\n- Extended [ChatPreamble.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatPreamble.test.ts) for helpers present, absent, partial, and byte-identical non-helper content.\n- Extended [chat-sessions.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/chat-sessions.e2e.test.ts) to cover the partial real session handoff in both first-message and agent-first paths.\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused preamble tests (23 tests)\n- Passed: focused chat-session E2E (8 tests)\n- Passed: `bun run build:viewer` (needed to make E2E server available)\n- Passed: `bun test test/e2e --timeout 30000` (370 passed, 16 expected skips)\n\nOne required gate remains blocked by an unrelated, reproducible existing failure:\n\n- `bun test packages` fails only at `packages/cli/test/JournalWatcher.test.ts`, `watchJournal > fires (debounced) on appends to an existing journal`—the callback never fires within its 3-second wait. All 1,062 other package tests passed. I left that watcher behavior untouched to keep this issue scoped.",
+          "internal.retry_count.review_judge": 0,
+          "last_response": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requeste",
+          "preferred_label": "Ready",
+          "thread.scope.current_node": "implement",
+          "internal.retry_count.handoff": 0,
+          "thread.validate_gates.current_node": "review_judge",
+          "internal.retry_count.implement": 0,
+          "response.handoff": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requested files should contain:\n\n`/tmp/fabro-pr-title.txt`\n```text\nfix(cli): make chat helper preamble reflect installed skills\n```\n\n`/tmp/fabro-pr-body.md`\n```md\n## Summary\n\nImplements the honest chat-helper preamble plan in\n[`docs/proposals/2026-08-04-honest-chat-helper-preamble.md`](docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\n`prepareAgentHome`'s `installedHelpers` result is now retained and passed to\nboth fresh full-preamble paths. The guidance-skills bullet:\n\n- appears only when one or more helpers were actually installed;\n- names only the installed helper slugs, in returned order; and\n- is omitted entirely when no helpers installed.\n\nThe re-orientation preamble, `PREAMBLE_SENTINEL`, separator, and unrelated\npreamble content remain unchanged. Tests cover helpers present, absent, and\npartially installed, including first-message and agent-first session paths.\n\n## Validation\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused chat-preamble tests (23 tests)\n- Passed: focused chat-session E2E tests (8 tests)\n- Passed: `bun test packages` in the final `fabro-validate` gate\n- Passed: `bun test test/e2e --timeout 30000` in the final gate\n  (370 passed, 16 expected skips)\n- The viewer did not change, so the final validation gate skipped the viewer\n  build. `bun run build:viewer` was also run during implementation and passed.\n\nAn earlier implementation-stage `bun test packages` run encountered an existing\n`JournalWatcher.test.ts` debounce timeout; the final validation rerun passed all\nrepo gates.\n\n## Imperfections to note\n\n- An existing `sendMessage` comment still describes the full preamble as containing a “william pointer,” although that pointer is now conditional.\n- The unchanged reorientation builder is tested with an empty helper list, but there is no explicit non-empty-list assertion that helpers remain omitted from reorientation.\n\n## Remaining risks / follow-up\n\nNo remaining failing validation checks. The stale `sendMessage` comment and the\nmissing explicit non-empty-helper re-orientation assertion are documented above;\nneither changes runtime behavior for this issue.\n```",
+          "failure_class": "",
+          "graph.rankdir": "LR",
+          "graph.max_node_visits": "5",
+          "graph.goal": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/196\n\n## Summary\n\nThe chat preamble tells every agent \"Your guidance skills are installed in your\nagent home -- read the relevant william-* skill before acting.\" When seeding\ninstalled nothing, that sentence is false, and the agent does what a competent\nagent should: it goes looking for the skills it was promised. `prepareAgentHome`\nalready returns exactly the fact needed to tell the truth — `installedHelpers` —\nand the call site throws it away.\n\n## Motivation / Problem\n\nAn instruction that names an artifact which isn't there is worse than no\ninstruction: it converts a missing dependency into a filesystem search. In the\nlive session that produced this ticket, the agent's first move was\n`ls ~/.skillmaker/agent-home/claude-code/skills/`, and when that came back\nempty it escalated to `find / -maxdepth 8 -type d -iname \"william-*\"` and a\nsweep of the operator's other repos. Each of those is a path outside the\nproject, so each one raised a permission card.\n\nThis is a *distinct* defect from the seeding bug (#190). Fixing #190 makes the\nhelpers present in shipped builds — but a source checkout with no packaged\nskills directory, or a future helper slug that fails to resolve, will still be\nannounced as installed. The preamble should assert only what is true at the\nmoment it is written.\n\n## Observed behavior\n\nFresh project on v0.6.2, chat session started on a new bundle. The agent home\ncontains no `skills/` directory. The preamble nonetheless states the skills are\ninstalled, and the session opens with a multi-command hunt across the machine\nfor `william-*` before any bundle work begins.\n\n## Current shape\n\nThe claim, `packages/cli/src/server/ChatSessions.ts:324`:\n\n```ts\n    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n```\n\nIt is unconditional — a constant line in the preamble array, with no input from\nwhether seeding succeeded.\n\nMeanwhile `prepareAgentHome` computes and returns precisely that\n(`ChatSessions.ts:160`, `:179-181`):\n\n```ts\n): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n```\n```ts\n    installed.push(slug);\n  }\n  return { home, installedHelpers: installed };\n```\n\nand both call sites discard it — `ChatSessions.ts:598` and `:793`:\n\n```ts\n    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n```\n\nThe trap worth naming: the information needed to be honest is already computed,\nalready returned, and already at the call site. This is not a missing capability;\nit is a discarded return value.\n\n## Proposed contract\n\nThe helper line is conditional on what actually installed:\n\n| `installedHelpers` | Preamble line |\n|---|---|\n| non-empty | `- Your guidance skills (<slugs>) are installed in your agent home -- read the relevant one before acting.` |\n| empty | line omitted entirely |\n\n**Decisions:**\n\n- When helpers installed, the line **names the slugs actually present**, so the\n  agent reads what exists rather than guessing at a family name.\n- When none installed, the line is **omitted**, not replaced with an apology.\n  An agent told nothing about guidance skills proceeds on the bundle; an agent\n  told they are \"missing\" may go hunting anyway.\n- Partial installs name only the slugs that landed.\n- `installedHelpers` is threaded to the preamble builder. `PreambleContext`\n  gains a field; no other preamble line changes.\n- The re-orientation preamble (`buildChatReorientation`, `ChatSessions.ts:349`)\n  does not mention helpers today and does not gain a mention.\n- No UI, no journal event, no warning surface. The scope is the preamble string.\n\n## Acceptance criteria\n\n- [ ] With helpers installed, the preamble states they are installed and names\n      the installed slugs.\n- [ ] With no helpers installed, the preamble contains no sentence asserting\n      guidance skills are available anywhere.\n- [ ] Partial install: only the slugs that actually landed are named.\n- [ ] Negative: the preamble never names a slug absent from the agent home.\n- [ ] Regression: every other preamble line — bundle layout, pipeline, CLI\n      guidance, direct-in-project warning, and the derived-stage \"current step\"\n      sentence — is byte-identical to today.\n- [ ] Regression: `packages/cli/test/ChatPreamble.test.ts` passes, extended\n      rather than rewritten.\n- [ ] Regression: `PREAMBLE_SENTINEL` is unchanged — the viewer splits replayed\n      first prompts on it (`chatModel.ts`).\n- [ ] Tests cover: helpers-present, helpers-absent, and partial-install.\n\n## Implementation notes\n\nBoth call sites already destructure the result; the change is to keep the second\nfield and pass it through. Prefer threading it into `PreambleContext` over\nrecomputing installation state inside the preamble builder — the builder is\ndeliberately synchronous and filesystem-light.\n\nScope fences:\n\n- **Do not fix the seeding here.** That is #190. This issue is about the\n  preamble telling the truth about whatever seeding did.\n- **Do not add a user-facing warning.** A missing helper is not a condition the\n  director needs a banner for.\n- **Do not change `PREAMBLE_SENTINEL` or the separator** — the viewer parses on\n  both.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — the claim (:324), the preamble\n  builder (:320-329), `prepareAgentHome` (:156-182), call sites (:598, :793)\n- `packages/cli/test/ChatPreamble.test.ts` — existing coverage\n\n---\n\n**Related:** #190 (packaged-skills fallback for the agent home). #190 makes the\nhelpers present; this makes the preamble honest when they aren't.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
+          "graph.default_fidelity": "summary:high"
         },
         "node_outcomes": {
           "start": {
             "status": "succeeded",
             "usage": null
+          },
+          "validate_gates": {
+            "status": "succeeded",
+            "context_updates": {
+              "command.output": "blob://sha256/48520d3008e7a1d1967fc210d3b3b43fa8ba3ca075fd770cf4110b72f81c9d2a"
+            },
+            "notes": "Script completed: ./.fabro/scripts/fabro-validate",
+            "usage": null,
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 0,
+              "tool_time_ms": 192301,
+              "active_time_ms": 192301
+            }
           },
           "scope": {
             "status": "succeeded",
@@ -1188,6 +1202,42 @@
               "active_time_ms": 431049
             }
           },
+          "handoff": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requeste",
+              "last_stage": "handoff",
+              "response.handoff": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requested files should contain:\n\n`/tmp/fabro-pr-title.txt`\n```text\nfix(cli): make chat helper preamble reflect installed skills\n```\n\n`/tmp/fabro-pr-body.md`\n```md\n## Summary\n\nImplements the honest chat-helper preamble plan in\n[`docs/proposals/2026-08-04-honest-chat-helper-preamble.md`](docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\n`prepareAgentHome`'s `installedHelpers` result is now retained and passed to\nboth fresh full-preamble paths. The guidance-skills bullet:\n\n- appears only when one or more helpers were actually installed;\n- names only the installed helper slugs, in returned order; and\n- is omitted entirely when no helpers installed.\n\nThe re-orientation preamble, `PREAMBLE_SENTINEL`, separator, and unrelated\npreamble content remain unchanged. Tests cover helpers present, absent, and\npartially installed, including first-message and agent-first session paths.\n\n## Validation\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused chat-preamble tests (23 tests)\n- Passed: focused chat-session E2E tests (8 tests)\n- Passed: `bun test packages` in the final `fabro-validate` gate\n- Passed: `bun test test/e2e --timeout 30000` in the final gate\n  (370 passed, 16 expected skips)\n- The viewer did not change, so the final validation gate skipped the viewer\n  build. `bun run build:viewer` was also run during implementation and passed.\n\nAn earlier implementation-stage `bun test packages` run encountered an existing\n`JournalWatcher.test.ts` debounce timeout; the final validation rerun passed all\nrepo gates.\n\n## Imperfections to note\n\n- An existing `sendMessage` comment still describes the full preamble as containing a “william pointer,” although that pointer is now conditional.\n- The unchanged reorientation builder is tested with an empty helper list, but there is no explicit non-empty-list assertion that helpers remain omitted from reorientation.\n\n## Remaining risks / follow-up\n\nNo remaining failing validation checks. The stale `sendMessage` comment and the\nmissing explicit non-empty-helper re-orientation assertion are documented above;\nneither changes runtime behavior for this issue.\n```"
+            },
+            "notes": "Stage completed: handoff",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 4036,
+                    "output_tokens": 554,
+                    "reasoning_tokens": 606,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 27490
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 12778,
+              "tool_time_ms": 0,
+              "active_time_ms": 12778
+            }
+          },
           "implement": {
             "status": "succeeded",
             "context_updates": {
@@ -1222,20 +1272,6 @@
               "inference_time_ms": 74245,
               "tool_time_ms": 237439,
               "active_time_ms": 311684
-            }
-          },
-          "validate_gates": {
-            "status": "succeeded",
-            "context_updates": {
-              "command.output": "blob://sha256/48520d3008e7a1d1967fc210d3b3b43fa8ba3ca075fd770cf4110b72f81c9d2a"
-            },
-            "notes": "Script completed: ./.fabro/scripts/fabro-validate",
-            "usage": null,
-            "timing": {
-              "wall_time_ms": 0,
-              "inference_time_ms": 0,
-              "tool_time_ms": 192301,
-              "active_time_ms": 192301
             }
           },
           "review_judge": {
@@ -1275,58 +1311,129 @@
               "tool_time_ms": 277993,
               "active_time_ms": 356804
             }
-          },
-          "handoff": {
-            "status": "succeeded",
-            "context_updates": {
-              "last_response": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requeste",
-              "last_stage": "handoff",
-              "response.handoff": "I’ll prepare the PR title and reviewer context with the completed validation results and the review notes carried forward verbatim.I can’t write to the filesystem in this environment. The requested files should contain:\n\n`/tmp/fabro-pr-title.txt`\n```text\nfix(cli): make chat helper preamble reflect installed skills\n```\n\n`/tmp/fabro-pr-body.md`\n```md\n## Summary\n\nImplements the honest chat-helper preamble plan in\n[`docs/proposals/2026-08-04-honest-chat-helper-preamble.md`](docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\n`prepareAgentHome`'s `installedHelpers` result is now retained and passed to\nboth fresh full-preamble paths. The guidance-skills bullet:\n\n- appears only when one or more helpers were actually installed;\n- names only the installed helper slugs, in returned order; and\n- is omitted entirely when no helpers installed.\n\nThe re-orientation preamble, `PREAMBLE_SENTINEL`, separator, and unrelated\npreamble content remain unchanged. Tests cover helpers present, absent, and\npartially installed, including first-message and agent-first session paths.\n\n## Validation\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused chat-preamble tests (23 tests)\n- Passed: focused chat-session E2E tests (8 tests)\n- Passed: `bun test packages` in the final `fabro-validate` gate\n- Passed: `bun test test/e2e --timeout 30000` in the final gate\n  (370 passed, 16 expected skips)\n- The viewer did not change, so the final validation gate skipped the viewer\n  build. `bun run build:viewer` was also run during implementation and passed.\n\nAn earlier implementation-stage `bun test packages` run encountered an existing\n`JournalWatcher.test.ts` debounce timeout; the final validation rerun passed all\nrepo gates.\n\n## Imperfections to note\n\n- An existing `sendMessage` comment still describes the full preamble as containing a “william pointer,” although that pointer is now conditional.\n- The unchanged reorientation builder is tested with an empty helper list, but there is no explicit non-empty-list assertion that helpers remain omitted from reorientation.\n\n## Remaining risks / follow-up\n\nNo remaining failing validation checks. The stale `sendMessage` comment and the\nmissing explicit non-empty-helper re-orientation assertion are documented above;\nneither changes runtime behavior for this issue.\n```"
-            },
-            "notes": "Stage completed: handoff",
-            "usage": {
-              "input": {
-                "usage": {
-                  "model": {
-                    "provider": "openai",
-                    "model_id": "gpt-5.6-terra"
-                  },
-                  "tokens": {
-                    "input_tokens": 4036,
-                    "output_tokens": 554,
-                    "reasoning_tokens": 606,
-                    "cache_read_tokens": 0,
-                    "cache_write_tokens": 0
-                  }
-                },
-                "facts": {
-                  "algorithm": "openai"
-                }
-              },
-              "total_usd_micros": 27490
-            },
-            "timing": {
-              "wall_time_ms": 0,
-              "inference_time_ms": 12778,
-              "tool_time_ms": 0,
-              "active_time_ms": 12778
-            }
           }
         },
         "next_node_id": "exit",
+        "git_commit_sha": "bf07e3b5bcae54157a16a661558d2fef2a23d342",
         "node_visits": {
           "scope": 1,
-          "implement": 1,
           "validate_gates": 1,
+          "implement": 1,
           "start": 1,
           "review_judge": 1,
           "handoff": 1
         }
       },
-      "diff": {}
+      "diff": {
+        "summary": {
+          "files_changed": 4,
+          "additions": 402,
+          "deletions": 21
+        }
+      }
     }
   ],
-  "conclusion": null,
+  "conclusion": {
+    "timestamp": "2026-08-04T20:50:03.173631899Z",
+    "status": "succeeded",
+    "timing": {
+      "wall_time_ms": 1335656,
+      "inference_time_ms": 391668,
+      "tool_time_ms": 912948,
+      "active_time_ms": 1304616
+    },
+    "final_git_commit_sha": "bf07e3b5bcae54157a16a661558d2fef2a23d342",
+    "stages": [
+      {
+        "stage_id": "start",
+        "stage_label": "start",
+        "timing": {
+          "wall_time_ms": 0,
+          "inference_time_ms": 0,
+          "tool_time_ms": 0,
+          "active_time_ms": 0
+        },
+        "retries": 0
+      },
+      {
+        "stage_id": "scope",
+        "stage_label": "scope",
+        "timing": {
+          "wall_time_ms": 432000,
+          "inference_time_ms": 225834,
+          "tool_time_ms": 205215,
+          "active_time_ms": 431049
+        },
+        "billing_usd_micros": 982697,
+        "retries": 0
+      },
+      {
+        "stage_id": "implement",
+        "stage_label": "implement",
+        "timing": {
+          "wall_time_ms": 312690,
+          "inference_time_ms": 74245,
+          "tool_time_ms": 237439,
+          "active_time_ms": 311684
+        },
+        "billing_usd_micros": 426896,
+        "retries": 0
+      },
+      {
+        "stage_id": "validate_gates",
+        "stage_label": "validate_gates",
+        "timing": {
+          "wall_time_ms": 192523,
+          "inference_time_ms": 0,
+          "tool_time_ms": 192301,
+          "active_time_ms": 192301
+        },
+        "retries": 0
+      },
+      {
+        "stage_id": "review_judge",
+        "stage_label": "review_judge",
+        "timing": {
+          "wall_time_ms": 357646,
+          "inference_time_ms": 78811,
+          "tool_time_ms": 277993,
+          "active_time_ms": 356804
+        },
+        "billing_usd_micros": 318320,
+        "retries": 0
+      },
+      {
+        "stage_id": "handoff",
+        "stage_label": "handoff",
+        "timing": {
+          "wall_time_ms": 12975,
+          "inference_time_ms": 12778,
+          "tool_time_ms": 0,
+          "active_time_ms": 12778
+        },
+        "billing_usd_micros": 27490,
+        "retries": 0
+      }
+    ],
+    "billing": {
+      "input_tokens": 164274,
+      "output_tokens": 13764,
+      "total_tokens": 1568894,
+      "reasoning_tokens": 9495,
+      "cache_read_tokens": 1381361,
+      "cache_write_tokens": 0,
+      "total_usd_micros": 1755403
+    },
+    "total_retries": 0,
+    "diff": {
+      "patch": "diff --git a/docs/proposals/2026-08-04-honest-chat-helper-preamble.md b/docs/proposals/2026-08-04-honest-chat-helper-preamble.md\nnew file mode 100644\nindex 0000000..293f518\n--- /dev/null\n+++ b/docs/proposals/2026-08-04-honest-chat-helper-preamble.md\n@@ -0,0 +1,282 @@\n+# Honest Chat Helper Preamble\n+\n+*Implementation plan — 2026-08-04. GitHub issue #196. Run\n+`01KZ77BKMTF836C1KHDHAES1M2`.*\n+\n+## Status\n+\n+Ready for implementation. This is a narrowly scoped CLI/server prompt\n+correction with focused unit and chat-session integration coverage. It does\n+not change helper seeding, the viewer, chat wire delimiters, or any\n+user-facing surface.\n+\n+## Outcome\n+\n+The first-prompt chat preamble will describe only the guidance helpers that\n+`prepareAgentHome` installed for that live session:\n+\n+| Session-start `installedHelpers` | Preamble behavior |\n+|---|---|\n+| Two or more slugs | Include one guidance bullet naming every returned slug, in returned order and separated by `, `. |\n+| One slug | Include the same bullet naming only that slug. |\n+| Empty | Omit the guidance bullet completely. |\n+\n+The rendered non-empty form is:\n+\n+```text\n+- Your guidance skills (<comma-separated slugs>) are installed in your agent home -- read the relevant one before acting.\n+```\n+\n+There is no missing-helper apology or warning. A preamble with an empty list\n+simply proceeds from the pipeline bullet to the existing CLI bullet.\n+\n+## Verified current state\n+\n+The issue's defect is present in the current code:\n+\n+- `packages/cli/src/server/ChatSessions.ts` defines\n+  `HELPER_SKILL_SLUGS` as `william-research-a-skill` and\n+  `william-draft-skill-md`.\n+- `prepareAgentHome` independently resolves and copies each helper, pushes a\n+  slug only after its copy completes, and returns\n+  `{ home, installedHelpers }`.\n+- `buildChatPreamble` currently emits the unconditional\n+  `william-*` guidance bullet even when the returned list is empty or\n+  partial.\n+- Both current `prepareAgentHome` callers destructure only `home`. The\n+  capability-probe caller never constructs a preamble; the real\n+  `startSession` caller is the result that must be retained.\n+- A fresh full preamble can be built later through either\n+  `sendOrientationOpening` or the first-message branch in `sendMessage`.\n+  Consequently, a local variable at `startSession` is insufficient; the\n+  installation result must live with the live session.\n+- A genuine resume uses `buildChatReorientation`, which has no helper claim\n+  and must remain unchanged. A resume fallback has `resumed: false` and\n+  correctly takes a fresh-preamble path.\n+- `PREAMBLE_SENTINEL` is currently\n+  `You're inside Skillmaker Studio.`, and `PREAMBLE_SEPARATOR` is\n+  `\\n\\n---\\n\\n`. The viewer's replay splitting in\n+  `packages/viewer/src/app/next/chatModel.ts` depends on those exact values.\n+- `packages/cli/test/ChatPreamble.test.ts` currently passes 20 tests but\n+  assumes the William guidance line is unconditional.\n+- `test/e2e/chat-sessions.e2e.test.ts` already creates only\n+  `william-draft-skill-md`. It is therefore an existing partial-install\n+  fixture that can verify the session-start result reaches both full-preamble\n+  paths without adding a new harness.\n+\n+There is no existing proposal dedicated to issue #196, so this plan does not\n+duplicate another dated plan.\n+\n+One issue-report phrase needs a code-truth refinement: the capability probe\n+may continue discarding `installedHelpers` because it has no preamble\n+consumer. Only the real session-start result must cross the delayed prompt\n+boundary. Also, “true when written” means the installation result captured\n+at session start; this change deliberately does not rescan the agent home\n+before every prompt.\n+\n+## Design and data flow\n+\n+Keep `installedHelpers` as a required, readonly list at every boundary where\n+the full preamble can be built:\n+\n+```text\n+prepareAgentHome during startSession\n+  -> LiveChat.installedHelpers\n+     -> readPreambleContext(..., installedHelpers)\n+        -> buildChatPreamble\n+           -> conditional guidance bullet\n+```\n+\n+`LiveChat` is the bridge because the first prompt may be sent after\n+`startSession` returns. Store exactly the array returned by that session's\n+preparation. Do not infer from `HELPER_SKILL_SLUGS`, inspect the filesystem\n+again, or use the earlier capability-probe result.\n+\n+Add `installedHelpers: ReadonlyArray<string>` to `PreambleContext`. Make\n+`readPreambleContext` accept the session's installed-helper list and return it\n+with the existing one-liner, declared stage, and artifact-derived stage. Keep\n+the parameter required rather than defaulting it: a required input makes a\n+future full-preamble call site account for installation state instead of\n+silently recreating the unconditional-claim defect.\n+\n+`buildChatPreamble` will spread either one guidance-line element or no\n+elements into its existing line array. This avoids an empty array element and\n+therefore avoids introducing an extra blank line when no helpers installed.\n+It will use `context.installedHelpers.join(\", \")` without sorting or expanding\n+the known helper family, so partial installation can never name a helper that\n+the preparation result omitted.\n+\n+`buildChatReorientation` continues to accept `PreambleContext` for its\n+existing stage facts but does not read or render `installedHelpers`.\n+\n+## Implementation plan\n+\n+### 1. Retain the session-start installation result\n+\n+In `packages/cli/src/server/ChatSessions.ts`:\n+\n+1. Add an `installedHelpers: ReadonlyArray<string>` field to `LiveChat`.\n+   Initialize it safely for the existing start sequence, then assign the\n+   exact list returned when the real `startSession` call destructures\n+   `{ home, installedHelpers }`.\n+2. Keep the capability-probe destructuring as `{ home }`. Retaining an unused\n+   list there would not improve preamble correctness.\n+3. Do not move preparation into the prompt builders. It includes auth seeding\n+   and helper copying and must remain a session-start operation.\n+4. If a field comment is useful, explain why the session-start snapshot must\n+   survive until the delayed first prompt and cite issue #196. Do not add a\n+   comment that merely narrates the assignment.\n+\n+### 2. Thread the fact through both full-preamble paths\n+\n+In the same file:\n+\n+1. Add the required `installedHelpers` field to `PreambleContext`.\n+2. Extend `readPreambleContext` with a required\n+   `ReadonlyArray<string>` argument and include that exact list in its return\n+   value. Its existing filesystem reads and tolerant stage behavior remain\n+   unchanged.\n+3. Pass `chat.installedHelpers` when `sendOrientationOpening` reads the\n+   preamble context.\n+4. Pass the same value in `sendMessage`'s first-prompt branch. This covers\n+   fresh sessions and resume fallbacks.\n+5. Leave the genuine-resume branch on `buildChatReorientation`; do not add a\n+   helper sentence there.\n+\n+### 3. Render only installed slugs\n+\n+Replace only the existing unconditional guidance element in\n+`buildChatPreamble`:\n+\n+- For a non-empty list, render the exact new form from the Outcome section.\n+- For an empty list, contribute no array element at all.\n+- Preserve the returned order and render no slug outside the list.\n+- Do not change the mission, bundle-layout, pipeline, CLI, direct-project, or\n+  current-step lines.\n+- Do not change `PREAMBLE_SENTINEL`, `PREAMBLE_SEPARATOR`,\n+  `ORIENTATION_INSTRUCTION`, or joining/newline behavior.\n+\n+## Tests\n+\n+### Focused preamble unit tests\n+\n+Extend, rather than replace,\n+`packages/cli/test/ChatPreamble.test.ts`:\n+\n+1. Add `installedHelpers` to the shared `PreambleContext` fixture and all\n+   context literals. Pass an explicit list to `readPreambleContext` and update\n+   its exact return-value assertions, preserving all existing one-liner and\n+   stage tests.\n+2. Replace the broad unconditional William-pointer assumption with three\n+   explicit builder cases:\n+   - helpers present: the bullet names both supplied slugs exactly;\n+   - helpers absent: there is no guidance-skills assertion, agent-home\n+     pointer, or William slug;\n+   - partial install: the bullet names the supplied helper and does not name\n+     the omitted helper.\n+3. Keep the existing assertions for mission, configured bundle layout,\n+   pipeline, CLI guidance, direct-project warning, derived current step,\n+   declared-stage honesty, sentinel, separator, and orientation behavior.\n+4. Add an exact non-helper-lines regression assertion. Compare the preamble\n+   after removing the conditional helper bullet with the current sequence of\n+   all other lines, including blank lines. Run it for the present, absent, and\n+   partial contexts so omission cannot shift or rewrite unrelated content.\n+5. Keep a direct assertion that the preamble itself never contains\n+   `PREAMBLE_SEPARATOR`.\n+\n+### Existing chat-session integration test\n+\n+Tighten `test/e2e/chat-sessions.e2e.test.ts` without adding fixtures:\n+\n+1. Use its existing workspace containing only\n+   `william-draft-skill-md` as the partial-install case.\n+2. In the first-human-message flow, assert that the echoed full preamble names\n+   `william-draft-skill-md` and does not name\n+   `william-research-a-skill`.\n+3. In the agent-speaks-first flow, assert the same against the opening\n+   context. This catches a failure to retain the list on `LiveChat` for the\n+   second full-preamble path.\n+4. In the existing agent-home injection assertion, retain the positive draft\n+   helper check and add a negative research-helper check, tying the preamble\n+   assertions to what actually landed.\n+\n+The unit matrix covers present, absent, and partial inputs. The existing E2E\n+partial fixture covers the production handoff and both delayed preamble\n+emitters.\n+\n+## Validation\n+\n+Run focused checks first:\n+\n+```sh\n+bun test packages/cli/test/ChatPreamble.test.ts\n+bunx tsc --noEmit -p packages/cli\n+bun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000\n+```\n+\n+Then run the repository gates:\n+\n+```sh\n+bunx tsc --noEmit -p packages/core\n+bunx tsc --noEmit -p packages/cli\n+bun test packages\n+bun run build:viewer\n+bun test test/e2e --timeout 30000\n+```\n+\n+The viewer build remains a regression gate, not a source-change requirement.\n+If the focused chat E2E needs `packages/viewer/dist`, run\n+`bun run build:viewer` before that test and do not retain unrelated generated\n+output.\n+\n+## Acceptance criteria\n+\n+- A non-empty installation result produces exactly one guidance bullet naming\n+  every returned slug and no others.\n+- An empty installation result produces no guidance-skills assertion,\n+  missing-helper warning, agent-home pointer, or William-family guess.\n+- A partial installation names only the helper that landed.\n+- Both a first human message and the agent-speaks-first opening use the real\n+  session-start result.\n+- A genuine resume's re-orientation remains byte-identical and gains no helper\n+  mention; a resume fallback uses the fresh conditional preamble.\n+- Every non-helper preamble line and blank-line boundary is byte-identical to\n+  the current output.\n+- `PREAMBLE_SENTINEL` and `PREAMBLE_SEPARATOR` are unchanged.\n+- The focused preamble tests, CLI typecheck, package tests, viewer build, and\n+  E2E suite pass.\n+- No files outside the three listed code/test files are changed during\n+  implementation, except ignored/generated viewer build output required\n+  locally for validation.\n+\n+## Risks and mitigations\n+\n+- **The helper result is lost before a delayed first prompt.** Keep the list\n+  on `LiveChat` and exercise both delayed prompt paths in E2E.\n+- **Conditional omission creates an extra blank line.** Omit the array\n+  element with a conditional spread and compare all non-helper lines exactly.\n+- **A broad family label reintroduces absent slugs.** Render only\n+  `installedHelpers`, preserving its order; assert the omitted slug\n+  negatively in unit and E2E coverage.\n+- **A later #190 change enriches the preparation result type.** Re-read the\n+  current return type before implementation. If #190 lands first, retain its\n+  richer entries but render only their slug field; do not duplicate or undo\n+  its source-resolution work.\n+- **External mutation after session preparation makes the snapshot stale.**\n+  The contract is the completed `prepareAgentHome` result for this session.\n+  Filesystem watching or per-prompt rescanning would expand scope and is not\n+  part of issue #196.\n+\n+## Explicitly out of scope and deferred\n+\n+- Do not fix helper source resolution or packaged-skills fallback; that is\n+  issue #190.\n+- Do not change `prepareAgentHome` copy, cleanup, auth-seeding, or\n+  stale-destination behavior.\n+- Do not add UI banners, warnings, journal events, telemetry, server response\n+  fields, or persisted-session schema.\n+- Do not modify viewer parsing or rendering.\n+- Do not mention helpers in `buildChatReorientation`.\n+- Do not edit `docs/library`.\n+- Defer any broader helper-discovery model, runtime filesystem monitoring, or\n+  warning surface to a separately authorized issue.\ndiff --git a/packages/cli/src/server/ChatSessions.ts b/packages/cli/src/server/ChatSessions.ts\nindex 6938e40..92561aa 100644\n--- a/packages/cli/src/server/ChatSessions.ts\n+++ b/packages/cli/src/server/ChatSessions.ts\n@@ -220,6 +220,8 @@ export interface PreambleContext {\n   readonly stage: PreambleStage;\n   /** The stage DERIVED from artifact existence (deriveArtifactStage) -- what \"The current step is:\" is phrased from. Live-test ruling: the journal said \"idea\" while notes+design+draft+evals all existed. */\n   readonly derivedStage: PreambleStage;\n+  /** Helper skills that prepareAgentHome installed for this live session. */\n+  readonly installedHelpers: ReadonlyArray<string>;\n }\n \n /**\n@@ -279,7 +281,12 @@ export const deriveArtifactStage = (bundleDir: string): PreambleStage => {\n  * probed from which artifacts exist on disk (deriveArtifactStage). Anything\n  * missing or malformed degrades to the default, never throws.\n  */\n-export const readPreambleContext = (root: string, skillsDir: string, slug: string): PreambleContext => {\n+export const readPreambleContext = (\n+  root: string,\n+  skillsDir: string,\n+  slug: string,\n+  installedHelpers: ReadonlyArray<string>,\n+): PreambleContext => {\n   let oneLiner = \"\";\n   try {\n     const identity: unknown = JSON.parse(readFileSync(join(root, skillsDir, slug, \"bundle.json\"), \"utf8\"));\n@@ -308,7 +315,7 @@ export const readPreambleContext = (root: string, skillsDir: string, slug: strin\n   } catch {\n     // No journal yet: a brand-new bundle is honestly at \"idea\".\n   }\n-  return { oneLiner, stage, derivedStage: deriveArtifactStage(join(root, skillsDir, slug)) };\n+  return { oneLiner, stage, derivedStage: deriveArtifactStage(join(root, skillsDir, slug)), installedHelpers };\n };\n \n export const buildChatPreamble = (skill: string, skillsDir: string, context: PreambleContext): string => {\n@@ -321,7 +328,11 @@ export const buildChatPreamble = (skill: string, skillsDir: string, context: Pre\n     ``,\n     `- The bundle lives at ${skillsDir}/${skill}/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).`,\n     `- The pipeline is research/notes.md -> design.md (co-authored in this conversation) -> output/SKILL.md -> evals -> publish; stage moves are human-gated.`,\n-    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n+    ...(context.installedHelpers.length > 0\n+      ? [\n+          `- Your guidance skills (${context.installedHelpers.join(\", \")}) are installed in your agent home -- read the relevant one before acting.`,\n+        ]\n+      : []),\n     `- Studio state -- todos, fixtures, runs, stages -- is read and changed through the \\`skillmaker\\` CLI (run \\`skillmaker --help\\` to see commands). Prefer the CLI over editing .skillmaker/ files by hand.`,\n     `- You are working DIRECTLY in the project; edits are real, not sandboxed.`,\n     ``,\n@@ -427,6 +438,8 @@ interface LiveChat {\n   modelId: string | undefined;\n   /** Effort level in effect (codex only). */\n   effort: string | undefined;\n+  /** Helper skills that session startup actually installed into the agent home. */\n+  installedHelpers: ReadonlyArray<string>;\n   /** Everything streamed since this session spawned; replayed to each new SSE subscriber. */\n   readonly events: ChatStreamEvent[];\n   readonly subscribers: Set<(event: ChatStreamEvent) => void>;\n@@ -772,6 +785,7 @@ export class ChatSessionManager {\n       handle: undefined,\n       modelId: chosenModel,\n       effort: chosenEffort,\n+      installedHelpers: [],\n       events: [],\n       subscribers: new Set(),\n       pendingPermissions: new Map(),\n@@ -783,7 +797,8 @@ export class ChatSessionManager {\n     this.broadcastState(chat);\n \n     const providerProfile = resolveProviderProfile(provider);\n-    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n+    const { home, installedHelpers } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n+    chat.installedHelpers = installedHelpers;\n \n     const outcome = await Effect.runPromise(\n       Effect.result(\n@@ -856,7 +871,7 @@ export class ChatSessionManager {\n   private sendOrientationOpening(skill: string, chat: LiveChat): void {\n     const handle = chat.handle;\n     if (handle === undefined || chat.status !== \"ready\") return;\n-    const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill);\n+    const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill, chat.installedHelpers);\n     const context = `${buildChatPreamble(skill, this.config.skillsDir, bundleContext)}\\n\\n${ORIENTATION_INSTRUCTION}`;\n     this.broadcast(chat, { type: \"user_message\", text: \"\", context, t: new Date().toISOString() });\n     this.dispatchTurn(skill, chat, handle, context, []);\n@@ -894,7 +909,7 @@ export class ChatSessionManager {\n     const isFirstPrompt = !chat.events.some((event) => event.type === \"user_message\");\n     let context: string | undefined;\n     if (isFirstPrompt) {\n-      const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill);\n+      const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill, chat.installedHelpers);\n       context = chat.handle.resumed\n         ? buildChatReorientation(skill, bundleContext)\n         : buildChatPreamble(skill, this.config.skillsDir, bundleContext);\ndiff --git a/packages/cli/test/ChatPreamble.test.ts b/packages/cli/test/ChatPreamble.test.ts\nindex 28cb8aa..be38791 100644\n--- a/packages/cli/test/ChatPreamble.test.ts\n+++ b/packages/cli/test/ChatPreamble.test.ts\n@@ -24,7 +24,12 @@ import {\n const STAGES: ReadonlyArray<PreambleStage> = [\"idea\", \"researching\", \"drafting\", \"evaluating\", \"published\"];\n \n describe(\"buildChatPreamble\", () => {\n-  const context = { oneLiner: \"turn READMEs into onboarding docs\", stage: \"idea\" as const, derivedStage: \"idea\" as const };\n+  const context = {\n+    oneLiner: \"turn READMEs into onboarding docs\",\n+    stage: \"idea\" as const,\n+    derivedStage: \"idea\" as const,\n+    installedHelpers: [\"william-research-a-skill\", \"william-draft-skill-md\"],\n+  };\n \n   test(\"carries the director's template facts: studio, mission, one-liner, slug\", () => {\n     const preamble = buildChatPreamble(\"readme-onboarding\", \"skills\", context);\n@@ -35,9 +40,11 @@ describe(\"buildChatPreamble\", () => {\n     expect(preamble).toContain(\"ship its SKILL.md\");\n   });\n \n-  test(\"points at the agent-home William guidance and the skillmaker CLI, and states direct-edit reality\", () => {\n+  test(\"names the installed guidance helpers, the skillmaker CLI, and direct-edit reality\", () => {\n     const preamble = buildChatPreamble(\"readme-onboarding\", \"skills\", context);\n-    expect(preamble).toContain(\"william-\");\n+    expect(preamble).toContain(\n+      \"Your guidance skills (william-research-a-skill, william-draft-skill-md) are installed in your agent home\",\n+    );\n     expect(preamble).toContain(\"agent home\");\n     expect(preamble).toContain(\"skillmaker\");\n     expect(preamble).toContain(\"DIRECTLY in the project\");\n@@ -45,6 +52,50 @@ describe(\"buildChatPreamble\", () => {\n     expect(preamble).toContain(\"skills/readme-onboarding/\");\n   });\n \n+  test(\"omits the guidance line when no helpers installed\", () => {\n+    const preamble = buildChatPreamble(\"readme-onboarding\", \"skills\", { ...context, installedHelpers: [] });\n+    expect(preamble).not.toContain(\"guidance skills\");\n+    expect(preamble).not.toContain(\"agent home\");\n+    expect(preamble).not.toContain(\"william-\");\n+  });\n+\n+  test(\"names only the helper that installed\", () => {\n+    const preamble = buildChatPreamble(\"readme-onboarding\", \"skills\", {\n+      ...context,\n+      installedHelpers: [\"william-draft-skill-md\"],\n+    });\n+    expect(preamble).toContain(\"Your guidance skills (william-draft-skill-md) are installed\");\n+    expect(preamble).not.toContain(\"william-research-a-skill\");\n+  });\n+\n+  test(\"leaves every non-helper line and blank-line boundary unchanged\", () => {\n+    const expected = [\n+      \"You're inside Skillmaker Studio. Your job is to help me create a reusable SKILL -- turn READMEs into onboarding docs -- as a skillmaker bundle (slug: readme-onboarding) that will eventually ship its SKILL.md.\",\n+      \"\",\n+      \"- The bundle lives at skills/readme-onboarding/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).\",\n+      \"- The pipeline is research/notes.md -> design.md (co-authored in this conversation) -> output/SKILL.md -> evals -> publish; stage moves are human-gated.\",\n+      \"- Studio state -- todos, fixtures, runs, stages -- is read and changed through the `skillmaker` CLI (run `skillmaker --help` to see commands). Prefer the CLI over editing .skillmaker/ files by hand.\",\n+      \"- You are working DIRECTLY in the project; edits are real, not sandboxed.\",\n+      \"\",\n+      `The current step is: ${NEXT_STEP_BY_STAGE.idea}. That's read from the artifacts that actually exist in the bundle (the declared stage is \"idea\" -- stages move at human gates and may lag the artifacts). Do the STEP, not the skill's task itself.`,\n+    ].join(\"\\n\");\n+    const withoutGuidanceLine = (preamble: string): string =>\n+      preamble\n+        .split(\"\\n\")\n+        .filter((line) => !line.startsWith(\"- Your guidance skills \"))\n+        .join(\"\\n\");\n+\n+    const present = buildChatPreamble(\"readme-onboarding\", \"skills\", context);\n+    const absent = buildChatPreamble(\"readme-onboarding\", \"skills\", { ...context, installedHelpers: [] });\n+    const partial = buildChatPreamble(\"readme-onboarding\", \"skills\", {\n+      ...context,\n+      installedHelpers: [\"william-draft-skill-md\"],\n+    });\n+    expect(withoutGuidanceLine(present)).toBe(expected);\n+    expect(absent).toBe(expected);\n+    expect(withoutGuidanceLine(partial)).toBe(expected);\n+  });\n+\n   test(\"encodes the real pipeline, including design.md co-authored in conversation\", () => {\n     const preamble = buildChatPreamble(\"readme-onboarding\", \"skills\", context);\n     expect(preamble).toContain(\"design.md (co-authored in this conversation)\");\n@@ -53,7 +104,7 @@ describe(\"buildChatPreamble\", () => {\n \n   test(\"the current step is phrased from the DERIVED stage; the declared stage is secondary honesty\", () => {\n     for (const derivedStage of STAGES) {\n-      const preamble = buildChatPreamble(\"s\", \"skills\", { oneLiner: \"x\", stage: \"idea\", derivedStage });\n+      const preamble = buildChatPreamble(\"s\", \"skills\", { oneLiner: \"x\", stage: \"idea\", derivedStage, installedHelpers: [] });\n       expect(preamble).toContain(`The current step is: ${NEXT_STEP_BY_STAGE[derivedStage]}.`);\n       expect(preamble).toContain(\"Do the STEP, not the skill's task itself.\");\n     }\n@@ -66,7 +117,12 @@ describe(\"buildChatPreamble\", () => {\n \n   test(\"never asserts the declared stage as truth: it appears only in the may-lag honesty clause\", () => {\n     // The live-tested lie: journal says \"idea\", artifacts say everything exists.\n-    const preamble = buildChatPreamble(\"s\", \"skills\", { oneLiner: \"x\", stage: \"idea\", derivedStage: \"published\" });\n+    const preamble = buildChatPreamble(\"s\", \"skills\", {\n+      oneLiner: \"x\",\n+      stage: \"idea\",\n+      derivedStage: \"published\",\n+      installedHelpers: [],\n+    });\n     expect(preamble).not.toContain(\"at stage idea\");\n     expect(preamble).toContain(`The current step is: ${NEXT_STEP_BY_STAGE.published}.`);\n     expect(preamble).toContain('the declared stage is \"idea\"');\n@@ -75,7 +131,12 @@ describe(\"buildChatPreamble\", () => {\n   });\n \n   test(\"an empty one-liner drops the clause instead of rendering an empty dash\", () => {\n-    const preamble = buildChatPreamble(\"s\", \"skills\", { oneLiner: \"  \", stage: \"idea\", derivedStage: \"idea\" });\n+    const preamble = buildChatPreamble(\"s\", \"skills\", {\n+      oneLiner: \"  \",\n+      stage: \"idea\",\n+      derivedStage: \"idea\",\n+      installedHelpers: [],\n+    });\n     expect(preamble).toContain(\"create a reusable SKILL as a skillmaker bundle\");\n     expect(preamble).not.toContain(\"-- --\");\n   });\n@@ -83,7 +144,12 @@ describe(\"buildChatPreamble\", () => {\n \n describe(\"buildChatReorientation\", () => {\n   test(\"one line: slug, artifact-derived current step, declared stage as honesty, do-the-step\", () => {\n-    const line = buildChatReorientation(\"readme-onboarding\", { oneLiner: \"\", stage: \"researching\", derivedStage: \"drafting\" });\n+    const line = buildChatReorientation(\"readme-onboarding\", {\n+      oneLiner: \"\",\n+      stage: \"researching\",\n+      derivedStage: \"drafting\",\n+      installedHelpers: [],\n+    });\n     expect(line).toStartWith(\"Re-orientation:\");\n     expect(line).toContain('\"readme-onboarding\"');\n     expect(line).toContain(`current step, from the artifacts: ${NEXT_STEP_BY_STAGE.drafting}`);\n@@ -121,17 +187,23 @@ describe(\"readPreambleContext\", () => {\n         join(root, \".skillmaker\", \"events.jsonl\"),\n         `${events.map((event) => JSON.stringify(event)).join(\"\\n\")}\\n`,\n       );\n-      expect(readPreambleContext(root, \"skills\", \"my-skill\")).toEqual({\n+      expect(readPreambleContext(root, \"skills\", \"my-skill\", [\"installed-helper\"])).toEqual({\n         oneLiner: \"does the thing\",\n         stage: \"drafting\",\n         derivedStage: \"idea\",\n+        installedHelpers: [\"installed-helper\"],\n       });\n     });\n   });\n \n   test(\"degrades honestly: no bundle.json, no journal, no artifacts -> empty one-liner, everything idea\", () => {\n     withScratch((root) => {\n-      expect(readPreambleContext(root, \"skills\", \"ghost\")).toEqual({ oneLiner: \"\", stage: \"idea\", derivedStage: \"idea\" });\n+      expect(readPreambleContext(root, \"skills\", \"ghost\", [])).toEqual({\n+        oneLiner: \"\",\n+        stage: \"idea\",\n+        derivedStage: \"idea\",\n+        installedHelpers: [],\n+      });\n     });\n   });\n \n@@ -141,10 +213,11 @@ describe(\"readPreambleContext\", () => {\n       mkdirSync(join(bundleDir, \"research\"), { recursive: true });\n       writeFileSync(join(bundleDir, \"research\", \"notes.md\"), \"# Notes\\n\\nFindings.\\n\");\n       // No journal at all: declared stage degrades to idea, derived stage does not.\n-      expect(readPreambleContext(root, \"skills\", \"my-skill\")).toEqual({\n+      expect(readPreambleContext(root, \"skills\", \"my-skill\", [])).toEqual({\n         oneLiner: \"\",\n         stage: \"idea\",\n         derivedStage: \"researching\",\n+        installedHelpers: [],\n       });\n     });\n   });\n@@ -161,7 +234,7 @@ describe(\"readPreambleContext\", () => {\n           \"\",\n         ].join(\"\\n\"),\n       );\n-      expect(readPreambleContext(root, \"skills\", \"s\").stage).toBe(\"evaluating\");\n+      expect(readPreambleContext(root, \"skills\", \"s\", []).stage).toBe(\"evaluating\");\n     });\n   });\n });\n@@ -250,7 +323,7 @@ describe(\"deriveArtifactStage (the current step comes from what exists, not what\n       writeFileSync(join(bundleDir, \"output\", \"SKILL.md\"), \"skill\\n\");\n       mkdirSync(join(bundleDir, \"evals\", \"fixtures\", \"case-1\"), { recursive: true });\n       const root = join(bundleDir, \"..\", \"..\");\n-      const context = readPreambleContext(root, \"skills\", \"s\");\n+      const context = readPreambleContext(root, \"skills\", \"s\", []);\n       expect(context.stage).toBe(\"idea\");\n       expect(context.derivedStage).toBe(\"published\");\n       const preamble = buildChatPreamble(\"s\", \"skills\", context);\n@@ -277,7 +350,12 @@ describe(\"ORIENTATION_INSTRUCTION (agent speaks first)\", () => {\n describe(\"wire composition constants\", () => {\n   test(\"the separator isolates the user's words from the machine context (the viewer splits on it)\", () => {\n     expect(PREAMBLE_SEPARATOR).toBe(\"\\n\\n---\\n\\n\");\n-    const preamble = buildChatPreamble(\"s\", \"skills\", { oneLiner: \"\", stage: \"idea\", derivedStage: \"idea\" });\n+    const preamble = buildChatPreamble(\"s\", \"skills\", {\n+      oneLiner: \"\",\n+      stage: \"idea\",\n+      derivedStage: \"idea\",\n+      installedHelpers: [],\n+    });\n     // The preamble itself must never contain the separator, or the\n     // viewer's split lands mid-context.\n     expect(preamble).not.toContain(PREAMBLE_SEPARATOR);\ndiff --git a/test/e2e/chat-sessions.e2e.test.ts b/test/e2e/chat-sessions.e2e.test.ts\nindex 61323de..3a5fcba 100644\n--- a/test/e2e/chat-sessions.e2e.test.ts\n+++ b/test/e2e/chat-sessions.e2e.test.ts\n@@ -212,12 +212,13 @@ describe(\"chat sessions (D9)\", () => {\n       const text = agentTextOf(stream.events);\n       // Multi-prompt over one session: the fake counts turns. Turn 1\n       // carries the production-context preamble (Blocker #5): mission,\n-      // slug, stage-appropriate step, William pointer -- then the user's\n+      // slug, stage-appropriate step, installed helper -- then the user's\n       // own words after the separator.\n       expect(text).toContain(\"turn 1: You're inside Skillmaker Studio.\");\n       expect(text).toContain(`(slug: ${SKILL})`);\n       expect(text).toContain(\"The current step is: clarify intent and research.\");\n-      expect(text).toContain(\"william-\");\n+      expect(text).toContain(\"william-draft-skill-md\");\n+      expect(text).not.toContain(\"william-research-a-skill\");\n       expect(text).toContain(\"\\n\\n---\\n\\nhello agent\");\n       expect(text).toContain(\"turn 2: and again\");\n       // The preamble names the skillmaker CLI as the studio-state door (D6)\n@@ -247,6 +248,9 @@ describe(\"chat sessions (D9)\", () => {\n   test(\"agent home injection: helper skill installed under the scratch HOME, never the project\", async () => {\n     const injected = join(scratchHome, \".skillmaker\", \"agent-home\", \"claude-code\", \"skills\", \"william-draft-skill-md\", \"SKILL.md\");\n     expect(existsSync(injected)).toBe(true);\n+    expect(\n+      existsSync(join(scratchHome, \".skillmaker\", \"agent-home\", \"claude-code\", \"skills\", \"william-research-a-skill\")),\n+    ).toBe(false);\n     // Chat runs DIRECT in the project -- no project-level skill install.\n     expect(existsSync(join(scratchDir, \".claude\", \"skills\"))).toBe(false);\n   });\n@@ -407,6 +411,8 @@ describe(\"chat sessions (D9)\", () => {\n       const text = agentTextOf(stream.events);\n       expect(text).toContain(\"turn 1: You're inside Skillmaker Studio.\");\n       expect(text).toContain(\"orients the director\"); // the bundle's one-liner\n+      expect(text).toContain(\"william-draft-skill-md\");\n+      expect(text).not.toContain(\"william-research-a-skill\");\n       expect(text).toContain(\"Orient the director\");\n       // Preamble ALONE: machine context only, no separator, no user words.\n       expect(text).not.toContain(\"\\n\\n---\\n\\n\");\n",
+      "summary": {
+        "files_changed": 4,
+        "additions": 402,
+        "deletions": 21
+      }
+    }
+  },
   "sandbox": {
     "kind": "ready",
     "plan": {
@@ -1780,6 +1887,42 @@
           }
         ],
         "warnings": []
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "exit@1": {
+      "first_event_seq": 822,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-08-04T20:50:03.150666011Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-04T20:50:03.150627531Z",
+      "handler": "exit",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 0,
+        "inference_time_ms": 0,
+        "tool_time_ms": 0,
+        "active_time_ms": 0
+      },
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
       },
       "agent_control": "running",
       "state": "succeeded"
