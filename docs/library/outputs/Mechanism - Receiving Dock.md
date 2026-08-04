@@ -2,7 +2,7 @@
 type: Mechanism
 prefLabel: Receiving Dock
 context: outputs
-status: dormant
+status: superseded
 links:
   related_to:
     - "../_index/Vision - Board Lab Ship Receive"
@@ -17,7 +17,7 @@ links:
 
 ## WHAT
 
-**Dormant (director ruling 2026-08-04).** The Receive loop was removed in
+**Superseded by new information, not by a successor (director ruling 2026-08-04).** The Receive loop was removed in
 the radical simplification (D1; the superseding Vision card records the
 cut). It *might* return: the 2026-08-03 Danvers catch-up revived the
 receiving-dock idea as a demand thesis (org session logs informing the
