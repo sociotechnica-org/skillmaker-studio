@@ -11,6 +11,7 @@ import {
   type ChatState,
 } from "./chatApi.ts";
 import { chatItemsFromEvents, pickPermissionChoices, type ChatItem, type ChatItemImage } from "./chatModel.ts";
+import { clearDraft, loadDraft, pickResumeSession, recallScroll, rememberScroll, saveDraft } from "./composer.ts";
 import { defaultSelection, ModelPicker, selectionSupportsImages, type ModelSelection } from "./ModelPicker.tsx";
 import { BUNDLE_FILES } from "./data.ts";
 import { ChevronIcon, FolderIcon } from "./icons.tsx";
@@ -109,7 +110,9 @@ export function RightPanel({
           onSelect={selectFile}
         />
       ) : (
-        <ChatTab skill={skill} intro={intro} onIntroConsumed={onIntroConsumed} />
+        // Keyed by skill: switching skills remounts the tab so drafts and
+        // scroll memory re-read their per-skill stores cleanly.
+        <ChatTab key={skill} skill={skill} intro={intro} onIntroConsumed={onIntroConsumed} />
       )}
     </div>
   );
@@ -376,18 +379,57 @@ function SentImage({ image }: { readonly image: ChatItemImage }) {
   );
 }
 
+/**
+ * The machine-authored production context prepended to a session's first
+ * prompt (Blocker #5), rendered as a collapsed muted chip -- one quiet line
+ * that expands on click, never a wall of text before the user's message.
+ */
+function ContextChip({ context }: { readonly context: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col items-end pb-1.5">
+      <button
+        type="button"
+        className="flex items-center gap-1 rounded border border-border bg-surface/60 px-2 py-0.5 text-xs text-ink-muted hover:bg-surface"
+        title={open ? "Hide the session context sent to the agent" : "Show the session context sent to the agent"}
+        onClick={() => setOpen(!open)}
+      >
+        <ChevronIcon open={open} />
+        <span>context</span>
+      </button>
+      {open && (
+        <div className="mt-1 max-w-[85%] whitespace-pre-wrap rounded border border-border bg-surface/60 px-3 py-2 text-xs text-ink-muted">
+          {context}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The user's bubble, right-aligned; attached images render above the text. */
 function UserMessage({
   text,
   sentAt,
+  context,
   images = [],
 }: {
   readonly text: string;
   readonly sentAt: string;
+  readonly context?: string;
   readonly images?: ReadonlyArray<ChatItemImage>;
 }) {
+  // The orientation opening is machine context with no user words: just the
+  // collapsed chip, no empty bubble.
+  if (text.length === 0 && images.length === 0 && context !== undefined) {
+    return (
+      <div className="flex flex-col items-end pt-3">
+        <ContextChip context={context} />
+      </div>
+    );
+  }
   return (
     <div className="group flex flex-col items-end pt-3">
+      {context !== undefined && <ContextChip context={context} />}
       <div className="max-w-[85%] rounded-xl bg-amber-50 px-3 py-2 shadow-sm">
         {images.length > 0 && (
           <div className="flex flex-wrap justify-end gap-1.5 pb-1">
@@ -585,14 +627,34 @@ function ChatTab({
   readonly onIntroConsumed?: () => void;
 }) {
   const chat = useChatSession(skill);
-  const [draft, setDraft] = useState("");
+  // Draft persistence (e2e-readiness: "losing typed words is one of the
+  // angriest small bugs"): seeded from localStorage, mirrored on every
+  // keystroke, cleared on send. Survives tab/view switches and reloads.
+  const [draft, setDraftState] = useState(() => loadDraft(skill));
+  const setDraft = (text: string) => {
+    setDraftState(text);
+    saveDraft(skill, text);
+  };
   const [picked, setPicked] = useState<ModelSelection | null>(null);
+  // A provider switch mid-session proposes a NEW session (ruling
+  // 2026-07-30) -- nothing happens silently.
+  const [providerProposal, setProviderProposal] = useState<ModelSelection | null>(null);
   const [pendingImages, setPendingImages] = useState<ReadonlyArray<ChatImagePayload>>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   // undefined = loading, null = endpoint absent -> bare provider names.
   const [catalog, setCatalog] = useState<ReadonlyArray<ChatProviderCatalog> | null | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Sizes the textarea to its content once on mount -- a RESTORED draft
+  // (persistence above) must not sit clipped inside a one-line box.
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (el !== null && el.value.length > 0) {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, []);
 
   useEffect(() => {
     if (!chat.available) return;
@@ -609,10 +671,13 @@ function ChatTab({
   const active = chat.state?.active ?? null;
   const canSend = chat.available && active !== null && active.status === "ready";
 
-  // The selection the picker shows: the ACTIVE session's model when one is
-  // live (server truth), else the user's pick, else the catalog's default.
+  // The selection the picker shows: a pending provider-switch proposal
+  // first, else the ACTIVE session's model when one is live (the picker
+  // FOLLOWS the session -- server truth), else the user's pick, else the
+  // catalog's default.
   const selection: ModelSelection =
-    active !== null
+    providerProposal ??
+    (active !== null
       ? {
           provider: active.provider,
           ...(active.modelId !== undefined ? { model: active.modelId } : {}),
@@ -621,7 +686,7 @@ function ChatTab({
       : picked ??
         defaultSelection(catalog ?? null, chat.state?.providers ?? []) ?? {
           provider: chat.state?.defaultProvider ?? "claude-code",
-        };
+        });
   const imageSupport = selectionSupportsImages(catalog ?? null, selection.provider);
 
   const onSelectionChange = (next: ModelSelection) => {
@@ -629,12 +694,17 @@ function ChatTab({
       setPicked(next);
       return;
     }
+    if (active.status !== "ready") return;
     // Mid-session (between turns): a model/effort change on the SAME
-    // provider goes through session/set_model; other providers' options
-    // are disabled by the picker (lockProvider).
-    if (active.status === "ready" && next.provider === active.provider && next.model !== undefined) {
-      chat.setModel(next.model, next.effort);
+    // provider stays live via session/set_model; a PROVIDER change never
+    // acts silently -- it proposes an explicit new session instead
+    // (director ruling 2026-07-30).
+    if (next.provider === active.provider) {
+      setProviderProposal(null);
+      if (next.model !== undefined) chat.setModel(next.model, next.effort);
+      return;
     }
+    setProviderProposal(next);
   };
 
   // Launcher hand-off: start the session, then send the first prompt the
@@ -664,11 +734,47 @@ function ChatTab({
     }
   }, [intro, skill, chat, active, onIntroConsumed]);
 
-  // Keep the newest message in view as the stream grows.
+  // AUTO-RESUME (director ruling 2026-07-30): a skill with a stored
+  // session picks up where it left off the moment the panel opens -- no
+  // idle "start a session" gate. The chooser remains only when nothing is
+  // stored. The launcher intro path owns its own start; never both.
+  const autoResumeDone = useRef(false);
+  useEffect(() => {
+    if (autoResumeDone.current || intro !== null) return;
+    if (!chat.available || chat.state === undefined) return;
+    if (chat.state.active !== null) {
+      autoResumeDone.current = true;
+      return;
+    }
+    const stored = pickResumeSession(chat.state.resumable);
+    if (stored === null) return;
+    autoResumeDone.current = true;
+    chat.start(stored.provider, "resume");
+  }, [chat, intro]);
+
+  // Transcript scroll retention: a remount (tab/view switch) restores the
+  // remembered position once the replayed stream has content; otherwise
+  // stick to the bottom -- but only while the reader IS at the bottom
+  // (scrolling up to reread must not get yanked down by new items).
+  const pendingRestore = useRef<number | null>(recallScroll(skill));
+  const nearBottom = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (pendingRestore.current !== null && items.length > 0) {
+      el.scrollTop = pendingRestore.current;
+      pendingRestore.current = null;
+      return;
+    }
+    if (nearBottom.current) el.scrollTop = el.scrollHeight;
   }, [items.length, active?.status]);
+  useEffect(
+    () => () => {
+      const el = scrollRef.current;
+      if (el) rememberScroll(skill, el.scrollTop);
+    },
+    [skill],
+  );
 
   const addImageFiles = (files: ReadonlyArray<File>) => {
     if (files.length === 0) return;
@@ -685,31 +791,50 @@ function ChatTab({
     const text = draft.trim();
     if ((text.length === 0 && pendingImages.length === 0) || !canSend) return;
     chat.send(text, pendingImages);
-    setDraft("");
+    setDraftState("");
+    clearDraft(skill);
     setPendingImages([]);
     setImageError(null);
+    nearBottom.current = true;
+    if (composerRef.current !== null) composerRef.current.style.height = "auto";
   };
 
   return (
     <div className="relative flex-1 overflow-hidden">
       {/* messages scroll behind the floating input; bottom padding keeps the
           last message reachable above it */}
-      <div ref={scrollRef} className="h-full overflow-y-auto px-6 pb-28 text-sm">
+      <div
+        ref={scrollRef}
+        className="h-full overflow-y-auto px-6 pb-28 text-sm"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          nearBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;
+        }}
+      >
         {!chat.available && <PlaceholderConversation />}
         {chat.available && chat.state !== undefined && active === null && (
-          <StartChooser
-            state={chat.state}
-            provider={selection.provider}
-            onStart={(provider, mode) =>
-              chat.start(
-                provider,
-                mode,
-                selection.model !== undefined
-                  ? { model: selection.model, ...(selection.effort !== undefined ? { effort: selection.effort } : {}) }
-                  : undefined,
-              )
-            }
-          />
+          // A stored session auto-resumes (effect above); the idle chooser
+          // appears only when nothing is stored -- or the resume errored,
+          // so the buttons come back instead of dead air.
+          pickResumeSession(chat.state.resumable) !== null && chat.state.lastError === undefined ? (
+            <p className="pt-3 text-ink-muted">Resuming your session…</p>
+          ) : (
+            <StartChooser
+              state={chat.state}
+              provider={selection.provider}
+              onStart={(provider, mode) =>
+                // No pending user message on this path: ask for the
+                // agent-speaks-first orientation opening (the server skips it
+                // for a genuine resume, which replays its own history).
+                chat.start(provider, mode, {
+                  ...(selection.model !== undefined
+                    ? { model: selection.model, ...(selection.effort !== undefined ? { effort: selection.effort } : {}) }
+                    : {}),
+                  orient: true,
+                })
+              }
+            />
+          )
         )}
         {chat.available && active !== null && active.status === "starting" && (
           <p className="pt-3 text-ink-muted">Starting the agent…</p>
@@ -720,7 +845,15 @@ function ChatTab({
         {chat.available &&
           items.map((item, i) => {
             if (item.kind === "user")
-              return <UserMessage key={i} text={item.text} sentAt={fmtTime(item.t)} images={item.images} />;
+              return (
+                <UserMessage
+                  key={i}
+                  text={item.text}
+                  sentAt={fmtTime(item.t)}
+                  context={item.context}
+                  images={item.images}
+                />
+              );
             if (item.kind === "agent") return <AgentMessage key={i} text={item.text} sentAt={fmtTime(item.t)} />;
             if (item.kind === "tool") return <ToolChip key={item.toolCallId} title={item.title} status={item.status} />;
             if (item.kind === "permission")
@@ -769,12 +902,57 @@ function ChatTab({
           </div>
         )}
         {imageError !== null && <p className="px-4 pt-2 text-xs text-red-600">{imageError}</p>}
-        <input
-          className="w-full bg-transparent px-4 pb-1.5 pt-3.5 text-sm outline-none disabled:opacity-60"
+        {/* Provider switch mid-session: an explicit door, never a silent act. */}
+        {providerProposal !== null && active !== null && (
+          <div className="mx-3 mt-3 rounded-lg border border-amber-300 bg-amber-50/60 px-3 py-2 text-xs">
+            <p className="pb-1.5">
+              Start a new session with <span className="font-display">{providerProposal.provider}</span>? The current{" "}
+              {active.provider} session stays stored and resumable.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded bg-amber-200 px-2 py-1 hover:bg-amber-300"
+                onClick={() => {
+                  const proposal = providerProposal;
+                  setProviderProposal(null);
+                  chat.start(
+                    proposal.provider,
+                    "new",
+                    proposal.model !== undefined
+                      ? { model: proposal.model, ...(proposal.effort !== undefined ? { effort: proposal.effort } : {}) }
+                      : undefined,
+                  );
+                }}
+              >
+                Start new session
+              </button>
+              <button
+                type="button"
+                className="rounded border border-border px-2 py-1 hover:bg-surface"
+                onClick={() => setProviderProposal(null)}
+              >
+                Keep current
+              </button>
+            </div>
+          </div>
+        )}
+        {/* textarea, not input (walk: "super annoying to type in") -- grows
+            to ~10 lines; Shift+Enter newline, Enter sends, same convention
+            as the launcher's compose box. */}
+        <textarea
+          ref={composerRef}
+          className="max-h-[210px] w-full resize-none bg-transparent px-4 pb-1.5 pt-3.5 text-sm outline-none disabled:opacity-60"
+          rows={1}
           placeholder={canSend || !chat.available ? "What should we do?" : active === null ? "Choose a model to start" : "Agent is working…"}
           value={draft}
           disabled={chat.available && !canSend}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            // Auto-grow up to max-h: reset then track content height.
+            e.target.style.height = "auto";
+            e.target.style.height = `${e.target.scrollHeight}px`;
+          }}
           onPaste={(e) => {
             if (!imageSupport) return;
             const files = Array.from(e.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
@@ -816,13 +994,14 @@ function ChatTab({
             </>
           )}
           <span className="flex-1" />
+          {/* No lockProvider: other providers stay selectable mid-session --
+              picking one proposes an explicit new session (card above). */}
           <ModelPicker
             catalog={catalog ?? null}
             providers={chat.state?.providers ?? []}
             selection={selection}
             onChange={onSelectionChange}
             disabled={active !== null && active.status !== "ready"}
-            {...(active !== null ? { lockProvider: active.provider } : {})}
           />
           <button
             type="button"

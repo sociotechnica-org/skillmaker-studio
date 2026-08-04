@@ -9,8 +9,10 @@ import {
   groupClaimsByFamily,
   modelChipsForClaim,
   promptSummary,
+  RESPONSE_SETTLE_MS,
   runAllButtonLabel,
   runsForFixture,
+  shouldSettleMissingResponse,
   unclaimedFixtureCases,
 } from "./evals.ts";
 import type { Claim, EvalMeasurement, EvalRun } from "./types.ts";
@@ -260,5 +262,34 @@ describe("runAllButtonLabel", () => {
 
   test("single runs active without a sweep: a quiet running state", () => {
     expect(runAllButtonLabel(null, 2)).toBe("running…");
+  });
+});
+
+describe("shouldSettleMissingResponse", () => {
+  const now = Date.parse("2026-08-03T12:00:00Z");
+  const startedAgo = (ms: number): string => new Date(now - ms).toISOString();
+
+  test("a still-running run NEVER settles -- the recorder may be racing the fetch", () => {
+    expect(shouldSettleMissingResponse({ status: "running", startedAt: startedAgo(RESPONSE_SETTLE_MS * 10) }, now)).toBe(false);
+  });
+
+  test("a just-completed run stays retryable inside the settle window", () => {
+    expect(shouldSettleMissingResponse({ status: "completed", startedAt: startedAgo(1000) }, now)).toBe(false);
+    expect(shouldSettleMissingResponse({ status: "completed", startedAt: startedAgo(RESPONSE_SETTLE_MS) }, now)).toBe(false);
+  });
+
+  test("an old terminal run settles into the permanent 'no response'", () => {
+    expect(shouldSettleMissingResponse({ status: "completed", startedAt: startedAgo(RESPONSE_SETTLE_MS + 1) }, now)).toBe(true);
+    expect(shouldSettleMissingResponse({ status: "failed", startedAt: startedAgo(RESPONSE_SETTLE_MS + 1) }, now)).toBe(true);
+    expect(shouldSettleMissingResponse({ status: "infra-error", startedAt: startedAgo(RESPONSE_SETTLE_MS + 1) }, now)).toBe(true);
+  });
+
+  test("unknown/future statuses never settle (honest default: keep looking)", () => {
+    expect(shouldSettleMissingResponse({ status: "queued", startedAt: startedAgo(RESPONSE_SETTLE_MS * 10) }, now)).toBe(false);
+  });
+
+  test("a terminal run with an unparseable startedAt settles -- nothing to wait on", () => {
+    expect(shouldSettleMissingResponse({ status: "completed", startedAt: "not-a-date" }, now)).toBe(true);
+    expect(shouldSettleMissingResponse({ status: "running", startedAt: "not-a-date" }, now)).toBe(false);
   });
 });

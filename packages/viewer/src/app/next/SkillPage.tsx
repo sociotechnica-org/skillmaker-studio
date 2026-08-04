@@ -23,6 +23,11 @@ const TAB_IDLE =
 /** "Current draft" sentinel for the top-level version pivot. */
 export const CURRENT_DRAFT = "current";
 
+/** Journal event families that light the Research tab's unread dot. */
+export const RESEARCH_DOT_PREFIXES = ["station.", "review.", "bundle.", "skill.", "todo."] as const;
+/** Journal event families that light the Eval tab's unread dot. */
+export const EVAL_DOT_PREFIXES = ["run."] as const;
+
 export function SkillPageView({
   slug,
   page,
@@ -40,14 +45,21 @@ export function SkillPageView({
   const [tab, setTab] = useState<CenterTab>("overview");
 
   // Unread dots: the newest event of each family, compared to a per-skill
-  // "last seen" stamp (localStorage). Research listens to station/review
-  // traffic; Eval listens to run traffic (ruled 2026-07-25).
+  // "last seen" stamp (localStorage). Eval listens to run traffic; Research
+  // listens to every OTHER journal family a producer can emit --
+  // station./review. (station path) plus bundle./skill./todo. (the
+  // CLI-driven events chat-path work emits: stage changes, version records,
+  // review requests, minted todos). Walk finding 2026-07-29: the old
+  // station./review.-only trigger never fired for chat-produced research.
+  // Honest limitation: raw file writes from a chat session emit NO journal
+  // events at all -- those still cannot light a dot (see the "how does
+  // landed work announce itself" design thread).
   const stampOf = (prefixes: ReadonlyArray<string>): string => {
     const hit = page.events.find((e) => prefixes.some((p) => e.type.startsWith(p)));
     return hit === undefined ? "" : `${hit.type}-${hit.at}`;
   };
-  const researchStamp = stampOf(["station.", "review."]);
-  const runStamp = stampOf(["run."]);
+  const researchStamp = stampOf(RESEARCH_DOT_PREFIXES);
+  const runStamp = stampOf(EVAL_DOT_PREFIXES);
   const [seen, setSeen] = useState<Record<string, string>>(() => {
     if (typeof window === "undefined") return {};
     try {

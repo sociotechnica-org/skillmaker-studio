@@ -2848,6 +2848,9 @@ const handleProjectApi = async (
           const started = await chatManager.startSession(chatSkill, provider, mode, {
             ...(typeof body.model === "string" && body.model.length > 0 ? { model: body.model } : {}),
             ...(typeof body.effort === "string" && body.effort.length > 0 ? { effort: body.effort } : {}),
+            // Agent-speaks-first: a start with no pending user message asks
+            // for the orientation opening (preamble + orient instruction).
+            ...(body.orient === true ? { orient: true } : {}),
           });
           return started.ok
             ? jsonResponse({ state: started.state })

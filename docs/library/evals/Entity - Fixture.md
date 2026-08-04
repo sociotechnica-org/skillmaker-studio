@@ -86,3 +86,14 @@ tolerant parsing, including the "case.json has a legacy prompt field",
 "prompt.md is missing", "case.json has a malformed source field", and
 "case.json has a malformed context field" warnings; `FixtureAdd.ts`'s
 `--context` flag and `IndexService.ts`'s `fixtures.context` column.
+
+## RULED DIRECTION (NOT SHIPPED): `case.json` → `evals.json`
+
+RULED 2026-07-30 (`docs/friction/e2e-readiness.md`, claims-storage entry):
+`case.json` will be renamed `evals.json`, scheduled together with the
+claims-storage restructure recorded on [[Entity - Risk Map]] — one
+migration, not two. Also pending before any new naming lands: recon of
+smeval's vocabulary (Simon Willison's eval tool; director, 2026-08-03 —
+"renaming will help us bring some clarity to the evals experience") to
+align eval/case/run/score terms where it clarifies. Until that ships, the
+shipped filename is `case.json` exactly as this card's HOW describes.

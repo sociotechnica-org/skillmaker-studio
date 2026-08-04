@@ -5,6 +5,7 @@ import { fetchTasks, useApiData } from "./api.ts";
 import { PROJECTS, TASKS } from "./data.ts";
 import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, MoonIcon, PlusIcon, SunIcon, TasksIcon } from "./icons.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
+import { useJournalTick } from "./liveRefresh.ts";
 import { usePresence } from "./presence.ts";
 import { fetchProjects } from "./projectsApi.ts";
 import { applyTheme, currentTheme, type Theme } from "./theme.ts";
@@ -16,9 +17,14 @@ const VISIBLE_SKILLS = 5;
 export function Sidebar({
   center,
   onNavigate,
+  newProjectOpen,
+  onNewProjectOpenChange,
 }: {
   readonly center: CenterView;
   readonly onNavigate: (view: CenterView) => void;
+  /** Dialog open state lives in the shell so the Board's empty-registry welcome can open the SAME dialog. */
+  readonly newProjectOpen: boolean;
+  readonly onNewProjectOpenChange: (open: boolean) => void;
 }) {
   // Placeholder until the live fetch lands; astro dev without the API keeps
   // rendering data.ts's PROJECTS (fetchProjects resolves null there).
@@ -27,7 +33,6 @@ export function Sidebar({
     Object.fromEntries(PROJECTS.map((p) => [p.name, true])),
   );
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const activeProject = useActiveProject();
   const tasks = useApiData(fetchTasks, TASKS);
   const openTaskCount = tasks.filter((t) => t.state === "open").length;
@@ -46,17 +51,26 @@ export function Sidebar({
   const loadProjects = useCallback(() => {
     let cancelled = false;
     void fetchProjects().then((live) => {
-      if (cancelled || live === null || live.length === 0) return;
+      // `null` = server absent: keep whatever is on screen (placeholders).
+      // An EMPTY live registry is honest data -- render it empty.
+      if (cancelled || live === null) return;
       setProjects(live);
-      // Live projects start expanded, same default the placeholder gets.
-      setOpenProjects(Object.fromEntries(live.map((p) => [p.name, true])));
+      // New projects start expanded; projects already on screen keep the
+      // user's open/closed toggle across refreshes.
+      setOpenProjects((current) =>
+        Object.fromEntries(live.map((p) => [p.name, current[p.name] ?? true])),
+      );
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  useEffect(() => loadProjects(), [loadProjects]);
+  // Refetch on journal ticks from ANY project ("all" scope): a skill
+  // created in a chat session appears under its project without a reload
+  // (e2e-readiness log, parked-high). First run happens on mount (tick 0).
+  const tick = useJournalTick("all");
+  useEffect(() => loadProjects(), [loadProjects, tick]);
 
   return (
     <div className="flex h-full flex-col">
@@ -90,7 +104,7 @@ export function Sidebar({
             type="button"
             className="shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
             title="New project (register a directory)"
-            onClick={() => setNewProjectOpen(true)}
+            onClick={() => onNewProjectOpenChange(true)}
           >
             <PlusIcon />
           </button>
@@ -141,7 +155,7 @@ export function Sidebar({
 
       {newProjectOpen && (
         <NewProjectDialog
-          onClose={() => setNewProjectOpen(false)}
+          onClose={() => onNewProjectOpenChange(false)}
           onRegistered={(slug) => {
             if (slug !== null) {
               setActiveProject(slug);

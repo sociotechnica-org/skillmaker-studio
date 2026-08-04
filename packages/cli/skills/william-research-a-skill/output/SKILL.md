@@ -51,8 +51,27 @@ if one already exists). Follow these steps in order.
    `evals/`, that belongs to a different station. Leave a note in your
    final message instead of editing it.
 
-6. **Stop once `research/notes.md` reflects your research.**
+6. **Finish according to your mode.**
 
+   **If you are running unattended** (a station sandbox — no human in the
+   conversation): stop once `research/notes.md` reflects your research.
    Do not draft `design.md` or `output/SKILL.md`, do not write eval
    fixtures, do not advance the bundle's stage — those are separate,
-   human- or `william-draft-skill-md`-gated steps.
+   human- or `william-draft-skill-md`-gated steps. A human reviews your
+   notes later; your final message is the hand-off.
+
+   **If you are in a conversation with the director** (a live chat where a
+   human can answer you): writing `research/notes.md` is not the end of
+   the step. Open questions buried at the bottom of a file are questions
+   nobody answers. After the notes are written:
+
+   a. Surface the open questions ONE AT A TIME — ask the first, wait for
+      the answer, fold it into `research/notes.md` (resolving or updating
+      its Open questions entry), then ask the next. Never dump the whole
+      list in one message.
+   b. Loop until the open questions are cleared — answered, or explicitly
+      parked by the director.
+   c. Then hand off: "research is done — the next artifact is design.md,
+      co-authored with you; shall we work through it?" Do not draft
+      design.md unprompted; it is co-authored in conversation, never
+      generated solo.

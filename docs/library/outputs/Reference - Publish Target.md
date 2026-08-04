@@ -6,6 +6,7 @@ status: new
 links:
   related_to:
     - "./Mechanism - Publish"
+    - "./Mechanism - Provenance Stamp"
     - "./Entity - Bundle Output"
 ---
 
@@ -66,14 +67,28 @@ note below):
 }
 ```
 
-Verified against the real file: this worktree's own
-`skillmaker.config.json` has `"publishTargets": []` — empty, not the
-example above. No publish target is actually configured in this
-workspace; the `git-dir`/`claude-marketplace`/`codex-marketplace` shapes
-above are drawn from `packages/core/src/Publish.ts`'s implementation and
-its own header comment, not invented, but there is no live example
-target to point to in this checkout. Also verified `PublishTarget`'s
+Verified against the real file (re-checked 2026-08-03): this repo's own
+`skillmaker.config.json` now carries two live targets —
+`{ "id": "dist-skills", "kind": "git-dir", "path": "dist/skills" }` and
+`{ "id": "claude-marketplace", "kind": "claude-marketplace" }` — an
+earlier revision of this card honestly noted the array was empty; it no
+longer is. Also verified `PublishTarget`'s
 schema class directly in `packages/core/src/Workspace.ts`
 (`id: Schema.String, kind: Schema.String, path: Schema.optionalKey(Schema.String)`)
 — `kind` is an open string, not a closed enum, consistent with the code
 supporting more kinds than the doc enumerates.
+
+## IN FLIGHT (PR #185): TWO-AUDIENCE INSTALL TARGETS
+
+The publish-door build (director rulings 2026-08-03, from the E2E walk's
+"Publish step has no UI" blocker — `docs/friction/e2e-readiness.md`) adds
+a second, per-bundle notion of target alongside this workspace-level
+array: exactly two symbolic **audiences**, `"user"` (that machine's
+`~/.claude/skills/<slug>/`) and `"project"` (the workspace's
+`.claude/skills/<slug>/`), remembered per-bundle in `bundle.json`'s own
+`publishTargets` field so the choice travels with the bundle and resolves
+locally on whatever machine it lands on. The workspace-level array
+described above is untouched and stays reachable via `--target` — the
+legacy door. See [[Mechanism - Provenance Stamp]] for the stamp the new
+door writes. Not merged as of this writing — treat as in flight, not
+shipped.

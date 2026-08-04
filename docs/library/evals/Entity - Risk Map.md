@@ -59,3 +59,20 @@ Verified against a real shipped risk-map,
 the exact four-column table header, no results column), and against
 `packages/core/src/RiskMap.ts` (`parseRiskMap`, `checkCoverage`,
 `COVERAGE_VALUES = ["covered", "partial", "gap", "n/a"]`).
+
+## RULED DIRECTION (NOT SHIPPED): CLAIMS MOVE TO STRUCTURED JSON
+
+Director rulings from the from-scratch walk
+(`docs/friction/e2e-readiness.md`, "Claims storage ruling forming",
+firmed 2026-07-30): `risk-map.md` as a parsed markdown table is on its way
+out — "risk-map.md should be completely subsumed by json-stored data. all
+reads/writes to that json data should be enacted through the CLI." The
+direction: claims (risks) move to a bundle-level structured source;
+fixtures reference claim ids; any markdown view is a **render, not the
+source**. Invariant to preserve in the restructure: gap claims (a risk
+with no fixture) need the bundle-level home — per-fixture files cannot be
+the only store. The CLI door also buys journal events for every claim
+mutation (dots, activity, provenance, and chat-path visibility for free)
+— part of the converging "structured data behind CLI doors, prose as
+render, events as witness" architecture. This card's HOW stays accurate
+until that restructure ships; nothing here is built yet.

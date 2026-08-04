@@ -82,3 +82,16 @@ requires `hasApprovedGateAfter` (`bundle.gate_decided` with `gate:
 non-empty `reason`; `override: true` bypasses all guards; stale `from` and
 non-adjacent forward jumps are both rejected. No auto-advance / self-
 promotion code path exists anywhere in `Machine.ts`.
+
+## OPEN QUESTION: WHAT THE GUARDS SHOULD CHECK
+
+The mechanism is settled (one guarded transition, no self-promotion); what
+the guards *check* is now contested (`docs/friction/e2e-readiness.md`).
+Today's guards check reviews and the publish gate — never artifacts. The
+from-scratch walk surfaced the director's "the tab IS the station"
+direction: artifact-existence guards (e.g. `design.md` must exist before
+`drafting`) are concrete and rulable, and this mechanism is where they
+would land — "the Guarded Transition mechanism exists, it just doesn't
+check artifacts today." Bound up with the larger declared-stages vs
+derived-readiness question recorded on [[Mechanism - Bundle Stage]].
+No ruling yet.

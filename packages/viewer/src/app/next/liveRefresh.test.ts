@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BACKOFF_CAP_MS, backoffMs, createTrailingDebounce } from "./liveRefresh.ts";
+import { BACKOFF_CAP_MS, backoffMs, createTrailingDebounce, payloadConcernsActive, scopeWantsBurst } from "./liveRefresh.ts";
 import type { DebounceTimers } from "./liveRefresh.ts";
 
 /**
@@ -125,5 +125,35 @@ describe("backoffMs", () => {
   test("tolerates nonsense attempts without exploding", () => {
     expect(backoffMs(-3)).toBe(1000);
     expect(backoffMs(Number.MAX_SAFE_INTEGER)).toBe(BACKOFF_CAP_MS);
+  });
+});
+
+describe("payloadConcernsActive", () => {
+  test("project-tagged payload matches the active project", () => {
+    const data = JSON.stringify({ kind: "journal", project: "alpha" });
+    expect(payloadConcernsActive(data, "alpha")).toBe(true);
+    expect(payloadConcernsActive(data, "beta")).toBe(false);
+  });
+
+  test("no active project selected: every tagged payload concerns us", () => {
+    expect(payloadConcernsActive(JSON.stringify({ kind: "journal", project: "alpha" }), null)).toBe(true);
+  });
+
+  test("untagged and unparseable payloads concern everyone (eager beats missing)", () => {
+    expect(payloadConcernsActive(JSON.stringify({ kind: "journal" }), "beta")).toBe(true);
+    expect(payloadConcernsActive("journal", "beta")).toBe(true);
+  });
+});
+
+describe("scopeWantsBurst", () => {
+  test('"all" listeners tick on any append, whichever project', () => {
+    expect(scopeWantsBurst("all", { any: true, active: false })).toBe(true);
+    expect(scopeWantsBurst("all", { any: true, active: true })).toBe(true);
+    expect(scopeWantsBurst("all", { any: false, active: false })).toBe(false);
+  });
+
+  test('"active" listeners tick only when the burst touched the active project', () => {
+    expect(scopeWantsBurst("active", { any: true, active: false })).toBe(false);
+    expect(scopeWantsBurst("active", { any: true, active: true })).toBe(true);
   });
 });

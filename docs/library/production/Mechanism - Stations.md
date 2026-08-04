@@ -8,6 +8,7 @@ links:
     - "./Economy - Station Doer"
   related_to:
     - "./Mechanism - Guarded Transition"
+    - "./Mechanism - Packaged Station Skills"
     - "../runs/Entity - Run"
     - "../runs/Mechanism - Review Pair"
     - "../_index/Role - William"
@@ -55,9 +56,14 @@ diverge without breaking others (template provenance is recorded in the
 }
 ```
 
-A station's `skill` is a **bundle slug in the same workspace**: the station
-engine (`packages/core/src/StationEngine.ts`, `runStation`) resolves it to
-`skills/<skill-slug>/`, installs that bundle's `output/` into a temp sandbox
+A station's `skill` is a **bundle slug**, resolved workspace-first with a
+packaged fallback: the station engine (`packages/core/src/StationEngine.ts`,
+`resolveStationSkillDir`) looks for `skills/<skill-slug>/` in the workspace
+and, when absent, falls back to the product-packaged copy
+([[Mechanism - Packaged Station Skills]]) — so a fresh workspace's default
+stations work without hand-carrying William's bundles, and a local copy
+still wins for hacking on William himself. `runStation` then installs the
+resolved bundle's `output/` into a temp sandbox
 as the agent's skill, seeds the sandbox with the current source files named
 by `seeds` + `produces` (`seeds` is read-only upstream context — e.g. the
 drafting station reads the researching station's `research/` — and is never
@@ -85,4 +91,5 @@ field is how a divergent copy is recognized.
 Verified: `packages/core/src/Stations.ts` (`Station`/`StationsFile` schemas,
 `DEFAULT_STATIONS_TEMPLATE` with the exact shape above) and
 `packages/core/src/StationEngine.ts` (`runStation` sandbox pipeline,
-skill-slug resolution, `review.requested` emission).
+`resolveStationSkillDir` with `source: "workspace" | "packaged"` —
+workspace wins, packaged is fallback — and `review.requested` emission).

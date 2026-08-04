@@ -104,6 +104,34 @@ export const claimStatusInScope = (base: ClaimStatus, chips: ReadonlyArray<Model
 export const runsForFixture = (runs: ReadonlyArray<EvalRun>, caseName: string): ReadonlyArray<EvalRun> =>
   runs.filter((r) => r.fixtureCase === caseName).slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 
+/**
+ * How long after a run started a missing `response.md` can still be the
+ * recorder racing the fetch (walk BLOCKER 2026-07-29: a 404 cached as
+ * permanent "No response captured" for a just-completed run). Within this
+ * window a 404 stays retryable -- next journal tick or re-expand refetches.
+ */
+export const RESPONSE_SETTLE_MS = 5 * 60_000;
+
+/** `run.json` statuses that mean the run will write nothing further. */
+const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "infra-error"]);
+
+/**
+ * Should a 404 for a run's `response.md` SETTLE into a permanent "No
+ * response captured"? Only when the run is genuinely done AND old enough
+ * that the recorder cannot still be racing us. A non-terminal run (still
+ * `running`, or an unknown/future status) never settles; a terminal run
+ * whose `startedAt` is unparseable settles (nothing to wait on).
+ */
+export const shouldSettleMissingResponse = (
+  run: { readonly status: string; readonly startedAt: string },
+  nowMs: number,
+): boolean => {
+  if (!TERMINAL_RUN_STATUSES.has(run.status)) return false;
+  const started = Date.parse(run.startedAt);
+  if (Number.isNaN(started)) return true;
+  return nowMs - started > RESPONSE_SETTLE_MS;
+};
+
 /** The claim sentence's budget inside a minted todo title -- titles are one-line handles, the claim row keeps the full sentence. */
 export const GAP_TITLE_SENTENCE_MAX = 72;
 

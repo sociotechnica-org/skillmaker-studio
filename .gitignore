@@ -18,7 +18,7 @@ dist/*
 .skillmaker/*
 !.skillmaker/events.jsonl
 
-.repos/effect
+.repos/
 
 # Viewer static build output (bun run build:viewer) -- machine-local build
 # scratch needed to `skillmaker start` locally, not release history.
