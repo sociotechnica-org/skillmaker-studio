@@ -43,6 +43,7 @@ import { Effect } from "effect";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { HEARTBEAT_MS } from "./Sse.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -689,16 +690,20 @@ export class ChatSessionManager {
     const encoder = new TextEncoder();
     const chat = this.live.get(skill);
     let subscriber: ((event: ChatStreamEvent) => void) | undefined;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
-        const sendEvent = (event: ChatStreamEvent) => {
+        const enqueue = (frame: string) => {
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            controller.enqueue(encoder.encode(frame));
           } catch {
-            // Client disconnected; cancel() will unsubscribe shortly.
+            // Cancellation can race a heartbeat write (#194); cancel() owns cleanup.
           }
         };
-        controller.enqueue(encoder.encode(": connected\n\n"));
+        const sendEvent = (event: ChatStreamEvent) => {
+          enqueue(`data: ${JSON.stringify(event)}\n\n`);
+        };
+        enqueue(": connected\n\n");
         sendEvent({ type: "state", state: this.state(skill) });
         if (chat !== undefined) {
           for (const event of chat.events) sendEvent(event);
@@ -706,8 +711,10 @@ export class ChatSessionManager {
           chat.subscribers.add(sendEvent);
           chat.lastActivityAt = Date.now();
         }
+        heartbeat = setInterval(() => enqueue(": keepalive\n\n"), HEARTBEAT_MS);
       },
       cancel: () => {
+        if (heartbeat !== undefined) clearInterval(heartbeat);
         if (chat !== undefined && subscriber !== undefined) chat.subscribers.delete(subscriber);
       },
     });

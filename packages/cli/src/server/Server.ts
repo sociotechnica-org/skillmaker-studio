@@ -84,9 +84,8 @@ import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 import { loadSkillbook } from "../Skillbook.ts";
 import { handleFsList, handleFsMkdir, handleFsValidate, normalizeAbsolutePath } from "./FsBrowse.ts";
 import { ProjectRegistryManager, type OkProjectContext } from "./ProjectRegistry.ts";
+import { HEARTBEAT_MS } from "./Sse.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
-
-const HEARTBEAT_MS = 15_000;
 
 /**
  * The v1 event catalog (data-model.md §2.9) is much larger than this --
