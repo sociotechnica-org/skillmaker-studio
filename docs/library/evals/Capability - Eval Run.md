@@ -51,3 +51,15 @@ Verified: `packages/cli/src/commands/Run.ts` (`runRun`, the exact `--fixture
 codes via `ok`/`expectedFailure`/`infraError`/`usageError`) and
 `packages/core/src/RunEngine.ts` (`runFixture`'s sandbox → ACP → artifact
 pipeline, the infra-error/failed split).
+
+## OPEN QUESTION: GRADING GRANULARITY
+
+From the walk's first real grade (`docs/friction/e2e-readiness.md`,
+"Grading granularity gap"): a fixture probing 4–5 risks gets ONE run-level
+Pass/Fail — "it could pass some and fail others" and the model can't
+express that; the grade paints every joined claim alike. Near-term
+mitigation is fixture-scoping discipline (one risk or a tight cluster per
+fixture — now a line in the evals-authoring guidance); the real-fix
+candidate is per-risk grading (measurement keyed by fixture × version ×
+model × risk). Feeds the frozen Evals redesign when it thaws; no ruling
+yet.

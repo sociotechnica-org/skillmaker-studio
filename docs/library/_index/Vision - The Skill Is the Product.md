@@ -80,6 +80,18 @@ become fixtures by hand. Demand may one day rebuild a distribution loop;
 the frozen `skill.shipped` / `skill.field_report` events will be waiting in
 history if it does.
 
+**D8 watch (2026-08-03, not a reversal):** the first distribution-loop
+demand EVIDENCE arrived — the Danvers catch-up
+(`docs/sources/2026-08-03-danvers-catchup-product-notes.md`, "Demand
+evidence for the cut distribution loop") supplied a demand *thesis*
+(central org repository, marketplace rollout, install/run analytics, a
+revived receiving dock over org session logs, skill-level permissioning,
+model-change audits) and a persona map in which non-technical buyers value
+distribution and analytics over evals. This is the exact kind of signal
+D8 said to wait for — but it is a thesis from a strategy call, not yet
+felt need from real use, so the cut stands and the watch is logged here
+rather than the loop rebuilt.
+
 ## HOW
 
 - **Two interfaces, one core (D6).** The desktop app is the primary human
@@ -107,4 +119,6 @@ Verified: rulings cross-checked against
 claims it carried (`skill.shipped`/`skill.field_report` exist and freeze;
 `Lab.tsx` mode toggle exists and is now slated to move within-skill). The
 build has not yet caught up to this card — it is the target picture the
-scope-cut work builds toward.
+scope-cut work builds toward. D8-watch note verified against
+`docs/sources/2026-08-03-danvers-catchup-product-notes.md` only — no code
+or ruling changed; the demand evidence is recorded, not acted on.
