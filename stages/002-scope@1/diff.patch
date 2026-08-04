@@ -1,0 +1,288 @@
+diff --git a/docs/proposals/2026-08-04-honest-chat-helper-preamble.md b/docs/proposals/2026-08-04-honest-chat-helper-preamble.md
+new file mode 100644
+index 0000000..293f518
+--- /dev/null
++++ b/docs/proposals/2026-08-04-honest-chat-helper-preamble.md
+@@ -0,0 +1,282 @@
++# Honest Chat Helper Preamble
++
++*Implementation plan — 2026-08-04. GitHub issue #196. Run
++`01KZ77BKMTF836C1KHDHAES1M2`.*
++
++## Status
++
++Ready for implementation. This is a narrowly scoped CLI/server prompt
++correction with focused unit and chat-session integration coverage. It does
++not change helper seeding, the viewer, chat wire delimiters, or any
++user-facing surface.
++
++## Outcome
++
++The first-prompt chat preamble will describe only the guidance helpers that
++`prepareAgentHome` installed for that live session:
++
++| Session-start `installedHelpers` | Preamble behavior |
++|---|---|
++| Two or more slugs | Include one guidance bullet naming every returned slug, in returned order and separated by `, `. |
++| One slug | Include the same bullet naming only that slug. |
++| Empty | Omit the guidance bullet completely. |
++
++The rendered non-empty form is:
++
++```text
++- Your guidance skills (<comma-separated slugs>) are installed in your agent home -- read the relevant one before acting.
++```
++
++There is no missing-helper apology or warning. A preamble with an empty list
++simply proceeds from the pipeline bullet to the existing CLI bullet.
++
++## Verified current state
++
++The issue's defect is present in the current code:
++
++- `packages/cli/src/server/ChatSessions.ts` defines
++  `HELPER_SKILL_SLUGS` as `william-research-a-skill` and
++  `william-draft-skill-md`.
++- `prepareAgentHome` independently resolves and copies each helper, pushes a
++  slug only after its copy completes, and returns
++  `{ home, installedHelpers }`.
++- `buildChatPreamble` currently emits the unconditional
++  `william-*` guidance bullet even when the returned list is empty or
++  partial.
++- Both current `prepareAgentHome` callers destructure only `home`. The
++  capability-probe caller never constructs a preamble; the real
++  `startSession` caller is the result that must be retained.
++- A fresh full preamble can be built later through either
++  `sendOrientationOpening` or the first-message branch in `sendMessage`.
++  Consequently, a local variable at `startSession` is insufficient; the
++  installation result must live with the live session.
++- A genuine resume uses `buildChatReorientation`, which has no helper claim
++  and must remain unchanged. A resume fallback has `resumed: false` and
++  correctly takes a fresh-preamble path.
++- `PREAMBLE_SENTINEL` is currently
++  `You're inside Skillmaker Studio.`, and `PREAMBLE_SEPARATOR` is
++  `\n\n---\n\n`. The viewer's replay splitting in
++  `packages/viewer/src/app/next/chatModel.ts` depends on those exact values.
++- `packages/cli/test/ChatPreamble.test.ts` currently passes 20 tests but
++  assumes the William guidance line is unconditional.
++- `test/e2e/chat-sessions.e2e.test.ts` already creates only
++  `william-draft-skill-md`. It is therefore an existing partial-install
++  fixture that can verify the session-start result reaches both full-preamble
++  paths without adding a new harness.
++
++There is no existing proposal dedicated to issue #196, so this plan does not
++duplicate another dated plan.
++
++One issue-report phrase needs a code-truth refinement: the capability probe
++may continue discarding `installedHelpers` because it has no preamble
++consumer. Only the real session-start result must cross the delayed prompt
++boundary. Also, “true when written” means the installation result captured
++at session start; this change deliberately does not rescan the agent home
++before every prompt.
++
++## Design and data flow
++
++Keep `installedHelpers` as a required, readonly list at every boundary where
++the full preamble can be built:
++
++```text
++prepareAgentHome during startSession
++  -> LiveChat.installedHelpers
++     -> readPreambleContext(..., installedHelpers)
++        -> buildChatPreamble
++           -> conditional guidance bullet
++```
++
++`LiveChat` is the bridge because the first prompt may be sent after
++`startSession` returns. Store exactly the array returned by that session's
++preparation. Do not infer from `HELPER_SKILL_SLUGS`, inspect the filesystem
++again, or use the earlier capability-probe result.
++
++Add `installedHelpers: ReadonlyArray<string>` to `PreambleContext`. Make
++`readPreambleContext` accept the session's installed-helper list and return it
++with the existing one-liner, declared stage, and artifact-derived stage. Keep
++the parameter required rather than defaulting it: a required input makes a
++future full-preamble call site account for installation state instead of
++silently recreating the unconditional-claim defect.
++
++`buildChatPreamble` will spread either one guidance-line element or no
++elements into its existing line array. This avoids an empty array element and
++therefore avoids introducing an extra blank line when no helpers installed.
++It will use `context.installedHelpers.join(", ")` without sorting or expanding
++the known helper family, so partial installation can never name a helper that
++the preparation result omitted.
++
++`buildChatReorientation` continues to accept `PreambleContext` for its
++existing stage facts but does not read or render `installedHelpers`.
++
++## Implementation plan
++
++### 1. Retain the session-start installation result
++
++In `packages/cli/src/server/ChatSessions.ts`:
++
++1. Add an `installedHelpers: ReadonlyArray<string>` field to `LiveChat`.
++   Initialize it safely for the existing start sequence, then assign the
++   exact list returned when the real `startSession` call destructures
++   `{ home, installedHelpers }`.
++2. Keep the capability-probe destructuring as `{ home }`. Retaining an unused
++   list there would not improve preamble correctness.
++3. Do not move preparation into the prompt builders. It includes auth seeding
++   and helper copying and must remain a session-start operation.
++4. If a field comment is useful, explain why the session-start snapshot must
++   survive until the delayed first prompt and cite issue #196. Do not add a
++   comment that merely narrates the assignment.
++
++### 2. Thread the fact through both full-preamble paths
++
++In the same file:
++
++1. Add the required `installedHelpers` field to `PreambleContext`.
++2. Extend `readPreambleContext` with a required
++   `ReadonlyArray<string>` argument and include that exact list in its return
++   value. Its existing filesystem reads and tolerant stage behavior remain
++   unchanged.
++3. Pass `chat.installedHelpers` when `sendOrientationOpening` reads the
++   preamble context.
++4. Pass the same value in `sendMessage`'s first-prompt branch. This covers
++   fresh sessions and resume fallbacks.
++5. Leave the genuine-resume branch on `buildChatReorientation`; do not add a
++   helper sentence there.
++
++### 3. Render only installed slugs
++
++Replace only the existing unconditional guidance element in
++`buildChatPreamble`:
++
++- For a non-empty list, render the exact new form from the Outcome section.
++- For an empty list, contribute no array element at all.
++- Preserve the returned order and render no slug outside the list.
++- Do not change the mission, bundle-layout, pipeline, CLI, direct-project, or
++  current-step lines.
++- Do not change `PREAMBLE_SENTINEL`, `PREAMBLE_SEPARATOR`,
++  `ORIENTATION_INSTRUCTION`, or joining/newline behavior.
++
++## Tests
++
++### Focused preamble unit tests
++
++Extend, rather than replace,
++`packages/cli/test/ChatPreamble.test.ts`:
++
++1. Add `installedHelpers` to the shared `PreambleContext` fixture and all
++   context literals. Pass an explicit list to `readPreambleContext` and update
++   its exact return-value assertions, preserving all existing one-liner and
++   stage tests.
++2. Replace the broad unconditional William-pointer assumption with three
++   explicit builder cases:
++   - helpers present: the bullet names both supplied slugs exactly;
++   - helpers absent: there is no guidance-skills assertion, agent-home
++     pointer, or William slug;
++   - partial install: the bullet names the supplied helper and does not name
++     the omitted helper.
++3. Keep the existing assertions for mission, configured bundle layout,
++   pipeline, CLI guidance, direct-project warning, derived current step,
++   declared-stage honesty, sentinel, separator, and orientation behavior.
++4. Add an exact non-helper-lines regression assertion. Compare the preamble
++   after removing the conditional helper bullet with the current sequence of
++   all other lines, including blank lines. Run it for the present, absent, and
++   partial contexts so omission cannot shift or rewrite unrelated content.
++5. Keep a direct assertion that the preamble itself never contains
++   `PREAMBLE_SEPARATOR`.
++
++### Existing chat-session integration test
++
++Tighten `test/e2e/chat-sessions.e2e.test.ts` without adding fixtures:
++
++1. Use its existing workspace containing only
++   `william-draft-skill-md` as the partial-install case.
++2. In the first-human-message flow, assert that the echoed full preamble names
++   `william-draft-skill-md` and does not name
++   `william-research-a-skill`.
++3. In the agent-speaks-first flow, assert the same against the opening
++   context. This catches a failure to retain the list on `LiveChat` for the
++   second full-preamble path.
++4. In the existing agent-home injection assertion, retain the positive draft
++   helper check and add a negative research-helper check, tying the preamble
++   assertions to what actually landed.
++
++The unit matrix covers present, absent, and partial inputs. The existing E2E
++partial fixture covers the production handoff and both delayed preamble
++emitters.
++
++## Validation
++
++Run focused checks first:
++
++```sh
++bun test packages/cli/test/ChatPreamble.test.ts
++bunx tsc --noEmit -p packages/cli
++bun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000
++```
++
++Then run the repository gates:
++
++```sh
++bunx tsc --noEmit -p packages/core
++bunx tsc --noEmit -p packages/cli
++bun test packages
++bun run build:viewer
++bun test test/e2e --timeout 30000
++```
++
++The viewer build remains a regression gate, not a source-change requirement.
++If the focused chat E2E needs `packages/viewer/dist`, run
++`bun run build:viewer` before that test and do not retain unrelated generated
++output.
++
++## Acceptance criteria
++
++- A non-empty installation result produces exactly one guidance bullet naming
++  every returned slug and no others.
++- An empty installation result produces no guidance-skills assertion,
++  missing-helper warning, agent-home pointer, or William-family guess.
++- A partial installation names only the helper that landed.
++- Both a first human message and the agent-speaks-first opening use the real
++  session-start result.
++- A genuine resume's re-orientation remains byte-identical and gains no helper
++  mention; a resume fallback uses the fresh conditional preamble.
++- Every non-helper preamble line and blank-line boundary is byte-identical to
++  the current output.
++- `PREAMBLE_SENTINEL` and `PREAMBLE_SEPARATOR` are unchanged.
++- The focused preamble tests, CLI typecheck, package tests, viewer build, and
++  E2E suite pass.
++- No files outside the three listed code/test files are changed during
++  implementation, except ignored/generated viewer build output required
++  locally for validation.
++
++## Risks and mitigations
++
++- **The helper result is lost before a delayed first prompt.** Keep the list
++  on `LiveChat` and exercise both delayed prompt paths in E2E.
++- **Conditional omission creates an extra blank line.** Omit the array
++  element with a conditional spread and compare all non-helper lines exactly.
++- **A broad family label reintroduces absent slugs.** Render only
++  `installedHelpers`, preserving its order; assert the omitted slug
++  negatively in unit and E2E coverage.
++- **A later #190 change enriches the preparation result type.** Re-read the
++  current return type before implementation. If #190 lands first, retain its
++  richer entries but render only their slug field; do not duplicate or undo
++  its source-resolution work.
++- **External mutation after session preparation makes the snapshot stale.**
++  The contract is the completed `prepareAgentHome` result for this session.
++  Filesystem watching or per-prompt rescanning would expand scope and is not
++  part of issue #196.
++
++## Explicitly out of scope and deferred
++
++- Do not fix helper source resolution or packaged-skills fallback; that is
++  issue #190.
++- Do not change `prepareAgentHome` copy, cleanup, auth-seeding, or
++  stale-destination behavior.
++- Do not add UI banners, warnings, journal events, telemetry, server response
++  fields, or persisted-session schema.
++- Do not modify viewer parsing or rendering.
++- Do not mention helpers in `buildChatReorientation`.
++- Do not edit `docs/library`.
++- Defer any broader helper-discovery model, runtime filesystem monitoring, or
++  warning surface to a separately authorized issue.

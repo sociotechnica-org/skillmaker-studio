@@ -491,7 +491,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-04T20:27:47.497049179Z",
-  "last_event_at": "2026-08-04T20:35:02.004505667Z",
+  "last_event_at": "2026-08-04T20:40:20.719554131Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -534,9 +534,9 @@
       "diff": {}
     },
     {
-      "seq": 0,
+      "seq": 364,
       "checkpoint": {
-        "timestamp": "2026-08-04T20:35:02.326568981Z",
+        "timestamp": "2026-08-04T20:35:08.048747060Z",
         "current_node": "scope",
         "completed_nodes": [
           "start",
@@ -544,26 +544,26 @@
         ],
         "node_retries": {},
         "context_values": {
+          "thread.start.current_node": "scope",
           "failure_signature": "",
-          "last_response": "Created the durable implementation plan at [2026-08-04-honest-chat-helper-preamble.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\nIt verifies",
-          "internal.node_visit_count": 1,
-          "graph.default_fidelity": "summary:high",
-          "graph.goal": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/196\n\n## Summary\n\nThe chat preamble tells every agent \"Your guidance skills are installed in your\nagent home -- read the relevant william-* skill before acting.\" When seeding\ninstalled nothing, that sentence is false, and the agent does what a competent\nagent should: it goes looking for the skills it was promised. `prepareAgentHome`\nalready returns exactly the fact needed to tell the truth — `installedHelpers` —\nand the call site throws it away.\n\n## Motivation / Problem\n\nAn instruction that names an artifact which isn't there is worse than no\ninstruction: it converts a missing dependency into a filesystem search. In the\nlive session that produced this ticket, the agent's first move was\n`ls ~/.skillmaker/agent-home/claude-code/skills/`, and when that came back\nempty it escalated to `find / -maxdepth 8 -type d -iname \"william-*\"` and a\nsweep of the operator's other repos. Each of those is a path outside the\nproject, so each one raised a permission card.\n\nThis is a *distinct* defect from the seeding bug (#190). Fixing #190 makes the\nhelpers present in shipped builds — but a source checkout with no packaged\nskills directory, or a future helper slug that fails to resolve, will still be\nannounced as installed. The preamble should assert only what is true at the\nmoment it is written.\n\n## Observed behavior\n\nFresh project on v0.6.2, chat session started on a new bundle. The agent home\ncontains no `skills/` directory. The preamble nonetheless states the skills are\ninstalled, and the session opens with a multi-command hunt across the machine\nfor `william-*` before any bundle work begins.\n\n## Current shape\n\nThe claim, `packages/cli/src/server/ChatSessions.ts:324`:\n\n```ts\n    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n```\n\nIt is unconditional — a constant line in the preamble array, with no input from\nwhether seeding succeeded.\n\nMeanwhile `prepareAgentHome` computes and returns precisely that\n(`ChatSessions.ts:160`, `:179-181`):\n\n```ts\n): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n```\n```ts\n    installed.push(slug);\n  }\n  return { home, installedHelpers: installed };\n```\n\nand both call sites discard it — `ChatSessions.ts:598` and `:793`:\n\n```ts\n    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n```\n\nThe trap worth naming: the information needed to be honest is already computed,\nalready returned, and already at the call site. This is not a missing capability;\nit is a discarded return value.\n\n## Proposed contract\n\nThe helper line is conditional on what actually installed:\n\n| `installedHelpers` | Preamble line |\n|---|---|\n| non-empty | `- Your guidance skills (<slugs>) are installed in your agent home -- read the relevant one before acting.` |\n| empty | line omitted entirely |\n\n**Decisions:**\n\n- When helpers installed, the line **names the slugs actually present**, so the\n  agent reads what exists rather than guessing at a family name.\n- When none installed, the line is **omitted**, not replaced with an apology.\n  An agent told nothing about guidance skills proceeds on the bundle; an agent\n  told they are \"missing\" may go hunting anyway.\n- Partial installs name only the slugs that landed.\n- `installedHelpers` is threaded to the preamble builder. `PreambleContext`\n  gains a field; no other preamble line changes.\n- The re-orientation preamble (`buildChatReorientation`, `ChatSessions.ts:349`)\n  does not mention helpers today and does not gain a mention.\n- No UI, no journal event, no warning surface. The scope is the preamble string.\n\n## Acceptance criteria\n\n- [ ] With helpers installed, the preamble states they are installed and names\n      the installed slugs.\n- [ ] With no helpers installed, the preamble contains no sentence asserting\n      guidance skills are available anywhere.\n- [ ] Partial install: only the slugs that actually landed are named.\n- [ ] Negative: the preamble never names a slug absent from the agent home.\n- [ ] Regression: every other preamble line — bundle layout, pipeline, CLI\n      guidance, direct-in-project warning, and the derived-stage \"current step\"\n      sentence — is byte-identical to today.\n- [ ] Regression: `packages/cli/test/ChatPreamble.test.ts` passes, extended\n      rather than rewritten.\n- [ ] Regression: `PREAMBLE_SENTINEL` is unchanged — the viewer splits replayed\n      first prompts on it (`chatModel.ts`).\n- [ ] Tests cover: helpers-present, helpers-absent, and partial-install.\n\n## Implementation notes\n\nBoth call sites already destructure the result; the change is to keep the second\nfield and pass it through. Prefer threading it into `PreambleContext` over\nrecomputing installation state inside the preamble builder — the builder is\ndeliberately synchronous and filesystem-light.\n\nScope fences:\n\n- **Do not fix the seeding here.** That is #190. This issue is about the\n  preamble telling the truth about whatever seeding did.\n- **Do not add a user-facing warning.** A missing helper is not a condition the\n  director needs a banner for.\n- **Do not change `PREAMBLE_SENTINEL` or the separator** — the viewer parses on\n  both.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — the claim (:324), the preamble\n  builder (:320-329), `prepareAgentHome` (:156-182), call sites (:598, :793)\n- `packages/cli/test/ChatPreamble.test.ts` — existing coverage\n\n---\n\n**Related:** #190 (packaged-skills fallback for the agent home). #190 makes the\nhelpers present; this makes the preamble honest when they aren't.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
-          "graph.rankdir": "LR",
           "internal.fidelity": "summary:high",
-          "current_node": "scope",
-          "internal.retry_count.start": 0,
-          "outcome": "succeeded",
+          "internal.run_id": "01KZ77BKMTF836C1KHDHAES1M2",
+          "internal.thread_id": "start",
+          "graph.goal": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/196\n\n## Summary\n\nThe chat preamble tells every agent \"Your guidance skills are installed in your\nagent home -- read the relevant william-* skill before acting.\" When seeding\ninstalled nothing, that sentence is false, and the agent does what a competent\nagent should: it goes looking for the skills it was promised. `prepareAgentHome`\nalready returns exactly the fact needed to tell the truth — `installedHelpers` —\nand the call site throws it away.\n\n## Motivation / Problem\n\nAn instruction that names an artifact which isn't there is worse than no\ninstruction: it converts a missing dependency into a filesystem search. In the\nlive session that produced this ticket, the agent's first move was\n`ls ~/.skillmaker/agent-home/claude-code/skills/`, and when that came back\nempty it escalated to `find / -maxdepth 8 -type d -iname \"william-*\"` and a\nsweep of the operator's other repos. Each of those is a path outside the\nproject, so each one raised a permission card.\n\nThis is a *distinct* defect from the seeding bug (#190). Fixing #190 makes the\nhelpers present in shipped builds — but a source checkout with no packaged\nskills directory, or a future helper slug that fails to resolve, will still be\nannounced as installed. The preamble should assert only what is true at the\nmoment it is written.\n\n## Observed behavior\n\nFresh project on v0.6.2, chat session started on a new bundle. The agent home\ncontains no `skills/` directory. The preamble nonetheless states the skills are\ninstalled, and the session opens with a multi-command hunt across the machine\nfor `william-*` before any bundle work begins.\n\n## Current shape\n\nThe claim, `packages/cli/src/server/ChatSessions.ts:324`:\n\n```ts\n    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n```\n\nIt is unconditional — a constant line in the preamble array, with no input from\nwhether seeding succeeded.\n\nMeanwhile `prepareAgentHome` computes and returns precisely that\n(`ChatSessions.ts:160`, `:179-181`):\n\n```ts\n): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n```\n```ts\n    installed.push(slug);\n  }\n  return { home, installedHelpers: installed };\n```\n\nand both call sites discard it — `ChatSessions.ts:598` and `:793`:\n\n```ts\n    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n```\n\nThe trap worth naming: the information needed to be honest is already computed,\nalready returned, and already at the call site. This is not a missing capability;\nit is a discarded return value.\n\n## Proposed contract\n\nThe helper line is conditional on what actually installed:\n\n| `installedHelpers` | Preamble line |\n|---|---|\n| non-empty | `- Your guidance skills (<slugs>) are installed in your agent home -- read the relevant one before acting.` |\n| empty | line omitted entirely |\n\n**Decisions:**\n\n- When helpers installed, the line **names the slugs actually present**, so the\n  agent reads what exists rather than guessing at a family name.\n- When none installed, the line is **omitted**, not replaced with an apology.\n  An agent told nothing about guidance skills proceeds on the bundle; an agent\n  told they are \"missing\" may go hunting anyway.\n- Partial installs name only the slugs that landed.\n- `installedHelpers` is threaded to the preamble builder. `PreambleContext`\n  gains a field; no other preamble line changes.\n- The re-orientation preamble (`buildChatReorientation`, `ChatSessions.ts:349`)\n  does not mention helpers today and does not gain a mention.\n- No UI, no journal event, no warning surface. The scope is the preamble string.\n\n## Acceptance criteria\n\n- [ ] With helpers installed, the preamble states they are installed and names\n      the installed slugs.\n- [ ] With no helpers installed, the preamble contains no sentence asserting\n      guidance skills are available anywhere.\n- [ ] Partial install: only the slugs that actually landed are named.\n- [ ] Negative: the preamble never names a slug absent from the agent home.\n- [ ] Regression: every other preamble line — bundle layout, pipeline, CLI\n      guidance, direct-in-project warning, and the derived-stage \"current step\"\n      sentence — is byte-identical to today.\n- [ ] Regression: `packages/cli/test/ChatPreamble.test.ts` passes, extended\n      rather than rewritten.\n- [ ] Regression: `PREAMBLE_SENTINEL` is unchanged — the viewer splits replayed\n      first prompts on it (`chatModel.ts`).\n- [ ] Tests cover: helpers-present, helpers-absent, and partial-install.\n\n## Implementation notes\n\nBoth call sites already destructure the result; the change is to keep the second\nfield and pass it through. Prefer threading it into `PreambleContext` over\nrecomputing installation state inside the preamble builder — the builder is\ndeliberately synchronous and filesystem-light.\n\nScope fences:\n\n- **Do not fix the seeding here.** That is #190. This issue is about the\n  preamble telling the truth about whatever seeding did.\n- **Do not add a user-facing warning.** A missing helper is not a condition the\n  director needs a banner for.\n- **Do not change `PREAMBLE_SENTINEL` or the separator** — the viewer parses on\n  both.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — the claim (:324), the preamble\n  builder (:320-329), `prepareAgentHome` (:156-182), call sites (:598, :793)\n- `packages/cli/test/ChatPreamble.test.ts` — existing coverage\n\n---\n\n**Related:** #190 (packaged-skills fallback for the agent home). #190 makes the\nhelpers present; this makes the preamble honest when they aren't.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
           "graph.max_node_visits": "5",
-          "last_stage": "scope",
+          "last_response": "Created the durable implementation plan at [2026-08-04-honest-chat-helper-preamble.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\nIt verifies",
+          "failure_class": "",
+          "current_node": "scope",
+          "graph.rankdir": "LR",
+          "internal.node_visit_count": 1,
+          "outcome": "succeeded",
           "response.scope": "Created the durable implementation plan at [2026-08-04-honest-chat-helper-preamble.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\nIt verifies the current data flow, scopes changes to chat session state and preamble construction, and covers helpers-present, helpers-absent, partial installation, both fresh-prompt paths, and byte-identical regressions. No implementation files were edited; the current focused test baseline passes all 20 tests.\n\nPlan ready for implementation: docs/proposals/2026-08-04-honest-chat-helper-preamble.md",
           "internal.retry_count.scope": 0,
-          "internal.run_id": "01KZ77BKMTF836C1KHDHAES1M2",
+          "internal.retry_count.start": 0,
           "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
-          "internal.thread_id": "start",
-          "failure_class": "",
-          "graph.stall_timeout": "18000000ms",
-          "thread.start.current_node": "scope"
+          "last_stage": "scope",
+          "graph.default_fidelity": "summary:high",
+          "graph.stall_timeout": "18000000ms"
         },
         "node_outcomes": {
           "start": {
@@ -608,9 +608,140 @@
           }
         },
         "next_node_id": "implement",
+        "git_commit_sha": "2e30f0ba0e970dd5e6bd7664590ba67ba1691af9",
+        "node_visits": {
+          "scope": 1,
+          "start": 1
+        }
+      },
+      "diff": {
+        "patch": "diff --git a/docs/proposals/2026-08-04-honest-chat-helper-preamble.md b/docs/proposals/2026-08-04-honest-chat-helper-preamble.md\nnew file mode 100644\nindex 0000000..293f518\n--- /dev/null\n+++ b/docs/proposals/2026-08-04-honest-chat-helper-preamble.md\n@@ -0,0 +1,282 @@\n+# Honest Chat Helper Preamble\n+\n+*Implementation plan — 2026-08-04. GitHub issue #196. Run\n+`01KZ77BKMTF836C1KHDHAES1M2`.*\n+\n+## Status\n+\n+Ready for implementation. This is a narrowly scoped CLI/server prompt\n+correction with focused unit and chat-session integration coverage. It does\n+not change helper seeding, the viewer, chat wire delimiters, or any\n+user-facing surface.\n+\n+## Outcome\n+\n+The first-prompt chat preamble will describe only the guidance helpers that\n+`prepareAgentHome` installed for that live session:\n+\n+| Session-start `installedHelpers` | Preamble behavior |\n+|---|---|\n+| Two or more slugs | Include one guidance bullet naming every returned slug, in returned order and separated by `, `. |\n+| One slug | Include the same bullet naming only that slug. |\n+| Empty | Omit the guidance bullet completely. |\n+\n+The rendered non-empty form is:\n+\n+```text\n+- Your guidance skills (<comma-separated slugs>) are installed in your agent home -- read the relevant one before acting.\n+```\n+\n+There is no missing-helper apology or warning. A preamble with an empty list\n+simply proceeds from the pipeline bullet to the existing CLI bullet.\n+\n+## Verified current state\n+\n+The issue's defect is present in the current code:\n+\n+- `packages/cli/src/server/ChatSessions.ts` defines\n+  `HELPER_SKILL_SLUGS` as `william-research-a-skill` and\n+  `william-draft-skill-md`.\n+- `prepareAgentHome` independently resolves and copies each helper, pushes a\n+  slug only after its copy completes, and returns\n+  `{ home, installedHelpers }`.\n+- `buildChatPreamble` currently emits the unconditional\n+  `william-*` guidance bullet even when the returned list is empty or\n+  partial.\n+- Both current `prepareAgentHome` callers destructure only `home`. The\n+  capability-probe caller never constructs a preamble; the real\n+  `startSession` caller is the result that must be retained.\n+- A fresh full preamble can be built later through either\n+  `sendOrientationOpening` or the first-message branch in `sendMessage`.\n+  Consequently, a local variable at `startSession` is insufficient; the\n+  installation result must live with the live session.\n+- A genuine resume uses `buildChatReorientation`, which has no helper claim\n+  and must remain unchanged. A resume fallback has `resumed: false` and\n+  correctly takes a fresh-preamble path.\n+- `PREAMBLE_SENTINEL` is currently\n+  `You're inside Skillmaker Studio.`, and `PREAMBLE_SEPARATOR` is\n+  `\\n\\n---\\n\\n`. The viewer's replay splitting in\n+  `packages/viewer/src/app/next/chatModel.ts` depends on those exact values.\n+- `packages/cli/test/ChatPreamble.test.ts` currently passes 20 tests but\n+  assumes the William guidance line is unconditional.\n+- `test/e2e/chat-sessions.e2e.test.ts` already creates only\n+  `william-draft-skill-md`. It is therefore an existing partial-install\n+  fixture that can verify the session-start result reaches both full-preamble\n+  paths without adding a new harness.\n+\n+There is no existing proposal dedicated to issue #196, so this plan does not\n+duplicate another dated plan.\n+\n+One issue-report phrase needs a code-truth refinement: the capability probe\n+may continue discarding `installedHelpers` because it has no preamble\n+consumer. Only the real session-start result must cross the delayed prompt\n+boundary. Also, “true when written” means the installation result captured\n+at session start; this change deliberately does not rescan the agent home\n+before every prompt.\n+\n+## Design and data flow\n+\n+Keep `installedHelpers` as a required, readonly list at every boundary where\n+the full preamble can be built:\n+\n+```text\n+prepareAgentHome during startSession\n+  -> LiveChat.installedHelpers\n+     -> readPreambleContext(..., installedHelpers)\n+        -> buildChatPreamble\n+           -> conditional guidance bullet\n+```\n+\n+`LiveChat` is the bridge because the first prompt may be sent after\n+`startSession` returns. Store exactly the array returned by that session's\n+preparation. Do not infer from `HELPER_SKILL_SLUGS`, inspect the filesystem\n+again, or use the earlier capability-probe result.\n+\n+Add `installedHelpers: ReadonlyArray<string>` to `PreambleContext`. Make\n+`readPreambleContext` accept the session's installed-helper list and return it\n+with the existing one-liner, declared stage, and artifact-derived stage. Keep\n+the parameter required rather than defaulting it: a required input makes a\n+future full-preamble call site account for installation state instead of\n+silently recreating the unconditional-claim defect.\n+\n+`buildChatPreamble` will spread either one guidance-line element or no\n+elements into its existing line array. This avoids an empty array element and\n+therefore avoids introducing an extra blank line when no helpers installed.\n+It will use `context.installedHelpers.join(\", \")` without sorting or expanding\n+the known helper family, so partial installation can never name a helper that\n+the preparation result omitted.\n+\n+`buildChatReorientation` continues to accept `PreambleContext` for its\n+existing stage facts but does not read or render `installedHelpers`.\n+\n+## Implementation plan\n+\n+### 1. Retain the session-start installation result\n+\n+In `packages/cli/src/server/ChatSessions.ts`:\n+\n+1. Add an `installedHelpers: ReadonlyArray<string>` field to `LiveChat`.\n+   Initialize it safely for the existing start sequence, then assign the\n+   exact list returned when the real `startSession` call destructures\n+   `{ home, installedHelpers }`.\n+2. Keep the capability-probe destructuring as `{ home }`. Retaining an unused\n+   list there would not improve preamble correctness.\n+3. Do not move preparation into the prompt builders. It includes auth seeding\n+   and helper copying and must remain a session-start operation.\n+4. If a field comment is useful, explain why the session-start snapshot must\n+   survive until the delayed first prompt and cite issue #196. Do not add a\n+   comment that merely narrates the assignment.\n+\n+### 2. Thread the fact through both full-preamble paths\n+\n+In the same file:\n+\n+1. Add the required `installedHelpers` field to `PreambleContext`.\n+2. Extend `readPreambleContext` with a required\n+   `ReadonlyArray<string>` argument and include that exact list in its return\n+   value. Its existing filesystem reads and tolerant stage behavior remain\n+   unchanged.\n+3. Pass `chat.installedHelpers` when `sendOrientationOpening` reads the\n+   preamble context.\n+4. Pass the same value in `sendMessage`'s first-prompt branch. This covers\n+   fresh sessions and resume fallbacks.\n+5. Leave the genuine-resume branch on `buildChatReorientation`; do not add a\n+   helper sentence there.\n+\n+### 3. Render only installed slugs\n+\n+Replace only the existing unconditional guidance element in\n+`buildChatPreamble`:\n+\n+- For a non-empty list, render the exact new form from the Outcome section.\n+- For an empty list, contribute no array element at all.\n+- Preserve the returned order and render no slug outside the list.\n+- Do not change the mission, bundle-layout, pipeline, CLI, direct-project, or\n+  current-step lines.\n+- Do not change `PREAMBLE_SENTINEL`, `PREAMBLE_SEPARATOR`,\n+  `ORIENTATION_INSTRUCTION`, or joining/newline behavior.\n+\n+## Tests\n+\n+### Focused preamble unit tests\n+\n+Extend, rather than replace,\n+`packages/cli/test/ChatPreamble.test.ts`:\n+\n+1. Add `installedHelpers` to the shared `PreambleContext` fixture and all\n+   context literals. Pass an explicit list to `readPreambleContext` and update\n+   its exact return-value assertions, preserving all existing one-liner and\n+   stage tests.\n+2. Replace the broad unconditional William-pointer assumption with three\n+   explicit builder cases:\n+   - helpers present: the bullet names both supplied slugs exactly;\n+   - helpers absent: there is no guidance-skills assertion, agent-home\n+     pointer, or William slug;\n+   - partial install: the bullet names the supplied helper and does not name\n+     the omitted helper.\n+3. Keep the existing assertions for mission, configured bundle layout,\n+   pipeline, CLI guidance, direct-project warning, derived current step,\n+   declared-stage honesty, sentinel, separator, and orientation behavior.\n+4. Add an exact non-helper-lines regression assertion. Compare the preamble\n+   after removing the conditional helper bullet with the current sequence of\n+   all other lines, including blank lines. Run it for the present, absent, and\n+   partial contexts so omission cannot shift or rewrite unrelated content.\n+5. Keep a direct assertion that the preamble itself never contains\n+   `PREAMBLE_SEPARATOR`.\n+\n+### Existing chat-session integration test\n+\n+Tighten `test/e2e/chat-sessions.e2e.test.ts` without adding fixtures:\n+\n+1. Use its existing workspace containing only\n+   `william-draft-skill-md` as the partial-install case.\n+2. In the first-human-message flow, assert that the echoed full preamble names\n+   `william-draft-skill-md` and does not name\n+   `william-research-a-skill`.\n+3. In the agent-speaks-first flow, assert the same against the opening\n+   context. This catches a failure to retain the list on `LiveChat` for the\n+   second full-preamble path.\n+4. In the existing agent-home injection assertion, retain the positive draft\n+   helper check and add a negative research-helper check, tying the preamble\n+   assertions to what actually landed.\n+\n+The unit matrix covers present, absent, and partial inputs. The existing E2E\n+partial fixture covers the production handoff and both delayed preamble\n+emitters.\n+\n+## Validation\n+\n+Run focused checks first:\n+\n+```sh\n+bun test packages/cli/test/ChatPreamble.test.ts\n+bunx tsc --noEmit -p packages/cli\n+bun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000\n+```\n+\n+Then run the repository gates:\n+\n+```sh\n+bunx tsc --noEmit -p packages/core\n+bunx tsc --noEmit -p packages/cli\n+bun test packages\n+bun run build:viewer\n+bun test test/e2e --timeout 30000\n+```\n+\n+The viewer build remains a regression gate, not a source-change requirement.\n+If the focused chat E2E needs `packages/viewer/dist`, run\n+`bun run build:viewer` before that test and do not retain unrelated generated\n+output.\n+\n+## Acceptance criteria\n+\n+- A non-empty installation result produces exactly one guidance bullet naming\n+  every returned slug and no others.\n+- An empty installation result produces no guidance-skills assertion,\n+  missing-helper warning, agent-home pointer, or William-family guess.\n+- A partial installation names only the helper that landed.\n+- Both a first human message and the agent-speaks-first opening use the real\n+  session-start result.\n+- A genuine resume's re-orientation remains byte-identical and gains no helper\n+  mention; a resume fallback uses the fresh conditional preamble.\n+- Every non-helper preamble line and blank-line boundary is byte-identical to\n+  the current output.\n+- `PREAMBLE_SENTINEL` and `PREAMBLE_SEPARATOR` are unchanged.\n+- The focused preamble tests, CLI typecheck, package tests, viewer build, and\n+  E2E suite pass.\n+- No files outside the three listed code/test files are changed during\n+  implementation, except ignored/generated viewer build output required\n+  locally for validation.\n+\n+## Risks and mitigations\n+\n+- **The helper result is lost before a delayed first prompt.** Keep the list\n+  on `LiveChat` and exercise both delayed prompt paths in E2E.\n+- **Conditional omission creates an extra blank line.** Omit the array\n+  element with a conditional spread and compare all non-helper lines exactly.\n+- **A broad family label reintroduces absent slugs.** Render only\n+  `installedHelpers`, preserving its order; assert the omitted slug\n+  negatively in unit and E2E coverage.\n+- **A later #190 change enriches the preparation result type.** Re-read the\n+  current return type before implementation. If #190 lands first, retain its\n+  richer entries but render only their slug field; do not duplicate or undo\n+  its source-resolution work.\n+- **External mutation after session preparation makes the snapshot stale.**\n+  The contract is the completed `prepareAgentHome` result for this session.\n+  Filesystem watching or per-prompt rescanning would expand scope and is not\n+  part of issue #196.\n+\n+## Explicitly out of scope and deferred\n+\n+- Do not fix helper source resolution or packaged-skills fallback; that is\n+  issue #190.\n+- Do not change `prepareAgentHome` copy, cleanup, auth-seeding, or\n+  stale-destination behavior.\n+- Do not add UI banners, warnings, journal events, telemetry, server response\n+  fields, or persisted-session schema.\n+- Do not modify viewer parsing or rendering.\n+- Do not mention helpers in `buildChatReorientation`.\n+- Do not edit `docs/library`.\n+- Defer any broader helper-discovery model, runtime filesystem monitoring, or\n+  warning surface to a separately authorized issue.\n",
+        "summary": {
+          "files_changed": 1,
+          "additions": 282,
+          "deletions": 0
+        }
+      }
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-04T20:40:21.028680516Z",
+        "current_node": "implement",
+        "completed_nodes": [
+          "start",
+          "scope",
+          "implement"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "thread.scope.current_node": "implement",
+          "failure_signature": "",
+          "last_response": "Implemented Issue #196 in the CLI chat-session flow.\n\n- `prepareAgentHome`’s actual `installedHelpers` result is retained on the live session and passed to both fresh full-preamble paths.\n- The guid",
+          "internal.node_visit_count": 1,
+          "internal.retry_count.implement": 0,
+          "graph.default_fidelity": "summary:high",
+          "graph.goal": "GitHub Issue #196: Chat preamble claims guidance skills are installed when seeding installed nothing\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/196\n\n## Summary\n\nThe chat preamble tells every agent \"Your guidance skills are installed in your\nagent home -- read the relevant william-* skill before acting.\" When seeding\ninstalled nothing, that sentence is false, and the agent does what a competent\nagent should: it goes looking for the skills it was promised. `prepareAgentHome`\nalready returns exactly the fact needed to tell the truth — `installedHelpers` —\nand the call site throws it away.\n\n## Motivation / Problem\n\nAn instruction that names an artifact which isn't there is worse than no\ninstruction: it converts a missing dependency into a filesystem search. In the\nlive session that produced this ticket, the agent's first move was\n`ls ~/.skillmaker/agent-home/claude-code/skills/`, and when that came back\nempty it escalated to `find / -maxdepth 8 -type d -iname \"william-*\"` and a\nsweep of the operator's other repos. Each of those is a path outside the\nproject, so each one raised a permission card.\n\nThis is a *distinct* defect from the seeding bug (#190). Fixing #190 makes the\nhelpers present in shipped builds — but a source checkout with no packaged\nskills directory, or a future helper slug that fails to resolve, will still be\nannounced as installed. The preamble should assert only what is true at the\nmoment it is written.\n\n## Observed behavior\n\nFresh project on v0.6.2, chat session started on a new bundle. The agent home\ncontains no `skills/` directory. The preamble nonetheless states the skills are\ninstalled, and the session opens with a multi-command hunt across the machine\nfor `william-*` before any bundle work begins.\n\n## Current shape\n\nThe claim, `packages/cli/src/server/ChatSessions.ts:324`:\n\n```ts\n    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,\n```\n\nIt is unconditional — a constant line in the preamble array, with no input from\nwhether seeding succeeded.\n\nMeanwhile `prepareAgentHome` computes and returns precisely that\n(`ChatSessions.ts:160`, `:179-181`):\n\n```ts\n): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n```\n```ts\n    installed.push(slug);\n  }\n  return { home, installedHelpers: installed };\n```\n\nand both call sites discard it — `ChatSessions.ts:598` and `:793`:\n\n```ts\n    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n```\n\nThe trap worth naming: the information needed to be honest is already computed,\nalready returned, and already at the call site. This is not a missing capability;\nit is a discarded return value.\n\n## Proposed contract\n\nThe helper line is conditional on what actually installed:\n\n| `installedHelpers` | Preamble line |\n|---|---|\n| non-empty | `- Your guidance skills (<slugs>) are installed in your agent home -- read the relevant one before acting.` |\n| empty | line omitted entirely |\n\n**Decisions:**\n\n- When helpers installed, the line **names the slugs actually present**, so the\n  agent reads what exists rather than guessing at a family name.\n- When none installed, the line is **omitted**, not replaced with an apology.\n  An agent told nothing about guidance skills proceeds on the bundle; an agent\n  told they are \"missing\" may go hunting anyway.\n- Partial installs name only the slugs that landed.\n- `installedHelpers` is threaded to the preamble builder. `PreambleContext`\n  gains a field; no other preamble line changes.\n- The re-orientation preamble (`buildChatReorientation`, `ChatSessions.ts:349`)\n  does not mention helpers today and does not gain a mention.\n- No UI, no journal event, no warning surface. The scope is the preamble string.\n\n## Acceptance criteria\n\n- [ ] With helpers installed, the preamble states they are installed and names\n      the installed slugs.\n- [ ] With no helpers installed, the preamble contains no sentence asserting\n      guidance skills are available anywhere.\n- [ ] Partial install: only the slugs that actually landed are named.\n- [ ] Negative: the preamble never names a slug absent from the agent home.\n- [ ] Regression: every other preamble line — bundle layout, pipeline, CLI\n      guidance, direct-in-project warning, and the derived-stage \"current step\"\n      sentence — is byte-identical to today.\n- [ ] Regression: `packages/cli/test/ChatPreamble.test.ts` passes, extended\n      rather than rewritten.\n- [ ] Regression: `PREAMBLE_SENTINEL` is unchanged — the viewer splits replayed\n      first prompts on it (`chatModel.ts`).\n- [ ] Tests cover: helpers-present, helpers-absent, and partial-install.\n\n## Implementation notes\n\nBoth call sites already destructure the result; the change is to keep the second\nfield and pass it through. Prefer threading it into `PreambleContext` over\nrecomputing installation state inside the preamble builder — the builder is\ndeliberately synchronous and filesystem-light.\n\nScope fences:\n\n- **Do not fix the seeding here.** That is #190. This issue is about the\n  preamble telling the truth about whatever seeding did.\n- **Do not add a user-facing warning.** A missing helper is not a condition the\n  director needs a banner for.\n- **Do not change `PREAMBLE_SENTINEL` or the separator** — the viewer parses on\n  both.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — the claim (:324), the preamble\n  builder (:320-329), `prepareAgentHome` (:156-182), call sites (:598, :793)\n- `packages/cli/test/ChatPreamble.test.ts` — existing coverage\n\n---\n\n**Related:** #190 (packaged-skills fallback for the agent home). #190 makes the\nhelpers present; this makes the preamble honest when they aren't.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
+          "graph.rankdir": "LR",
+          "internal.fidelity": "summary:high",
+          "current_node": "implement",
+          "internal.retry_count.start": 0,
+          "outcome": "succeeded",
+          "graph.max_node_visits": "5",
+          "last_stage": "implement",
+          "response.scope": "Created the durable implementation plan at [2026-08-04-honest-chat-helper-preamble.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\nIt verifies the current data flow, scopes changes to chat session state and preamble construction, and covers helpers-present, helpers-absent, partial installation, both fresh-prompt paths, and byte-identical regressions. No implementation files were edited; the current focused test baseline passes all 20 tests.\n\nPlan ready for implementation: docs/proposals/2026-08-04-honest-chat-helper-preamble.md",
+          "internal.retry_count.scope": 0,
+          "response.implement": "Implemented Issue #196 in the CLI chat-session flow.\n\n- `prepareAgentHome`’s actual `installedHelpers` result is retained on the live session and passed to both fresh full-preamble paths.\n- The guidance bullet now appears only when helpers installed, names only those slugs in returned order, and is omitted entirely when none installed.\n- Re-orientation remains unchanged; sentinel and separator are unchanged.\n- Extended [ChatPreamble.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatPreamble.test.ts) for helpers present, absent, partial, and byte-identical non-helper content.\n- Extended [chat-sessions.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/chat-sessions.e2e.test.ts) to cover the partial real session handoff in both first-message and agent-first paths.\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused preamble tests (23 tests)\n- Passed: focused chat-session E2E (8 tests)\n- Passed: `bun run build:viewer` (needed to make E2E server available)\n- Passed: `bun test test/e2e --timeout 30000` (370 passed, 16 expected skips)\n\nOne required gate remains blocked by an unrelated, reproducible existing failure:\n\n- `bun test packages` fails only at `packages/cli/test/JournalWatcher.test.ts`, `watchJournal > fires (debounced) on appends to an existing journal`—the callback never fires within its 3-second wait. All 1,062 other package tests passed. I left that watcher behavior untouched to keep this issue scoped.",
+          "internal.run_id": "01KZ77BKMTF836C1KHDHAES1M2",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "internal.thread_id": "scope",
+          "failure_class": "",
+          "graph.stall_timeout": "18000000ms",
+          "thread.start.current_node": "scope"
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          },
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "response.scope": "Created the durable implementation plan at [2026-08-04-honest-chat-helper-preamble.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\nIt verifies the current data flow, scopes changes to chat session state and preamble construction, and covers helpers-present, helpers-absent, partial installation, both fresh-prompt paths, and byte-identical regressions. No implementation files were edited; the current focused test baseline passes all 20 tests.\n\nPlan ready for implementation: docs/proposals/2026-08-04-honest-chat-helper-preamble.md",
+              "last_stage": "scope",
+              "last_response": "Created the durable implementation plan at [2026-08-04-honest-chat-helper-preamble.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-04-honest-chat-helper-preamble.md).\n\nIt verifies"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 65239,
+                    "output_tokens": 6082,
+                    "reasoning_tokens": 5389,
+                    "cache_read_tokens": 624752,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 982697
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 225834,
+              "tool_time_ms": 205215,
+              "active_time_ms": 431049
+            }
+          },
+          "implement": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Implemented Issue #196 in the CLI chat-session flow.\n\n- `prepareAgentHome`’s actual `installedHelpers` result is retained on the live session and passed to both fresh full-preamble paths.\n- The guid",
+              "response.implement": "Implemented Issue #196 in the CLI chat-session flow.\n\n- `prepareAgentHome`’s actual `installedHelpers` result is retained on the live session and passed to both fresh full-preamble paths.\n- The guidance bullet now appears only when helpers installed, names only those slugs in returned order, and is omitted entirely when none installed.\n- Re-orientation remains unchanged; sentinel and separator are unchanged.\n- Extended [ChatPreamble.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatPreamble.test.ts) for helpers present, absent, partial, and byte-identical non-helper content.\n- Extended [chat-sessions.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/chat-sessions.e2e.test.ts) to cover the partial real session handoff in both first-message and agent-first paths.\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: focused preamble tests (23 tests)\n- Passed: focused chat-session E2E (8 tests)\n- Passed: `bun run build:viewer` (needed to make E2E server available)\n- Passed: `bun test test/e2e --timeout 30000` (370 passed, 16 expected skips)\n\nOne required gate remains blocked by an unrelated, reproducible existing failure:\n\n- `bun test packages` fails only at `packages/cli/test/JournalWatcher.test.ts`, `watchJournal > fires (debounced) on appends to an existing journal`—the callback never fires within its 3-second wait. All 1,062 other package tests passed. I left that watcher behavior untouched to keep this issue scoped.",
+              "last_stage": "implement"
+            },
+            "notes": "Stage completed: implement",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 66046,
+                    "output_tokens": 5635,
+                    "reasoning_tokens": 1444,
+                    "cache_read_tokens": 622435,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 426896
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 74245,
+              "tool_time_ms": 237439,
+              "active_time_ms": 311684
+            }
+          }
+        },
+        "next_node_id": "validate_gates",
         "node_visits": {
           "start": 1,
-          "scope": 1
+          "scope": 1,
+          "implement": 1
         }
       },
       "diff": {}
@@ -642,11 +773,195 @@
   "superseded_by": null,
   "pending_interviews": {},
   "stages": {
+    "implement@1": {
+      "first_event_seq": 367,
+      "prompt": null,
+      "response": null,
+      "completion": null,
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "medium"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-04T20:35:08.125799109Z",
+      "handler": "agent",
+      "graph_visit": 1,
+      "live_inference_ms": 74236,
+      "live_tool_ms": 237428,
+      "usage": {
+        "input_tokens": 66046,
+        "output_tokens": 5635,
+        "total_tokens": 695560,
+        "reasoning_tokens": 1444,
+        "cache_read_tokens": 622435,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 426896
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-terra"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:e8bf60b4-237c-4fc0-b1b7-b0808cde0aee",
+        "items": [
+          {
+            "id": "6b0434382d374cbd",
+            "status": "completed",
+            "order": 0,
+            "subject": "Read repository/package guidance, proposal, and current preamble implementation/tests"
+          },
+          {
+            "id": "c8aa752d020ded2e",
+            "status": "completed",
+            "order": 1,
+            "subject": "Thread installed helper slugs into the chat preamble and extend focused tests"
+          },
+          {
+            "id": "f26ce0959fa120a9",
+            "status": "completed",
+            "order": 2,
+            "subject": "Run focused and required repository gates; inspect final diff"
+          }
+        ]
+      },
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": true
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "context_window_tokens": 272000,
+        "input_tokens": 65995,
+        "usage_percent": 24.262867647058822,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-04T20:40:20.718902319Z",
+        "event_seq": 527,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 2943,
+            "usage_percent": 1.081985294117647
+          },
+          {
+            "category": "tools",
+            "tokens": 978,
+            "usage_percent": 0.35955882352941176
+          },
+          {
+            "category": "conversation",
+            "tokens": 62067,
+            "usage_percent": 22.81875
+          },
+          {
+            "category": "other",
+            "tokens": 7,
+            "usage_percent": 0.002573529411764706
+          }
+        ],
+        "warnings": []
+      },
+      "agent_control": "running",
+      "state": "running"
+    },
     "scope@1": {
       "first_event_seq": 24,
       "prompt": null,
       "response": null,
-      "completion": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: scope",
+        "failure_reason": null,
+        "timestamp": "2026-08-04T20:35:02.326365504Z"
+      },
       "provider_used": {
         "mode": "agent",
         "provider": "openai",
@@ -661,8 +976,12 @@
       "started_at": "2026-08-04T20:27:50.100978992Z",
       "handler": "agent",
       "graph_visit": 1,
-      "live_inference_ms": 225826,
-      "live_tool_ms": 205210,
+      "timing": {
+        "wall_time_ms": 432000,
+        "inference_time_ms": 225834,
+        "tool_time_ms": 205215,
+        "active_time_ms": 431049
+      },
       "usage": {
         "input_tokens": 65239,
         "output_tokens": 6082,
@@ -835,7 +1154,7 @@
         "warnings": []
       },
       "agent_control": "running",
-      "state": "running"
+      "state": "succeeded"
     },
     "start@1": {
       "first_event_seq": 20,
