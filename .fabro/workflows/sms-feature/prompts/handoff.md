@@ -15,8 +15,10 @@ The body must be honest reviewer context, not a sales pitch. Include:
 - Validation: which gates ran (typecheck core/cli, `bun test packages`,
   `bun test test/e2e`, `bun run build:viewer` if the viewer changed) and
   their actual results.
-- What verification proved, with pointers to the run's
-  `verification-artifacts/` evidence.
+- The ReviewJudge's "imperfections to note in the PR body" list, carried
+  over verbatim from that stage's output. Noted imperfections are the
+  deal — the judge passes mergeable-with-notes changes on the promise
+  that the notes reach the reviewer.
 - Any remaining risks, known gaps, skipped checks, or manual follow-up —
   stated plainly. If something was not verified, say so; do not imply
   coverage that does not exist.

@@ -38,6 +38,50 @@ prompts) never go through `sms-feature` itself; they are operator work,
 hand-authored and director-reviewed — same boundary as alexandria's
 2026-07-09 ruling.
 
+## The workflow graph
+
+```text
+Start → Scope → Implement → Gates → ReviewJudge → Prepare PR → Exit
+                    ↑          │         │
+                    ├──────────┘ fail    │ fix (≤1 per run)
+                    └────────────────────┘
+```
+
+- **Scope** (`gpt-5.6-sol`, high reasoning) writes the plan to
+  `docs/proposals/`.
+- **Implement** (`gpt-5.6-terra`, medium) implements it and runs the
+  gates itself before finishing.
+- **Gates** is the deterministic script node
+  (`scripts/fabro-validate`); on failure it routes back to Implement.
+- **ReviewJudge** (`gpt-5.6-sol`, high) is ONE combined stage that
+  replaced the old review + verify + verification-judge trio. It
+  reviews the diff against the plan, the house rules, and the gates
+  output, and delivers one verdict: `ready` (on to Prepare PR), `fix`
+  (back to Implement, at most once per run), or `surface` (stop the
+  run with a summary for a human; `goal_gate` marks the run failed so
+  no PR is opened).
+- **Prepare PR** (`gpt-5.6-terra`, medium) writes the PR title/body,
+  including the judge's noted imperfections.
+
+**Loop caps are enforced in the graph, not just the prompts**, via
+fabro's per-node `max_visits` (exceeding a cap terminates the run):
+Scope 1, Implement 4, Gates 4, ReviewJudge 2, Prepare PR 1, with
+graph-level `max_node_visits=4` as the backstop. Worst case: 1 initial
+Implement + 2 gate-failure bounces + 1 judge fix bounce = 4 Implement
+visits, 4 Gates runs, 2 ReviewJudge visits — at most 8 LLM stages per
+run. ReviewJudge's cap of 2 makes the fix verdict structurally
+once-per-run: a second fix would require a third judge visit, which the
+cap rejects.
+
+**Why**: the first real batch (2026-08-04) looped expensively — three
+runs cancelled after heavy cycling (implement ×5, verify ×3 observed),
+~$8/PR, ~$25 total spend — because the old 9-node graph verified three
+times (deterministic gates + an LLM verify stage + a verification
+judge) with unbounded retry loops and a maximally strict judge. The
+reshape collapses review to one judgment call whose grading bar is
+explicit: a mergeable change with noted imperfections passes, and the
+imperfections land in the PR body instead of another loop iteration.
+
 ## Decisions and what is NOT done yet
 
 Director rulings on PR #188:
@@ -50,11 +94,13 @@ Director rulings on PR #188:
    decided, the app strategy had to be either an org-owned app made to
    cover BOTH repos, or a server-side config change. Resolved 2026-08
    by making the app public — see the install record below.
-2. **Models (ruled):** scope and the verification judge run
-   `gpt-5.6-sol` at high reasoning; implement, verify, review, and
-   prepare-PR run `gpt-5.6-terra` at medium. Set in
+2. **Models (ruled):** the judgment-call stages (scope, ReviewJudge)
+   run `gpt-5.6-sol` at high reasoning; implement and prepare-PR run
+   `gpt-5.6-terra` at medium. Set in
    `workflows/sms-feature/workflow.fabro` (per-node) with the terra
-   default in `workflow.toml`.
+   default in `workflow.toml`. (The ruling originally named the
+   verification judge; that stage was folded into ReviewJudge in the
+   2026-08-04 reshape and keeps the sol-high slot.)
 3. **GitHub App: INSTALLED (2026-08).** `fabro-of-alexandria` was made
    public and installed org-wide on `sociotechnica-org`, so the server
    mints scoped tokens (`contents: write`, `pull_requests: write`) for
