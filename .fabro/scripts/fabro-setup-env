@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Prepare a Fabro sandbox or local checkout for Skillmaker Studio
+# workflow execution.
+#
+# Provider-neutral on purpose (Daytona, Docker, or a bare local checkout):
+# the only assumptions are a POSIX shell and network access to install
+# bun. SKIP_EFFECT_CLONE=1 because scripts/prepare-effect.sh (the repo's
+# npm prepare hook) otherwise clones the Effect source into .repos/ for
+# local research -- sandboxes don't need it and CI skips it the same way.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+QUIET=false
+
+info() {
+	if [ "$QUIET" = false ]; then
+		echo "  -> $1"
+	fi
+}
+
+success() {
+	if [ "$QUIET" = false ]; then
+		echo "  ok $1"
+	fi
+}
+
+usage() {
+	cat <<'EOF'
+Usage: ./.fabro/scripts/fabro-setup-env [--quiet]
+
+Prepares a Fabro execution environment for this repository: installs the
+pinned bun version if missing, then installs workspace dependencies.
+
+Options:
+  --quiet    Suppress non-error output
+  --help     Show this help
+EOF
+}
+
+for arg in "$@"; do
+	case "$arg" in
+	--quiet)
+		QUIET=true
+		;;
+	--help | -h)
+		usage
+		exit 0
+		;;
+	*)
+		echo "Unknown option: $arg" >&2
+		usage >&2
+		exit 1
+		;;
+	esac
+done
+
+cd "$REPO_ROOT"
+
+# Resolve the pinned bun version from package.json ("packageManager":
+# "bun@x.y.z") without assuming node exists -- bun repos often don't have
+# node, and a plain grep keeps this script dependency-free.
+bun_version="$(grep -o '"packageManager"[[:space:]]*:[[:space:]]*"bun@[^"]*"' package.json | grep -o 'bun@[0-9][^"]*' | cut -d@ -f2 || true)"
+if [ -z "$bun_version" ]; then
+	echo "Could not read a bun packageManager pin from package.json" >&2
+	exit 1
+fi
+
+current_bun=""
+if command -v bun >/dev/null 2>&1; then
+	current_bun="$(bun --version 2>/dev/null || true)"
+fi
+
+if [ "$current_bun" != "$bun_version" ]; then
+	info "Installing bun@$bun_version"
+	curl -fsSL https://bun.sh/install | BUN_INSTALL="$HOME/.bun" bash -s "bun-v$bun_version"
+	export PATH="$HOME/.bun/bin:$PATH"
+fi
+
+info "Using bun $(bun --version)"
+info "Installing workspace dependencies"
+# SKIP_EFFECT_CLONE: see header. CI=1 keeps postinstall output terse.
+CI=1 SKIP_EFFECT_CLONE=1 bun install --frozen-lockfile
+
+success "Fabro environment is ready"

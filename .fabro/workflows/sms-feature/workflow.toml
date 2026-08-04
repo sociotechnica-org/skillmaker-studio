@@ -1,0 +1,78 @@
+# sms-feature: implement a Skillmaker Studio feature end to end.
+#
+# Adapted from alexandria-internal's ax-feature workflow. Backend and
+# model choices are copied from there (api backend, OpenAI gpt-5.5,
+# medium reasoning) as a starting default -- swap freely; nothing in the
+# graph depends on the model.
+
+_version = 1
+
+[workflow]
+graph = "workflow.fabro"
+
+[run]
+goal = "Implement a Skillmaker Studio feature."
+
+[run.inputs]
+agent_backend = "api"
+
+[run.model]
+provider = "openai"
+name = "gpt-5.5"
+
+[run.model.controls]
+reasoning_effort = "medium"
+
+[[run.prepare.steps]]
+command = ["./.fabro/scripts/fabro-setup-env"]
+
+# Placeholder identity: the numeric prefix must be replaced with the real
+# GitHub App user id after the director installs the bot on
+# sociotechnica-org/skillmaker-studio (see .fabro/README.md).
+[run.git.author]
+name = "Fabro"
+email = "fabro-of-skillmaker[bot]@users.noreply.github.com"
+
+# The server mints a scoped installation token with these permissions and
+# injects it as GITHUB_TOKEN in the sandbox. Requires the GitHub App
+# install (director-only step, documented in .fabro/README.md).
+[run.integrations.github.permissions]
+contents = "write"
+pull_requests = "write"
+
+[run.pull_request]
+enabled = true
+draft = true
+
+# Verification evidence is uploaded as run artifacts, never checkpointed
+# into the branch (it would otherwise land in the PR diff).
+[run.checkpoint]
+exclude_globs = [
+  "verification-artifacts/**",
+  "screenshots/**",
+  "test-results/**",
+]
+
+[run.artifacts]
+include = [
+  "verification-artifacts/**",
+  "screenshots/**",
+  "test-results/**",
+]
+
+[run.environment]
+id = "daytona"
+
+[environments]
+
+[environments.daytona]
+provider = "daytona"
+
+[environments.daytona.lifecycle]
+preserve = false
+auto_stop = "60m"
+
+[environments.daytona.labels]
+project = "skillmaker-studio"
+workflow = "sms-feature"
+host = "railway"
