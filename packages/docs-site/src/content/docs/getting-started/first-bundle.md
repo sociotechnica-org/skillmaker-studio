@@ -168,23 +168,44 @@ machinery in depth when you want it.
 
 ## 9. Publish
 
-<!-- TODO(#185): the install-door publish (Publish tab buttons "All my
-     agents" / "This project's agents", provenance stamp, `skillmaker
-     publish --to user|project`) is in flight on PR #185. When it merges,
-     replace this section with the two-button walk. Until then this section
-     documents what main actually has. -->
+The last station: putting the skill where your agents will actually find
+it. Publishing is gated the way everything else here is — the skill has to
+pass its final human gate first (record a version and move it through the
+last stage; the agent will drive this in chat when you say the word — see
+[the production state machine](/concepts/state-machine/)).
 
-The **Publish** tab shows the skill's recorded versions next to their
-evidence, but its buttons are disabled today — the in-Studio publish flow
-is the one station still being built (see the
-[Roadmap](/roadmap/)). What exists now is the CLI door for workspaces with
-configured publish targets:
-[`skillmaker publish`](/cli/publish/), and the broader story in
-[Publishing and the skillbook](/concepts/publishing-and-the-skillbook/).
+Then, on the **Publish** tab, the *Current draft* row asks the only
+question that matters — **publish to whom?** — with two buttons:
 
-Until the door opens, your drafted, measured `SKILL.md` sits in
-`output/SKILL.md` — a plain file you can copy wherever your agents read
-skills from.
+- **All my agents** — installs to `~/.claude/skills/<your-skill>/`, so
+  every agent on your machine can use it, in any project.
+- **This project's agents** — installs to `.claude/skills/<your-skill>/`
+  inside this project only.
+
+One honest thing to know before you click: this writes real files into
+that directory, exactly like installing a skill by hand — and if a copy
+is already there, re-publishing overwrites it (Studio warns you when the
+installed copy has been hand-edited since).
+
+Your choice is remembered. From then on the row shows a single **Publish**
+button — re-publishing an improved version is one click — and each older
+version in the list gets a **Revert** button that re-installs its snapshot
+to the same place. Every publish is recorded in the journal, and every
+installed copy carries a provenance comment naming the bundle, the exact
+version, the date, and its evidence state — honestly, as
+"*N* of *M* claims measured." Anyone who finds that file later can trace
+it straight back to the research, the design reasoning, and the grades
+you just made.
+
+That's the whole point, and the whole loop: not a pasted `SKILL.md` of
+unknown pedigree, but a skill with a paper trail.
+
+:::note[CLI equivalent]
+`skillmaker publish <slug> --to user|project` does the same thing (the
+audience is remembered, so later it's just `skillmaker publish <slug>`);
+`--version <hash>` is the revert. See [`skillmaker publish`](/cli/publish/)
+and [Publishing and the skillbook](/concepts/publishing-and-the-skillbook/).
+:::
 
 ## Where everything lives
 
