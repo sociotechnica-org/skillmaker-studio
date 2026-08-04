@@ -1,0 +1,610 @@
+{
+  "title": "Fix GitHub Issue #192: Restore dark value for color well",
+  "spec": {
+    "run_id": "01KZ6YKAKGKPFD70772920JR9J",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": {
+          "type": "inline",
+          "value": "GitHub Issue #192: Dark mode: --color-well has no night value — the whole tabbed surface renders dark-mode ink on a light ground (1.07:1)\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/192\n\n## Summary\n\n`--color-well` — the ground for the skill page's folder tabs and the entire\ntabbed content surface — is the one brand surface token with no dark-mode value.\nAt night the tab and its content panel keep painting light parchment `#f6eee0`\nwhile everything drawn on them switches to dark-mode inks. The active tab's\nlabel renders at **1.11:1**; rendered Markdown on the same surface is worse —\nheadings at **1.07:1**, body copy at **1.50:1** — so the Research, Eval, and\nPublish tab content is effectively invisible, styled as though it were on a\nblack background while the ground stays cream. The intended dark value is\nalready in the file as a dead declaration. Restore it in the `.dark` block.\n\n## Motivation / Problem\n\nThe active tab tells you where you are in the skill page. In dark mode you\ncannot read it, so the primary navigation of the product's main surface has no\nvisible current-state indicator. The body copy on the same surface is affected\ntoo — `ink-muted` on `well` measures **2.02:1** at night — so the whole tabbed\nregion reads as washed out, not just the tab label.\n\nLight mode is unaffected and correct (`#2c2416` on `#f6eee0` = **13.3:1**); this\nis a dark-mode-only defect.\n\nThe tempting fix is to hardcode a dark text colour on the active tab. That would\nbe wrong: it treats the label as the defect when the *ground* is what never\nthemed, leaves the content surface still painting daylight parchment at night,\nand would itself become unreadable the moment `well` is corrected. The token is\nthe defect.\n\n## Observed behavior\n\nDark mode, skill page, any bundle.\n\n**The tabs.** The `OVERVIEW` tab is active and its label is near-invisible\nagainst its own fill; the inactive tabs beside it (`RESEARCH`, `EVAL`,\n`PUBLISH`) are legible, and the surrounding chrome is correctly dark.\n\n**The tab content — worse.** Open the Research tab on a bundle with\n`research/notes.md`. The rendered Markdown is washed out to the point of\nunreadability: headings (`Topic restatement`, `The architecture the skill must\nlive inside`) are barely discernible, body paragraphs are pale tan on cream, and\ninline code chips render as **dark chips with light text** — correct styling for\na dark theme, painted on a light page. The content is dressed for a black\nbackground it isn't on.\n\n**The diagnostic that proves it's the ground, not the text rules:** selecting\nthe text makes it fully legible. `.dark ::selection` (`global.css:329-331`)\nforces `color: #16110a` over an amber ground — the one place in dark mode where\na dark ink is hardcoded. Everywhere the theme's own inks apply, they are\ndark-mode inks on a light-mode surface.\n\nMeasured (WCAG 2.1 contrast ratio):\n\n| Pair | Dark mode today | After fix |\n|---|---|---|\n| Markdown h1/h2 — `neutral-100` `#f1e6d3` on `well` `#f6eee0` | **1.07:1** | **14.7:1** |\n| active tab label — `ink` `#ece3d2` on `well` `#f6eee0` | **1.11:1** | **14.2:1** |\n| Markdown body — `neutral-300` `#d5c3a3` on `well` `#f6eee0` | **1.50:1** | **10.5:1** |\n| surface body copy — `ink-muted` `#b6a988` on `well` `#f6eee0` | **2.02:1** | **7.78:1** |\n| active tab label, light mode — `#2c2416` on `#f6eee0` | 13.3:1 | unchanged |\n\n## Current shape\n\nEvery other brand surface token is redefined for dark. `well` is not.\n\n`packages/viewer/src/styles/global.css`, `@theme` block, lines 48-51 — note the\nduplicate declaration, where a dark value is written and immediately clobbered:\n\n```css\n  --color-paper: #f4ece0;\n  --color-well: #1b150d;\n  --color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n  --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */\n```\n\nThe `.dark` block, lines 288-296, overrides its siblings and omits `well`:\n\n```css\n.dark {\n  color-scheme: dark;\n  --color-canvas: #16110a;      /* warm near-black ground */\n  --color-surface: #221a10;\n  --color-border: #3a3220;\n  --color-ink: #ece3d2;         /* parchment ink — body text + wordmark */\n  --color-ink-muted: #b6a988;\n  --color-paper: #1d1610;       /* sidebar / panel ground, a shade above canvas */\n  --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */\n```\n\nThe consuming components are already correct and need no change — the tab label\ncolour is properly conditional on active state, `packages/viewer/src/app/next/SkillPage.tsx:18-21`:\n\n```tsx\nconst TAB_ACTIVE =\n  \"relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink\";\nconst TAB_IDLE =\n  \"cursor-pointer rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:bg-well/70 hover:text-ink\";\n```\n\nDark mode is expressed purely by token flipping — these tabs carry no `dark:`\nutilities at all (`@custom-variant dark` at `global.css:32`), which is the house\npattern and worth preserving.\n\n**Why the tab *content* is hit harder than the tab label.** Every tab body\nrenders inside that same `bg-well` container (`SkillPage.tsx:109`), and the\nResearch/Eval/Publish tabs render Markdown through\n`packages/viewer/src/app/components/Markdown.tsx`, which is the one component\nthat pairs the deliberately-unflipped `neutral-*` ramp with explicit `dark:`\nvariants (`global.css:284-286` documents this arrangement):\n\n```tsx\n  1: \"text-base font-semibold text-neutral-900 dark:text-neutral-100\",\n  2: \"text-sm font-semibold text-neutral-900 dark:text-neutral-100\",\n```\n```tsx\n        <p className=\"text-neutral-700 dark:text-neutral-300\">\n```\n```tsx\n            <code key={i} className=\"rounded bg-neutral-100 px-1 font-mono text-[0.9em] dark:bg-neutral-900\">\n```\n\nThose `dark:` variants are correct and fire correctly — the `.dark` class is on\nthe root. `neutral-100` (`#f1e6d3`) and `neutral-300` (`#d5c3a3`) are the right\ninks *for a dark ground*, and `dark:bg-neutral-900` is the right chip *for a\ndark ground*. They are simply being painted onto a ground that never became\ndark. `ResearchTab` (`SkillPage.tsx:345-370`) puts `MarkdownContent` straight\ninto the `well` surface, which is where the two meet.\n\nThis is the same single defect, not a second one: no `dark:` variant in\n`Markdown.tsx` is wrong, and none should change.\n\nHow it drifted, since the archaeology explains the whole class of bug: dark mode\nshipped in `b6a2424` (#164, 2026-07-23); the folder tabs and the `well` token\narrived four days later in `35c419a` (#170, 2026-07-27). The token was born\nafter the `.dark` block was authored and nobody revisited it. `well` is also\nabsent from `docs/library/brand/Reference - Brand Palette.md`, so there was no\ndocument that would have caught the omission either.\n\n## Proposed contract\n\nAdd the missing token to the `.dark` block and delete the dead duplicate:\n\n```css\n/* @theme — delete the clobbered line, keep the light value */\n--color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n\n/* .dark — the intended night value */\n--color-well: #1b150d;  /* tabbed-section ground at night, a shade below canvas */\n```\n\n**Decisions:**\n\n- The dark value is `#1b150d` — the value already present as the dead\n  declaration at `global.css:49`, i.e. the original author's intent recovered\n  rather than a new colour invented.\n- In light mode `well` sits a shade *lighter* than `canvas` (`#f6eee0` vs\n  `#f1e6d3`); at night it sits a shade *darker* than `canvas` (`#1b150d` vs\n  `#16110a`). Both keep it distinct from `paper` and `surface`, which is the\n  token's stated job.\n- **No component classes change.** `TAB_ACTIVE` / `TAB_IDLE` in `SkillPage.tsx`\n  stay exactly as written; no `dark:` utility is added; no text colour is\n  hardcoded.\n- `well` is added to `docs/library/brand/Reference - Brand Palette.md` with both\n  values and its role, so the brand doc stops being silent about a shipped\n  surface token.\n\n## Acceptance criteria\n\n- [ ] In dark mode the active tab's label is legible against its own ground —\n      `ink` on `well` measures ≥ 7:1 (14.2:1 at the proposed value).\n- [ ] In dark mode the tabbed content surface reads as a dark ground continuous\n      with the rest of the night theme, and secondary copy on it (`ink-muted`)\n      measures ≥ 4.5:1 (7.78:1 at the proposed value).\n- [ ] The idle tab's `hover:bg-well/70` + `hover:text-ink` hover state is legible\n      in dark mode — the same pairing that fails today.\n- [ ] In dark mode, rendered Markdown on the tab surface is legible: headings\n      (`dark:text-neutral-100`) ≥ 7:1 and body copy (`dark:text-neutral-300`)\n      ≥ 7:1 against `well`. Verified on the Research tab with a real\n      `research/notes.md`.\n- [ ] In dark mode, inline code chips (`dark:bg-neutral-900`) and fenced code\n      blocks read as raised/inset against the surface rather than as dark\n      patches on a light page, and their text is legible against the chip.\n- [ ] Negative: `Markdown.tsx` is unchanged — no `dark:` variant is added,\n      removed, or retuned. Every one of them is already correct for a dark\n      ground.\n- [ ] Regression: light mode is pixel-identical. The active tab, idle tabs, the\n      content surface, and the row-hover at `SkillPage.tsx:264` all render\n      unchanged in daylight.\n- [ ] Negative: `--color-well` is declared exactly once in `@theme` and exactly\n      once in `.dark`; the duplicate declaration is gone.\n- [ ] Negative: `SkillPage.tsx` is unchanged — no hardcoded text colour, no new\n      `dark:` utility on the tabs.\n- [ ] `docs/library/brand/Reference - Brand Palette.md` lists `well` with its\n      light and dark values and its role.\n- [ ] Tests cover both themes across all four surfaces that consume the token\n      (active tab, tab content surface, idle-tab hover, menu-row hover at\n      `SkillPage.tsx:264`).\n\n## Implementation notes\n\nThe token has exactly four consumers, all in one file —\n`packages/viewer/src/app/next/SkillPage.tsx:19` (active tab), `:21` (idle-tab\nhover tint), `:109` (tab content surface), `:264` (menu row hover) — and there\nare no others in the viewer.\n\n**Do not mistake that for a small verification surface.** Consumer `:109` is the\nground for *every* tab body, so the visual blast radius is all Markdown and all\ncontent rendered in the Overview, Research, Eval, and Publish tabs. Verifying\nthe four class sites is not enough; check real rendered content in each tab, in\nboth themes — a bundle with a populated `research/notes.md` is the sharpest test\nbecause it exercises headings, body copy, inline code, and fenced blocks at\nonce.\n\nScope fences:\n\n- **Do not hardcode a text colour on the tabs.** The label already switches\n  correctly between `text-ink` and `text-ink-muted`; the ground is what's\n  missing. A literal black or white in `SkillPage.tsx` would mask this bug and\n  block the token fix.\n- **Do not re-theme the other surface tokens.** `canvas`, `surface`, `paper`,\n  and `border` have considered dark values; leave them.\n- **Do not flip the `neutral-*` ramp.** It is deliberately not flipped in dark\n  (`global.css:284-286`), and `Markdown.tsx` pairs it with explicit `dark:`\n  variants.\n- **Do not touch `Markdown.tsx`.** Its `dark:` variants look wrong on screen\n  today only because the ground beneath them is wrong. Retuning them would make\n  the content readable on the broken light ground and then break it a second\n  time when `well` is corrected.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/styles/global.css` — `@theme` (:34), the duplicate\n  `--color-well` (:49-50), the `.dark` block (:288)\n- `packages/viewer/src/app/next/SkillPage.tsx` — the four consumers above; `ResearchTab` (:345)\n- `packages/viewer/src/app/components/Markdown.tsx` — the `dark:` variants rendered on the surface (:28, :62-67, :82, :100)\n- `docs/library/brand/Reference - Brand Palette.md` — the palette table `well`\n  is missing from\n\n## Not in scope\n\nThe active tab's border is `border-neutral-900/50`, and the neutral ramp is\ndeliberately not flipped in dark — so once the ground goes dark, that hairline\nbecomes a dark border on a dark surface. Cosmetic, invisible rather than\nillegible, and it touches the ramp-flipping decision rather than this token.\nWorth a separate ticket if it reads poorly once the ground is corrected.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n"
+        },
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {
+          "agent_backend": "api"
+        },
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5.6-terra",
+          "fallbacks": {},
+          "controls": {
+            "reasoning_effort": "medium",
+            "speed": null
+          }
+        },
+        "git": {
+          "author": {
+            "name": "Fabro",
+            "email": "285810526+fabro-of-alexandria[bot]@users.noreply.github.com"
+          }
+        },
+        "prepare": {
+          "steps": [
+            {
+              "type": "command",
+              "command": [
+                "./.fabro/scripts/fabro-setup-env"
+              ]
+            }
+          ],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt"
+        },
+        "checkpoint": {
+          "exclude_globs": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ],
+          "skip_git_hooks": false,
+          "commit_timeout_ms": 30000
+        },
+        "clone": {
+          "enabled": true
+        },
+        "run_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "meta_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "environment": {
+          "id": "daytona",
+          "provider": "daytona",
+          "image": {
+            "docker": null,
+            "dockerfile": null
+          },
+          "resources": {
+            "cpu": null,
+            "memory": null,
+            "disk": null
+          },
+          "network": {
+            "mode": "allow_all",
+            "allow": []
+          },
+          "lifecycle": {
+            "preserve": false,
+            "stop_on_terminal": true,
+            "auto_stop": "1h"
+          },
+          "labels": {
+            "workflow": "sms-feature",
+            "host": "railway",
+            "project": "skillmaker-studio"
+          },
+          "env": {}
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null
+        },
+        "agent": {
+          "fabro_tools": false,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": {
+          "enabled": true,
+          "draft": true,
+          "auto_merge": false,
+          "merge_strategy": "squash"
+        },
+        "artifacts": {
+          "include": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ]
+        },
+        "integrations": {
+          "github": {
+            "permissions": {
+              "contents": "write",
+              "pull_requests": "write"
+            }
+          }
+        }
+      }
+    },
+    "graph": {
+      "name": "SmsFeature",
+      "nodes": {
+        "start": {
+          "id": "start",
+          "attrs": {
+            "label": {
+              "String": "Start"
+            },
+            "shape": {
+              "String": "Mdiamond"
+            }
+          }
+        },
+        "review": {
+          "id": "review",
+          "attrs": {
+            "prompt": {
+              "String": "# Review\n\nReview the implementation as if preparing a pull request.\n\nCheck:\n\n- The diff stays within the requested Skillmaker Studio scope and the\n  plan's named package boundaries: domain logic and schemas in\n  `packages/core`, deterministic CLI/server behavior in `packages/cli`,\n  browser UI in `packages/viewer`.\n- CLI changes have black-box tests for behavior, exit codes, and\n  important output fields; server-surface changes have `test/e2e`\n  coverage.\n- Viewer changes build (`bun run build:viewer` ran in validation).\n- Comments follow the house style: plain English prose explaining WHY,\n  citing issues, dated proposals, and rulings (see\n  `packages/core/src/Todo.ts` for the standard). Flag comments that\n  merely restate the code, and new non-obvious decisions left\n  uncommented or uncited.\n- No files under `docs/library` were freehand-edited outside an approved\n  library migration.\n- Validation output from the gates node is understood and any failures\n  are actionable.\n\nDo not make implementation, prompt, config, or test edits in this stage.\nIf a change is required, route back to implementation with enough context\nfor the next implement stage to make the fix.\n\nIf the implementation is not ready, be concrete about the remaining\nblocking work so the next implementation stage has actionable context.\n\nEnd with exactly one routing JSON object:\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"review_ready\":true}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"review_ready\":false}}\n```\n"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "label": {
+              "String": "Review"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "provider": {
+              "String": "openai"
+            }
+          }
+        },
+        "implement": {
+          "id": "implement",
+          "attrs": {
+            "label": {
+              "String": "Implement"
+            },
+            "prompt": {
+              "String": "# Implement\n\nImplement the Skillmaker Studio feature plan.\n\nBefore editing files:\n\n- Read the plan under `docs/proposals/` named by the scope stage.\n- Read package-local README and guidance files for every package or\n  surface touched by the plan; treat that guidance as owning\n  implementation workflow, tests, and validation for the touched package.\n\nWork rules:\n\n- Stay scoped to the plan, its named package boundaries, and directly\n  necessary shared configuration.\n- Do not freehand-edit `docs/library`; it is the live product context\n  library. Only touch that path when the approved plan explicitly owns a\n  library migration.\n- Do not broaden the plan during implementation. If the planned slice\n  cannot be implemented coherently without expanding scope, implement the\n  smallest coherent planned slice if possible; otherwise leave a clear\n  blocking note in the final response for review/human intervention. Do\n  not turn the stage into plan-only work.\n- Keep domain logic and schemas in `packages/core` (Effect-first, schema\n  changes ripple from here). When changing `packages/cli`, keep command\n  data on stdout and diagnostics on stderr, preserve stable exit codes,\n  and add or update black-box tests for CLI behavior. When changing\n  `packages/viewer`, keep browser UI state in viewer-owned\n  components/helpers.\n- Write comments in the house style: plain English prose that explains\n  WHY the code is shaped this way (not what it does) and cites its\n  sources — issue numbers, dated proposals, rulings — the way\n  `packages/core/src/Todo.ts` does. New non-obvious decisions get a\n  comment that names the plan or ruling that made them.\n- If this stage is reached after a validation failure, inspect the\n  validation output from the prior stage and fix the smallest relevant\n  issue.\n\nFull gates. Before finishing, run and pass ALL of:\n\n```bash\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun test test/e2e --timeout 30000\n```\n\nAND, whenever the diff touches `packages/viewer`:\n\n```bash\nbun run build:viewer\n```\n\nDo not hand off with any gate failing or skipped; a script node reruns\nthe same gates right after this stage and a failure routes straight back\nhere.\n\nBefore finishing, inspect `git diff --stat` and summarize the implemented\nchanges.\n"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            }
+          }
+        },
+        "handoff": {
+          "id": "handoff",
+          "attrs": {
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "prompt": {
+              "String": "# Prepare PR\n\nPrepare the final pull request context.\n\nFabro's configured `[run.pull_request]` finalization creates the pull\nrequest after this node. Write the PR title and body to these files:\n\n- `/tmp/fabro-pr-title.txt`\n- `/tmp/fabro-pr-body.md`\n\nThe body must be honest reviewer context, not a sales pitch. Include:\n\n- Suggested PR title.\n- What changed and why, tied to the plan in `docs/proposals/`.\n- Validation: which gates ran (typecheck core/cli, `bun test packages`,\n  `bun test test/e2e`, `bun run build:viewer` if the viewer changed) and\n  their actual results.\n- What verification proved, with pointers to the run's\n  `verification-artifacts/` evidence.\n- Any remaining risks, known gaps, skipped checks, or manual follow-up —\n  stated plainly. If something was not verified, say so; do not imply\n  coverage that does not exist.\n\nKeep the summary concise and specific to Skillmaker Studio. Do not\ndescribe this as a handoff to a human; write it as PR-ready reviewer\ncontext.\n\nThe title file must contain exactly one line. The body file must contain\nMarkdown suitable for a draft pull request body.\n"
+            },
+            "shape": {
+              "String": "tab"
+            },
+            "label": {
+              "String": "Prepare PR"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "backend": {
+              "String": "api"
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "shape": {
+              "String": "Msquare"
+            },
+            "label": {
+              "String": "Exit"
+            }
+          }
+        },
+        "verify": {
+          "id": "verify",
+          "attrs": {
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "prompt": {
+              "String": "# Verify\n\nVerify that the implemented feature works. This is an execution stage,\nbut it is not an implementation stage.\n\nBefore running checks:\n\n- Read the goal from the workflow context.\n- Read the checked-in plan under `docs/proposals/` named by the scope\n  stage.\n- Inspect the implementation diff and changed files.\n- Read package-local README and guidance files for every package changed\n  by the implementation.\n\nDo not assume the plan's verification section is sufficient. First write\nan independent verification plan to:\n\n```text\nverification-artifacts/verification-plan.md\n```\n\nThat plan must include:\n\n- A short assessment of the technical plan's verification instructions.\n- Any gaps or weak assumptions in those instructions.\n- The checks from the technical plan that you will execute.\n- Additional checks needed to prove the feature works.\n- The artifacts you expect to capture as evidence.\n- Confirmation that the repo gates ran: typecheck core and cli,\n  `bun test packages`, `bun test test/e2e`, and `bun run build:viewer`\n  when the diff touches `packages/viewer`. If any gate did not run or\n  did not pass, that is a finding, not something to fix here.\n\nThen execute the verification plan. Prefer black-box, user-level\nverification over implementation inspection alone. When applicable:\n\n- Create a throwaway sample project under `/tmp/fabro-verify-*` when the\n  feature can be exercised outside this repository (Skillmaker operates\n  on any directory of skills, so this is usually possible). If the\n  sandbox does not permit that, use another scratch location and\n  document the fallback.\n- Invoke the CLI the way a user would (`bun packages/cli/src/main.ts …`\n  or the packaged bin) when CLI behavior is part of the feature.\n- Run the implemented feature through its CLI, server, or viewer\n  surfaces.\n- Capture CLI output transcripts and JSON output snapshots.\n- Use browser verification for viewer behavior; capture screenshots, and\n  video when practical.\n\nRepository write boundary:\n\n- Do not edit implementation source, checked-in tests, prompts, workflow\n  configuration, package metadata, plans, or other tracked repository\n  files outside `verification-artifacts/`.\n- Create verification-only helper scripts, notes, transcripts,\n  screenshots, videos, and JSON snapshots under\n  `verification-artifacts/`.\n- If verification uncovers a product defect, missing implementation\n  change, or checked-in test/harness issue, do not patch it in this\n  stage. Document the required change in\n  `verification-artifacts/report.md` and in your final response so the\n  Verification Judge can route back to implementation.\n- Before finishing, inspect tracked changes outside\n  `verification-artifacts/` and report any such changes explicitly as a\n  verification-stage boundary violation.\n\nStore evidence under `verification-artifacts/`:\n\n```text\nverification-artifacts/\n  verification-plan.md\n  report.md\n  cli/\n  json/\n  screenshots/\n  videos/\n```\n\nWrite the final verification report to\n`verification-artifacts/report.md`. The report must include:\n\n- What feature behavior was verified.\n- Which repo gates ran and their results.\n- What plan verification steps were executed, and what additional steps\n  were executed.\n- Commands run and where their full output was saved.\n- Artifact paths for screenshots, videos, JSON snapshots, and CLI\n  transcripts.\n- Any failures, gaps, skipped checks, or residual risk.\n\nDo not claim the feature is ready unless the evidence supports that\nclaim. Do not route the workflow with `verification_ready`; the\nVerification Judge owns that decision.\n\nYour final response must summarize the executed verification and list\nthe artifact paths you created.\n"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "label": {
+              "String": "Verify"
+            },
+            "provider": {
+              "String": "openai"
+            }
+          }
+        },
+        "verification_judge": {
+          "id": "verification_judge",
+          "attrs": {
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "label": {
+              "String": "Verification Judge"
+            },
+            "prompt": {
+              "String": "# Verification Judge\n\nJudge whether the verification stage proved that the requested feature\nworks. This is a rubric stage. Do not perform implementation work unless\nyou need a tiny inspection command to understand evidence that already\nexists.\n\nRead:\n\n- The goal from the workflow context.\n- The checked-in plan under `docs/proposals/` named by the scope stage.\n- The implementation diff and changed files.\n- The verify node's final response and touched files from workflow\n  context when available.\n- `verification-artifacts/verification-plan.md`.\n- `verification-artifacts/report.md`.\n- Any CLI transcripts, JSON snapshots, screenshots, videos, or other\n  artifacts under `verification-artifacts/`.\n\nAssess the gates first:\n\n- Did the repo gates run on the final diff: typecheck core and cli,\n  `bun test packages`, `bun test test/e2e`, and `bun run build:viewer`\n  when `packages/viewer` changed? A missing or failed gate is\n  disqualifying regardless of other evidence.\n\nAssess both verification plans:\n\n- Was the technical plan's verification section sufficient for the\n  feature? Did the verifier identify gaps or weak assumptions in it?\n- Was the verifier's independent verification plan sufficient, and did\n  the verifier execute both the plan's relevant steps and its own\n  additional steps?\n\nAssess the evidence against the scope:\n\n- Does the diff actually match the scoped plan — nothing planned left\n  unimplemented, nothing significant implemented outside the plan?\n- Do CLI transcripts support the claimed behavior, including exit codes\n  and important output fields?\n- Do JSON snapshots show the expected machine-readable contract?\n- Do screenshots or videos support viewer or browser behavior?\n- Did the verifier use a realistic sample project when the feature can\n  be exercised outside the repository?\n- Are skipped checks justified and low risk? Are failures product\n  defects, harness limitations, or acceptable residual risks?\n\nAssess stage boundaries:\n\n- Verification may create artifacts under `verification-artifacts/`, but\n  it must not change checked-in source, tests, prompts, workflow\n  configuration, package metadata, plans, or other tracked repository\n  files outside `verification-artifacts/`.\n- Treat any verification-stage tracked file change outside\n  `verification-artifacts/` as implementation work that happened after\n  validation and review. Route to `Fix implementation` for that boundary\n  violation even when the change is tiny, test-only, or described as\n  harness hardening. The fix must happen in implementation so validation\n  and review rerun on the final diff.\n\nReject weak verification. Do not approve only because tests passed.\n\nRoute based on the smallest next step:\n\n- Route to `Re-verify` when the implementation appears plausible but the\n  verifier skipped important checks, failed to create an independent\n  verification plan, omitted required artifacts, or made claims that the\n  evidence does not support.\n- Route to `Fix implementation` only when the evidence points to a\n  product defect, an implementation gap, a diff/scope mismatch, a failed\n  or skipped repo gate, or a verification-stage tracked-file boundary\n  violation.\n- Route to `Verified` only when the evidence is sufficient.\n\nWhen verification is satisfactory, explain why the evidence is enough.\nWhen it is not satisfactory, explain the smallest implementation or\nverification work needed next.\n\nEnd with exactly one routing JSON object:\n\n```json\n{\"preferred_next_label\":\"Verified\",\"context_updates\":{\"verification_ready\":true,\"verification_route\":\"handoff\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Re-verify\",\"context_updates\":{\"verification_ready\":false,\"verification_route\":\"verify\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Fix implementation\",\"context_updates\":{\"verification_ready\":false,\"verification_route\":\"implement\"}}\n```\n"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "backend": {
+              "String": "api"
+            }
+          }
+        },
+        "validate_gates": {
+          "id": "validate_gates",
+          "attrs": {
+            "label": {
+              "String": "Run repo gates"
+            },
+            "script": {
+              "String": "./.fabro/scripts/fabro-validate"
+            },
+            "shape": {
+              "String": "parallelogram"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            }
+          }
+        },
+        "scope": {
+          "id": "scope",
+          "attrs": {
+            "prompt": {
+              "String": "# Scope\n\nCreate or refine a durable technical implementation plan for the requested\nSkillmaker Studio feature. Do not edit implementation files in this stage.\n\n## The repository\n\nSkillmaker Studio is a bun + Effect TypeScript monorepo (bun workspaces,\n`packageManager: bun@…` pinned in the root `package.json`):\n\n- `packages/core` — the domain engine: skills, evals, journal, todos,\n  triage. Effect-first; schemas live here and everything else consumes\n  them.\n- `packages/cli` — the `skillmaker` CLI and the local server the Studio\n  UI rides on. Command execution is modeled as Effect programs; command\n  data goes on stdout, diagnostics on stderr, exit codes are stable.\n- `packages/viewer` — the Studio browser UI (Astro + React).\n- `packages/desktop`, `packages/docs-site`, `packages/marketing-site`,\n  `packages/skill` — desktop shell, sites, and the packaged\n  `/skillmaker` agent skill. Touch these only when the goal names them.\n- `test/e2e` — black-box end-to-end tests over the CLI and server\n  surfaces (`bun test test/e2e`).\n- `docs/` — plans and design docs; `docs/proposals/` holds dated\n  proposal/plan documents.\n\nRepository gates (mirrors `.github/workflows/ci.yml`): typecheck core and\ncli, `bun test packages`, `bun test test/e2e`, and `bun run build:viewer`.\nA later script node runs all of these; plan work that can pass them.\n\nHouse comment style — plan for it now so implementation inherits it:\ncomments are plain English prose that explains WHY the code is shaped the\nway it is, not what it does, and cites its sources — issue numbers,\ndated proposals, and rulings (e.g. \"ruling R2, 2026-07-17 data-model\nreconciliation\") — the way `packages/core/src/Todo.ts` does.\n\n## Planning rules\n\n- Read and obey the root `README.md`, `docs/README.md`, and any\n  package-local README or guidance files for packages named by the goal.\n- Write the plan to `docs/proposals/<yyyy-mm-dd>-<stable-feature-slug>.md`\n  (the house pattern for dated proposals). If a relevant plan already\n  exists there, refine it instead of creating a duplicate.\n- Keep work scoped to the packages and surfaces named by the goal.\n- Keep domain logic and schemas in `packages/core`; keep deterministic\n  CLI/server behavior in `packages/cli`; keep browser UI state in\n  `packages/viewer`.\n- Do not freehand-edit `docs/library`; it is the live product context\n  library. Only touch that path when the approved plan explicitly owns a\n  library migration.\n- Use Effect patterns already present in the touched packages.\n- Include black-box tests for CLI behavior, exit codes, and important\n  output fields when the CLI changes (unit tests in the package,\n  end-to-end coverage in `test/e2e` when the server surface changes).\n- Include viewer build validation (`bun run build:viewer`) when viewer\n  behavior changes.\n- Include risks, mitigations, acceptance criteria, and deferred\n  follow-ups.\n\n## Implementation handoff output\n\n- After writing or refining the plan, read the plan file back from disk.\n- Your final response is what the implementation stage receives. It must\n  show the real plan document, not a summary.\n- Start with `Plan ready for implementation: <plan-path>`.\n- Then paste the complete Markdown contents of the plan file between these\n  exact markers:\n\n```text\n--- BEGIN PLAN DOC ---\n<complete contents of docs/proposals/<yyyy-mm-dd>-<stable-feature-slug>.md>\n--- END PLAN DOC ---\n```\n\n- Do not summarize, paraphrase, omit sections, or replace the plan with a\n  status report.\n- If the plan has risks or open questions that need attention before\n  implementation, they must be present in the plan document itself.\n"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "label": {
+              "String": "Scope"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "scope",
+          "attrs": {}
+        },
+        {
+          "from": "scope",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "scope",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "implement",
+          "to": "validate_gates",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "implement",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "validate_gates",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=failed"
+            },
+            "label": {
+              "String": "Fix validation"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "review",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            },
+            "label": {
+              "String": "Validation OK"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "review",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "review_ready=false"
+            },
+            "label": {
+              "String": "Fix"
+            }
+          }
+        },
+        {
+          "from": "review",
+          "to": "verify",
+          "attrs": {
+            "condition": {
+              "String": "review_ready=true"
+            },
+            "label": {
+              "String": "Ready"
+            }
+          }
+        },
+        {
+          "from": "review",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "verify",
+          "to": "verification_judge",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "verify",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "verification_judge",
+          "to": "verify",
+          "attrs": {
+            "label": {
+              "String": "Re-verify"
+            },
+            "condition": {
+              "String": "verification_route=verify"
+            }
+          }
+        },
+        {
+          "from": "verification_judge",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "verification_route=implement"
+            },
+            "label": {
+              "String": "Fix implementation"
+            }
+          }
+        },
+        {
+          "from": "verification_judge",
+          "to": "handoff",
+          "attrs": {
+            "label": {
+              "String": "Verified"
+            },
+            "condition": {
+              "String": "verification_ready=true"
+            }
+          }
+        },
+        {
+          "from": "verification_judge",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "handoff",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "goal": {
+          "String": "GitHub Issue #192: Dark mode: --color-well has no night value — the whole tabbed surface renders dark-mode ink on a light ground (1.07:1)\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/192\n\n## Summary\n\n`--color-well` — the ground for the skill page's folder tabs and the entire\ntabbed content surface — is the one brand surface token with no dark-mode value.\nAt night the tab and its content panel keep painting light parchment `#f6eee0`\nwhile everything drawn on them switches to dark-mode inks. The active tab's\nlabel renders at **1.11:1**; rendered Markdown on the same surface is worse —\nheadings at **1.07:1**, body copy at **1.50:1** — so the Research, Eval, and\nPublish tab content is effectively invisible, styled as though it were on a\nblack background while the ground stays cream. The intended dark value is\nalready in the file as a dead declaration. Restore it in the `.dark` block.\n\n## Motivation / Problem\n\nThe active tab tells you where you are in the skill page. In dark mode you\ncannot read it, so the primary navigation of the product's main surface has no\nvisible current-state indicator. The body copy on the same surface is affected\ntoo — `ink-muted` on `well` measures **2.02:1** at night — so the whole tabbed\nregion reads as washed out, not just the tab label.\n\nLight mode is unaffected and correct (`#2c2416` on `#f6eee0` = **13.3:1**); this\nis a dark-mode-only defect.\n\nThe tempting fix is to hardcode a dark text colour on the active tab. That would\nbe wrong: it treats the label as the defect when the *ground* is what never\nthemed, leaves the content surface still painting daylight parchment at night,\nand would itself become unreadable the moment `well` is corrected. The token is\nthe defect.\n\n## Observed behavior\n\nDark mode, skill page, any bundle.\n\n**The tabs.** The `OVERVIEW` tab is active and its label is near-invisible\nagainst its own fill; the inactive tabs beside it (`RESEARCH`, `EVAL`,\n`PUBLISH`) are legible, and the surrounding chrome is correctly dark.\n\n**The tab content — worse.** Open the Research tab on a bundle with\n`research/notes.md`. The rendered Markdown is washed out to the point of\nunreadability: headings (`Topic restatement`, `The architecture the skill must\nlive inside`) are barely discernible, body paragraphs are pale tan on cream, and\ninline code chips render as **dark chips with light text** — correct styling for\na dark theme, painted on a light page. The content is dressed for a black\nbackground it isn't on.\n\n**The diagnostic that proves it's the ground, not the text rules:** selecting\nthe text makes it fully legible. `.dark ::selection` (`global.css:329-331`)\nforces `color: #16110a` over an amber ground — the one place in dark mode where\na dark ink is hardcoded. Everywhere the theme's own inks apply, they are\ndark-mode inks on a light-mode surface.\n\nMeasured (WCAG 2.1 contrast ratio):\n\n| Pair | Dark mode today | After fix |\n|---|---|---|\n| Markdown h1/h2 — `neutral-100` `#f1e6d3` on `well` `#f6eee0` | **1.07:1** | **14.7:1** |\n| active tab label — `ink` `#ece3d2` on `well` `#f6eee0` | **1.11:1** | **14.2:1** |\n| Markdown body — `neutral-300` `#d5c3a3` on `well` `#f6eee0` | **1.50:1** | **10.5:1** |\n| surface body copy — `ink-muted` `#b6a988` on `well` `#f6eee0` | **2.02:1** | **7.78:1** |\n| active tab label, light mode — `#2c2416` on `#f6eee0` | 13.3:1 | unchanged |\n\n## Current shape\n\nEvery other brand surface token is redefined for dark. `well` is not.\n\n`packages/viewer/src/styles/global.css`, `@theme` block, lines 48-51 — note the\nduplicate declaration, where a dark value is written and immediately clobbered:\n\n```css\n  --color-paper: #f4ece0;\n  --color-well: #1b150d;\n  --color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n  --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */\n```\n\nThe `.dark` block, lines 288-296, overrides its siblings and omits `well`:\n\n```css\n.dark {\n  color-scheme: dark;\n  --color-canvas: #16110a;      /* warm near-black ground */\n  --color-surface: #221a10;\n  --color-border: #3a3220;\n  --color-ink: #ece3d2;         /* parchment ink — body text + wordmark */\n  --color-ink-muted: #b6a988;\n  --color-paper: #1d1610;       /* sidebar / panel ground, a shade above canvas */\n  --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */\n```\n\nThe consuming components are already correct and need no change — the tab label\ncolour is properly conditional on active state, `packages/viewer/src/app/next/SkillPage.tsx:18-21`:\n\n```tsx\nconst TAB_ACTIVE =\n  \"relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink\";\nconst TAB_IDLE =\n  \"cursor-pointer rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:bg-well/70 hover:text-ink\";\n```\n\nDark mode is expressed purely by token flipping — these tabs carry no `dark:`\nutilities at all (`@custom-variant dark` at `global.css:32`), which is the house\npattern and worth preserving.\n\n**Why the tab *content* is hit harder than the tab label.** Every tab body\nrenders inside that same `bg-well` container (`SkillPage.tsx:109`), and the\nResearch/Eval/Publish tabs render Markdown through\n`packages/viewer/src/app/components/Markdown.tsx`, which is the one component\nthat pairs the deliberately-unflipped `neutral-*` ramp with explicit `dark:`\nvariants (`global.css:284-286` documents this arrangement):\n\n```tsx\n  1: \"text-base font-semibold text-neutral-900 dark:text-neutral-100\",\n  2: \"text-sm font-semibold text-neutral-900 dark:text-neutral-100\",\n```\n```tsx\n        <p className=\"text-neutral-700 dark:text-neutral-300\">\n```\n```tsx\n            <code key={i} className=\"rounded bg-neutral-100 px-1 font-mono text-[0.9em] dark:bg-neutral-900\">\n```\n\nThose `dark:` variants are correct and fire correctly — the `.dark` class is on\nthe root. `neutral-100` (`#f1e6d3`) and `neutral-300` (`#d5c3a3`) are the right\ninks *for a dark ground*, and `dark:bg-neutral-900` is the right chip *for a\ndark ground*. They are simply being painted onto a ground that never became\ndark. `ResearchTab` (`SkillPage.tsx:345-370`) puts `MarkdownContent` straight\ninto the `well` surface, which is where the two meet.\n\nThis is the same single defect, not a second one: no `dark:` variant in\n`Markdown.tsx` is wrong, and none should change.\n\nHow it drifted, since the archaeology explains the whole class of bug: dark mode\nshipped in `b6a2424` (#164, 2026-07-23); the folder tabs and the `well` token\narrived four days later in `35c419a` (#170, 2026-07-27). The token was born\nafter the `.dark` block was authored and nobody revisited it. `well` is also\nabsent from `docs/library/brand/Reference - Brand Palette.md`, so there was no\ndocument that would have caught the omission either.\n\n## Proposed contract\n\nAdd the missing token to the `.dark` block and delete the dead duplicate:\n\n```css\n/* @theme — delete the clobbered line, keep the light value */\n--color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n\n/* .dark — the intended night value */\n--color-well: #1b150d;  /* tabbed-section ground at night, a shade below canvas */\n```\n\n**Decisions:**\n\n- The dark value is `#1b150d` — the value already present as the dead\n  declaration at `global.css:49`, i.e. the original author's intent recovered\n  rather than a new colour invented.\n- In light mode `well` sits a shade *lighter* than `canvas` (`#f6eee0` vs\n  `#f1e6d3`); at night it sits a shade *darker* than `canvas` (`#1b150d` vs\n  `#16110a`). Both keep it distinct from `paper` and `surface`, which is the\n  token's stated job.\n- **No component classes change.** `TAB_ACTIVE` / `TAB_IDLE` in `SkillPage.tsx`\n  stay exactly as written; no `dark:` utility is added; no text colour is\n  hardcoded.\n- `well` is added to `docs/library/brand/Reference - Brand Palette.md` with both\n  values and its role, so the brand doc stops being silent about a shipped\n  surface token.\n\n## Acceptance criteria\n\n- [ ] In dark mode the active tab's label is legible against its own ground —\n      `ink` on `well` measures ≥ 7:1 (14.2:1 at the proposed value).\n- [ ] In dark mode the tabbed content surface reads as a dark ground continuous\n      with the rest of the night theme, and secondary copy on it (`ink-muted`)\n      measures ≥ 4.5:1 (7.78:1 at the proposed value).\n- [ ] The idle tab's `hover:bg-well/70` + `hover:text-ink` hover state is legible\n      in dark mode — the same pairing that fails today.\n- [ ] In dark mode, rendered Markdown on the tab surface is legible: headings\n      (`dark:text-neutral-100`) ≥ 7:1 and body copy (`dark:text-neutral-300`)\n      ≥ 7:1 against `well`. Verified on the Research tab with a real\n      `research/notes.md`.\n- [ ] In dark mode, inline code chips (`dark:bg-neutral-900`) and fenced code\n      blocks read as raised/inset against the surface rather than as dark\n      patches on a light page, and their text is legible against the chip.\n- [ ] Negative: `Markdown.tsx` is unchanged — no `dark:` variant is added,\n      removed, or retuned. Every one of them is already correct for a dark\n      ground.\n- [ ] Regression: light mode is pixel-identical. The active tab, idle tabs, the\n      content surface, and the row-hover at `SkillPage.tsx:264` all render\n      unchanged in daylight.\n- [ ] Negative: `--color-well` is declared exactly once in `@theme` and exactly\n      once in `.dark`; the duplicate declaration is gone.\n- [ ] Negative: `SkillPage.tsx` is unchanged — no hardcoded text colour, no new\n      `dark:` utility on the tabs.\n- [ ] `docs/library/brand/Reference - Brand Palette.md` lists `well` with its\n      light and dark values and its role.\n- [ ] Tests cover both themes across all four surfaces that consume the token\n      (active tab, tab content surface, idle-tab hover, menu-row hover at\n      `SkillPage.tsx:264`).\n\n## Implementation notes\n\nThe token has exactly four consumers, all in one file —\n`packages/viewer/src/app/next/SkillPage.tsx:19` (active tab), `:21` (idle-tab\nhover tint), `:109` (tab content surface), `:264` (menu row hover) — and there\nare no others in the viewer.\n\n**Do not mistake that for a small verification surface.** Consumer `:109` is the\nground for *every* tab body, so the visual blast radius is all Markdown and all\ncontent rendered in the Overview, Research, Eval, and Publish tabs. Verifying\nthe four class sites is not enough; check real rendered content in each tab, in\nboth themes — a bundle with a populated `research/notes.md` is the sharpest test\nbecause it exercises headings, body copy, inline code, and fenced blocks at\nonce.\n\nScope fences:\n\n- **Do not hardcode a text colour on the tabs.** The label already switches\n  correctly between `text-ink` and `text-ink-muted`; the ground is what's\n  missing. A literal black or white in `SkillPage.tsx` would mask this bug and\n  block the token fix.\n- **Do not re-theme the other surface tokens.** `canvas`, `surface`, `paper`,\n  and `border` have considered dark values; leave them.\n- **Do not flip the `neutral-*` ramp.** It is deliberately not flipped in dark\n  (`global.css:284-286`), and `Markdown.tsx` pairs it with explicit `dark:`\n  variants.\n- **Do not touch `Markdown.tsx`.** Its `dark:` variants look wrong on screen\n  today only because the ground beneath them is wrong. Retuning them would make\n  the content readable on the broken light ground and then break it a second\n  time when `well` is corrected.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/styles/global.css` — `@theme` (:34), the duplicate\n  `--color-well` (:49-50), the `.dark` block (:288)\n- `packages/viewer/src/app/next/SkillPage.tsx` — the four consumers above; `ResearchTab` (:345)\n- `packages/viewer/src/app/components/Markdown.tsx` — the `dark:` variants rendered on the surface (:28, :62-67, :82, :100)\n- `docs/library/brand/Reference - Brand Palette.md` — the palette table `well`\n  is missing from\n\n## Not in scope\n\nThe active tab's border is `border-neutral-900/50`, and the neutral ramp is\ndeliberately not flipped in dark — so once the ground goes dark, that hairline\nbecomes a dark border on a dark surface. Cosmetic, invisible rather than\nillegible, and it touches the ramp-flipping decision rather than this token.\nWorth a separate ticket if it reads poorly once the ground is corrected.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n"
+        },
+        "default_fidelity": {
+          "String": "summary:high"
+        },
+        "max_node_visits": {
+          "Integer": 8
+        },
+        "rankdir": {
+          "String": "LR"
+        },
+        "stall_timeout": {
+          "Duration": {
+            "secs": 18000,
+            "nanos": 0
+          }
+        }
+      }
+    },
+    "graph_source": "digraph SmsFeature {\n    graph [\n        goal=\"Implement a Skillmaker Studio feature with post-review verification before handoff.\",\n        default_fidelity=\"summary:high\",\n        max_node_visits=8,\n        stall_timeout=\"5h\"\n    ]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    // Model split (director ruling, PR #188): sol-high where the graph\n    // makes judgment calls that gate everything downstream (scope, the\n    // verification judge); terra-medium for the in-loop worker stages.\n    scope [\n        label=\"Scope\",\n        prompt=\"@prompts/scope.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        timeout=\"90m\"\n    ]\n\n    implement [\n        label=\"Implement\",\n        prompt=\"@prompts/implement.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    validate_gates [\n        shape=parallelogram,\n        label=\"Run repo gates\",\n        script=\"./.fabro/scripts/fabro-validate\",\n        timeout=\"90m\"\n    ]\n\n    review [\n        label=\"Review\",\n        prompt=\"@prompts/review.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    verify [\n        label=\"Verify\",\n        prompt=\"@prompts/verify.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    verification_judge [\n        label=\"Verification Judge\",\n        prompt=\"@prompts/verification-judge.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        timeout=\"90m\"\n    ]\n\n    handoff [\n        shape=tab,\n        label=\"Prepare PR\",\n        prompt=\"@prompts/handoff.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    start -> scope\n    scope -> implement [condition=\"outcome=succeeded\"]\n    scope -> exit\n    implement -> validate_gates [condition=\"outcome=succeeded\"]\n    implement -> exit\n    validate_gates -> implement [label=\"Fix validation\", condition=\"outcome=failed\"]\n    validate_gates -> review    [label=\"Validation OK\", condition=\"outcome=succeeded\"]\n    validate_gates -> exit\n\n    review -> implement [label=\"Fix\", condition=\"review_ready=false\"]\n    review -> verify    [label=\"Ready\", condition=\"review_ready=true\"]\n    review -> exit\n    verify -> verification_judge [condition=\"outcome=succeeded\"]\n    verify -> exit\n    verification_judge -> verify    [label=\"Re-verify\", condition=\"verification_route=verify\"]\n    verification_judge -> implement [label=\"Fix implementation\", condition=\"verification_route=implement\"]\n    verification_judge -> handoff   [label=\"Verified\", condition=\"verification_ready=true\"]\n    verification_judge -> exit\n    handoff -> exit\n}\n",
+    "workflow_slug": "sms-feature",
+    "source_directory": "/Users/jessmartin/Documents/code/skillmaker-studio",
+    "provenance": {
+      "server": {
+        "version": "0.315.0-nightly.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.315.0-nightly.0",
+        "name": "fabro-cli",
+        "version": "0.315.0-nightly.0"
+      },
+      "subject": {
+        "kind": "user",
+        "identity": {
+          "issuer": "https://github.com",
+          "subject": "27258"
+        },
+        "login": "jessmartin",
+        "auth_method": "github"
+      }
+    },
+    "manifest_blob": "f621e318ab92c81ecc3f855149a019121e7e6d747989cc1bf21088e45037c891",
+    "definition_blob": "516379a09c0b84e27e6b9c75d45cea198d998ca22aaebf21bb8b83f294dc03a6",
+    "git": {
+      "origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+      "branch": "main",
+      "sha": "01cc271ffd5a5370e63f3e327d3e57880d7da205",
+      "dirty": "clean",
+      "push_outcome": {
+        "type": "not_attempted"
+      }
+    }
+  },
+  "web_url": "https://fabro-st.up.railway.app/runs/01KZ6YKAKGKPFD70772920JR9J",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-08-04T17:54:41.151413561Z",
+  "last_event_at": "2026-08-04T17:54:52.983977073Z",
+  "pending_control": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "sandbox": {
+    "kind": "ready",
+    "plan": {
+      "provider": "daytona"
+    },
+    "instance": {
+      "provider": "daytona",
+      "snapshot": "daytona-medium",
+      "runtime": {
+        "id": "fabro-01KZ6YKAKGKPFD70772920JR9J",
+        "working_directory": "/home/daytona/workspace/skillmaker-studio",
+        "repo_cloned": true,
+        "clone_origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+        "clone_branch": "main",
+        "workspace_root": "/home/daytona/workspace",
+        "repos_root": "/home/daytona/repos",
+        "primary_repo_path": "/home/daytona/repos/sociotechnica-org/skillmaker-studio",
+        "primary_repo_link": "/home/daytona/workspace/skillmaker-studio"
+      }
+    }
+  },
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "stages": {}
+}
