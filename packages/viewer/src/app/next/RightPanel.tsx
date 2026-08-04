@@ -379,18 +379,57 @@ function SentImage({ image }: { readonly image: ChatItemImage }) {
   );
 }
 
+/**
+ * The machine-authored production context prepended to a session's first
+ * prompt (Blocker #5), rendered as a collapsed muted chip -- one quiet line
+ * that expands on click, never a wall of text before the user's message.
+ */
+function ContextChip({ context }: { readonly context: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col items-end pb-1.5">
+      <button
+        type="button"
+        className="flex items-center gap-1 rounded border border-border bg-surface/60 px-2 py-0.5 text-xs text-ink-muted hover:bg-surface"
+        title={open ? "Hide the session context sent to the agent" : "Show the session context sent to the agent"}
+        onClick={() => setOpen(!open)}
+      >
+        <ChevronIcon open={open} />
+        <span>context</span>
+      </button>
+      {open && (
+        <div className="mt-1 max-w-[85%] whitespace-pre-wrap rounded border border-border bg-surface/60 px-3 py-2 text-xs text-ink-muted">
+          {context}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The user's bubble, right-aligned; attached images render above the text. */
 function UserMessage({
   text,
   sentAt,
+  context,
   images = [],
 }: {
   readonly text: string;
   readonly sentAt: string;
+  readonly context?: string;
   readonly images?: ReadonlyArray<ChatItemImage>;
 }) {
+  // The orientation opening is machine context with no user words: just the
+  // collapsed chip, no empty bubble.
+  if (text.length === 0 && images.length === 0 && context !== undefined) {
+    return (
+      <div className="flex flex-col items-end pt-3">
+        <ContextChip context={context} />
+      </div>
+    );
+  }
   return (
     <div className="group flex flex-col items-end pt-3">
+      {context !== undefined && <ContextChip context={context} />}
       <div className="max-w-[85%] rounded-xl bg-amber-50 px-3 py-2 shadow-sm">
         {images.length > 0 && (
           <div className="flex flex-wrap justify-end gap-1.5 pb-1">
@@ -784,13 +823,15 @@ function ChatTab({
               state={chat.state}
               provider={selection.provider}
               onStart={(provider, mode) =>
-                chat.start(
-                  provider,
-                  mode,
-                  selection.model !== undefined
+                // No pending user message on this path: ask for the
+                // agent-speaks-first orientation opening (the server skips it
+                // for a genuine resume, which replays its own history).
+                chat.start(provider, mode, {
+                  ...(selection.model !== undefined
                     ? { model: selection.model, ...(selection.effort !== undefined ? { effort: selection.effort } : {}) }
-                    : undefined,
-                )
+                    : {}),
+                  orient: true,
+                })
               }
             />
           )
@@ -804,7 +845,15 @@ function ChatTab({
         {chat.available &&
           items.map((item, i) => {
             if (item.kind === "user")
-              return <UserMessage key={i} text={item.text} sentAt={fmtTime(item.t)} images={item.images} />;
+              return (
+                <UserMessage
+                  key={i}
+                  text={item.text}
+                  sentAt={fmtTime(item.t)}
+                  context={item.context}
+                  images={item.images}
+                />
+              );
             if (item.kind === "agent") return <AgentMessage key={i} text={item.text} sentAt={fmtTime(item.t)} />;
             if (item.kind === "tool") return <ToolChip key={item.toolCallId} title={item.title} status={item.status} />;
             if (item.kind === "permission")

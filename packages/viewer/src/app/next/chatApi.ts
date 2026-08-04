@@ -118,10 +118,12 @@ export interface ChatImagePayload {
   readonly name?: string;
 }
 
-/** A model/effort pick for session start. */
+/** A model/effort pick for session start, plus the agent-speaks-first flag. */
 export interface ChatModelChoice {
   readonly model?: string;
   readonly effort?: string;
+  /** True when the session starts with NO pending user message: the server opens with the orientation turn (preamble + "orient the director" instruction) so the agent speaks first. */
+  readonly orient?: boolean;
 }
 
 export interface ChatState {
@@ -261,6 +263,7 @@ export function useChatSession(skill: string): ChatSessionHook {
           mode,
           ...(choice?.model !== undefined ? { model: choice.model } : {}),
           ...(choice?.effort !== undefined ? { effort: choice.effort } : {}),
+          ...(choice?.orient === true ? { orient: true } : {}),
         },
         () => setStreamEpoch((epoch) => epoch + 1),
       );

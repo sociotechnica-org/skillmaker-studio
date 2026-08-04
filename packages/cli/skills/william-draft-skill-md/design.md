@@ -80,10 +80,23 @@ eval fixtures (that is the `evaluating` station's job).
    belongs to a different station; leave a note in your final message
    instead of editing it.
 
-6. **Stop once `output/SKILL.md` reflects `design.md`.** Do not run the
-   skill, do not write eval fixtures, do not advance the bundle's stage --
-   those are separate, human-gated steps (the `evaluating` station and the
-   viewer's review-pair loop).
+6. **Finish according to your mode.** The skill runs in two settings and
+   the ending differs (e2e-readiness walk, 2026-07-29: "the product never
+   states the next step" -- in chat, finishing a leg must hand off, not go
+   silent):
+   - **Unattended (station sandbox, no human present):** stop once
+     `output/SKILL.md` reflects `design.md`. Do not run the skill, do not
+     write eval fixtures, do not advance the bundle's stage -- those are
+     separate, human-gated steps (the `evaluating` station and the
+     viewer's review-pair loop).
+   - **In conversation with the director (live chat):** the same limits
+     hold, but end with the evals hand-off: the draft is ready for review,
+     and after approval the next step is authoring evals from
+     `design.md`'s `## Failure hypotheses` -- offer to do it. Never author
+     evals unprompted. Fixture-scoping rule for when that work is
+     approved: each fixture probes ONE failure hypothesis (or one tight
+     cluster of related risks) -- grading is run-level, so a five-risk
+     fixture cannot be graded honestly.
 
 ## Failure hypotheses
 
@@ -94,6 +107,7 @@ eval fixtures (that is the `evaluating` station's job).
 | 3 | The agent rewrites `output/SKILL.md` wholesale instead of preserving still-valid parts of a prior draft, discarding earlier reviewer-approved phrasing for no reason | OUT |
 | 4 | The agent omits a `## Failure hypotheses` constraint (a "must never") when translating `design.md` into `output/SKILL.md`, silently reintroducing a known failure mode | ADV |
 | 5 | The agent edits files outside `design.md`/`output/SKILL.md` (e.g. touches `research/` or `evals/`), which the station engine's copyback filter would then also have to guard against | OUT |
+| 6 | In a live conversation, the agent finishes the draft and stops station-style -- no review hand-off, no stated next step -- leaving the human in dead silence after the leg (the e2e-readiness walk's "the product never states the next step") | RE |
 
 ## Proof spec
 
