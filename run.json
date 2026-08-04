@@ -573,14 +573,140 @@
     }
   },
   "web_url": "https://fabro-st.up.railway.app/runs/01KZ6RVCTHSGWQDJGKYPJEG922",
-  "start": null,
-  "status": {
-    "kind": "starting"
+  "start": {
+    "start_time": "2026-08-04T16:14:16.387405638Z",
+    "run_branch": "fabro/run/01KZ6RVCTHSGWQDJGKYPJEG922",
+    "base_sha": "01cc271ffd5a5370e63f3e327d3e57880d7da205"
   },
-  "status_updated_at": "2026-08-04T16:14:04.145779305Z",
-  "last_event_at": "2026-08-04T16:14:16.372800990Z",
+  "status": {
+    "kind": "running"
+  },
+  "status_updated_at": "2026-08-04T16:14:16.387436427Z",
+  "last_event_at": "2026-08-04T16:22:40.620157089Z",
   "pending_control": null,
-  "checkpoints": [],
+  "checkpoints": [
+    {
+      "seq": 22,
+      "checkpoint": {
+        "timestamp": "2026-08-04T16:14:19.017951001Z",
+        "current_node": "start",
+        "completed_nodes": [
+          "start"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "failure_class": "",
+          "graph.default_fidelity": "summary:high",
+          "graph.goal": "Update the docs-site page `packages/docs-site/src/content/docs/cli/publish.md` to document the CURRENT publish door, which shipped in PR #185 (v0.6.2).\n\nContext: the page still documents only the legacy workspace-level `publishTargets` config door. The current primary door (see `packages/cli/src/commands/` publish command and `packages/core/src/InstallPublish.ts`) is:\n\n- `skillmaker publish <slug> --to user|project` — installs output/SKILL.md (+ output/ siblings) to `~/.claude/skills/<slug>/` (user) or `<project>/.claude/skills/<slug>/` (project)\n- The chosen audience is REMEMBERED per-bundle in bundle.json (`publishTargets`), so subsequent publishes are just `skillmaker publish <slug>`\n- `--version <hash>` publishes a recorded version's snapshot (this is how revert works)\n- `--json` for the agent layer\n- Every publish writes a provenance comment into the installed SKILL.md (bundle, version short-hash, date, evidence line \"N of M claims measured\") and appends a `skill.published` journal event\n- Publishing requires the bundle to have passed its final human gate (stage `published` reachable via the guarded transitions)\n- Adopted in-place bundles keep their existing behavior (live file is the target; no stamp)\n\nAcceptance criteria:\n1. The page leads with the `--to user|project` door, documents the remembered audience, `--version`, `--json`, the stamp, and the stage-gate requirement — matching the implementation exactly (verify claims against the code, do not copy this goal text blindly).\n2. The legacy workspace `publishTargets` config door remains documented, clearly marked as the legacy/secondary path.\n3. Cross-links to `/concepts/publishing-and-the-skillbook/` and the getting-started first-bundle page's publish section stay coherent.\n4. `bun run build:docs` passes; `bun test packages` untouched-green.\n5. Match the docs site's existing voice; keep the page scannable.\n",
+          "internal.node_visit_count": 1,
+          "internal.thread_id": null,
+          "internal.fidelity": "summary:high",
+          "internal.retry_count.start": 0,
+          "current_node": "start",
+          "graph.stall_timeout": "18000000ms",
+          "outcome": "succeeded",
+          "failure_signature": "",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "graph.rankdir": "LR",
+          "graph.max_node_visits": "8",
+          "internal.run_id": "01KZ6RVCTHSGWQDJGKYPJEG922"
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          }
+        },
+        "next_node_id": "scope",
+        "node_visits": {
+          "start": 1
+        }
+      },
+      "diff": {}
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-04T16:22:40.932451623Z",
+        "current_node": "scope",
+        "completed_nodes": [
+          "start",
+          "scope"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "internal.retry_count.start": 0,
+          "outcome": "succeeded",
+          "graph.stall_timeout": "18000000ms",
+          "internal.thread_id": "start",
+          "graph.goal": "Update the docs-site page `packages/docs-site/src/content/docs/cli/publish.md` to document the CURRENT publish door, which shipped in PR #185 (v0.6.2).\n\nContext: the page still documents only the legacy workspace-level `publishTargets` config door. The current primary door (see `packages/cli/src/commands/` publish command and `packages/core/src/InstallPublish.ts`) is:\n\n- `skillmaker publish <slug> --to user|project` — installs output/SKILL.md (+ output/ siblings) to `~/.claude/skills/<slug>/` (user) or `<project>/.claude/skills/<slug>/` (project)\n- The chosen audience is REMEMBERED per-bundle in bundle.json (`publishTargets`), so subsequent publishes are just `skillmaker publish <slug>`\n- `--version <hash>` publishes a recorded version's snapshot (this is how revert works)\n- `--json` for the agent layer\n- Every publish writes a provenance comment into the installed SKILL.md (bundle, version short-hash, date, evidence line \"N of M claims measured\") and appends a `skill.published` journal event\n- Publishing requires the bundle to have passed its final human gate (stage `published` reachable via the guarded transitions)\n- Adopted in-place bundles keep their existing behavior (live file is the target; no stamp)\n\nAcceptance criteria:\n1. The page leads with the `--to user|project` door, documents the remembered audience, `--version`, `--json`, the stamp, and the stage-gate requirement — matching the implementation exactly (verify claims against the code, do not copy this goal text blindly).\n2. The legacy workspace `publishTargets` config door remains documented, clearly marked as the legacy/secondary path.\n3. Cross-links to `/concepts/publishing-and-the-skillbook/` and the getting-started first-bundle page's publish section stay coherent.\n4. `bun run build:docs` passes; `bun test packages` untouched-green.\n5. Match the docs site's existing voice; keep the page scannable.\n",
+          "internal.node_visit_count": 1,
+          "failure_signature": "",
+          "thread.start.current_node": "scope",
+          "current_node": "scope",
+          "internal.fidelity": "summary:high",
+          "internal.retry_count.scope": 0,
+          "last_stage": "scope",
+          "response.scope": "Plan ready for implementation: docs/proposals/2026-08-04-current-publish-door-docs.md\n\n--- BEGIN PLAN DOC ---\n# Current Publish Door CLI Documentation\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6RVCTHSGWQDJGKYPJEG922`; documents the publish door shipped in PR\n#185 and v0.6.2.*\n\n## Status\n\nReady for implementation. This is a documentation correction for shipped\nbehavior, not a CLI, core, server, viewer, schema, or state-machine change.\n\n## Outcome\n\nRewrite the `skillmaker publish` reference page so the first workflow a\nreader sees is the current install door:\n\n```sh\nskillmaker publish <slug> --to user\nskillmaker publish <slug> --to project\n```\n\nThe page will explain where each audience installs the selected version,\nhow the per-bundle audience memory makes later publishes a bare\n`skillmaker publish <slug>`, how `--version` re-installs a recorded\nsnapshot, and what `--json` returns to agents. It will also make the\npublish guard, provenance stamp, journal receipt, idempotent no-op, and\nadopted in-place exception explicit.\n\nThe existing workspace-level `skillmaker.config.json.publishTargets`\nworkflow remains on the same page, below the install workflow and clearly\nidentified as the legacy/secondary configured-target door.\n\n## Source-of-truth contract\n\nImplementation must derive prose and examples from the shipped code and\ntests, chiefly:\n\n- `packages/cli/src/commands/Publish.ts` for option handling, door\n  selection, failures, and text/JSON result shapes.\n- `packages/cli/src/Cli.ts` for the public option vocabulary.\n- `packages/core/src/InstallPublish.ts` for audience resolution, snapshot\n  selection, remembered audiences, installed content, evidence, stamps,\n  journaling, and adopted in-place behavior.\n- `packages/core/src/Publish.ts`, `packages/core/src/Machine.ts`, and\n  `packages/core/src/Versions.ts` for publishability, transition guards,\n  and hash-prefix behavior.\n- `test/e2e/publish-door.e2e.test.ts`,\n  `packages/core/test/InstallPublish.test.ts`, and\n  `test/e2e/phase11.e2e.test.ts` for observable examples and both doors'\n  idempotency contracts.\n\nThe documentation must preserve these distinctions:\n\n| Concern | Shipped behavior to document |\n|---|---|\n| User audience | Installs the selected snapshot's `output/` contents at `$CLAUDE_CONFIG_DIR/skills/<slug>/` when that variable is set, otherwise `~/.claude/skills/<slug>/`. |\n| Project audience | Installs at `<workspace>/.claude/skills/<slug>/`; there is no cross-project picker. |\n| Installed payload | `output/SKILL.md` and all sibling files beneath `output/` are installed without the `output/` path segment. A changed Studio-born install replaces the destination tree, including stale siblings. |\n| Audience memory | A successful explicit `--to` adds the symbolic audience to `bundle.json.publishTargets`. Audiences accumulate without duplicates, so a later bare publish goes to every remembered audience and each machine resolves the paths locally. |\n| Door selection | `--to` or `--version` selects the install door. A remembered audience makes a bare publish select it too. With no memory and configured workspace targets, a bare publish falls back to the legacy door. Explicit `--target` selects the legacy door. |\n| Latest publish guard | A plain install publish requires stage `published`, at least one recorded version, and live design/output content in sync with the latest version. Publish itself checks the resulting stage; the ordinary guarded transition into `published` requires the approved evaluating review and approved publish gate. |\n| Recorded-version publish | `--version <hash-prefix>` selects a recorded snapshot and still requires stage `published`, but deliberately does not require the live tree to match that version. The snapshot must exist. Examples should use a full hash or a left-anchored prefix beginning with `sha256:` because matching is against the stored full hash. |\n| Provenance stamp | A real Studio-born install puts an HTML comment in installed `SKILL.md`, immediately below YAML frontmatter when present and otherwise at the top. It names `skillmaker-studio`, the bundle, short version hash plus optional label, UTC date, and evidence such as `3 of 23 claims measured`; an index failure is reported honestly as `evidence unavailable`. Sibling files are not stamped. |\n| Journal and no-op | A real install/revert appends one `skill.published` event per affected audience with bundle, version, target, path, and evidence. If identical stamped bytes are already installed and already receipted, the command reports `already_published`/`already installed` and does not write or append a duplicate event. Re-landing older bytes after another version occupied the target is a new, journaled act. |\n| Adopted in place | For a bundle resolved as in-place, the live directory is the target, `--to` does not apply, no audience is remembered, and no provenance stamp is added because changing the live `SKILL.md` would manufacture output drift. `--version` restores snapshot payload files into that live directory. |\n| Agent output | Install-door success JSON contains `status`, `slug`, `versionHash`, optional `versionLabel`, `evidence`, `stamped`, `remembered`, and `results` entries with `target`, `path`, and `status`. Install-door guard failures under `--json` use `{status:\"rejected\", slug, reason}` and exit 1. |\n| Legacy door | `--target <id>` selects one workspace-configured target; without it, the legacy door publishes to all configured targets. `git-dir` copies `output/` to `<path>/<slug>/`; `claude-marketplace` maintains `.claude-plugin/marketplace.json` plus `.claude-plugin/MARKETPLACE.md`; `codex-marketplace` maintains `.codex-plugin/plugin.json` plus the best-effort `.agents/plugins/marketplace.json`. Their legacy JSON/text result shapes and per-target idempotency remain distinct from the install door. |\n\nDo not repeat the goal text's absolute wording that every invocation writes\na stamp and event: the implementation intentionally makes same-content\nre-publishes true no-ops. Likewise, do not say `--version` requires the\nlive tree to be in sync; it reads the recorded snapshot precisely so a\nrevert can work after the live output has moved on.\n\n## Scope and files\n\n### Authored source\n\n- Rewrite\n  `packages/docs-site/src/content/docs/cli/publish.md`.\n\nKeep the change concentrated in this command reference. The linked\n`packages/docs-site/src/content/docs/getting-started/first-bundle.md`\npublish section is already the user-facing guided workflow and is a\nread-only alignment reference for this task. The linked\n`packages/docs-site/src/content/docs/concepts/publishing-and-the-skillbook.md`\nremains the conceptual destination for the distinction between publishing\nand building the Skillbook; this page must not defer current CLI syntax\nback to that older conceptual treatment.\n\n### Generated output\n\n`bun run build:docs` regenerates tracked files under\n`packages/docs-site/dist/`, including the rendered publish page and\nPagefind index. Accept only the generated build diff; do not hand-edit\nthose files.\n\n### Explicitly out of scope\n\n- No edits to `packages/core`, `packages/cli`, `packages/viewer`, server\n  routes, schemas, tests, or fixtures.\n- No change to publish behavior, option precedence, target formats,\n  state-machine rules, snapshot storage, or journal semantics.\n- No broad freshness sweep of the roadmap, CLI index, conceptual pages,\n  or adoption guide.\n- No edits under `docs/library`.\n\n## Page structure and implementation steps\n\n1. **Replace the legacy-only front door.** Update the description and\n   opening synopsis to lead with the install forms:\n   `--to user|project`, remembered bare publish, and\n   `--version <hash-prefix>`. Show `--target <id>` separately as the\n   configured-target form so readers do not combine the two doors.\n\n2. **Explain the two install audiences.** Add a compact table mapping\n   `user` to the Claude config directory and `project` to the workspace's\n   `.claude/skills/<slug>/`. State that the selected version's entire\n   `output/` payload is installed and that the user location honors\n   `CLAUDE_CONFIG_DIR`.\n\n3. **Make memory concrete.** Show a first explicit publish followed by a\n   bare re-publish. Say that `bundle.json.publishTargets` stores symbolic\n   per-bundle audiences, not machine-specific paths, and that selecting a\n   second audience adds it; subsequent bare publishes address all\n   remembered audiences. Include the no-memory refusal while noting the\n   legacy fallback when workspace targets are configured.\n\n4. **Separate latest publish from revert.** Keep the guard section\n   scannable but exact: plain publish uses the latest in-sync recorded\n   version; `--version` reads a named recorded snapshot, skips the\n   live-drift comparison, and is the CLI revert mechanism. Both require\n   the bundle's folded stage to be `published`. Link the normal route into\n   that stage to the state-machine page and link version/drift details to\n   the existing version reference.\n\n5. **Show receipts without overstating them.** Include a short example of\n   the provenance comment with its placement and fields. Explain the\n   `N of M claims measured` derivation, honest unavailable fallback,\n   per-real-act `skill.published` event, and same-content no-op. A concise\n   text result and a verified install-door JSON result should expose the\n   current field names, including `remembered`, `stamped`, and per-target\n   `path`/`status`.\n\n6. **Call out the adopted exception.** Add a brief note that an in-place\n   bundle's live payload is already the install target. `--to` is refused,\n   plain publish/revert operates there, and the live `SKILL.md` is not\n   stamped.\n\n7. **Retain the configured-target door as secondary.** Move the current\n   workspace `publishTargets` configuration, target-kind table,\n   `--target`, representative output, and legacy JSON shape under a\n   heading that says this is the legacy/secondary distribution path.\n   Re-verify and correct the existing target descriptions as they move:\n   the Claude storefront is `.claude-plugin/MARKETPLACE.md`, never a root\n   `README.md`, and the Codex target writes both currently implemented\n   manifests while retaining its best-effort warning. Remove claims that\n   this is the only or primary publish door. Correct the server route\n   reference if it remains in the page: the current route is\n   `POST /api/bundles/:slug/publish`.\n\n8. **Finish with coherent navigation.** In “See also,” link\n   [Your first skill's Publish section](/getting-started/first-bundle/#9-publish)\n   as the guided UI workflow and\n   [Publishing and the Skillbook](/concepts/publishing-and-the-skillbook/)\n   for the distinction between installing a skill and rendering workspace\n   documentation. Keep the `book build`, state-machine, and\n   versions/drift links near the claims they explain rather than collecting\n   every link at the end.\n\n9. **Regenerate and inspect the site.** Build the docs, inspect the\n   rendered publish page for the expected headings, examples, and links,\n   and review the source and generated diff for accidental unrelated\n   churn.\n\n## Voice and presentation\n\n- Match the existing docs site's direct, plain-language voice: explain\n  what the reader is trying to do before naming internal storage.\n- Prefer two small syntax blocks, short tables, and compact examples over\n  a long narrative or a single oversized options table.\n- Use “install door” for the current audience workflow and\n  “configured-target” or “legacy/secondary door” for the workspace config\n  workflow. Always qualify which `publishTargets` is meant:\n  `bundle.json.publishTargets` contains audience words, while\n  `skillmaker.config.json.publishTargets` contains target objects.\n- Describe externally visible behavior rather than implementation\n  function names or PR history on the public page.\n- Keep examples internally consistent around one slug and version, and\n  derive JSON/text examples from the current renderers or tests rather\n  than inventing fields.\n\n## Validation\n\nRun from the repository root:\n\n```sh\nbun run --filter @skillmaker/docs-site check\nbun run build:docs\nbun test packages\n```\n\nThen:\n\n- Confirm the docs check and static build complete without broken-content\n  or rendering errors.\n- Inspect `packages/docs-site/dist/cli/publish/index.html` to confirm the\n  install door leads, both cross-links render, and the legacy section\n  remains present.\n- Confirm the rendered page includes `--to user|project`, remembered\n  audiences, `--version`, `--json`, the provenance/evidence stamp,\n  `skill.published`, stage `published`, and the in-place no-stamp rule.\n- Confirm the source and generated page still document all three legacy\n  configured target kinds and `--target`.\n- Confirm `bun test packages` is green without any test-source changes.\n- Review `git diff --check` and `git status --short`; expected authored\n  changes are the proposal, `publish.md`, and build-generated docs output\n  only.\n\nFull CLI/e2e suites are not required for this prose-only change because no\nruntime surface changes. Existing install-door and legacy publish tests\nare the evidence used to write the page.\n\n## Risks and mitigations\n\n### The two `publishTargets` fields are easy to conflate\n\nThe per-bundle field is an array of `user`/`project` audience words; the\nworkspace field is an array of configured target objects. Always name the\nowning file and put the workflows in separate sections.\n\n### A simplified guard description can make revert sound impossible\n\nThe latest-version path enforces live drift, while `--version` does not.\nGive them separate paragraphs and tie the latter explicitly to snapshot\ncontent.\n\n### “Every publish” can contradict idempotency\n\nThe stamp and journal describe real install acts, not a same-content\nno-op. Use “real install or revert” where writes/events are discussed and\nshow `already_published` as the no-op result.\n\n### Adopted bundles have a CLI discovery limitation\n\nThe core and server honor the in-place contract when given the bundle's\nactual directory, but the CLI command currently constructs\n`<workspace>/<skillsDir>/<slug>` and therefore does not reliably discover\nadopted bundles elsewhere. Document the resolved in-place behavior\nwithout claiming broader CLI location discovery, and leave resolver\nparity to a separate runtime fix.\n\n### The linked publishing concept page predates PR #185\n\nKeep `publish.md` self-contained as the command authority and describe the\nconcept link narrowly as the publish-versus-Skillbook explanation. A\nbroader concept-page freshness pass is deferred rather than silently\nexpanding this focused correction.\n\n### Generated docs can create broad search-index churn\n\nUse the pinned Bun workspace command, do not edit `dist` manually, and\nseparate expected Pagefind regeneration from unrelated source changes\nduring diff review.\n\n## Acceptance criteria\n\n1. `packages/docs-site/src/content/docs/cli/publish.md` leads with\n   `skillmaker publish <slug> --to user|project` and accurately maps both\n   audiences to their resolved install directories.\n2. The page explains per-bundle remembered audiences, their additive\n   behavior, and the subsequent bare publish workflow without confusing\n   them with workspace configuration.\n3. `--version <hash-prefix>` is documented as a recorded-snapshot\n   publish/revert, including its stage requirement, snapshot requirement,\n   and deliberate exemption from the plain publish live-drift check.\n4. `--json` documents the current install success fields and rejected\n   guard shape for the agent layer.\n5. The page documents the provenance stamp's placement and fields,\n   evidence line, real-act `skill.published` receipt, and no-op\n   idempotency semantics exactly.\n6. The page states that normal publish requires stage `published` and\n   links that stage to the guarded final review/publish-gate transition\n   without implying that the publish command replays the transition\n   guard.\n7. Adopted in-place behavior is explicit: live target, no `--to`, no\n   remembered audience, and no stamp.\n8. Workspace-level `skillmaker.config.json.publishTargets`, all three\n   existing target kinds, `--target`, and representative legacy output\n   remain documented under a clearly secondary/legacy heading.\n9. Links to\n   `/getting-started/first-bundle/#9-publish` and\n   `/concepts/publishing-and-the-skillbook/` render and have descriptions\n   consistent with their roles.\n10. `bun run --filter @skillmaker/docs-site check`,\n    `bun run build:docs`, and `bun test packages` pass; package test files\n    remain untouched.\n\n## Deferred follow-ups\n\n- Resolve actual-directory discovery for adopted bundles in the CLI before\n  making an unqualified claim that every externally located adopted bundle\n  is publishable from the terminal.\n- Refresh the publishing concept page and other older docs-site summaries\n  that still present configured workspace targets as the sole door.\n- Consider rejecting mixed `--target` with `--to`/`--version` as a usage\n  error instead of relying on precedence; that is a CLI contract change,\n  not documentation work.\n- Consider normalizing bare hexadecimal version prefixes for `publish` to\n  the behavior already offered by `version show`; until then examples\n  should use the accepted `sha256:`-prefixed form.\n--- END PLAN DOC ---",
+          "internal.run_id": "01KZ6RVCTHSGWQDJGKYPJEG922",
+          "failure_class": "",
+          "graph.max_node_visits": "8",
+          "last_response": "Plan ready for implementation: docs/proposals/2026-08-04-current-publish-door-docs.md\n\n--- BEGIN PLAN DOC ---\n# Current Publish Door CLI Documentation\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6R",
+          "graph.rankdir": "LR",
+          "graph.default_fidelity": "summary:high"
+        },
+        "node_outcomes": {
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Plan ready for implementation: docs/proposals/2026-08-04-current-publish-door-docs.md\n\n--- BEGIN PLAN DOC ---\n# Current Publish Door CLI Documentation\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6R",
+              "response.scope": "Plan ready for implementation: docs/proposals/2026-08-04-current-publish-door-docs.md\n\n--- BEGIN PLAN DOC ---\n# Current Publish Door CLI Documentation\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6RVCTHSGWQDJGKYPJEG922`; documents the publish door shipped in PR\n#185 and v0.6.2.*\n\n## Status\n\nReady for implementation. This is a documentation correction for shipped\nbehavior, not a CLI, core, server, viewer, schema, or state-machine change.\n\n## Outcome\n\nRewrite the `skillmaker publish` reference page so the first workflow a\nreader sees is the current install door:\n\n```sh\nskillmaker publish <slug> --to user\nskillmaker publish <slug> --to project\n```\n\nThe page will explain where each audience installs the selected version,\nhow the per-bundle audience memory makes later publishes a bare\n`skillmaker publish <slug>`, how `--version` re-installs a recorded\nsnapshot, and what `--json` returns to agents. It will also make the\npublish guard, provenance stamp, journal receipt, idempotent no-op, and\nadopted in-place exception explicit.\n\nThe existing workspace-level `skillmaker.config.json.publishTargets`\nworkflow remains on the same page, below the install workflow and clearly\nidentified as the legacy/secondary configured-target door.\n\n## Source-of-truth contract\n\nImplementation must derive prose and examples from the shipped code and\ntests, chiefly:\n\n- `packages/cli/src/commands/Publish.ts` for option handling, door\n  selection, failures, and text/JSON result shapes.\n- `packages/cli/src/Cli.ts` for the public option vocabulary.\n- `packages/core/src/InstallPublish.ts` for audience resolution, snapshot\n  selection, remembered audiences, installed content, evidence, stamps,\n  journaling, and adopted in-place behavior.\n- `packages/core/src/Publish.ts`, `packages/core/src/Machine.ts`, and\n  `packages/core/src/Versions.ts` for publishability, transition guards,\n  and hash-prefix behavior.\n- `test/e2e/publish-door.e2e.test.ts`,\n  `packages/core/test/InstallPublish.test.ts`, and\n  `test/e2e/phase11.e2e.test.ts` for observable examples and both doors'\n  idempotency contracts.\n\nThe documentation must preserve these distinctions:\n\n| Concern | Shipped behavior to document |\n|---|---|\n| User audience | Installs the selected snapshot's `output/` contents at `$CLAUDE_CONFIG_DIR/skills/<slug>/` when that variable is set, otherwise `~/.claude/skills/<slug>/`. |\n| Project audience | Installs at `<workspace>/.claude/skills/<slug>/`; there is no cross-project picker. |\n| Installed payload | `output/SKILL.md` and all sibling files beneath `output/` are installed without the `output/` path segment. A changed Studio-born install replaces the destination tree, including stale siblings. |\n| Audience memory | A successful explicit `--to` adds the symbolic audience to `bundle.json.publishTargets`. Audiences accumulate without duplicates, so a later bare publish goes to every remembered audience and each machine resolves the paths locally. |\n| Door selection | `--to` or `--version` selects the install door. A remembered audience makes a bare publish select it too. With no memory and configured workspace targets, a bare publish falls back to the legacy door. Explicit `--target` selects the legacy door. |\n| Latest publish guard | A plain install publish requires stage `published`, at least one recorded version, and live design/output content in sync with the latest version. Publish itself checks the resulting stage; the ordinary guarded transition into `published` requires the approved evaluating review and approved publish gate. |\n| Recorded-version publish | `--version <hash-prefix>` selects a recorded snapshot and still requires stage `published`, but deliberately does not require the live tree to match that version. The snapshot must exist. Examples should use a full hash or a left-anchored prefix beginning with `sha256:` because matching is against the stored full hash. |\n| Provenance stamp | A real Studio-born install puts an HTML comment in installed `SKILL.md`, immediately below YAML frontmatter when present and otherwise at the top. It names `skillmaker-studio`, the bundle, short version hash plus optional label, UTC date, and evidence such as `3 of 23 claims measured`; an index failure is reported honestly as `evidence unavailable`. Sibling files are not stamped. |\n| Journal and no-op | A real install/revert appends one `skill.published` event per affected audience with bundle, version, target, path, and evidence. If identical stamped bytes are already installed and already receipted, the command reports `already_published`/`already installed` and does not write or append a duplicate event. Re-landing older bytes after another version occupied the target is a new, journaled act. |\n| Adopted in place | For a bundle resolved as in-place, the live directory is the target, `--to` does not apply, no audience is remembered, and no provenance stamp is added because changing the live `SKILL.md` would manufacture output drift. `--version` restores snapshot payload files into that live directory. |\n| Agent output | Install-door success JSON contains `status`, `slug`, `versionHash`, optional `versionLabel`, `evidence`, `stamped`, `remembered`, and `results` entries with `target`, `path`, and `status`. Install-door guard failures under `--json` use `{status:\"rejected\", slug, reason}` and exit 1. |\n| Legacy door | `--target <id>` selects one workspace-configured target; without it, the legacy door publishes to all configured targets. `git-dir` copies `output/` to `<path>/<slug>/`; `claude-marketplace` maintains `.claude-plugin/marketplace.json` plus `.claude-plugin/MARKETPLACE.md`; `codex-marketplace` maintains `.codex-plugin/plugin.json` plus the best-effort `.agents/plugins/marketplace.json`. Their legacy JSON/text result shapes and per-target idempotency remain distinct from the install door. |\n\nDo not repeat the goal text's absolute wording that every invocation writes\na stamp and event: the implementation intentionally makes same-content\nre-publishes true no-ops. Likewise, do not say `--version` requires the\nlive tree to be in sync; it reads the recorded snapshot precisely so a\nrevert can work after the live output has moved on.\n\n## Scope and files\n\n### Authored source\n\n- Rewrite\n  `packages/docs-site/src/content/docs/cli/publish.md`.\n\nKeep the change concentrated in this command reference. The linked\n`packages/docs-site/src/content/docs/getting-started/first-bundle.md`\npublish section is already the user-facing guided workflow and is a\nread-only alignment reference for this task. The linked\n`packages/docs-site/src/content/docs/concepts/publishing-and-the-skillbook.md`\nremains the conceptual destination for the distinction between publishing\nand building the Skillbook; this page must not defer current CLI syntax\nback to that older conceptual treatment.\n\n### Generated output\n\n`bun run build:docs` regenerates tracked files under\n`packages/docs-site/dist/`, including the rendered publish page and\nPagefind index. Accept only the generated build diff; do not hand-edit\nthose files.\n\n### Explicitly out of scope\n\n- No edits to `packages/core`, `packages/cli`, `packages/viewer`, server\n  routes, schemas, tests, or fixtures.\n- No change to publish behavior, option precedence, target formats,\n  state-machine rules, snapshot storage, or journal semantics.\n- No broad freshness sweep of the roadmap, CLI index, conceptual pages,\n  or adoption guide.\n- No edits under `docs/library`.\n\n## Page structure and implementation steps\n\n1. **Replace the legacy-only front door.** Update the description and\n   opening synopsis to lead with the install forms:\n   `--to user|project`, remembered bare publish, and\n   `--version <hash-prefix>`. Show `--target <id>` separately as the\n   configured-target form so readers do not combine the two doors.\n\n2. **Explain the two install audiences.** Add a compact table mapping\n   `user` to the Claude config directory and `project` to the workspace's\n   `.claude/skills/<slug>/`. State that the selected version's entire\n   `output/` payload is installed and that the user location honors\n   `CLAUDE_CONFIG_DIR`.\n\n3. **Make memory concrete.** Show a first explicit publish followed by a\n   bare re-publish. Say that `bundle.json.publishTargets` stores symbolic\n   per-bundle audiences, not machine-specific paths, and that selecting a\n   second audience adds it; subsequent bare publishes address all\n   remembered audiences. Include the no-memory refusal while noting the\n   legacy fallback when workspace targets are configured.\n\n4. **Separate latest publish from revert.** Keep the guard section\n   scannable but exact: plain publish uses the latest in-sync recorded\n   version; `--version` reads a named recorded snapshot, skips the\n   live-drift comparison, and is the CLI revert mechanism. Both require\n   the bundle's folded stage to be `published`. Link the normal route into\n   that stage to the state-machine page and link version/drift details to\n   the existing version reference.\n\n5. **Show receipts without overstating them.** Include a short example of\n   the provenance comment with its placement and fields. Explain the\n   `N of M claims measured` derivation, honest unavailable fallback,\n   per-real-act `skill.published` event, and same-content no-op. A concise\n   text result and a verified install-door JSON result should expose the\n   current field names, including `remembered`, `stamped`, and per-target\n   `path`/`status`.\n\n6. **Call out the adopted exception.** Add a brief note that an in-place\n   bundle's live payload is already the install target. `--to` is refused,\n   plain publish/revert operates there, and the live `SKILL.md` is not\n   stamped.\n\n7. **Retain the configured-target door as secondary.** Move the current\n   workspace `publishTargets` configuration, target-kind table,\n   `--target`, representative output, and legacy JSON shape under a\n   heading that says this is the legacy/secondary distribution path.\n   Re-verify and correct the existing target descriptions as they move:\n   the Claude storefront is `.claude-plugin/MARKETPLACE.md`, never a root\n   `README.md`, and the Codex target writes both currently implemented\n   manifests while retaining its best-effort warning. Remove claims that\n   this is the only or primary publish door. Correct the server route\n   reference if it remains in the page: the current route is\n   `POST /api/bundles/:slug/publish`.\n\n8. **Finish with coherent navigation.** In “See also,” link\n   [Your first skill's Publish section](/getting-started/first-bundle/#9-publish)\n   as the guided UI workflow and\n   [Publishing and the Skillbook](/concepts/publishing-and-the-skillbook/)\n   for the distinction between installing a skill and rendering workspace\n   documentation. Keep the `book build`, state-machine, and\n   versions/drift links near the claims they explain rather than collecting\n   every link at the end.\n\n9. **Regenerate and inspect the site.** Build the docs, inspect the\n   rendered publish page for the expected headings, examples, and links,\n   and review the source and generated diff for accidental unrelated\n   churn.\n\n## Voice and presentation\n\n- Match the existing docs site's direct, plain-language voice: explain\n  what the reader is trying to do before naming internal storage.\n- Prefer two small syntax blocks, short tables, and compact examples over\n  a long narrative or a single oversized options table.\n- Use “install door” for the current audience workflow and\n  “configured-target” or “legacy/secondary door” for the workspace config\n  workflow. Always qualify which `publishTargets` is meant:\n  `bundle.json.publishTargets` contains audience words, while\n  `skillmaker.config.json.publishTargets` contains target objects.\n- Describe externally visible behavior rather than implementation\n  function names or PR history on the public page.\n- Keep examples internally consistent around one slug and version, and\n  derive JSON/text examples from the current renderers or tests rather\n  than inventing fields.\n\n## Validation\n\nRun from the repository root:\n\n```sh\nbun run --filter @skillmaker/docs-site check\nbun run build:docs\nbun test packages\n```\n\nThen:\n\n- Confirm the docs check and static build complete without broken-content\n  or rendering errors.\n- Inspect `packages/docs-site/dist/cli/publish/index.html` to confirm the\n  install door leads, both cross-links render, and the legacy section\n  remains present.\n- Confirm the rendered page includes `--to user|project`, remembered\n  audiences, `--version`, `--json`, the provenance/evidence stamp,\n  `skill.published`, stage `published`, and the in-place no-stamp rule.\n- Confirm the source and generated page still document all three legacy\n  configured target kinds and `--target`.\n- Confirm `bun test packages` is green without any test-source changes.\n- Review `git diff --check` and `git status --short`; expected authored\n  changes are the proposal, `publish.md`, and build-generated docs output\n  only.\n\nFull CLI/e2e suites are not required for this prose-only change because no\nruntime surface changes. Existing install-door and legacy publish tests\nare the evidence used to write the page.\n\n## Risks and mitigations\n\n### The two `publishTargets` fields are easy to conflate\n\nThe per-bundle field is an array of `user`/`project` audience words; the\nworkspace field is an array of configured target objects. Always name the\nowning file and put the workflows in separate sections.\n\n### A simplified guard description can make revert sound impossible\n\nThe latest-version path enforces live drift, while `--version` does not.\nGive them separate paragraphs and tie the latter explicitly to snapshot\ncontent.\n\n### “Every publish” can contradict idempotency\n\nThe stamp and journal describe real install acts, not a same-content\nno-op. Use “real install or revert” where writes/events are discussed and\nshow `already_published` as the no-op result.\n\n### Adopted bundles have a CLI discovery limitation\n\nThe core and server honor the in-place contract when given the bundle's\nactual directory, but the CLI command currently constructs\n`<workspace>/<skillsDir>/<slug>` and therefore does not reliably discover\nadopted bundles elsewhere. Document the resolved in-place behavior\nwithout claiming broader CLI location discovery, and leave resolver\nparity to a separate runtime fix.\n\n### The linked publishing concept page predates PR #185\n\nKeep `publish.md` self-contained as the command authority and describe the\nconcept link narrowly as the publish-versus-Skillbook explanation. A\nbroader concept-page freshness pass is deferred rather than silently\nexpanding this focused correction.\n\n### Generated docs can create broad search-index churn\n\nUse the pinned Bun workspace command, do not edit `dist` manually, and\nseparate expected Pagefind regeneration from unrelated source changes\nduring diff review.\n\n## Acceptance criteria\n\n1. `packages/docs-site/src/content/docs/cli/publish.md` leads with\n   `skillmaker publish <slug> --to user|project` and accurately maps both\n   audiences to their resolved install directories.\n2. The page explains per-bundle remembered audiences, their additive\n   behavior, and the subsequent bare publish workflow without confusing\n   them with workspace configuration.\n3. `--version <hash-prefix>` is documented as a recorded-snapshot\n   publish/revert, including its stage requirement, snapshot requirement,\n   and deliberate exemption from the plain publish live-drift check.\n4. `--json` documents the current install success fields and rejected\n   guard shape for the agent layer.\n5. The page documents the provenance stamp's placement and fields,\n   evidence line, real-act `skill.published` receipt, and no-op\n   idempotency semantics exactly.\n6. The page states that normal publish requires stage `published` and\n   links that stage to the guarded final review/publish-gate transition\n   without implying that the publish command replays the transition\n   guard.\n7. Adopted in-place behavior is explicit: live target, no `--to`, no\n   remembered audience, and no stamp.\n8. Workspace-level `skillmaker.config.json.publishTargets`, all three\n   existing target kinds, `--target`, and representative legacy output\n   remain documented under a clearly secondary/legacy heading.\n9. Links to\n   `/getting-started/first-bundle/#9-publish` and\n   `/concepts/publishing-and-the-skillbook/` render and have descriptions\n   consistent with their roles.\n10. `bun run --filter @skillmaker/docs-site check`,\n    `bun run build:docs`, and `bun test packages` pass; package test files\n    remain untouched.\n\n## Deferred follow-ups\n\n- Resolve actual-directory discovery for adopted bundles in the CLI before\n  making an unqualified claim that every externally located adopted bundle\n  is publishable from the terminal.\n- Refresh the publishing concept page and other older docs-site summaries\n  that still present configured workspace targets as the sole door.\n- Consider rejecting mixed `--target` with `--to`/`--version` as a usage\n  error instead of relying on precedence; that is a CLI contract change,\n  not documentation work.\n- Consider normalizing bare hexadecimal version prefixes for `publish` to\n  the behavior already offered by `version show`; until then examples\n  should use the accepted `sha256:`-prefixed form.\n--- END PLAN DOC ---",
+              "last_stage": "scope"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 98713,
+                    "output_tokens": 11998,
+                    "reasoning_tokens": 4950,
+                    "cache_read_tokens": 1350452,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 1677224
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 295916,
+              "tool_time_ms": 204802,
+              "active_time_ms": 500718
+            }
+          },
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          }
+        },
+        "next_node_id": "implement",
+        "node_visits": {
+          "scope": 1,
+          "start": 1
+        }
+      },
+      "diff": {}
+    }
+  ],
   "conclusion": null,
   "sandbox": {
     "kind": "ready",
@@ -606,5 +732,245 @@
   "pull_request": null,
   "superseded_by": null,
   "pending_interviews": {},
-  "stages": {}
+  "stages": {
+    "start@1": {
+      "first_event_seq": 19,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-08-04T16:14:19.017681555Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-04T16:14:18.828916963Z",
+      "handler": "start",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 0,
+        "inference_time_ms": 0,
+        "tool_time_ms": 0,
+        "active_time_ms": 0
+      },
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "scope@1": {
+      "first_event_seq": 23,
+      "prompt": null,
+      "response": null,
+      "completion": null,
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "high"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-04T16:14:19.087665377Z",
+      "handler": "agent",
+      "graph_visit": 1,
+      "live_inference_ms": 295909,
+      "live_tool_ms": 204790,
+      "usage": {
+        "input_tokens": 98713,
+        "output_tokens": 11998,
+        "total_tokens": 1466113,
+        "reasoning_tokens": 4950,
+        "cache_read_tokens": 1350452,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 1677224
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-sol"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:aa0d3c6b-fea7-47de-9969-89494177b277",
+        "items": [
+          {
+            "id": "7c63d1c9665e0da6",
+            "status": "completed",
+            "order": 0,
+            "subject": "Read repository and docs-site guidance plus existing related plans"
+          },
+          {
+            "id": "237e3674a4472dcd",
+            "status": "completed",
+            "order": 1,
+            "subject": "Inspect the publish implementation, tests, and linked documentation for exact behavior"
+          },
+          {
+            "id": "d32747538cb35dc8",
+            "status": "completed",
+            "order": 2,
+            "subject": "Draft or refine the dated proposal with scope, steps, validation, risks, acceptance criteria, and follow-ups"
+          },
+          {
+            "id": "4d1d8402a1cd6d4f",
+            "status": "completed",
+            "order": 3,
+            "subject": "Read the completed plan back from disk and deliver it verbatim"
+          }
+        ]
+      },
+      "subagents": [
+        {
+          "agent_id": "d1920dd1",
+          "depth": 1,
+          "task": "Independently inspect the current publish-door implementation in packages/cli/src/commands/Publish.ts, packages/core/src/InstallPublish.ts, related schemas/state machine/journal, and tests (especially test/e2e/publish-door.e2e.test.ts). Produce an exact fact matrix for documentation: syntax/options, door selection/legacy fallback, destinations and env/path resolution, copied content, remembered targets semantics, version selection/revert, guards/drift behavior, stamps, journal/idempotency, adopted in-place behavior, JSON/text output. Do not edit files.",
+          "status": {
+            "kind": "closed"
+          }
+        },
+        {
+          "agent_id": "81f1292d",
+          "depth": 1,
+          "task": "Inspect docs-site conventions and linked pages relevant to updating packages/docs-site/src/content/docs/cli/publish.md: root/docs guidance, docs-site package scripts/config if useful, first-bundle publish section, publishing-and-the-skillbook, adjacent CLI pages, existing proposals. Recommend a scoped durable plan structure and identify cross-link/coherence concerns. Do not edit files.",
+          "status": {
+            "kind": "closed"
+          }
+        }
+      ],
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": true
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "context_window_tokens": 272000,
+        "input_tokens": 98653,
+        "usage_percent": 36.26948529411764,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-04T16:22:40.614822314Z",
+        "event_seq": 627,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 2810,
+            "usage_percent": 1.0330882352941178
+          },
+          {
+            "category": "tools",
+            "tokens": 932,
+            "usage_percent": 0.3426470588235294
+          },
+          {
+            "category": "conversation",
+            "tokens": 94905,
+            "usage_percent": 34.89154411764706
+          },
+          {
+            "category": "other",
+            "tokens": 6,
+            "usage_percent": 0.0022058823529411764
+          }
+        ],
+        "warnings": []
+      },
+      "agent_control": "running",
+      "state": "running"
+    }
+  }
 }
