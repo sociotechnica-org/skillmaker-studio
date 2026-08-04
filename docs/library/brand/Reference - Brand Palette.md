@@ -76,7 +76,9 @@ Pick one set when reconciling.
 the amber hover shade; and whether the marketing site adopts the full semantic
 ramp + dark overrides.
 
-Verified 2026-07-17 against `packages/marketing-site/src/styles/global.css:8-22`
-(surat) and `packages/viewer/src/styles/global.css:24-139` (san-jose). Both are
-unmerged branches — re-check on merge. Relates to
+Cross-surface values were verified 2026-07-17 against
+`packages/marketing-site/src/styles/global.css:8-22` (surat) and
+`packages/viewer/src/styles/global.css:24-139` (san-jose). The app-only
+`well` values were verified 2026-08-04 against the viewer `@theme` and `.dark`
+blocks for #192. Both are unmerged branches — re-check on merge. Relates to
 [[Reference - Surfaces and Texture]] (which consumes `paper-dark` and amber).
