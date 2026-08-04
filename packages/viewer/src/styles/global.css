@@ -46,7 +46,6 @@ select:not(:disabled) {
   --color-ink: var(--color-neutral-900);
   --color-ink-muted: #5b5143;
   --color-paper: #f4ece0;
-  --color-well: #1b150d;
   --color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */
   --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */
   --color-amber: var(--color-amber-500);
@@ -293,6 +292,9 @@ main h1::after {
   --color-ink: #ece3d2;         /* parchment ink — body text + wordmark */
   --color-ink-muted: #b6a988;
   --color-paper: #1d1610;       /* sidebar / panel ground, a shade above canvas */
+  /* #192 restores the night value introduced with #170: this sits slightly
+     above dark canvas so folder tabs remain a distinct, readable surface. */
+  --color-well: #1b150d;
   --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */
 
   /* Amber tints: lamplit browns for bubbles, chips, and the permission

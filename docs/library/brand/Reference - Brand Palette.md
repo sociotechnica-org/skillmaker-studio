@@ -21,6 +21,7 @@ they diverge and need a ruling ([[Concept - LifeBuild Brand]] › open decisions
 | Page ground (parchment) | `#f1e6d3` | ✓ |
 | Card surface / paper | `#fff9f0` | ✓ |
 | Raised paper | `#f4ece0` | ✓ (named `surface-raised` / `paper`) |
+| Tabbed section ground (`well`) | light `#f6eee0`; dark `#1b150d` | app only |
 | Primary ink (text, wordmark) | `#2c2416` | ✓ |
 | Dim ink (secondary text) | `#5b5143` | ✓ (named `ink-dim` / `ink-muted`) |
 | Hairline border | `#d9cbb2` **vs** `#e5d6bd` | ⚠ |
@@ -63,8 +64,8 @@ onto the ramp.
 
 ## HOW
 **Canonical token names** (prefer the role-named form): `--color-canvas`,
-`--color-surface`, `--color-surface-raised`, `--color-ink`, `--color-ink-dim`,
-`--color-border`, `--color-paper-dark`, `--color-amber` (`#d4a052`),
+`--color-surface`, `--color-surface-raised`, `--color-well`, `--color-ink`,
+`--color-ink-dim`, `--color-border`, `--color-paper-dark`, `--color-amber` (`#d4a052`),
 `--color-amber-deep` (`#b8863a`), `--color-amber-glow`, `--color-accent-dim`.
 
 **Naming crosswalk** (site → app): `ink-dim`→`ink-muted`,
