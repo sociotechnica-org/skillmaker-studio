@@ -2,10 +2,12 @@
 #
 # Adapted from alexandria-internal's ax-feature workflow. Backend copied
 # from there (api backend, OpenAI). Models per director ruling on PR
-# #188: gpt-5.6-terra medium is the run default (implement, verify,
-# review, handoff); scope and the verification judge override to
-# gpt-5.6-sol high in workflow.fabro -- think hard at the gates, run
-# lean in the loop.
+# #188: gpt-5.6-terra medium is the run default (implement, handoff);
+# scope and the combined ReviewJudge override to gpt-5.6-sol high in
+# workflow.fabro -- think hard at the gates, run lean in the loop.
+# Graph reshaped 2026-08-04 after the first batch cycled expensively:
+# one review-judge stage instead of review + verify + verification
+# judge, with per-node max_visits loop caps (see workflow.fabro).
 
 _version = 1
 
@@ -46,8 +48,11 @@ pull_requests = "write"
 enabled = true
 draft = true
 
-# Verification evidence is uploaded as run artifacts, never checkpointed
-# into the branch (it would otherwise land in the PR diff).
+# Run evidence (screenshots, test results, any ad-hoc verification
+# notes) is uploaded as run artifacts, never checkpointed into the
+# branch (it would otherwise land in the PR diff). Kept after the
+# 2026-08-04 graph reshape even though the dedicated verify stage is
+# gone -- stages may still drop evidence in these paths.
 [run.checkpoint]
 exclude_globs = [
   "verification-artifacts/**",

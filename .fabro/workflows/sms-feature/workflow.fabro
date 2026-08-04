@@ -1,8 +1,8 @@
 digraph SmsFeature {
     graph [
-        goal="Implement a Skillmaker Studio feature with post-review verification before handoff.",
+        goal="Implement a Skillmaker Studio feature with one combined review-judge gate before the PR.",
         default_fidelity="summary:high",
-        max_node_visits=8,
+        max_node_visits=4,
         stall_timeout="5h"
     ]
     rankdir=LR
@@ -10,9 +10,18 @@ digraph SmsFeature {
     start [shape=Mdiamond, label="Start"]
     exit  [shape=Msquare, label="Exit"]
 
-    // Model split (director ruling, PR #188): sol-high where the graph
-    // makes judgment calls that gate everything downstream (scope, the
-    // verification judge); terra-medium for the in-loop worker stages.
+    // Reshaped after the first real batch (2026-08-04): the old 9-node
+    // graph verified three times (deterministic gates + LLM verify +
+    // verification judge) with unbounded retry loops, and three runs were
+    // cancelled after heavy cycling (implement x5, verify x3 observed;
+    // ~$8/PR, ~$25 total). Director ruling: one combined ReviewJudge
+    // stage, and loop caps enforced in the graph via per-node max_visits
+    // (fabro terminates the run when a node exceeds its cap, so the caps
+    // are structural, not prompt suggestions).
+    //
+    // Model split unchanged in spirit (director ruling, PR #188):
+    // sol-high where the graph makes judgment calls (scope, the judge);
+    // terra-medium for the in-loop worker stages.
     scope [
         label="Scope",
         prompt="@prompts/scope.md",
@@ -20,9 +29,14 @@ digraph SmsFeature {
         provider="openai",
         model="gpt-5.6-sol",
         reasoning_effort="high",
+        max_visits=1,
         timeout="90m"
     ]
 
+    // Worst case 4 visits: 1 initial + at most 2 gate-failure bounces +
+    // at most 1 ReviewJudge fix bounce. A further bounce of either kind
+    // exceeds the cap and fails the run with the previous stage's
+    // (gates/judge) output as the last captured stage.
     implement [
         label="Implement",
         prompt="@prompts/implement.md",
@@ -30,43 +44,39 @@ digraph SmsFeature {
         provider="openai",
         model="gpt-5.6-terra",
         reasoning_effort="medium",
+        max_visits=4,
         timeout="90m"
     ]
 
+    // Deterministic gates; runs once after every implement visit, so its
+    // cap mirrors implement's.
     validate_gates [
         shape=parallelogram,
         label="Run repo gates",
         script="./.fabro/scripts/fabro-validate",
+        max_visits=4,
         timeout="90m"
     ]
 
-    review [
-        label="Review",
-        prompt="@prompts/review.md",
-        backend="api",
-        provider="openai",
-        model="gpt-5.6-terra",
-        reasoning_effort="medium",
-        timeout="90m"
-    ]
-
-    verify [
-        label="Verify",
-        prompt="@prompts/verify.md",
-        backend="api",
-        provider="openai",
-        model="gpt-5.6-terra",
-        reasoning_effort="medium",
-        timeout="90m"
-    ]
-
-    verification_judge [
-        label="Verification Judge",
-        prompt="@prompts/verification-judge.md",
+    // One combined stage replacing the old review + verify +
+    // verification-judge trio. max_visits=2 makes "fix" a once-per-run
+    // route structurally: visit 1 may route Fix, visit 2 must land Ready
+    // or Surface (a second Fix would need a third visit, which the cap
+    // rejects). goal_gate=true makes a Surface verdict (outcome=failed)
+    // fail the run at exit, so [run.pull_request] never opens a PR for a
+    // surfaced run. `fabro validate` warns that this goal gate has no
+    // retry_target; that is deliberate -- a retry target would re-run the
+    // loop that Surface exists to stop, and with no target fabro fails
+    // the run, which is the intended surface-to-a-human behavior.
+    review_judge [
+        label="ReviewJudge",
+        prompt="@prompts/review-judge.md",
         backend="api",
         provider="openai",
         model="gpt-5.6-sol",
         reasoning_effort="high",
+        max_visits=2,
+        goal_gate=true,
         timeout="90m"
     ]
 
@@ -78,6 +88,7 @@ digraph SmsFeature {
         provider="openai",
         model="gpt-5.6-terra",
         reasoning_effort="medium",
+        max_visits=1,
         timeout="90m"
     ]
 
@@ -86,18 +97,15 @@ digraph SmsFeature {
     scope -> exit
     implement -> validate_gates [condition="outcome=succeeded"]
     implement -> exit
-    validate_gates -> implement [label="Fix validation", condition="outcome=failed"]
-    validate_gates -> review    [label="Validation OK", condition="outcome=succeeded"]
+    validate_gates -> implement    [label="Fix validation", condition="outcome=failed"]
+    validate_gates -> review_judge [label="Validation OK", condition="outcome=succeeded"]
     validate_gates -> exit
 
-    review -> implement [label="Fix", condition="review_ready=false"]
-    review -> verify    [label="Ready", condition="review_ready=true"]
-    review -> exit
-    verify -> verification_judge [condition="outcome=succeeded"]
-    verify -> exit
-    verification_judge -> verify    [label="Re-verify", condition="verification_route=verify"]
-    verification_judge -> implement [label="Fix implementation", condition="verification_route=implement"]
-    verification_judge -> handoff   [label="Verified", condition="verification_ready=true"]
-    verification_judge -> exit
+    review_judge -> handoff   [label="Ready", condition="verdict=ready"]
+    review_judge -> implement [label="Fix", condition="verdict=fix"]
+    // Surface (and any non-verdict failure) falls through to exit; the
+    // judge sets outcome=failed on Surface and goal_gate turns that into
+    // a failed run with the judge's summary as the last stage output.
+    review_judge -> exit [label="Surface"]
     handoff -> exit
 }
