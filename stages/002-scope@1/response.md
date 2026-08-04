@@ -1,0 +1,286 @@
+Plan ready for implementation: docs/proposals/2026-08-04-chat-sse-keepalive.md
+
+--- BEGIN PLAN DOC ---
+# Chat SSE Keepalive
+
+*Implementation plan — 2026-08-04. Run
+`01KZ6YKB8Z2Y2ZN5A67AYG5PAM`; GitHub issue #194.*
+
+## Status
+
+Ready for implementation. This is a narrowly scoped CLI-server transport
+fix plus regression coverage. It does not change chat events, transcript
+state, replay behavior, the viewer, or Bun's request timeout.
+
+## Outcome
+
+Each open chat SSE response will write this comment frame every 15 seconds:
+
+```text
+: keepalive
+
+```
+
+The comment keeps Bun's connection active without creating an EventSource
+`message` event. A quiet chat stream will therefore remain on one
+connection instead of reaching the server's 30-second per-connection idle
+timeout and reconnecting.
+
+The interval belongs to the response, starts when its `ReadableStream`
+starts, runs whether or not the skill has a live chat session, and is
+cleared when that stream is cancelled.
+
+## Verified current behavior
+
+The issue's causal report matches the current repository, with two naming
+qualifications captured here so implementation follows the code:
+
+- `packages/cli/src/server/ChatSessions.ts` opens a stream with
+  `: connected`, sends one state data frame, replays the live chat's
+  buffered data events when one exists, and then subscribes to new chat
+  events. It has no periodic write. In the no-live-session case it is not
+  completely event-free: it sends the initial state frame, then remains
+  silent.
+- `packages/cli/src/server/Server.ts` defines `HEARTBEAT_MS` as `15_000`,
+  uses one server-level interval to broadcast `: heartbeat` comments on
+  `/api/events-stream`, and clears that interval during server shutdown.
+- The Bun server sets `idleTimeout: 30` for every connection. Its adjacent
+  rationale protects ordinary cold-start requests and is still valid.
+- The public chat endpoint is project-scoped:
+  `/api/projects/:project/chat/:skill/stream`. Inside the project router it
+  is handled as `/api/chat/:skill/stream` and delegates directly to
+  `ChatSessionManager.streamResponse`.
+- `packages/viewer/src/app/next/chatApi.ts` uses native `EventSource`,
+  clears its event array on every `open`, and receives the server's replay
+  after a reconnect. It has no comment handling because EventSource does
+  not dispatch SSE comments to application listeners.
+- `test/e2e/chat-sessions.e2e.test.ts` parses only `data:` lines. Existing
+  connect, state, ordering, and replay assertions will therefore ignore a
+  keepalive comment, as they should.
+
+The source establishes that a reconnect clears and rebuilds the viewer's
+transcript. The reported final scroll jump is browser-observed behavior;
+it does not need to be reproduced or changed for this transport fix.
+
+## Transport contract
+
+| Concern | Required behavior |
+| --- | --- |
+| Wire frame | Emit exactly `: keepalive\n\n`; it is an SSE comment, not a `data:` frame. |
+| Cadence | Use the same `HEARTBEAT_MS = 15_000` value as the machine event stream. There must be one shared constant, not two equal literals. |
+| Ownership | Create one interval per chat SSE response in the stream's `start` callback. |
+| No-session stream | Start the interval even when `this.live.get(skill)` is `undefined`; the initial state remains the only data event until a real chat event occurs. |
+| Active-session stream | Preserve the existing initial state, complete buffered replay, subscriber registration, and live event ordering. Keepalives are not appended to `chat.events`. |
+| Disconnect race | Send the comment through the same guarded enqueue shape as chat data so a disconnect racing an interval tick does not throw. |
+| Cleanup | Clear that response's interval from the stream's `cancel` callback, in addition to removing any live-chat subscriber. Repeated open/cancel cycles must return the active interval count to its baseline. |
+| Client contract | Do not extend `ChatStreamEvent` and do not add viewer handling. EventSource filters comments before `message` listeners, so chat `events`, rendered items, and state do not change. |
+| Existing machine SSE | Preserve its `: heartbeat\n\n` frame, shared 15-second cadence, one server-level interval, and shutdown cleanup. |
+| Server timeout | Preserve `idleTimeout: 30` and its rationale. |
+| Reconnect policy | Do not add an SSE `retry:` field. |
+
+## Scope and files
+
+### Server implementation
+
+- Add `packages/cli/src/server/Sse.ts` as the small transport-level home
+  for the shared `HEARTBEAT_MS` constant.
+- Update `packages/cli/src/server/Server.ts` to import that constant. Do
+  not otherwise refactor the machine event broadcaster.
+- Update `packages/cli/src/server/ChatSessions.ts` so every
+  `streamResponse` owns a guarded keepalive interval and clears it on
+  cancellation.
+
+### Tests
+
+- Add `packages/cli/test/ChatSessions.test.ts` for deterministic,
+  response-level keepalive and timer-lifecycle coverage.
+- Add `test/e2e/chat-keepalive.e2e.test.ts` for a black-box connection
+  against the real Bun server.
+- Run `test/e2e/chat-sessions.e2e.test.ts` unchanged as the replay,
+  state-frame, and event-ordering regression suite.
+
+### Explicitly out of scope
+
+- No edits to `packages/core`, schemas, journals, or domain state.
+- No edits to `packages/viewer`; an SSE comment has no client event and
+  needs no handler.
+- No change to `ChatStreamEvent` or any new chat data event.
+- No change to replay-on-connect, buffer retention, `setEvents([])` on
+  EventSource open, or transcript scrolling. Those reconnect semantics
+  belong to companion issue #195.
+- No change to `idleTimeout: 30`, the machine stream's frame text, or its
+  server-level timer ownership.
+- No `retry:` field, reconnect policy, polling fallback, or WebSocket
+  work.
+- No edits under `docs/library`.
+
+## Implementation steps
+
+1. **Make the established cadence genuinely shared.**
+   Move `HEARTBEAT_MS = 15_000` from `Server.ts` into
+   `packages/cli/src/server/Sse.ts`, export it, and import it into both
+   `Server.ts` and `ChatSessions.ts`. Leave the machine stream interval
+   where it is and leave its `: heartbeat` payload unchanged.
+
+2. **Use one guarded byte-enqueue path in the chat stream.**
+   Inside `streamResponse`'s `start`, define a local helper that encodes
+   and enqueues an SSE string under `try/catch`. Use it for data events and
+   the keepalive tick. Preserve the immediate `: connected` comment and
+   initial state ordering. The comment explaining the guard should state
+   why cancellation can race a write and cite issue #194; it should not
+   narrate the syntax.
+
+3. **Start one timer for every response.**
+   After the stream has started, schedule
+   `: keepalive\n\n` at `HEARTBEAT_MS`. Do this outside the
+   `chat !== undefined` branch so the pre-session model picker's stream is
+   protected too. Do not route the frame through `sendEvent`, `broadcast`,
+   `chat.events`, or `chat.subscribers`.
+
+4. **Pair timer ownership with cancellation.**
+   Retain the interval handle in `streamResponse`'s response-local scope.
+   In `cancel`, clear it if it was started, then preserve the existing
+   conditional subscriber removal. This cleanup is independent of whether
+   a live session existed when the response opened.
+
+5. **Add deterministic stream lifecycle tests.**
+   In `packages/cli/test/ChatSessions.test.ts`, construct a manager over an
+   isolated temporary workspace and open `streamResponse` for a skill with
+   no live session. Spy on the timer functions so the test can:
+
+   - identify the per-response interval by its exact
+     `HEARTBEAT_MS` delay without waiting 15 seconds;
+   - invoke the captured callback and observe the exact keepalive comment;
+   - verify that the data frames before and after that callback remain the
+     same initial state frame, with no keepalive-derived
+     `ChatStreamEvent`;
+   - cancel the reader and verify the exact interval handle was cleared;
+   - repeat open/cancel for multiple streams and prove no response timers
+     accumulate.
+
+   Account separately for the manager's existing 60-second idle-reaper
+   interval, call `manager.stop()`, restore timer spies in `finally`, and
+   remove the temporary workspace. The test must not expose production
+   timer counters or add a test-only option to `ChatSessionManager`.
+
+6. **Add one real-server idle-window regression.**
+   In `test/e2e/chat-keepalive.e2e.test.ts`, start an isolated registry
+   server and fetch the project-scoped chat stream for a skill without
+   starting a session. Parse raw SSE frames rather than using the existing
+   data-only chat helper. Assert:
+
+   - one connection returns the normal `: connected` comment and an
+     initial state whose `active` value is `null`;
+   - `: keepalive` comments arrive at approximately 15-second intervals;
+   - the same fetch body remains readable across at least one complete
+     30-second Bun idle-timeout window, with no second `: connected` frame
+     and no premature `done`;
+   - keepalives add no `data:` frame and the initial decoded state remains
+     byte-for-byte unchanged.
+
+   Give this single wall-clock test an explicit timeout above its
+   approximately 31-second observation window. Use broad scheduling
+   tolerances around 15 seconds, clean up the reader/abort controller in
+   `finally`, and do not turn the existing chat suite into a 120-second
+   test.
+
+7. **Run the unchanged regressions and repository gates.**
+   The existing chat-session suite must pass without edits. The full CI
+   gates confirm that extracting the shared constant has not affected the
+   machine stream, ordinary server requests, or unrelated packages.
+
+## Validation
+
+Run targeted checks first:
+
+```sh
+bun test packages/cli/test/ChatSessions.test.ts
+bun run build:viewer
+bun test test/e2e/chat-keepalive.e2e.test.ts --timeout 45000
+bun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000
+```
+
+Then run the repository gates that mirror CI:
+
+```sh
+bunx tsc --noEmit -p packages/core
+bunx tsc --noEmit -p packages/cli
+bun test packages
+bun run build:viewer
+bun test test/e2e --timeout 30000
+```
+
+The new long-idle test must declare its own timeout above 30 seconds so the
+CI command's default timeout does not terminate it.
+
+For the literal 120-second acceptance soak, open one no-session chat
+stream against a running Studio with a non-reconnecting client such as
+`curl -N`, observe it for at least 120 seconds, and verify:
+
+- the output contains the one initial `: connected` frame and initial
+  state data frame;
+- about eight `: keepalive` comments follow at roughly 15-second
+  intervals;
+- the response does not close during the observation window;
+- no additional `data:` frames appear solely because of keepalives.
+
+Repeat the observation with a live, quiet chat session to confirm the same
+transport behavior while leaving replay and subscriber delivery intact.
+
+## Risks and mitigations
+
+- **A response interval survives disconnect.** Keep the handle in the
+  response closure, clear that exact handle in `cancel`, and prove repeated
+  open/cancel cycles return timer counts to baseline.
+- **A keepalive accidentally enters replay or UI state.** Write the frame
+  directly as an SSE comment, never as `data:` and never through
+  `broadcast`; assert the data-frame sequence is unchanged.
+- **The no-live-session branch remains silent.** Start the timer outside
+  the live-chat conditional and make that branch the subject of both unit
+  and black-box tests.
+- **Cadence values drift later.** Put `HEARTBEAT_MS` in one server SSE
+  module imported by both stream implementations.
+- **The wall-clock E2E becomes flaky or needlessly slow.** Test only one
+  complete 30-second idle window in CI, use broad cadence tolerances and
+  an explicit per-test timeout, and reserve the full 120-second duration
+  for acceptance soaking.
+- **The machine event stream changes during constant extraction.** Limit
+  its edit to the import; preserve its interval location, comment frame,
+  shutdown cleanup, and `idleTimeout`.
+- **Timer spies leak into other tests.** Restore globals and stop the
+  manager in `finally`; do not use process-wide fake time beyond the
+  isolated synchronous lifecycle test.
+
+## Acceptance criteria
+
+1. A chat SSE connection that is otherwise idle remains open for at least
+   120 seconds in the acceptance soak, with no server-side closure or
+   client reconnect.
+2. `/api/projects/:project/chat/:skill/stream` emits exact
+   `: keepalive\n\n` comments at approximately 15-second intervals.
+3. The keepalive is present when no live chat session exists; the stream
+   still has only its existing initial state data event.
+4. Keepalive comments produce no `ChatStreamEvent`, no additional data
+   frame, no transcript item, and no state change.
+5. Cancelling a chat stream clears its per-response interval; opening and
+   closing multiple streams leaves no accumulating response timers.
+6. `/api/events-stream` still emits `: heartbeat\n\n` at the shared
+   `HEARTBEAT_MS` cadence, and its server-shutdown cleanup is unchanged.
+7. `idleTimeout: 30` and its cold-start rationale remain unchanged.
+8. `test/e2e/chat-sessions.e2e.test.ts` passes unmodified, preserving
+   connect replay, state frames, and chat event ordering.
+9. The new tests cover real-server survival across the idle-timeout
+   window, keepalive cadence, the no-live-session case, protocol-level
+   state/event neutrality, and interval cleanup.
+10. Core and CLI typechecks, all package tests, the viewer build, and the
+    full E2E suite pass.
+
+## Deferred follow-ups
+
+- Make arbitrary reconnects preserve transcript identity and reader scroll
+  position under companion issue #195.
+- Revisit replay buffer bounds or resumable SSE event IDs only under a
+  separate issue; this fix does not alter replay semantics.
+- Reconsider global request timeout policy only if ordinary request
+  evidence warrants it; issue #194 is resolved at the chat stream.
+--- END PLAN DOC ---
