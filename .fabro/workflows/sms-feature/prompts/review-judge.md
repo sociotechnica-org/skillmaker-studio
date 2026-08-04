@@ -32,8 +32,8 @@ Verdicts (exactly one):
 - **ready** — the change is mergeable. List any imperfections for the PR
   body, then route to Prepare PR.
 - **fix** — a real defect blocks merge. Allowed AT MOST ONCE per run (the
-  graph enforces this: this node caps at 2 visits, so on your second
-  visit Fix is off the table — choose ready or surface). Give concrete,
+  graph enforces this: this node runs at most twice, so on your second
+  run Fix is off the table — choose ready or surface). Give concrete,
   actionable fix items so the implement stage can act without guessing.
 - **surface** — you and the implementation cannot converge (e.g. the fix
   round did not resolve the defect, or the plan itself is wrong). Stop
