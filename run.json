@@ -582,7 +582,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-04T17:54:58.303154690Z",
-  "last_event_at": "2026-08-04T18:50:53.375596677Z",
+  "last_event_at": "2026-08-04T18:53:09.247148508Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -2589,9 +2589,9 @@
       }
     },
     {
-      "seq": 0,
+      "seq": 1585,
       "checkpoint": {
-        "timestamp": "2026-08-04T18:50:53.393016154Z",
+        "timestamp": "2026-08-04T18:51:01.976970728Z",
         "current_node": "validate_gates",
         "completed_nodes": [
           "start",
@@ -2609,23 +2609,311 @@
         ],
         "node_retries": {},
         "context_values": {
+          "verification_route": "implement",
+          "graph.max_node_visits": "8",
+          "internal.retry_count.review": 0,
+          "internal.retry_count.verify": 0,
+          "graph.rankdir": "LR",
+          "internal.node_visit_count": 3,
+          "response.implement": "Issue #194’s scoped implementation is already present and unchanged:\n\n- Chat SSE responses send `: keepalive\\n\\n` every shared 15 seconds, including no-session streams, and clear the per-response interval on cancellation in [ChatSessions.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:689).\n- The shared cadence lives in [Sse.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/Sse.ts:1); the machine-level SSE heartbeat and `idleTimeout: 30` remain unchanged.\n- Unit and real-server regression coverage are in [ChatSessions.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatSessions.test.ts:15) and [chat-keepalive.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/chat-keepalive.e2e.test.ts:32).\n\nValidation this stage:\n\n- `bunx tsc --noEmit -p packages/core` — passed\n- `bunx tsc --noEmit -p packages/cli` — passed\n- `bun test test/e2e --timeout 30000` — passed: 371 passed, 16 intentional environment-dependent skips\n- Focused chat lifecycle and existing chat-session E2E regressions — passed\n- `bun test packages` — failed reproducibly: 1 unrelated pre-existing failure in [JournalWatcher.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:24), where an append immediately races native `fs.watch` registration (1060 passed, 1 failed).\n\nI did not broaden #194 by changing the watcher or weakening that test. The current committed delta from `main` remains six scoped files (444 additions, 6 deletions); the only working-tree item is the pre-existing untracked `verification-artifacts/` directory. A separately authorized watcher-reliability fix is needed before the mandatory package gate can be green and this issue can be fully verified.",
+          "response.verification_judge": "Verification is not ready to approve because a required repository gate is red on the final diff: `bun test packages` reported 1060 passes and one `JournalWatcher` failure. The rubric makes any failed repository gate disqualifying, even when the failure appears unrelated or flaky.\n\nOtherwise, the evidence is strong:\n\n- The 120.6-second CLI soak observed one connection, one unchanged state frame, and eight exact keepalives at 14.999–15.001-second intervals.\n- Focused lifecycle, keepalive E2E, existing chat-session regression, core/CLI typechecks, and full E2E checks passed.\n- The implementation matches the scoped plan and preserves `idleTimeout: 30`, machine-stream behavior, replay semantics, and client event types.\n- Skipping the viewer build was justified because no viewer files changed.\n- Verification made no tracked changes outside `verification-artifacts/`.\n\nThe smallest next step is to make the package gate reliably pass on the final diff, then rerun validation, review, and verification. The unrelated watcher behavior should remain separately scoped, but the gate must be green before this can be marked verified.\n\n{\"preferred_next_label\":\"Fix implementation\",\"context_updates\":{\"verification_ready\":false,\"verification_route\":\"implement\"}}",
+          "review_ready": true,
+          "thread.review.current_node": "verify",
+          "thread.validate_gates.current_node": "review",
+          "verification_ready": false,
+          "thread.implement.current_node": "validate_gates",
+          "thread.verification_judge.current_node": "implement",
+          "preferred_label": "Fix implementation",
+          "internal.fidelity": "summary:high",
+          "internal.retry_count.verification_judge": 0,
           "internal.thread_id": "implement",
+          "last_response": "Issue #194’s scoped implementation is already present and unchanged:\n\n- Chat SSE responses send `: keepalive\\n\\n` every shared 15 seconds, including no-session streams, and clear the per-response in",
+          "failure_class": "",
+          "thread.verify.current_node": "verification_judge",
+          "thread.scope.current_node": "implement",
+          "internal.retry_count.validate_gates": 0,
+          "graph.stall_timeout": "18000000ms",
+          "graph.default_fidelity": "summary:high",
+          "outcome": "succeeded",
+          "thread.start.current_node": "scope",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "response.review": "Ready for pull request.\n\nThe committed delta from `main` is limited to the #194 chat-SSE transport fix, shared server-side heartbeat cadence, targeted CLI lifecycle coverage, and a black-box E2E test. It leaves `packages/core`, `packages/viewer`, `docs/library`, chat event types, replay behavior, and `idleTimeout: 30` unchanged.\n\nThe implementation emits `: keepalive\\n\\n` per chat connection every shared 15 seconds, including no-session streams, routes writes through the existing disconnect-safe enqueue path, and clears the exact response timer on cancellation. Existing chat-session E2E coverage is unchanged.\n\nValidation evidence is clean: typechecks, targeted tests, and the full repository gate all passed (371 E2E passes, 16 intentional skips). The viewer build was correctly skipped because no viewer files changed. The only noted coverage opportunities—active-session heartbeat timing and an explicit post-cancel tick—are non-blocking because existing replay/session E2E coverage remains intact and the write path is guarded.\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"review_ready\":true}}\n```",
+          "internal.retry_count.start": 0,
+          "response.verify": "Verified Issue #194’s SSE keepalive behavior successfully.\n\nThe independent 120-second CLI-driven soak kept a no-session chat stream open for 120.602 seconds, with one initial state frame and eight exact `: keepalive\\n\\n` frames at 14.999–15.001 second intervals. The stream never closed and no extra data/transcript frames appeared.\n\nFocused tests and the full E2E suite passed:\n\n- Chat stream lifecycle unit test: 1 pass\n- Keepalive E2E: 1 pass\n- Existing chat sessions regression: 8 pass\n- Full E2E: 371 pass, 16 intentional skips\n- Core and CLI typechecks: pass\n\nOne repository gate finding remains: `bun test packages` failed an unrelated, pre-existing `JournalWatcher` `fs.watch` timing-race test (1060 pass, 1 fail). I did not modify it, per verification-stage scope.\n\nArtifacts created:\n\n- [Verification plan](/home/daytona/workspace/skillmaker-studio/verification-artifacts/verification-plan.md)\n- [Verification report](/home/daytona/workspace/skillmaker-studio/verification-artifacts/report.md)\n- [120-second raw SSE evidence](/home/daytona/workspace/skillmaker-studio/verification-artifacts/json/chat-sse-120s-soak.json)\n- [CLI soak helper](/home/daytona/workspace/skillmaker-studio/verification-artifacts/cli/chat-sse-120s-soak.ts)\n- [Test and gate transcripts](/home/daytona/workspace/skillmaker-studio/verification-artifacts/cli/)\n\nNo tracked files were modified during verification; only `verification-artifacts/` is untracked.",
+          "graph.goal": "GitHub Issue #194: Chat SSE stream has no keepalive — Bun's idleTimeout tears it down every 30s, jumping the reader to the bottom\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/194\n\n## Summary\n\nThe chat SSE stream sends no periodic keepalive, so Bun's `idleTimeout: 30`\ntears the connection down every 30 seconds of quiet. The browser's `EventSource`\nsilently reconnects, the server replays the transcript buffer, and the reader —\nwho may be scrolled up mid-transcript — is yanked to the bottom. The\nmachine-level `/api/events-stream` already solves this with a 15 s heartbeat;\nthe chat stream never got one.\n\n## Motivation / Problem\n\nObservable cost: you cannot read a chat transcript. Scroll up to reread\nsomething the agent said and roughly every 30 seconds, with no interaction and\nno agent activity, the panel jumps to the bottom. On a long research\nconversation — exactly the material worth rereading — the transcript is\neffectively unreadable while the session is open.\n\nUnderneath the visible symptom, every idle chat session is churning: a\nconnection torn down and re-established twice a minute, each reconnect replaying\nthe entire event buffer over the wire, forever, for as long as the panel is\nopen.\n\nThe transcript-position damage on reconnect is a **separate defect** and is\nfiled alongside this one — this issue removes the 30-second cadence; the\ncompanion makes any future reconnect (network blip, laptop sleep, server\nrestart) harmless. Either can be built first.\n\n## Observed behavior\n\nOpen a chat panel on any skill, let the session go quiet, scroll to the middle\nof the transcript, and touch nothing. In roughly 25-30 seconds the panel jumps\nto the bottom. Repeats indefinitely. Confirmed by hand at >25 s.\n\nThe server log shows no error; nothing in the UI indicates the stream dropped\nand came back.\n\n## Current shape\n\nThe machine-level events stream is the working sibling — it has a heartbeat.\n`packages/cli/src/server/Server.ts:89`:\n\n```ts\nconst HEARTBEAT_MS = 15_000;\n```\n\ndriven at `Server.ts:2911` and written at `Server.ts:2535`:\n\n```ts\n  const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);\n```\n```ts\n    onHeartbeat: () => broadcast(\": heartbeat\\n\\n\"),\n```\n\nThe chat stream is built separately, in `ChatSessions.streamResponse`\n(`packages/cli/src/server/ChatSessions.ts:688-719`), and has **no interval at\nall** — one comment frame at connect, then bytes only when a real session event\noccurs:\n\n```ts\n        controller.enqueue(encoder.encode(\": connected\\n\\n\"));\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n          subscriber = sendEvent;\n          chat.subscribers.add(sendEvent);\n          chat.lastActivityAt = Date.now();\n        }\n```\n\nMeanwhile `Server.ts:2914-2923` sets a 30-second per-connection idle timeout,\nwith a comment that explains what it was reasoning about — cold-start request\nbursts — and does not consider long-lived SSE streams, which are idle by design:\n\n```ts\n    // Explicit safety net, not a fix by itself: Bun's default per-connection\n    // idle timeout is 10s, which a concurrent-request burst on cold start\n    // ... 30s gives real (non-runaway) requests headroom without hiding a\n    // genuine hang.\n    idleTimeout: 30,\n```\n\nSequence: 30 s of no bytes → Bun closes the socket → `EventSource` reconnects\n(UA default retry, ~3 s in Chrome; the server never sends a `retry:` field) →\nobserved period ≈ 30-33 s, matching the report.\n\nNote `streamResponse` also serves the case where **no live session exists** (the\npre-session model picker holds this stream open). That connection produces no\nevents by definition, so it is torn down every 30 s too.\n\nThe trap worth naming: `idleTimeout` is a *global* server setting and the chat\nstream is the only long-lived SSE endpoint that was added without the heartbeat\nits sibling already had. The fix belongs on the stream, not on the timeout.\n\n## Proposed contract\n\n`ChatSessions.streamResponse` writes an SSE comment frame on an interval, the\nsame shape and cadence the events stream already uses:\n\n```\n: keepalive\\n\\n\n```\n\nevery **15 000 ms** — half the 30 s idle timeout, matching `HEARTBEAT_MS`.\n\n**Decisions:**\n\n- The frame is an SSE **comment** (`:` prefix), not a data frame. `EventSource`\n  ignores it, so no client-side handling is needed and `ChatStreamEvent` is\n  unchanged.\n- Cadence is 15 000 ms, reusing the existing `HEARTBEAT_MS` value rather than\n  introducing a second number.\n- The interval is **per connection**, started in the stream's `start` and\n  **cleared in its `cancel`**, so a closed connection cannot leak a timer.\n- The keepalive runs **regardless of whether a live chat session exists** — the\n  pre-session picker's connection needs it just as much.\n- `idleTimeout: 30` in `Server.ts` is **not** changed. It is a deliberate safety\n  net with a documented rationale; raising or removing it to paper over a\n  missing keepalive would hide genuine hangs.\n- No `retry:` field is introduced. Reconnect cadence is not the problem;\n  reconnecting at all is.\n\n## Acceptance criteria\n\n- [ ] With a chat panel open and idle, the SSE connection survives at least\n      120 seconds without the server closing it and without `EventSource`\n      reconnecting.\n- [ ] Keepalive comment frames are observable on the wire at ~15 s intervals on\n      `/api/chat/:skill/stream`.\n- [ ] The keepalive is emitted on a connection opened when **no live session\n      exists** for that skill (pre-session picker case).\n- [ ] Negative: the keepalive frame produces no transcript item and no state\n      change — the client's `items` array and `state` are byte-identical before\n      and after a keepalive.\n- [ ] Negative / no leak: after the client disconnects, the connection's\n      interval is cleared — opening and closing N chat streams leaves no\n      accumulating timers.\n- [ ] Regression: `/api/events-stream` behavior is unchanged, still at\n      `HEARTBEAT_MS`, and `idleTimeout: 30` is still in force for ordinary\n      requests.\n- [ ] Regression: existing chat stream behavior is unchanged —\n      `test/e2e/chat-sessions.e2e.test.ts` passes unmodified (connect replay,\n      state frames, event ordering).\n- [ ] Tests cover: long-idle connection survival, keepalive cadence,\n      no-live-session case, and interval cleanup on disconnect.\n\n## Implementation notes\n\nThe events stream's heartbeat is driven by one server-level `setInterval` over a\nbroadcaster with many subscribers; the chat stream is a per-skill `Response`\nbuilt inside `streamResponse`, so its keepalive is naturally per-connection\ninstead. Guard the enqueue the same way `sendEvent` already does — a client that\nvanished mid-interval must not throw.\n\nScope fences:\n\n- **Do not change `idleTimeout`.** See the decision above.\n- **Do not add a data frame or extend `ChatStreamEvent`.** A comment frame\n  requires no client change; a new event type would.\n- **Do not touch the replay-on-connect behavior** — that is the companion\n  issue's territory, and the two fixes must not collide.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `streamResponse` (:688), its\n  `cancel` (:710)\n- `packages/cli/src/server/Server.ts` — `HEARTBEAT_MS` (:89), events-stream\n  heartbeat wiring (:2535, :2911), `idleTimeout` (:2923)\n- `packages/viewer/src/app/next/chatApi.ts` — the `EventSource` consumer (:196)\n\n---\n\n**Companion:** #195 — SSE reconnect wipes the transcript and destroys the reader's scroll position. This issue removes the ~30s cadence; #195 makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
+          "response.scope": "Plan ready for implementation: docs/proposals/2026-08-04-chat-sse-keepalive.md\n\n--- BEGIN PLAN DOC ---\n# Chat SSE Keepalive\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6YKB8Z2Y2ZN5A67AYG5PAM`; GitHub issue #194.*\n\n## Status\n\nReady for implementation. This is a narrowly scoped CLI-server transport\nfix plus regression coverage. It does not change chat events, transcript\nstate, replay behavior, the viewer, or Bun's request timeout.\n\n## Outcome\n\nEach open chat SSE response will write this comment frame every 15 seconds:\n\n```text\n: keepalive\n\n```\n\nThe comment keeps Bun's connection active without creating an EventSource\n`message` event. A quiet chat stream will therefore remain on one\nconnection instead of reaching the server's 30-second per-connection idle\ntimeout and reconnecting.\n\nThe interval belongs to the response, starts when its `ReadableStream`\nstarts, runs whether or not the skill has a live chat session, and is\ncleared when that stream is cancelled.\n\n## Verified current behavior\n\nThe issue's causal report matches the current repository, with two naming\nqualifications captured here so implementation follows the code:\n\n- `packages/cli/src/server/ChatSessions.ts` opens a stream with\n  `: connected`, sends one state data frame, replays the live chat's\n  buffered data events when one exists, and then subscribes to new chat\n  events. It has no periodic write. In the no-live-session case it is not\n  completely event-free: it sends the initial state frame, then remains\n  silent.\n- `packages/cli/src/server/Server.ts` defines `HEARTBEAT_MS` as `15_000`,\n  uses one server-level interval to broadcast `: heartbeat` comments on\n  `/api/events-stream`, and clears that interval during server shutdown.\n- The Bun server sets `idleTimeout: 30` for every connection. Its adjacent\n  rationale protects ordinary cold-start requests and is still valid.\n- The public chat endpoint is project-scoped:\n  `/api/projects/:project/chat/:skill/stream`. Inside the project router it\n  is handled as `/api/chat/:skill/stream` and delegates directly to\n  `ChatSessionManager.streamResponse`.\n- `packages/viewer/src/app/next/chatApi.ts` uses native `EventSource`,\n  clears its event array on every `open`, and receives the server's replay\n  after a reconnect. It has no comment handling because EventSource does\n  not dispatch SSE comments to application listeners.\n- `test/e2e/chat-sessions.e2e.test.ts` parses only `data:` lines. Existing\n  connect, state, ordering, and replay assertions will therefore ignore a\n  keepalive comment, as they should.\n\nThe source establishes that a reconnect clears and rebuilds the viewer's\ntranscript. The reported final scroll jump is browser-observed behavior;\nit does not need to be reproduced or changed for this transport fix.\n\n## Transport contract\n\n| Concern | Required behavior |\n| --- | --- |\n| Wire frame | Emit exactly `: keepalive\\n\\n`; it is an SSE comment, not a `data:` frame. |\n| Cadence | Use the same `HEARTBEAT_MS = 15_000` value as the machine event stream. There must be one shared constant, not two equal literals. |\n| Ownership | Create one interval per chat SSE response in the stream's `start` callback. |\n| No-session stream | Start the interval even when `this.live.get(skill)` is `undefined`; the initial state remains the only data event until a real chat event occurs. |\n| Active-session stream | Preserve the existing initial state, complete buffered replay, subscriber registration, and live event ordering. Keepalives are not appended to `chat.events`. |\n| Disconnect race | Send the comment through the same guarded enqueue shape as chat data so a disconnect racing an interval tick does not throw. |\n| Cleanup | Clear that response's interval from the stream's `cancel` callback, in addition to removing any live-chat subscriber. Repeated open/cancel cycles must return the active interval count to its baseline. |\n| Client contract | Do not extend `ChatStreamEvent` and do not add viewer handling. EventSource filters comments before `message` listeners, so chat `events`, rendered items, and state do not change. |\n| Existing machine SSE | Preserve its `: heartbeat\\n\\n` frame, shared 15-second cadence, one server-level interval, and shutdown cleanup. |\n| Server timeout | Preserve `idleTimeout: 30` and its rationale. |\n| Reconnect policy | Do not add an SSE `retry:` field. |\n\n## Scope and files\n\n### Server implementation\n\n- Add `packages/cli/src/server/Sse.ts` as the small transport-level home\n  for the shared `HEARTBEAT_MS` constant.\n- Update `packages/cli/src/server/Server.ts` to import that constant. Do\n  not otherwise refactor the machine event broadcaster.\n- Update `packages/cli/src/server/ChatSessions.ts` so every\n  `streamResponse` owns a guarded keepalive interval and clears it on\n  cancellation.\n\n### Tests\n\n- Add `packages/cli/test/ChatSessions.test.ts` for deterministic,\n  response-level keepalive and timer-lifecycle coverage.\n- Add `test/e2e/chat-keepalive.e2e.test.ts` for a black-box connection\n  against the real Bun server.\n- Run `test/e2e/chat-sessions.e2e.test.ts` unchanged as the replay,\n  state-frame, and event-ordering regression suite.\n\n### Explicitly out of scope\n\n- No edits to `packages/core`, schemas, journals, or domain state.\n- No edits to `packages/viewer`; an SSE comment has no client event and\n  needs no handler.\n- No change to `ChatStreamEvent` or any new chat data event.\n- No change to replay-on-connect, buffer retention, `setEvents([])` on\n  EventSource open, or transcript scrolling. Those reconnect semantics\n  belong to companion issue #195.\n- No change to `idleTimeout: 30`, the machine stream's frame text, or its\n  server-level timer ownership.\n- No `retry:` field, reconnect policy, polling fallback, or WebSocket\n  work.\n- No edits under `docs/library`.\n\n## Implementation steps\n\n1. **Make the established cadence genuinely shared.**\n   Move `HEARTBEAT_MS = 15_000` from `Server.ts` into\n   `packages/cli/src/server/Sse.ts`, export it, and import it into both\n   `Server.ts` and `ChatSessions.ts`. Leave the machine stream interval\n   where it is and leave its `: heartbeat` payload unchanged.\n\n2. **Use one guarded byte-enqueue path in the chat stream.**\n   Inside `streamResponse`'s `start`, define a local helper that encodes\n   and enqueues an SSE string under `try/catch`. Use it for data events and\n   the keepalive tick. Preserve the immediate `: connected` comment and\n   initial state ordering. The comment explaining the guard should state\n   why cancellation can race a write and cite issue #194; it should not\n   narrate the syntax.\n\n3. **Start one timer for every response.**\n   After the stream has started, schedule\n   `: keepalive\\n\\n` at `HEARTBEAT_MS`. Do this outside the\n   `chat !== undefined` branch so the pre-session model picker's stream is\n   protected too. Do not route the frame through `sendEvent`, `broadcast`,\n   `chat.events`, or `chat.subscribers`.\n\n4. **Pair timer ownership with cancellation.**\n   Retain the interval handle in `streamResponse`'s response-local scope.\n   In `cancel`, clear it if it was started, then preserve the existing\n   conditional subscriber removal. This cleanup is independent of whether\n   a live session existed when the response opened.\n\n5. **Add deterministic stream lifecycle tests.**\n   In `packages/cli/test/ChatSessions.test.ts`, construct a manager over an\n   isolated temporary workspace and open `streamResponse` for a skill with\n   no live session. Spy on the timer functions so the test can:\n\n   - identify the per-response interval by its exact\n     `HEARTBEAT_MS` delay without waiting 15 seconds;\n   - invoke the captured callback and observe the exact keepalive comment;\n   - verify that the data frames before and after that callback remain the\n     same initial state frame, with no keepalive-derived\n     `ChatStreamEvent`;\n   - cancel the reader and verify the exact interval handle was cleared;\n   - repeat open/cancel for multiple streams and prove no response timers\n     accumulate.\n\n   Account separately for the manager's existing 60-second idle-reaper\n   interval, call `manager.stop()`, restore timer spies in `finally`, and\n   remove the temporary workspace. The test must not expose production\n   timer counters or add a test-only option to `ChatSessionManager`.\n\n6. **Add one real-server idle-window regression.**\n   In `test/e2e/chat-keepalive.e2e.test.ts`, start an isolated registry\n   server and fetch the project-scoped chat stream for a skill without\n   starting a session. Parse raw SSE frames rather than using the existing\n   data-only chat helper. Assert:\n\n   - one connection returns the normal `: connected` comment and an\n     initial state whose `active` value is `null`;\n   - `: keepalive` comments arrive at approximately 15-second intervals;\n   - the same fetch body remains readable across at least one complete\n     30-second Bun idle-timeout window, with no second `: connected` frame\n     and no premature `done`;\n   - keepalives add no `data:` frame and the initial decoded state remains\n     byte-for-byte unchanged.\n\n   Give this single wall-clock test an explicit timeout above its\n   approximately 31-second observation window. Use broad scheduling\n   tolerances around 15 seconds, clean up the reader/abort controller in\n   `finally`, and do not turn the existing chat suite into a 120-second\n   test.\n\n7. **Run the unchanged regressions and repository gates.**\n   The existing chat-session suite must pass without edits. The full CI\n   gates confirm that extracting the shared constant has not affected the\n   machine stream, ordinary server requests, or unrelated packages.\n\n## Validation\n\nRun targeted checks first:\n\n```sh\nbun test packages/cli/test/ChatSessions.test.ts\nbun run build:viewer\nbun test test/e2e/chat-keepalive.e2e.test.ts --timeout 45000\nbun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000\n```\n\nThen run the repository gates that mirror CI:\n\n```sh\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun run build:viewer\nbun test test/e2e --timeout 30000\n```\n\nThe new long-idle test must declare its own timeout above 30 seconds so the\nCI command's default timeout does not terminate it.\n\nFor the literal 120-second acceptance soak, open one no-session chat\nstream against a running Studio with a non-reconnecting client such as\n`curl -N`, observe it for at least 120 seconds, and verify:\n\n- the output contains the one initial `: connected` frame and initial\n  state data frame;\n- about eight `: keepalive` comments follow at roughly 15-second\n  intervals;\n- the response does not close during the observation window;\n- no additional `data:` frames appear solely because of keepalives.\n\nRepeat the observation with a live, quiet chat session to confirm the same\ntransport behavior while leaving replay and subscriber delivery intact.\n\n## Risks and mitigations\n\n- **A response interval survives disconnect.** Keep the handle in the\n  response closure, clear that exact handle in `cancel`, and prove repeated\n  open/cancel cycles return timer counts to baseline.\n- **A keepalive accidentally enters replay or UI state.** Write the frame\n  directly as an SSE comment, never as `data:` and never through\n  `broadcast`; assert the data-frame sequence is unchanged.\n- **The no-live-session branch remains silent.** Start the timer outside\n  the live-chat conditional and make that branch the subject of both unit\n  and black-box tests.\n- **Cadence values drift later.** Put `HEARTBEAT_MS` in one server SSE\n  module imported by both stream implementations.\n- **The wall-clock E2E becomes flaky or needlessly slow.** Test only one\n  complete 30-second idle window in CI, use broad cadence tolerances and\n  an explicit per-test timeout, and reserve the full 120-second duration\n  for acceptance soaking.\n- **The machine event stream changes during constant extraction.** Limit\n  its edit to the import; preserve its interval location, comment frame,\n  shutdown cleanup, and `idleTimeout`.\n- **Timer spies leak into other tests.** Restore globals and stop the\n  manager in `finally`; do not use process-wide fake time beyond the\n  isolated synchronous lifecycle test.\n\n## Acceptance criteria\n\n1. A chat SSE connection that is otherwise idle remains open for at least\n   120 seconds in the acceptance soak, with no server-side closure or\n   client reconnect.\n2. `/api/projects/:project/chat/:skill/stream` emits exact\n   `: keepalive\\n\\n` comments at approximately 15-second intervals.\n3. The keepalive is present when no live chat session exists; the stream\n   still has only its existing initial state data event.\n4. Keepalive comments produce no `ChatStreamEvent`, no additional data\n   frame, no transcript item, and no state change.\n5. Cancelling a chat stream clears its per-response interval; opening and\n   closing multiple streams leaves no accumulating response timers.\n6. `/api/events-stream` still emits `: heartbeat\\n\\n` at the shared\n   `HEARTBEAT_MS` cadence, and its server-shutdown cleanup is unchanged.\n7. `idleTimeout: 30` and its cold-start rationale remain unchanged.\n8. `test/e2e/chat-sessions.e2e.test.ts` passes unmodified, preserving\n   connect replay, state frames, and chat event ordering.\n9. The new tests cover real-server survival across the idle-timeout\n   window, keepalive cadence, the no-live-session case, protocol-level\n   state/event neutrality, and interval cleanup.\n10. Core and CLI typechecks, all package tests, the viewer build, and the\n    full E2E suite pass.\n\n## Deferred follow-ups\n\n- Make arbitrary reconnects preserve transcript identity and reader scroll\n  position under companion issue #195.\n- Revisit replay buffer bounds or resumable SSE event IDs only under a\n  separate issue; this fix does not alter replay semantics.\n- Reconsider global request timeout policy only if ordinary request\n  evidence warrants it; issue #194 is resolved at the chat stream.\n--- END PLAN DOC ---",
+          "current_node": "validate_gates",
+          "internal.run_id": "01KZ6YKB8Z2Y2ZN5A67AYG5PAM",
+          "internal.retry_count.scope": 0,
+          "last_stage": "implement",
+          "command.output": "blob://sha256/7559a16fc9b9d9f113706d4675d17f14946e83842e59ef70777225951ddbe49d",
+          "failure_signature": "",
+          "internal.retry_count.implement": 0
+        },
+        "node_outcomes": {
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_stage": "scope",
+              "response.scope": "Plan ready for implementation: docs/proposals/2026-08-04-chat-sse-keepalive.md\n\n--- BEGIN PLAN DOC ---\n# Chat SSE Keepalive\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6YKB8Z2Y2ZN5A67AYG5PAM`; GitHub issue #194.*\n\n## Status\n\nReady for implementation. This is a narrowly scoped CLI-server transport\nfix plus regression coverage. It does not change chat events, transcript\nstate, replay behavior, the viewer, or Bun's request timeout.\n\n## Outcome\n\nEach open chat SSE response will write this comment frame every 15 seconds:\n\n```text\n: keepalive\n\n```\n\nThe comment keeps Bun's connection active without creating an EventSource\n`message` event. A quiet chat stream will therefore remain on one\nconnection instead of reaching the server's 30-second per-connection idle\ntimeout and reconnecting.\n\nThe interval belongs to the response, starts when its `ReadableStream`\nstarts, runs whether or not the skill has a live chat session, and is\ncleared when that stream is cancelled.\n\n## Verified current behavior\n\nThe issue's causal report matches the current repository, with two naming\nqualifications captured here so implementation follows the code:\n\n- `packages/cli/src/server/ChatSessions.ts` opens a stream with\n  `: connected`, sends one state data frame, replays the live chat's\n  buffered data events when one exists, and then subscribes to new chat\n  events. It has no periodic write. In the no-live-session case it is not\n  completely event-free: it sends the initial state frame, then remains\n  silent.\n- `packages/cli/src/server/Server.ts` defines `HEARTBEAT_MS` as `15_000`,\n  uses one server-level interval to broadcast `: heartbeat` comments on\n  `/api/events-stream`, and clears that interval during server shutdown.\n- The Bun server sets `idleTimeout: 30` for every connection. Its adjacent\n  rationale protects ordinary cold-start requests and is still valid.\n- The public chat endpoint is project-scoped:\n  `/api/projects/:project/chat/:skill/stream`. Inside the project router it\n  is handled as `/api/chat/:skill/stream` and delegates directly to\n  `ChatSessionManager.streamResponse`.\n- `packages/viewer/src/app/next/chatApi.ts` uses native `EventSource`,\n  clears its event array on every `open`, and receives the server's replay\n  after a reconnect. It has no comment handling because EventSource does\n  not dispatch SSE comments to application listeners.\n- `test/e2e/chat-sessions.e2e.test.ts` parses only `data:` lines. Existing\n  connect, state, ordering, and replay assertions will therefore ignore a\n  keepalive comment, as they should.\n\nThe source establishes that a reconnect clears and rebuilds the viewer's\ntranscript. The reported final scroll jump is browser-observed behavior;\nit does not need to be reproduced or changed for this transport fix.\n\n## Transport contract\n\n| Concern | Required behavior |\n| --- | --- |\n| Wire frame | Emit exactly `: keepalive\\n\\n`; it is an SSE comment, not a `data:` frame. |\n| Cadence | Use the same `HEARTBEAT_MS = 15_000` value as the machine event stream. There must be one shared constant, not two equal literals. |\n| Ownership | Create one interval per chat SSE response in the stream's `start` callback. |\n| No-session stream | Start the interval even when `this.live.get(skill)` is `undefined`; the initial state remains the only data event until a real chat event occurs. |\n| Active-session stream | Preserve the existing initial state, complete buffered replay, subscriber registration, and live event ordering. Keepalives are not appended to `chat.events`. |\n| Disconnect race | Send the comment through the same guarded enqueue shape as chat data so a disconnect racing an interval tick does not throw. |\n| Cleanup | Clear that response's interval from the stream's `cancel` callback, in addition to removing any live-chat subscriber. Repeated open/cancel cycles must return the active interval count to its baseline. |\n| Client contract | Do not extend `ChatStreamEvent` and do not add viewer handling. EventSource filters comments before `message` listeners, so chat `events`, rendered items, and state do not change. |\n| Existing machine SSE | Preserve its `: heartbeat\\n\\n` frame, shared 15-second cadence, one server-level interval, and shutdown cleanup. |\n| Server timeout | Preserve `idleTimeout: 30` and its rationale. |\n| Reconnect policy | Do not add an SSE `retry:` field. |\n\n## Scope and files\n\n### Server implementation\n\n- Add `packages/cli/src/server/Sse.ts` as the small transport-level home\n  for the shared `HEARTBEAT_MS` constant.\n- Update `packages/cli/src/server/Server.ts` to import that constant. Do\n  not otherwise refactor the machine event broadcaster.\n- Update `packages/cli/src/server/ChatSessions.ts` so every\n  `streamResponse` owns a guarded keepalive interval and clears it on\n  cancellation.\n\n### Tests\n\n- Add `packages/cli/test/ChatSessions.test.ts` for deterministic,\n  response-level keepalive and timer-lifecycle coverage.\n- Add `test/e2e/chat-keepalive.e2e.test.ts` for a black-box connection\n  against the real Bun server.\n- Run `test/e2e/chat-sessions.e2e.test.ts` unchanged as the replay,\n  state-frame, and event-ordering regression suite.\n\n### Explicitly out of scope\n\n- No edits to `packages/core`, schemas, journals, or domain state.\n- No edits to `packages/viewer`; an SSE comment has no client event and\n  needs no handler.\n- No change to `ChatStreamEvent` or any new chat data event.\n- No change to replay-on-connect, buffer retention, `setEvents([])` on\n  EventSource open, or transcript scrolling. Those reconnect semantics\n  belong to companion issue #195.\n- No change to `idleTimeout: 30`, the machine stream's frame text, or its\n  server-level timer ownership.\n- No `retry:` field, reconnect policy, polling fallback, or WebSocket\n  work.\n- No edits under `docs/library`.\n\n## Implementation steps\n\n1. **Make the established cadence genuinely shared.**\n   Move `HEARTBEAT_MS = 15_000` from `Server.ts` into\n   `packages/cli/src/server/Sse.ts`, export it, and import it into both\n   `Server.ts` and `ChatSessions.ts`. Leave the machine stream interval\n   where it is and leave its `: heartbeat` payload unchanged.\n\n2. **Use one guarded byte-enqueue path in the chat stream.**\n   Inside `streamResponse`'s `start`, define a local helper that encodes\n   and enqueues an SSE string under `try/catch`. Use it for data events and\n   the keepalive tick. Preserve the immediate `: connected` comment and\n   initial state ordering. The comment explaining the guard should state\n   why cancellation can race a write and cite issue #194; it should not\n   narrate the syntax.\n\n3. **Start one timer for every response.**\n   After the stream has started, schedule\n   `: keepalive\\n\\n` at `HEARTBEAT_MS`. Do this outside the\n   `chat !== undefined` branch so the pre-session model picker's stream is\n   protected too. Do not route the frame through `sendEvent`, `broadcast`,\n   `chat.events`, or `chat.subscribers`.\n\n4. **Pair timer ownership with cancellation.**\n   Retain the interval handle in `streamResponse`'s response-local scope.\n   In `cancel`, clear it if it was started, then preserve the existing\n   conditional subscriber removal. This cleanup is independent of whether\n   a live session existed when the response opened.\n\n5. **Add deterministic stream lifecycle tests.**\n   In `packages/cli/test/ChatSessions.test.ts`, construct a manager over an\n   isolated temporary workspace and open `streamResponse` for a skill with\n   no live session. Spy on the timer functions so the test can:\n\n   - identify the per-response interval by its exact\n     `HEARTBEAT_MS` delay without waiting 15 seconds;\n   - invoke the captured callback and observe the exact keepalive comment;\n   - verify that the data frames before and after that callback remain the\n     same initial state frame, with no keepalive-derived\n     `ChatStreamEvent`;\n   - cancel the reader and verify the exact interval handle was cleared;\n   - repeat open/cancel for multiple streams and prove no response timers\n     accumulate.\n\n   Account separately for the manager's existing 60-second idle-reaper\n   interval, call `manager.stop()`, restore timer spies in `finally`, and\n   remove the temporary workspace. The test must not expose production\n   timer counters or add a test-only option to `ChatSessionManager`.\n\n6. **Add one real-server idle-window regression.**\n   In `test/e2e/chat-keepalive.e2e.test.ts`, start an isolated registry\n   server and fetch the project-scoped chat stream for a skill without\n   starting a session. Parse raw SSE frames rather than using the existing\n   data-only chat helper. Assert:\n\n   - one connection returns the normal `: connected` comment and an\n     initial state whose `active` value is `null`;\n   - `: keepalive` comments arrive at approximately 15-second intervals;\n   - the same fetch body remains readable across at least one complete\n     30-second Bun idle-timeout window, with no second `: connected` frame\n     and no premature `done`;\n   - keepalives add no `data:` frame and the initial decoded state remains\n     byte-for-byte unchanged.\n\n   Give this single wall-clock test an explicit timeout above its\n   approximately 31-second observation window. Use broad scheduling\n   tolerances around 15 seconds, clean up the reader/abort controller in\n   `finally`, and do not turn the existing chat suite into a 120-second\n   test.\n\n7. **Run the unchanged regressions and repository gates.**\n   The existing chat-session suite must pass without edits. The full CI\n   gates confirm that extracting the shared constant has not affected the\n   machine stream, ordinary server requests, or unrelated packages.\n\n## Validation\n\nRun targeted checks first:\n\n```sh\nbun test packages/cli/test/ChatSessions.test.ts\nbun run build:viewer\nbun test test/e2e/chat-keepalive.e2e.test.ts --timeout 45000\nbun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000\n```\n\nThen run the repository gates that mirror CI:\n\n```sh\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun run build:viewer\nbun test test/e2e --timeout 30000\n```\n\nThe new long-idle test must declare its own timeout above 30 seconds so the\nCI command's default timeout does not terminate it.\n\nFor the literal 120-second acceptance soak, open one no-session chat\nstream against a running Studio with a non-reconnecting client such as\n`curl -N`, observe it for at least 120 seconds, and verify:\n\n- the output contains the one initial `: connected` frame and initial\n  state data frame;\n- about eight `: keepalive` comments follow at roughly 15-second\n  intervals;\n- the response does not close during the observation window;\n- no additional `data:` frames appear solely because of keepalives.\n\nRepeat the observation with a live, quiet chat session to confirm the same\ntransport behavior while leaving replay and subscriber delivery intact.\n\n## Risks and mitigations\n\n- **A response interval survives disconnect.** Keep the handle in the\n  response closure, clear that exact handle in `cancel`, and prove repeated\n  open/cancel cycles return timer counts to baseline.\n- **A keepalive accidentally enters replay or UI state.** Write the frame\n  directly as an SSE comment, never as `data:` and never through\n  `broadcast`; assert the data-frame sequence is unchanged.\n- **The no-live-session branch remains silent.** Start the timer outside\n  the live-chat conditional and make that branch the subject of both unit\n  and black-box tests.\n- **Cadence values drift later.** Put `HEARTBEAT_MS` in one server SSE\n  module imported by both stream implementations.\n- **The wall-clock E2E becomes flaky or needlessly slow.** Test only one\n  complete 30-second idle window in CI, use broad cadence tolerances and\n  an explicit per-test timeout, and reserve the full 120-second duration\n  for acceptance soaking.\n- **The machine event stream changes during constant extraction.** Limit\n  its edit to the import; preserve its interval location, comment frame,\n  shutdown cleanup, and `idleTimeout`.\n- **Timer spies leak into other tests.** Restore globals and stop the\n  manager in `finally`; do not use process-wide fake time beyond the\n  isolated synchronous lifecycle test.\n\n## Acceptance criteria\n\n1. A chat SSE connection that is otherwise idle remains open for at least\n   120 seconds in the acceptance soak, with no server-side closure or\n   client reconnect.\n2. `/api/projects/:project/chat/:skill/stream` emits exact\n   `: keepalive\\n\\n` comments at approximately 15-second intervals.\n3. The keepalive is present when no live chat session exists; the stream\n   still has only its existing initial state data event.\n4. Keepalive comments produce no `ChatStreamEvent`, no additional data\n   frame, no transcript item, and no state change.\n5. Cancelling a chat stream clears its per-response interval; opening and\n   closing multiple streams leaves no accumulating response timers.\n6. `/api/events-stream` still emits `: heartbeat\\n\\n` at the shared\n   `HEARTBEAT_MS` cadence, and its server-shutdown cleanup is unchanged.\n7. `idleTimeout: 30` and its cold-start rationale remain unchanged.\n8. `test/e2e/chat-sessions.e2e.test.ts` passes unmodified, preserving\n   connect replay, state frames, and chat event ordering.\n9. The new tests cover real-server survival across the idle-timeout\n   window, keepalive cadence, the no-live-session case, protocol-level\n   state/event neutrality, and interval cleanup.\n10. Core and CLI typechecks, all package tests, the viewer build, and the\n    full E2E suite pass.\n\n## Deferred follow-ups\n\n- Make arbitrary reconnects preserve transcript identity and reader scroll\n  position under companion issue #195.\n- Revisit replay buffer bounds or resumable SSE event IDs only under a\n  separate issue; this fix does not alter replay semantics.\n- Reconsider global request timeout policy only if ordinary request\n  evidence warrants it; issue #194 is resolved at the chat stream.\n--- END PLAN DOC ---",
+              "last_response": "Plan ready for implementation: docs/proposals/2026-08-04-chat-sse-keepalive.md\n\n--- BEGIN PLAN DOC ---\n# Chat SSE Keepalive\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6YKB8Z2Y2ZN5A67AYG5PAM`; GitH"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 50035,
+                    "output_tokens": 9617,
+                    "reasoning_tokens": 5288,
+                    "cache_read_tokens": 460972,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 927808
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 272330,
+              "tool_time_ms": 269041,
+              "active_time_ms": 541371
+            }
+          },
+          "review": {
+            "status": "succeeded",
+            "preferred_label": "Ready",
+            "context_updates": {
+              "last_response": "Ready for pull request.\n\nThe committed delta from `main` is limited to the #194 chat-SSE transport fix, shared server-side heartbeat cadence, targeted CLI lifecycle coverage, and a black-box E2E test.",
+              "response.review": "Ready for pull request.\n\nThe committed delta from `main` is limited to the #194 chat-SSE transport fix, shared server-side heartbeat cadence, targeted CLI lifecycle coverage, and a black-box E2E test. It leaves `packages/core`, `packages/viewer`, `docs/library`, chat event types, replay behavior, and `idleTimeout: 30` unchanged.\n\nThe implementation emits `: keepalive\\n\\n` per chat connection every shared 15 seconds, including no-session streams, routes writes through the existing disconnect-safe enqueue path, and clears the exact response timer on cancellation. Existing chat-session E2E coverage is unchanged.\n\nValidation evidence is clean: typechecks, targeted tests, and the full repository gate all passed (371 E2E passes, 16 intentional skips). The viewer build was correctly skipped because no viewer files changed. The only noted coverage opportunities—active-session heartbeat timing and an explicit post-cancel tick—are non-blocking because existing replay/session E2E coverage remains intact and the write path is guarded.\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"review_ready\":true}}\n```",
+              "review_ready": true,
+              "last_stage": "review"
+            },
+            "notes": "Stage completed: review",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 31875,
+                    "output_tokens": 1780,
+                    "reasoning_tokens": 581,
+                    "cache_read_tokens": 197575,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 164492
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 32992,
+              "tool_time_ms": 72357,
+              "active_time_ms": 105349
+            }
+          },
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          },
+          "implement": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_stage": "implement",
+              "last_response": "Issue #194’s scoped implementation is already present and unchanged:\n\n- Chat SSE responses send `: keepalive\\n\\n` every shared 15 seconds, including no-session streams, and clear the per-response in",
+              "response.implement": "Issue #194’s scoped implementation is already present and unchanged:\n\n- Chat SSE responses send `: keepalive\\n\\n` every shared 15 seconds, including no-session streams, and clear the per-response interval on cancellation in [ChatSessions.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:689).\n- The shared cadence lives in [Sse.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/Sse.ts:1); the machine-level SSE heartbeat and `idleTimeout: 30` remain unchanged.\n- Unit and real-server regression coverage are in [ChatSessions.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatSessions.test.ts:15) and [chat-keepalive.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/chat-keepalive.e2e.test.ts:32).\n\nValidation this stage:\n\n- `bunx tsc --noEmit -p packages/core` — passed\n- `bunx tsc --noEmit -p packages/cli` — passed\n- `bun test test/e2e --timeout 30000` — passed: 371 passed, 16 intentional environment-dependent skips\n- Focused chat lifecycle and existing chat-session E2E regressions — passed\n- `bun test packages` — failed reproducibly: 1 unrelated pre-existing failure in [JournalWatcher.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:24), where an append immediately races native `fs.watch` registration (1060 passed, 1 failed).\n\nI did not broaden #194 by changing the watcher or weakening that test. The current committed delta from `main` remains six scoped files (444 additions, 6 deletions); the only working-tree item is the pre-existing untracked `verification-artifacts/` directory. A separately authorized watcher-reliability fix is needed before the mandatory package gate can be green and this issue can be fully verified."
+            },
+            "notes": "Stage completed: implement",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 44281,
+                    "output_tokens": 1876,
+                    "reasoning_tokens": 2111,
+                    "cache_read_tokens": 308201,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 247551
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 61778,
+              "tool_time_ms": 255848,
+              "active_time_ms": 317626
+            }
+          },
+          "validate_gates": {
+            "status": "succeeded",
+            "context_updates": {
+              "command.output": "blob://sha256/7559a16fc9b9d9f113706d4675d17f14946e83842e59ef70777225951ddbe49d"
+            },
+            "notes": "Script completed: ./.fabro/scripts/fabro-validate",
+            "usage": null,
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 0,
+              "tool_time_ms": 228025,
+              "active_time_ms": 228025
+            }
+          },
+          "verification_judge": {
+            "status": "succeeded",
+            "preferred_label": "Fix implementation",
+            "context_updates": {
+              "last_stage": "verification_judge",
+              "last_response": "Verification is not ready to approve because a required repository gate is red on the final diff: `bun test packages` reported 1060 passes and one `JournalWatcher` failure. The rubric makes any failed",
+              "response.verification_judge": "Verification is not ready to approve because a required repository gate is red on the final diff: `bun test packages` reported 1060 passes and one `JournalWatcher` failure. The rubric makes any failed repository gate disqualifying, even when the failure appears unrelated or flaky.\n\nOtherwise, the evidence is strong:\n\n- The 120.6-second CLI soak observed one connection, one unchanged state frame, and eight exact keepalives at 14.999–15.001-second intervals.\n- Focused lifecycle, keepalive E2E, existing chat-session regression, core/CLI typechecks, and full E2E checks passed.\n- The implementation matches the scoped plan and preserves `idleTimeout: 30`, machine-stream behavior, replay semantics, and client event types.\n- Skipping the viewer build was justified because no viewer files changed.\n- Verification made no tracked changes outside `verification-artifacts/`.\n\nThe smallest next step is to make the package gate reliably pass on the final diff, then rerun validation, review, and verification. The unrelated watcher behavior should remain separately scoped, but the gate must be green before this can be marked verified.\n\n{\"preferred_next_label\":\"Fix implementation\",\"context_updates\":{\"verification_ready\":false,\"verification_route\":\"implement\"}}",
+              "verification_route": "implement",
+              "verification_ready": false
+            },
+            "notes": "Stage completed: verification_judge",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 37813,
+                    "output_tokens": 1401,
+                    "reasoning_tokens": 904,
+                    "cache_read_tokens": 97836,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 307132
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 46116,
+              "tool_time_ms": 6304,
+              "active_time_ms": 52420
+            }
+          },
+          "verify": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_stage": "verify",
+              "response.verify": "Verified Issue #194’s SSE keepalive behavior successfully.\n\nThe independent 120-second CLI-driven soak kept a no-session chat stream open for 120.602 seconds, with one initial state frame and eight exact `: keepalive\\n\\n` frames at 14.999–15.001 second intervals. The stream never closed and no extra data/transcript frames appeared.\n\nFocused tests and the full E2E suite passed:\n\n- Chat stream lifecycle unit test: 1 pass\n- Keepalive E2E: 1 pass\n- Existing chat sessions regression: 8 pass\n- Full E2E: 371 pass, 16 intentional skips\n- Core and CLI typechecks: pass\n\nOne repository gate finding remains: `bun test packages` failed an unrelated, pre-existing `JournalWatcher` `fs.watch` timing-race test (1060 pass, 1 fail). I did not modify it, per verification-stage scope.\n\nArtifacts created:\n\n- [Verification plan](/home/daytona/workspace/skillmaker-studio/verification-artifacts/verification-plan.md)\n- [Verification report](/home/daytona/workspace/skillmaker-studio/verification-artifacts/report.md)\n- [120-second raw SSE evidence](/home/daytona/workspace/skillmaker-studio/verification-artifacts/json/chat-sse-120s-soak.json)\n- [CLI soak helper](/home/daytona/workspace/skillmaker-studio/verification-artifacts/cli/chat-sse-120s-soak.ts)\n- [Test and gate transcripts](/home/daytona/workspace/skillmaker-studio/verification-artifacts/cli/)\n\nNo tracked files were modified during verification; only `verification-artifacts/` is untracked.",
+              "last_response": "Verified Issue #194’s SSE keepalive behavior successfully.\n\nThe independent 120-second CLI-driven soak kept a no-session chat stream open for 120.602 seconds, with one initial state frame and eight "
+            },
+            "notes": "Stage completed: verify",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 57527,
+                    "output_tokens": 7254,
+                    "reasoning_tokens": 2669,
+                    "cache_read_tokens": 714637,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 471309
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 102795,
+              "tool_time_ms": 704807,
+              "active_time_ms": 807602
+            }
+          }
+        },
+        "next_node_id": "review",
+        "git_commit_sha": "126beac3a240ade2df575b284a57a53cf35594ab",
+        "node_visits": {
+          "start": 1,
+          "verify": 1,
+          "implement": 3,
+          "review": 2,
+          "scope": 1,
+          "validate_gates": 3,
+          "verification_judge": 1
+        }
+      },
+      "diff": {
+        "summary": {
+          "files_changed": 6,
+          "additions": 444,
+          "deletions": 6
+        }
+      }
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-04T18:53:09.272488297Z",
+        "current_node": "review",
+        "completed_nodes": [
+          "start",
+          "scope",
+          "implement",
+          "validate_gates",
+          "review",
+          "implement",
+          "validate_gates",
+          "review",
+          "verify",
+          "verification_judge",
+          "implement",
+          "validate_gates",
+          "review"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.thread_id": "validate_gates",
           "failure_class": "",
           "graph.goal": "GitHub Issue #194: Chat SSE stream has no keepalive — Bun's idleTimeout tears it down every 30s, jumping the reader to the bottom\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/194\n\n## Summary\n\nThe chat SSE stream sends no periodic keepalive, so Bun's `idleTimeout: 30`\ntears the connection down every 30 seconds of quiet. The browser's `EventSource`\nsilently reconnects, the server replays the transcript buffer, and the reader —\nwho may be scrolled up mid-transcript — is yanked to the bottom. The\nmachine-level `/api/events-stream` already solves this with a 15 s heartbeat;\nthe chat stream never got one.\n\n## Motivation / Problem\n\nObservable cost: you cannot read a chat transcript. Scroll up to reread\nsomething the agent said and roughly every 30 seconds, with no interaction and\nno agent activity, the panel jumps to the bottom. On a long research\nconversation — exactly the material worth rereading — the transcript is\neffectively unreadable while the session is open.\n\nUnderneath the visible symptom, every idle chat session is churning: a\nconnection torn down and re-established twice a minute, each reconnect replaying\nthe entire event buffer over the wire, forever, for as long as the panel is\nopen.\n\nThe transcript-position damage on reconnect is a **separate defect** and is\nfiled alongside this one — this issue removes the 30-second cadence; the\ncompanion makes any future reconnect (network blip, laptop sleep, server\nrestart) harmless. Either can be built first.\n\n## Observed behavior\n\nOpen a chat panel on any skill, let the session go quiet, scroll to the middle\nof the transcript, and touch nothing. In roughly 25-30 seconds the panel jumps\nto the bottom. Repeats indefinitely. Confirmed by hand at >25 s.\n\nThe server log shows no error; nothing in the UI indicates the stream dropped\nand came back.\n\n## Current shape\n\nThe machine-level events stream is the working sibling — it has a heartbeat.\n`packages/cli/src/server/Server.ts:89`:\n\n```ts\nconst HEARTBEAT_MS = 15_000;\n```\n\ndriven at `Server.ts:2911` and written at `Server.ts:2535`:\n\n```ts\n  const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);\n```\n```ts\n    onHeartbeat: () => broadcast(\": heartbeat\\n\\n\"),\n```\n\nThe chat stream is built separately, in `ChatSessions.streamResponse`\n(`packages/cli/src/server/ChatSessions.ts:688-719`), and has **no interval at\nall** — one comment frame at connect, then bytes only when a real session event\noccurs:\n\n```ts\n        controller.enqueue(encoder.encode(\": connected\\n\\n\"));\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n          subscriber = sendEvent;\n          chat.subscribers.add(sendEvent);\n          chat.lastActivityAt = Date.now();\n        }\n```\n\nMeanwhile `Server.ts:2914-2923` sets a 30-second per-connection idle timeout,\nwith a comment that explains what it was reasoning about — cold-start request\nbursts — and does not consider long-lived SSE streams, which are idle by design:\n\n```ts\n    // Explicit safety net, not a fix by itself: Bun's default per-connection\n    // idle timeout is 10s, which a concurrent-request burst on cold start\n    // ... 30s gives real (non-runaway) requests headroom without hiding a\n    // genuine hang.\n    idleTimeout: 30,\n```\n\nSequence: 30 s of no bytes → Bun closes the socket → `EventSource` reconnects\n(UA default retry, ~3 s in Chrome; the server never sends a `retry:` field) →\nobserved period ≈ 30-33 s, matching the report.\n\nNote `streamResponse` also serves the case where **no live session exists** (the\npre-session model picker holds this stream open). That connection produces no\nevents by definition, so it is torn down every 30 s too.\n\nThe trap worth naming: `idleTimeout` is a *global* server setting and the chat\nstream is the only long-lived SSE endpoint that was added without the heartbeat\nits sibling already had. The fix belongs on the stream, not on the timeout.\n\n## Proposed contract\n\n`ChatSessions.streamResponse` writes an SSE comment frame on an interval, the\nsame shape and cadence the events stream already uses:\n\n```\n: keepalive\\n\\n\n```\n\nevery **15 000 ms** — half the 30 s idle timeout, matching `HEARTBEAT_MS`.\n\n**Decisions:**\n\n- The frame is an SSE **comment** (`:` prefix), not a data frame. `EventSource`\n  ignores it, so no client-side handling is needed and `ChatStreamEvent` is\n  unchanged.\n- Cadence is 15 000 ms, reusing the existing `HEARTBEAT_MS` value rather than\n  introducing a second number.\n- The interval is **per connection**, started in the stream's `start` and\n  **cleared in its `cancel`**, so a closed connection cannot leak a timer.\n- The keepalive runs **regardless of whether a live chat session exists** — the\n  pre-session picker's connection needs it just as much.\n- `idleTimeout: 30` in `Server.ts` is **not** changed. It is a deliberate safety\n  net with a documented rationale; raising or removing it to paper over a\n  missing keepalive would hide genuine hangs.\n- No `retry:` field is introduced. Reconnect cadence is not the problem;\n  reconnecting at all is.\n\n## Acceptance criteria\n\n- [ ] With a chat panel open and idle, the SSE connection survives at least\n      120 seconds without the server closing it and without `EventSource`\n      reconnecting.\n- [ ] Keepalive comment frames are observable on the wire at ~15 s intervals on\n      `/api/chat/:skill/stream`.\n- [ ] The keepalive is emitted on a connection opened when **no live session\n      exists** for that skill (pre-session picker case).\n- [ ] Negative: the keepalive frame produces no transcript item and no state\n      change — the client's `items` array and `state` are byte-identical before\n      and after a keepalive.\n- [ ] Negative / no leak: after the client disconnects, the connection's\n      interval is cleared — opening and closing N chat streams leaves no\n      accumulating timers.\n- [ ] Regression: `/api/events-stream` behavior is unchanged, still at\n      `HEARTBEAT_MS`, and `idleTimeout: 30` is still in force for ordinary\n      requests.\n- [ ] Regression: existing chat stream behavior is unchanged —\n      `test/e2e/chat-sessions.e2e.test.ts` passes unmodified (connect replay,\n      state frames, event ordering).\n- [ ] Tests cover: long-idle connection survival, keepalive cadence,\n      no-live-session case, and interval cleanup on disconnect.\n\n## Implementation notes\n\nThe events stream's heartbeat is driven by one server-level `setInterval` over a\nbroadcaster with many subscribers; the chat stream is a per-skill `Response`\nbuilt inside `streamResponse`, so its keepalive is naturally per-connection\ninstead. Guard the enqueue the same way `sendEvent` already does — a client that\nvanished mid-interval must not throw.\n\nScope fences:\n\n- **Do not change `idleTimeout`.** See the decision above.\n- **Do not add a data frame or extend `ChatStreamEvent`.** A comment frame\n  requires no client change; a new event type would.\n- **Do not touch the replay-on-connect behavior** — that is the companion\n  issue's territory, and the two fixes must not collide.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `streamResponse` (:688), its\n  `cancel` (:710)\n- `packages/cli/src/server/Server.ts` — `HEARTBEAT_MS` (:89), events-stream\n  heartbeat wiring (:2535, :2911), `idleTimeout` (:2923)\n- `packages/viewer/src/app/next/chatApi.ts` — the `EventSource` consumer (:196)\n\n---\n\n**Companion:** #195 — SSE reconnect wipes the transcript and destroys the reader's scroll position. This issue removes the ~30s cadence; #195 makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
-          "preferred_label": "Fix implementation",
+          "preferred_label": "Fix",
           "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
           "verification_ready": false,
           "internal.retry_count.implement": 0,
-          "last_stage": "implement",
+          "last_stage": "review",
           "response.implement": "Issue #194’s scoped implementation is already present and unchanged:\n\n- Chat SSE responses send `: keepalive\\n\\n` every shared 15 seconds, including no-session streams, and clear the per-response interval on cancellation in [ChatSessions.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:689).\n- The shared cadence lives in [Sse.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/Sse.ts:1); the machine-level SSE heartbeat and `idleTimeout: 30` remain unchanged.\n- Unit and real-server regression coverage are in [ChatSessions.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatSessions.test.ts:15) and [chat-keepalive.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/chat-keepalive.e2e.test.ts:32).\n\nValidation this stage:\n\n- `bunx tsc --noEmit -p packages/core` — passed\n- `bunx tsc --noEmit -p packages/cli` — passed\n- `bun test test/e2e --timeout 30000` — passed: 371 passed, 16 intentional environment-dependent skips\n- Focused chat lifecycle and existing chat-session E2E regressions — passed\n- `bun test packages` — failed reproducibly: 1 unrelated pre-existing failure in [JournalWatcher.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:24), where an append immediately races native `fs.watch` registration (1060 passed, 1 failed).\n\nI did not broaden #194 by changing the watcher or weakening that test. The current committed delta from `main` remains six scoped files (444 additions, 6 deletions); the only working-tree item is the pre-existing untracked `verification-artifacts/` directory. A separately authorized watcher-reliability fix is needed before the mandatory package gate can be green and this issue can be fully verified.",
           "command.output": "blob://sha256/7559a16fc9b9d9f113706d4675d17f14946e83842e59ef70777225951ddbe49d",
           "internal.retry_count.validate_gates": 0,
-          "response.review": "Ready for pull request.\n\nThe committed delta from `main` is limited to the #194 chat-SSE transport fix, shared server-side heartbeat cadence, targeted CLI lifecycle coverage, and a black-box E2E test. It leaves `packages/core`, `packages/viewer`, `docs/library`, chat event types, replay behavior, and `idleTimeout: 30` unchanged.\n\nThe implementation emits `: keepalive\\n\\n` per chat connection every shared 15 seconds, including no-session streams, routes writes through the existing disconnect-safe enqueue path, and clears the exact response timer on cancellation. Existing chat-session E2E coverage is unchanged.\n\nValidation evidence is clean: typechecks, targeted tests, and the full repository gate all passed (371 E2E passes, 16 intentional skips). The viewer build was correctly skipped because no viewer files changed. The only noted coverage opportunities—active-session heartbeat timing and an explicit post-cancel tick—are non-blocking because existing replay/session E2E coverage remains intact and the write path is guarded.\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"review_ready\":true}}\n```",
+          "response.review": "The #194 implementation itself is ready: it is confined to the CLI/server SSE surface and targeted tests, preserves `idleTimeout: 30`, leaves replay and viewer behavior untouched, and uses a shared 15-second cadence. The new comment correctly explains the cancellation race and cites #194. No `docs/library` files changed.\n\nHowever, the required package-test gate is currently red. I independently reran `bun test packages`; it reproducibly fails `watchJournal > fires (debounced) on appends to an existing journal` at [JournalWatcher.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:34), with 1060 passing and 1 failing. The append can occur before native `fs.watch` is fully registered. This is unrelated to #194, but it makes the final validation claim stale and prevents approval under the stated gate requirement.\n\nThe next implementation stage needs to address that watcher-test readiness race in a separately scoped, minimal way, rerun `bun test packages`, then rerun validation and review.\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"review_ready\":false}}\n```",
           "internal.retry_count.review": 0,
           "verification_route": "implement",
           "internal.node_visit_count": 3,
           "thread.verification_judge.current_node": "implement",
-          "current_node": "validate_gates",
+          "current_node": "review",
           "thread.start.current_node": "scope",
           "thread.scope.current_node": "implement",
           "outcome": "succeeded",
@@ -2633,14 +2921,14 @@
           "internal.retry_count.verification_judge": 0,
           "internal.retry_count.start": 0,
           "failure_signature": "",
-          "review_ready": true,
+          "review_ready": false,
           "response.verification_judge": "Verification is not ready to approve because a required repository gate is red on the final diff: `bun test packages` reported 1060 passes and one `JournalWatcher` failure. The rubric makes any failed repository gate disqualifying, even when the failure appears unrelated or flaky.\n\nOtherwise, the evidence is strong:\n\n- The 120.6-second CLI soak observed one connection, one unchanged state frame, and eight exact keepalives at 14.999–15.001-second intervals.\n- Focused lifecycle, keepalive E2E, existing chat-session regression, core/CLI typechecks, and full E2E checks passed.\n- The implementation matches the scoped plan and preserves `idleTimeout: 30`, machine-stream behavior, replay semantics, and client event types.\n- Skipping the viewer build was justified because no viewer files changed.\n- Verification made no tracked changes outside `verification-artifacts/`.\n\nThe smallest next step is to make the package gate reliably pass on the final diff, then rerun validation, review, and verification. The unrelated watcher behavior should remain separately scoped, but the gate must be green before this can be marked verified.\n\n{\"preferred_next_label\":\"Fix implementation\",\"context_updates\":{\"verification_ready\":false,\"verification_route\":\"implement\"}}",
           "graph.default_fidelity": "summary:high",
           "thread.validate_gates.current_node": "review",
           "graph.max_node_visits": "8",
           "internal.fidelity": "summary:high",
           "response.verify": "Verified Issue #194’s SSE keepalive behavior successfully.\n\nThe independent 120-second CLI-driven soak kept a no-session chat stream open for 120.602 seconds, with one initial state frame and eight exact `: keepalive\\n\\n` frames at 14.999–15.001 second intervals. The stream never closed and no extra data/transcript frames appeared.\n\nFocused tests and the full E2E suite passed:\n\n- Chat stream lifecycle unit test: 1 pass\n- Keepalive E2E: 1 pass\n- Existing chat sessions regression: 8 pass\n- Full E2E: 371 pass, 16 intentional skips\n- Core and CLI typechecks: pass\n\nOne repository gate finding remains: `bun test packages` failed an unrelated, pre-existing `JournalWatcher` `fs.watch` timing-race test (1060 pass, 1 fail). I did not modify it, per verification-stage scope.\n\nArtifacts created:\n\n- [Verification plan](/home/daytona/workspace/skillmaker-studio/verification-artifacts/verification-plan.md)\n- [Verification report](/home/daytona/workspace/skillmaker-studio/verification-artifacts/report.md)\n- [120-second raw SSE evidence](/home/daytona/workspace/skillmaker-studio/verification-artifacts/json/chat-sse-120s-soak.json)\n- [CLI soak helper](/home/daytona/workspace/skillmaker-studio/verification-artifacts/cli/chat-sse-120s-soak.ts)\n- [Test and gate transcripts](/home/daytona/workspace/skillmaker-studio/verification-artifacts/cli/)\n\nNo tracked files were modified during verification; only `verification-artifacts/` is untracked.",
-          "last_response": "Issue #194’s scoped implementation is already present and unchanged:\n\n- Chat SSE responses send `: keepalive\\n\\n` every shared 15 seconds, including no-session streams, and clear the per-response in",
+          "last_response": "The #194 implementation itself is ready: it is confined to the CLI/server SSE surface and targeted tests, preserves `idleTimeout: 30`, leaves replay and viewer behavior untouched, and uses a shared 15",
           "thread.verify.current_node": "verification_judge",
           "internal.retry_count.scope": 0,
           "thread.implement.current_node": "validate_gates",
@@ -2706,11 +2994,11 @@
           },
           "review": {
             "status": "succeeded",
-            "preferred_label": "Ready",
+            "preferred_label": "Fix",
             "context_updates": {
-              "last_response": "Ready for pull request.\n\nThe committed delta from `main` is limited to the #194 chat-SSE transport fix, shared server-side heartbeat cadence, targeted CLI lifecycle coverage, and a black-box E2E test.",
-              "response.review": "Ready for pull request.\n\nThe committed delta from `main` is limited to the #194 chat-SSE transport fix, shared server-side heartbeat cadence, targeted CLI lifecycle coverage, and a black-box E2E test. It leaves `packages/core`, `packages/viewer`, `docs/library`, chat event types, replay behavior, and `idleTimeout: 30` unchanged.\n\nThe implementation emits `: keepalive\\n\\n` per chat connection every shared 15 seconds, including no-session streams, routes writes through the existing disconnect-safe enqueue path, and clears the exact response timer on cancellation. Existing chat-session E2E coverage is unchanged.\n\nValidation evidence is clean: typechecks, targeted tests, and the full repository gate all passed (371 E2E passes, 16 intentional skips). The viewer build was correctly skipped because no viewer files changed. The only noted coverage opportunities—active-session heartbeat timing and an explicit post-cancel tick—are non-blocking because existing replay/session E2E coverage remains intact and the write path is guarded.\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"review_ready\":true}}\n```",
-              "review_ready": true,
+              "last_response": "The #194 implementation itself is ready: it is confined to the CLI/server SSE surface and targeted tests, preserves `idleTimeout: 30`, leaves replay and viewer behavior untouched, and uses a shared 15",
+              "response.review": "The #194 implementation itself is ready: it is confined to the CLI/server SSE surface and targeted tests, preserves `idleTimeout: 30`, leaves replay and viewer behavior untouched, and uses a shared 15-second cadence. The new comment correctly explains the cancellation race and cites #194. No `docs/library` files changed.\n\nHowever, the required package-test gate is currently red. I independently reran `bun test packages`; it reproducibly fails `watchJournal > fires (debounced) on appends to an existing journal` at [JournalWatcher.test.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:34), with 1060 passing and 1 failing. The append can occur before native `fs.watch` is fully registered. This is unrelated to #194, but it makes the final validation claim stale and prevents approval under the stated gate requirement.\n\nThe next implementation stage needs to address that watcher-test readiness race in a separately scoped, minimal way, rerun `bun test packages`, then rerun validation and review.\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"review_ready\":false}}\n```",
+              "review_ready": false,
               "last_stage": "review"
             },
             "notes": "Stage completed: review",
@@ -2722,10 +3010,10 @@
                     "model_id": "gpt-5.6-terra"
                   },
                   "tokens": {
-                    "input_tokens": 31875,
-                    "output_tokens": 1780,
-                    "reasoning_tokens": 581,
-                    "cache_read_tokens": 197575,
+                    "input_tokens": 30492,
+                    "output_tokens": 1156,
+                    "reasoning_tokens": 460,
+                    "cache_read_tokens": 206485,
                     "cache_write_tokens": 0
                   }
                 },
@@ -2733,13 +3021,13 @@
                   "algorithm": "openai"
                 }
               },
-              "total_usd_micros": 164492
+              "total_usd_micros": 152087
             },
             "timing": {
               "wall_time_ms": 0,
-              "inference_time_ms": 32992,
-              "tool_time_ms": 72357,
-              "active_time_ms": 105349
+              "inference_time_ms": 23523,
+              "tool_time_ms": 98223,
+              "active_time_ms": 121746
             }
           },
           "verify": {
@@ -2855,13 +3143,13 @@
             }
           }
         },
-        "next_node_id": "review",
+        "next_node_id": "implement",
         "node_visits": {
           "scope": 1,
           "verification_judge": 1,
           "start": 1,
           "validate_gates": 3,
-          "review": 2,
+          "review": 3,
           "implement": 3,
           "verify": 1
         }
@@ -4119,6 +4407,212 @@
             "category": "other",
             "tokens": 7,
             "usage_percent": 0.002573529411764706
+          }
+        ],
+        "warnings": []
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "review@3": {
+      "first_event_seq": 1588,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: review",
+        "failure_reason": null,
+        "timestamp": "2026-08-04T18:53:09.247148508Z"
+      },
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "medium"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-04T18:51:02.061540375Z",
+      "handler": "agent",
+      "graph_visit": 3,
+      "timing": {
+        "wall_time_ms": 124028,
+        "inference_time_ms": 23523,
+        "tool_time_ms": 98223,
+        "active_time_ms": 121746
+      },
+      "usage": {
+        "input_tokens": 30492,
+        "output_tokens": 1156,
+        "total_tokens": 238593,
+        "reasoning_tokens": 460,
+        "cache_read_tokens": 206485,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 152087
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-terra"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:08852373-fea8-48f3-b24c-1f4f83ff382b",
+        "items": [
+          {
+            "id": "b2820bfbc478fe70",
+            "status": "completed",
+            "order": 0,
+            "subject": "Inspect repository guidance, status, and scoped diff"
+          },
+          {
+            "id": "9854f5c132296374",
+            "status": "completed",
+            "order": 1,
+            "subject": "Review implementation and tests against issue requirements"
+          },
+          {
+            "id": "9c4fd17d1418edab",
+            "status": "completed",
+            "order": 2,
+            "subject": "Check validation evidence and report routing decision"
+          }
+        ]
+      },
+      "subagents": [
+        {
+          "agent_id": "aa2684af",
+          "depth": 1,
+          "task": "Read-only review of current diff main...HEAD for Issue #194. Inspect implementation correctness/scope/comments. Do not edit. Report concrete blocking findings only, with files/lines, or state no blockers.",
+          "status": {
+            "kind": "closed"
+          }
+        },
+        {
+          "agent_id": "be329951",
+          "depth": 1,
+          "task": "Read-only review tests and validation for Issue #194. Inspect diff main...HEAD, relevant tests, existing package scripts/gate evidence. Do not edit. Report concrete blockers only, with file/line details, or no blockers.",
+          "status": {
+            "kind": "closed"
+          }
+        }
+      ],
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": false
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "context_window_tokens": 272000,
+        "input_tokens": 30465,
+        "usage_percent": 11.200367647058824,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-04T18:53:06.087960191Z",
+        "event_seq": 1792,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 2999,
+            "usage_percent": 1.1025735294117647
+          },
+          {
+            "category": "tools",
+            "tokens": 1001,
+            "usage_percent": 0.36801470588235297
+          },
+          {
+            "category": "conversation",
+            "tokens": 26459,
+            "usage_percent": 9.727573529411766
+          },
+          {
+            "category": "other",
+            "tokens": 6,
+            "usage_percent": 0.0022058823529411764
           }
         ],
         "warnings": []
