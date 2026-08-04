@@ -1,0 +1,302 @@
+diff --git a/packages/cli/src/server/ChatSessions.ts b/packages/cli/src/server/ChatSessions.ts
+index 6938e40..d0b55bd 100644
+--- a/packages/cli/src/server/ChatSessions.ts
++++ b/packages/cli/src/server/ChatSessions.ts
+@@ -43,6 +43,7 @@ import { Effect } from "effect";
+ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+ import { homedir } from "node:os";
+ import { join } from "node:path";
++import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
+ 
+ // ---------------------------------------------------------------------------
+ // Tunables
+@@ -55,7 +56,12 @@ const REAP_CHECK_MS = 60 * 1000;
+ /** Per-provider budget for the capability probe (spawn + initialize + session/new). Adapters that can't answer in this window fall back to a bare provider-name catalog entry. */
+ const PROBE_TIMEOUT_MS = 45_000;
+ 
+-/** Skillmaker's own helper skills (William material), injected via the agent home -- resolved from the studio workspace's skillsDir when present, silently skipped when absent (a user project without the William bundles still chats fine, just without the helpers). */
++/**
++ * Skillmaker's own helper skills (William material), injected via the agent
++ * home. Issue #190 completes D6's product-shipping ruling: a workspace can
++ * override a helper while ordinary projects receive the packaged copy, so
++ * agents do not search outside the project for guidance we already ship.
++ */
+ const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
+ 
+ // ---------------------------------------------------------------------------
+@@ -153,30 +159,57 @@ const copyDirRecursive = (src: string, dest: string): void => {
+ export const agentHomeBaseDir = (): string =>
+   process.env.SKILLMAKER_AGENT_HOME_DIR ?? join(homedir(), ".skillmaker", "agent-home");
+ 
++type HelperSource = "workspace" | "packaged";
++
++interface ResolvedHelper {
++  readonly sourceDir: string;
++  readonly source: HelperSource;
++}
++
++const resolveHelper = (
++  slug: string,
++  workspaceRoot: string,
++  skillsDir: string,
++  packagedSkillsDir: string | undefined,
++): ResolvedHelper | undefined => {
++  const sources: ReadonlyArray<readonly [HelperSource, string | undefined]> = [
++    ["workspace", join(workspaceRoot, skillsDir, slug)],
++    ["packaged", packagedSkillsDir === undefined ? undefined : join(packagedSkillsDir, slug)],
++  ];
++  for (const [source, bundleDir] of sources) {
++    if (bundleDir === undefined) continue;
++    if (existsSync(join(bundleDir, "output", "SKILL.md"))) {
++      return { sourceDir: join(bundleDir, "output"), source };
++    }
++    if (existsSync(join(bundleDir, "SKILL.md"))) {
++      return { sourceDir: bundleDir, source };
++    }
++  }
++  return undefined;
++};
++
+ export const prepareAgentHome = (
+   provider: string,
+   workspaceRoot: string,
+   skillsDir: string,
+-): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {
++  packagedSkillsDirLocator: () => string | undefined = locatePackagedSkillsDir,
++): {
++  readonly home: string;
++  readonly installedHelpers: ReadonlyArray<{ readonly slug: string; readonly source: HelperSource }>;
++} => {
+   const home = join(agentHomeBaseDir(), provider);
+   mkdirSync(home, { recursive: true });
+   seedProviderAuth(provider, home);
+ 
+-  const installed: string[] = [];
++  const packagedSkillsDir = packagedSkillsDirLocator();
++  const installed: Array<{ slug: string; source: HelperSource }> = [];
+   for (const slug of HELPER_SKILL_SLUGS) {
+-    const bundleDir = join(workspaceRoot, skillsDir, slug);
+-    // output/ layout is the William bundles' real shape; an in-place bundle
+-    // (SKILL.md at the root) installs the bundle dir itself.
+-    const sourceDir = existsSync(join(bundleDir, "output", "SKILL.md"))
+-      ? join(bundleDir, "output")
+-      : existsSync(join(bundleDir, "SKILL.md"))
+-        ? bundleDir
+-        : undefined;
+-    if (sourceDir === undefined) continue;
++    const resolved = resolveHelper(slug, workspaceRoot, skillsDir, packagedSkillsDir);
++    if (resolved === undefined) continue;
+     const dest = join(home, "skills", slug);
+     rmSync(dest, { recursive: true, force: true });
+-    copyDirRecursive(sourceDir, dest);
+-    installed.push(slug);
++    copyDirRecursive(resolved.sourceDir, dest);
++    installed.push({ slug, source: resolved.source });
+   }
+   return { home, installedHelpers: installed };
+ };
+diff --git a/packages/cli/test/ChatSessions.test.ts b/packages/cli/test/ChatSessions.test.ts
+new file mode 100644
+index 0000000..937b0cc
+--- /dev/null
++++ b/packages/cli/test/ChatSessions.test.ts
+@@ -0,0 +1,146 @@
++/**
++ * Issue #190: chat agent homes must receive William from the product when a
++ * user workspace does not carry the helpers itself.
++ */
++import { afterEach, beforeEach, describe, expect, test } from "bun:test";
++import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join, relative } from "node:path";
++import { prepareAgentHome } from "../src/server/ChatSessions.ts";
++
++const RESEARCH = "william-research-a-skill";
++const DRAFT = "william-draft-skill-md";
++const HELPERS = [RESEARCH, DRAFT] as const;
++
++let root: string;
++let workspace: string;
++let packaged: string;
++let homeBase: string;
++let priorAgentHome: string | undefined;
++let priorClaudeConfig: string | undefined;
++
++const writeHelper = (
++  base: string,
++  slug: string,
++  contents: string,
++  layout: "output" | "root" = "output",
++  extra?: Readonly<Record<string, string>>,
++): void => {
++  const dir = layout === "output" ? join(base, slug, "output") : join(base, slug);
++  mkdirSync(dir, { recursive: true });
++  writeFileSync(join(dir, "SKILL.md"), contents);
++  for (const [path, value] of Object.entries(extra ?? {})) {
++    const target = join(dir, path);
++    mkdirSync(join(target, ".."), { recursive: true });
++    writeFileSync(target, value);
++  }
++};
++
++const agentSkill = (slug: string): string => join(homeBase, "claude-code", "skills", slug);
++
++const tree = (dir: string): Readonly<Record<string, string>> => {
++  const files: Record<string, string> = {};
++  const walk = (current: string): void => {
++    for (const name of readdirSync(current)) {
++      const path = join(current, name);
++      if (statSync(path).isDirectory()) walk(path);
++      else files[relative(dir, path)] = readFileSync(path, "utf8");
++    }
++  };
++  walk(dir);
++  return files;
++};
++
++beforeEach(() => {
++  root = mkdtempSync(join(tmpdir(), "skillmaker-chat-home-"));
++  workspace = join(root, "workspace");
++  packaged = join(root, "packaged");
++  homeBase = join(root, "agent-home");
++  mkdirSync(join(workspace, "skills"), { recursive: true });
++  mkdirSync(packaged, { recursive: true });
++  priorAgentHome = process.env.SKILLMAKER_AGENT_HOME_DIR;
++  priorClaudeConfig = process.env.CLAUDE_CONFIG_DIR;
++  process.env.SKILLMAKER_AGENT_HOME_DIR = homeBase;
++  process.env.CLAUDE_CONFIG_DIR = join(root, "empty-claude-config");
++});
++
++afterEach(() => {
++  if (priorAgentHome === undefined) delete process.env.SKILLMAKER_AGENT_HOME_DIR;
++  else process.env.SKILLMAKER_AGENT_HOME_DIR = priorAgentHome;
++  if (priorClaudeConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR;
++  else process.env.CLAUDE_CONFIG_DIR = priorClaudeConfig;
++  rmSync(root, { recursive: true, force: true });
++});
++
++describe("prepareAgentHome (#190)", () => {
++  test("installs packaged helpers when the workspace carries neither", () => {
++    writeHelper(packaged, RESEARCH, "packaged research", "output", { "references.md": "packaged reference" });
++    writeHelper(packaged, DRAFT, "packaged draft");
++
++    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
++
++    expect(prepared.installedHelpers).toEqual([
++      { slug: RESEARCH, source: "packaged" },
++      { slug: DRAFT, source: "packaged" },
++    ]);
++    expect(readFileSync(join(agentSkill(RESEARCH), "SKILL.md"), "utf8")).toBe("packaged research");
++    expect(readFileSync(join(agentSkill(RESEARCH), "references.md"), "utf8")).toBe("packaged reference");
++    expect(existsSync(join(workspace, "skills", RESEARCH))).toBe(false);
++    expect(existsSync(join(workspace, "skills", DRAFT))).toBe(false);
++  });
++
++  test("uses workspace helpers ahead of packaged copies, including root-layout helpers", () => {
++    writeHelper(join(workspace, "skills"), RESEARCH, "workspace research", "root");
++    writeHelper(join(workspace, "skills"), DRAFT, "workspace draft");
++    writeHelper(packaged, RESEARCH, "packaged research");
++    writeHelper(packaged, DRAFT, "packaged draft");
++
++    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
++
++    expect(prepared.installedHelpers).toEqual([
++      { slug: RESEARCH, source: "workspace" },
++      { slug: DRAFT, source: "workspace" },
++    ]);
++    expect(readFileSync(join(agentSkill(RESEARCH), "SKILL.md"), "utf8")).toBe("workspace research");
++    expect(readFileSync(join(agentSkill(DRAFT), "SKILL.md"), "utf8")).toBe("workspace draft");
++  });
++
++  test("resolves each helper independently and prefers output over a root SKILL.md", () => {
++    writeHelper(join(workspace, "skills"), RESEARCH, "workspace root", "root");
++    writeHelper(join(workspace, "skills"), RESEARCH, "workspace output");
++    writeHelper(packaged, DRAFT, "packaged draft", "root");
++
++    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
++
++    expect(prepared.installedHelpers).toEqual([
++      { slug: RESEARCH, source: "workspace" },
++      { slug: DRAFT, source: "packaged" },
++    ]);
++    expect(readFileSync(join(agentSkill(RESEARCH), "SKILL.md"), "utf8")).toBe("workspace output");
++    expect(readFileSync(join(agentSkill(DRAFT), "SKILL.md"), "utf8")).toBe("packaged draft");
++  });
++
++  test("leaves an unresolved helper destination untouched", () => {
++    writeHelper(agentSkill(RESEARCH), ".", "old helper", "root", { "obsolete.md": "keep me" });
++
++    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => undefined);
++
++    expect(prepared.installedHelpers).toEqual([]);
++    expect(tree(agentSkill(RESEARCH))).toEqual({ "SKILL.md": "old helper", "obsolete.md": "keep me" });
++  });
++
++  test("replaces stale destinations and is idempotent without output nesting", () => {
++    writeHelper(packaged, RESEARCH, "new research", "output", { "new.md": "new" });
++    writeHelper(packaged, DRAFT, "new draft");
++    writeHelper(agentSkill(RESEARCH), ".", "old research", "root", { "obsolete.md": "old" });
++
++    const first = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
++    const firstTree = tree(join(homeBase, "claude-code", "skills"));
++    const second = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
++
++    expect(first).toEqual(second);
++    expect(tree(join(homeBase, "claude-code", "skills"))).toEqual(firstTree);
++    expect(tree(agentSkill(RESEARCH))).toEqual({ "SKILL.md": "new research", "new.md": "new" });
++    expect(existsSync(join(agentSkill(RESEARCH), "output"))).toBe(false);
++  });
++});
+diff --git a/test/e2e/chat-sessions.e2e.test.ts b/test/e2e/chat-sessions.e2e.test.ts
+index 61323de..de81457 100644
+--- a/test/e2e/chat-sessions.e2e.test.ts
++++ b/test/e2e/chat-sessions.e2e.test.ts
+@@ -10,7 +10,7 @@
+  * and helper-skill injection into the agent home. No real LLM -- CI-safe.
+  */
+ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
++import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { startE2eRegistryServer, type StartedE2eRegistryServer } from "./support/server.ts";
+@@ -131,12 +131,6 @@ beforeAll(async () => {
+   const orientBundle = JSON.parse(readFileSync(orientBundlePath, "utf8")) as Record<string, unknown>;
+   writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: "orients the director" }, null, 2)}\n`);
+ 
+-  // A William helper bundle in the workspace, to observe agent-home injection.
+-  const williamDir = join(scratchDir, "skills", "william-draft-skill-md");
+-  mkdirSync(join(williamDir, "output"), { recursive: true });
+-  writeFileSync(join(williamDir, "bundle.json"), `${JSON.stringify({ slug: "william-draft-skill-md" })}\n`);
+-  writeFileSync(join(williamDir, "output", "SKILL.md"), "# William drafts\n");
+-
+   // Point the claude-code provider at the fake chat adapter.
+   const configPath = join(scratchDir, "skillmaker.config.json");
+   const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+@@ -244,11 +238,23 @@ describe("chat sessions (D9)", () => {
+     }
+   }, 30_000);
+ 
+-  test("agent home injection: helper skill installed under the scratch HOME, never the project", async () => {
+-    const injected = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-draft-skill-md", "SKILL.md");
+-    expect(existsSync(injected)).toBe(true);
++  test("agent home injection: packaged helpers install under the scratch HOME, never the project or bundle APIs", async () => {
++    const agentSkills = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills");
++    expect(existsSync(join(agentSkills, "william-research-a-skill", "SKILL.md"))).toBe(true);
++    expect(existsSync(join(agentSkills, "william-draft-skill-md", "SKILL.md"))).toBe(true);
+     // Chat runs DIRECT in the project -- no project-level skill install.
+     expect(existsSync(join(scratchDir, ".claude", "skills"))).toBe(false);
++    expect(existsSync(join(scratchDir, "skills", "william-research-a-skill"))).toBe(false);
++    expect(existsSync(join(scratchDir, "skills", "william-draft-skill-md"))).toBe(false);
++
++    const bundles = (await getJson("/api/bundles")).body as unknown as {
++      bundles: ReadonlyArray<{ slug: string }>;
++    };
++    expect(bundles.bundles.map((bundle) => bundle.slug).sort()).toEqual([ORIENT_SKILL, SKILL].sort());
++    const catalog = (await getJson("/api/catalog")).body as unknown as {
++      entries: ReadonlyArray<{ slug: string }>;
++    };
++    expect(catalog.entries.map((entry) => entry.slug).sort()).toEqual([ORIENT_SKILL, SKILL].sort());
+   });
+ 
+   test("concurrent prompts are REJECTED (409) while a turn runs; cancel ends the turn with stopReason cancelled", async () => {
