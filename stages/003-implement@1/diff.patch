@@ -1,0 +1,236 @@
+diff --git a/packages/docs-site/src/content/docs/cli/publish.md b/packages/docs-site/src/content/docs/cli/publish.md
+index dbc6009..b9dc5d7 100644
+--- a/packages/docs-site/src/content/docs/cli/publish.md
++++ b/packages/docs-site/src/content/docs/cli/publish.md
+@@ -1,88 +1,181 @@
+ ---
+ title: skillmaker publish
+-description: Publish a Skill Bundle to its configured publish targets.
++description: Install a recorded skill version for your agents, or publish to a legacy configured target.
+ ---
+ 
+ ```text
++skillmaker publish <slug> --to user|project
++skillmaker publish <slug> [--version <hash-prefix>]
++
++# Legacy configured-target door:
+ skillmaker publish <slug> [--target <id>]
+ ```
+ 
+-Publishes a Skill Bundle to the targets configured for it in
+-`skillmaker.config.json`'s `publishTargets` — the same `publishBundle`
+-function the server's `POST /api/projects/:project/bundles/:slug/publish`
+-route runs (one contract, two doors). The viewer's Publish tab buttons are
+-currently disabled while the UI publish flow is redesigned, so this
+-command is the working door today. Requires a workspace and at least one
+-configured target; fails with a clear message if either is missing.
++Use the install door to put a published Skill Bundle where Claude Code can
++read it. Choose an audience the first time; Skillmaker remembers that choice
++with the bundle, so later publishes are simply `skillmaker publish <slug>`.
+ 
+-## Publish targets
++The configured-target door below is the older, secondary path for workspace
++mirrors and marketplaces. Its `publishTargets` configuration is separate from
++the remembered install audiences.
+ 
+-Configured once per workspace, in `skillmaker.config.json`:
++## Install for an audience
+ 
+-```jsonc
+-{
+-  "publishTargets": [
+-    { "id": "local-mirror", "kind": "git-dir", "path": "/path/to/mirror" }
+-  ]
+-}
++Start by choosing who should receive the skill:
++
++```sh
++skillmaker publish my-first-skill --to user
++skillmaker publish my-first-skill --to project
+ ```
+ 
+-| Kind | What it does |
++| Audience | Installed location |
+ |---|---|
+-| `git-dir` | Copies the bundle's `output/` to `<path>/<slug>/`. `path` is required. |
+-| `claude-marketplace` | Writes/updates a Claude-format marketplace manifest **and** a storefront `README.md` at the target root. `path` defaults to the workspace root. Each published bundle gets its own plugin entry carrying the bundle's `oneLiner`, `tags`, and recorded version label (falling back to a short hash) — not a bare, anonymous accumulator. The README is regenerated in full on every publish: one section per skill with its oneLiner, version, and per-provider measurement receipts (n · pass rate · CI) — the numbers that make the marketplace repo an actual storefront, not just an install target. |
+-| `codex-marketplace` | Writes/updates a Codex-format marketplace manifest. `path` defaults to the workspace root. **The Codex marketplace manifest shape is best-effort** — there is no published spec to conform to yet, so this target is documented honestly as "our best guess," not a verified integration. |
++| `user` | `$CLAUDE_CONFIG_DIR/skills/<slug>/` when `CLAUDE_CONFIG_DIR` is set; otherwise `~/.claude/skills/<slug>/`. |
++| `project` | `<workspace>/.claude/skills/<slug>/`. |
++
++The selected recorded version's whole `output/` payload is installed: its
++`SKILL.md` and every sibling file, without the `output/` directory in the
++destination path. A changed install replaces the destination payload,
++including siblings that no longer belong to the version.
++
++### Remembered audiences
++
++A successful `--to` adds the audience word to that bundle's
++`bundle.json.publishTargets`. These are portable symbolic choices (`user` and
++`project`), not paths from the machine where the bundle was created. Choosing
++the second audience adds it; a later bare publish addresses every remembered
++audience and resolves each path on the current machine.
++
++```sh
++skillmaker publish my-first-skill --to user
++# Later, after recording and approving an improved version:
++skillmaker publish my-first-skill
++```
+ 
+-## Options
++With no remembered audience, the install door asks you to choose `--to user`
++or `--to project`. A bare publish instead falls through to the legacy door
++when the workspace has configured legacy targets. `--target` explicitly
++selects that legacy door.
+ 
+-| Flag | Meaning |
+-|---|---|
+-| `--target <id>` | Publish to one configured target instead of all of them |
+-| `--json` | Emit `{status, slug, versionHash, results}` instead of text |
++## Versions, gates, and revert
+ 
+-## Guards
++A normal install publish uses the latest recorded version. The bundle must
++already be at stage `published`, must have a recorded version, and its live
++`design.md` and `output/` must be in sync with that version. The normal
++guarded move into `published` requires both the approved evaluating review
++and approved publish gate; see [the production state machine](/concepts/state-machine/).
++For why live changes need a new version, see
++[Versions and drift](/concepts/versions-and-drift/).
+ 
+-`publish` refuses unless the bundle is at stage `published` **and** its
+-drift status is `in-sync` (the recorded version matches the current
+-`design.md` + `output/` hashes) — see
+-[Versions and drift](/concepts/versions-and-drift/). Reaching `published`
+-itself requires an approved `bundle.gate_decided` publish gate, on top of
+-the approved review every stage transition already requires; see
+-[The production state machine](/concepts/state-machine/).
++To install an older recorded snapshot, use its full hash or a left-anchored
++`sha256:` hash prefix:
+ 
+-Publishing is **idempotent per target**: republishing an already-current
+-version reports `already published` rather than writing again.
++```sh
++skillmaker publish my-first-skill --version sha256:4f53cda18c2b
++```
+ 
+-## Output
++This is the CLI revert: it installs the snapshot's payload and does not
++compare the live tree with that older version. The named version and its
++snapshot must exist, and the bundle must still be at stage `published`.
+ 
+-Real output from a `git-dir` target, first publish:
++## Receipts on installed skills
+ 
+-```text
+-skillmaker: my-first-skill publish results for version sha256:4f53cda18c2b...
+-  local-mirror (git-dir): published -> /path/to/mirror/my-first-skill
++Each real Studio-born install or revert writes a provenance comment into the
++installed `SKILL.md`. It sits immediately below YAML frontmatter when the
++file has it, otherwise at the top; sibling files are not stamped.
++
++```html
++<!-- published by skillmaker-studio
++bundle: my-first-skill
++version: sha256:4f53cda18c2b... (v1)
++date: 2026-08-04
++evidence: 3 of 23 claims measured -->
+ ```
+ 
+-Republishing the same version:
++The evidence line is derived from measurements recorded for that version. If
++the evidence index cannot be read, the stamp says `evidence unavailable`
++rather than inventing a number. A real install also appends one
++`skill.published` journal event for each affected audience, with the bundle,
++version, target, path, and evidence.
++
++Publishing identical stamped content that has already been receipted is a
++true no-op: it reports `already installed`, does not rewrite the destination,
++and does not append another event. Reinstalling an older snapshot after a
++different version occupied the destination is a new, receipted act.
++
++Text output from an install looks like:
+ 
+ ```text
+-skillmaker: my-first-skill publish results for version sha256:4f53cda18c2b...
+-  local-mirror (git-dir): already published -> /path/to/mirror/my-first-skill
++skillmaker: my-first-skill sha256:4f53cda18c2b... (v1) published -- 3 of 23 claims measured
++  user: installed -> /home/me/.claude/skills/my-first-skill
+ ```
+ 
+-`--json`:
++Use `--json` for an agent-facing result:
+ 
+ ```json
+-{"status":"published","slug":"my-first-skill","versionHash":"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","results":[{"target":"local-mirror","kind":"git-dir","status":"already_published","url":"/path/to/mirror/my-first-skill"}]}
++{"status":"published","slug":"my-first-skill","versionHash":"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","versionLabel":"v1","evidence":"3 of 23 claims measured","stamped":true,"remembered":["user"],"results":[{"target":"user","path":"/home/me/.claude/skills/my-first-skill","status":"published"}]}
+ ```
+ 
+-No configured targets:
++Guard and target-choice failures with `--json` return
++`{"status":"rejected","slug":"my-first-skill","reason":"..."}` and exit
++non-zero.
++
++### Adopted in-place bundles
++
++An adopted bundle that resolves in place already lives at its install target.
++Its live directory is published or restored directly; `--to` does not apply,
++no audience is remembered, and its live `SKILL.md` is not stamped. This keeps
++the bundle's live content from drifting merely because it was published.
++
++## Legacy/secondary configured-target door
++
++The workspace-level configured-target door remains available for distribution
++repositories and marketplaces. Configure target objects in
++`skillmaker.config.json` — distinct from the audience words in
++`bundle.json.publishTargets`:
++
++```jsonc
++{
++  "publishTargets": [
++    { "id": "local-mirror", "kind": "git-dir", "path": "/path/to/mirror" }
++  ]
++}
++```
++
++With configured targets, `skillmaker publish <slug>` publishes to all of
++them unless the bundle has remembered install audiences. Use `--target <id>`
++to select one target explicitly.
++
++| Kind | What it does |
++|---|---|
++| `git-dir` | Copies the bundle's `output/` to `<path>/<slug>/`. `path` is required. |
++| `claude-marketplace` | Updates `.claude-plugin/marketplace.json` and the generated storefront `.claude-plugin/MARKETPLACE.md`. `path` defaults to the workspace root. |
++| `codex-marketplace` | Updates `.codex-plugin/plugin.json` and, best-effort, `.agents/plugins/marketplace.json`. `path` defaults to the workspace root. The marketplace shape is a best-effort integration because Codex has no published marketplace specification. |
++
++```sh
++skillmaker publish my-first-skill --target local-mirror
++```
++
++Legacy text output:
+ 
+ ```text
+-skillmaker publish: no publishTargets configured in skillmaker.config.json -- nothing to publish to
++skillmaker: my-first-skill publish results for version sha256:4f53cda18c2b...
++  local-mirror (git-dir): published -> /path/to/mirror/my-first-skill
+ ```
+ 
++Its `--json` result retains the legacy per-target shape:
++
++```json
++{"status":"published","slug":"my-first-skill","versionHash":"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","results":[{"target":"local-mirror","kind":"git-dir","status":"published","url":"/path/to/mirror/my-first-skill"}]}
++```
++
++Legacy publishing has the same `published`, recorded-version, and in-sync
++guard as a normal install publish. Its target results are idempotent:
++republishing an already-current target reports `already published`.
++
+ ## See also
+ 
+-[Publishing and the skillbook](/concepts/publishing-and-the-skillbook/) —
+-targets, guards, and dual marketplaces explained. [`book build`](/cli/book-build/)
+-renders the skillbook — the other half of "leaving the studio with receipts."
++[Your first skill's Publish section](/getting-started/first-bundle/#9-publish)
++— the guided publishing workflow. [Publishing and the Skillbook](/concepts/publishing-and-the-skillbook/)
++— why installing a skill and rendering workspace documentation are different
++jobs. [`book build`](/cli/book-build/) renders the Skillbook.
