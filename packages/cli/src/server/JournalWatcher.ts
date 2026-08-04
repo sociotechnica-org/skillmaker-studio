@@ -16,6 +16,8 @@ import { existsSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname } from "node:path";
 
 const DEBOUNCE_MS = 100;
+/** Existence-poll cadence while waiting for .skillmaker/ to be born (platform-independent backstop for lossy dir-creation events). */
+const DIR_POLL_MS = 250;
 
 export interface JournalWatcherHandle {
   readonly close: () => void;
@@ -51,14 +53,27 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal
 
   // `.skillmaker/` not there yet: watch the project root until it appears,
   // then swap to the real watch and tick once (the append that created the
-  // directory must broadcast too, not just the ones after it).
+  // directory must broadcast too, not just the ones after it). fs.watch
+  // semantics for subdirectory creation differ across platforms (Linux
+  // inotify proved lossy here in CI), so a low-frequency existence poll
+  // backstops the event — whichever notices first wins, exactly once.
+  let poll: ReturnType<typeof setInterval> | undefined;
+  const swapToJournalDir = (): void => {
+    if (closed || poll === undefined) return;
+    clearInterval(poll);
+    poll = undefined;
+    watcher?.close();
+    watchJournalDir();
+    debounced();
+  };
   const watchForJournalDir = (): void => {
+    poll = setInterval(() => {
+      if (existsSync(dir)) swapToJournalDir();
+    }, DIR_POLL_MS);
     watcher = watch(root, (_eventType, changedFilename) => {
       if (closed) return;
       if ((changedFilename === null || changedFilename === dirName) && existsSync(dir)) {
-        watcher?.close();
-        watchJournalDir();
-        debounced();
+        swapToJournalDir();
       }
     });
   };
@@ -74,6 +89,9 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal
       closed = true;
       if (timer !== undefined) {
         clearTimeout(timer);
+      }
+      if (poll !== undefined) {
+        clearInterval(poll);
       }
       watcher?.close();
     },
