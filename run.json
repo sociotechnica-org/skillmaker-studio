@@ -582,7 +582,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-04T17:54:52.998335250Z",
-  "last_event_at": "2026-08-04T18:18:16.047629655Z",
+  "last_event_at": "2026-08-04T18:19:42.366070499Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -846,9 +846,9 @@
       }
     },
     {
-      "seq": 0,
+      "seq": 823,
       "checkpoint": {
-        "timestamp": "2026-08-04T18:18:16.276821910Z",
+        "timestamp": "2026-08-04T18:18:20.694024117Z",
         "current_node": "validate_gates",
         "completed_nodes": [
           "start",
@@ -858,11 +858,162 @@
         ],
         "node_retries": {},
         "context_values": {
+          "internal.retry_count.start": 0,
+          "internal.run_id": "01KZ6YKAKGKPFD70772920JR9J",
+          "response.implement": "Implemented Issue #192.\n\n- Moved the intended `--color-well: #1b150d` from the clobbered light-theme declaration into `.dark`, while preserving the light value `#f6eee0` in [global.css](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.css:49).\n- Added [global.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.test.ts:1), covering exact token declaration counts and values, all four `well` consumers, dark/light contrast contracts, and Markdown/code-theme pairings.\n- Documented `well`, its role, both values, and canonical token name in [Reference - Brand Palette.md](/home/daytona/workspace/skillmaker-studio/docs/library/brand/Reference%20-%20Brand%20Palette.md:24).\n- Left `SkillPage.tsx` and `Markdown.tsx` unchanged.\n\nValidation passed using the repository-pinned Bun 1.3.11:\n\n- `bunx tsc --noEmit -p packages/core`\n- `bunx tsc --noEmit -p packages/cli`\n- `bun test packages` — 1063 passed\n- `bun run build:viewer`\n- `bun test test/e2e --timeout 30000` — 370 passed, 16 expected skips\n\nNote: the system-default Bun 1.3.6 fails an unrelated `fs.watch` test; the repo pins Bun 1.3.11, which passes the full suite unchanged.",
+          "failure_class": "",
+          "outcome": "succeeded",
+          "internal.retry_count.scope": 0,
+          "internal.retry_count.validate_gates": 0,
+          "graph.max_node_visits": "8",
+          "thread.implement.current_node": "validate_gates",
+          "last_stage": "implement",
+          "failure_signature": "",
+          "thread.scope.current_node": "implement",
+          "current_node": "validate_gates",
+          "graph.rankdir": "LR",
+          "graph.default_fidelity": "summary:high",
+          "graph.goal": "GitHub Issue #192: Dark mode: --color-well has no night value — the whole tabbed surface renders dark-mode ink on a light ground (1.07:1)\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/192\n\n## Summary\n\n`--color-well` — the ground for the skill page's folder tabs and the entire\ntabbed content surface — is the one brand surface token with no dark-mode value.\nAt night the tab and its content panel keep painting light parchment `#f6eee0`\nwhile everything drawn on them switches to dark-mode inks. The active tab's\nlabel renders at **1.11:1**; rendered Markdown on the same surface is worse —\nheadings at **1.07:1**, body copy at **1.50:1** — so the Research, Eval, and\nPublish tab content is effectively invisible, styled as though it were on a\nblack background while the ground stays cream. The intended dark value is\nalready in the file as a dead declaration. Restore it in the `.dark` block.\n\n## Motivation / Problem\n\nThe active tab tells you where you are in the skill page. In dark mode you\ncannot read it, so the primary navigation of the product's main surface has no\nvisible current-state indicator. The body copy on the same surface is affected\ntoo — `ink-muted` on `well` measures **2.02:1** at night — so the whole tabbed\nregion reads as washed out, not just the tab label.\n\nLight mode is unaffected and correct (`#2c2416` on `#f6eee0` = **13.3:1**); this\nis a dark-mode-only defect.\n\nThe tempting fix is to hardcode a dark text colour on the active tab. That would\nbe wrong: it treats the label as the defect when the *ground* is what never\nthemed, leaves the content surface still painting daylight parchment at night,\nand would itself become unreadable the moment `well` is corrected. The token is\nthe defect.\n\n## Observed behavior\n\nDark mode, skill page, any bundle.\n\n**The tabs.** The `OVERVIEW` tab is active and its label is near-invisible\nagainst its own fill; the inactive tabs beside it (`RESEARCH`, `EVAL`,\n`PUBLISH`) are legible, and the surrounding chrome is correctly dark.\n\n**The tab content — worse.** Open the Research tab on a bundle with\n`research/notes.md`. The rendered Markdown is washed out to the point of\nunreadability: headings (`Topic restatement`, `The architecture the skill must\nlive inside`) are barely discernible, body paragraphs are pale tan on cream, and\ninline code chips render as **dark chips with light text** — correct styling for\na dark theme, painted on a light page. The content is dressed for a black\nbackground it isn't on.\n\n**The diagnostic that proves it's the ground, not the text rules:** selecting\nthe text makes it fully legible. `.dark ::selection` (`global.css:329-331`)\nforces `color: #16110a` over an amber ground — the one place in dark mode where\na dark ink is hardcoded. Everywhere the theme's own inks apply, they are\ndark-mode inks on a light-mode surface.\n\nMeasured (WCAG 2.1 contrast ratio):\n\n| Pair | Dark mode today | After fix |\n|---|---|---|\n| Markdown h1/h2 — `neutral-100` `#f1e6d3` on `well` `#f6eee0` | **1.07:1** | **14.7:1** |\n| active tab label — `ink` `#ece3d2` on `well` `#f6eee0` | **1.11:1** | **14.2:1** |\n| Markdown body — `neutral-300` `#d5c3a3` on `well` `#f6eee0` | **1.50:1** | **10.5:1** |\n| surface body copy — `ink-muted` `#b6a988` on `well` `#f6eee0` | **2.02:1** | **7.78:1** |\n| active tab label, light mode — `#2c2416` on `#f6eee0` | 13.3:1 | unchanged |\n\n## Current shape\n\nEvery other brand surface token is redefined for dark. `well` is not.\n\n`packages/viewer/src/styles/global.css`, `@theme` block, lines 48-51 — note the\nduplicate declaration, where a dark value is written and immediately clobbered:\n\n```css\n  --color-paper: #f4ece0;\n  --color-well: #1b150d;\n  --color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n  --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */\n```\n\nThe `.dark` block, lines 288-296, overrides its siblings and omits `well`:\n\n```css\n.dark {\n  color-scheme: dark;\n  --color-canvas: #16110a;      /* warm near-black ground */\n  --color-surface: #221a10;\n  --color-border: #3a3220;\n  --color-ink: #ece3d2;         /* parchment ink — body text + wordmark */\n  --color-ink-muted: #b6a988;\n  --color-paper: #1d1610;       /* sidebar / panel ground, a shade above canvas */\n  --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */\n```\n\nThe consuming components are already correct and need no change — the tab label\ncolour is properly conditional on active state, `packages/viewer/src/app/next/SkillPage.tsx:18-21`:\n\n```tsx\nconst TAB_ACTIVE =\n  \"relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink\";\nconst TAB_IDLE =\n  \"cursor-pointer rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:bg-well/70 hover:text-ink\";\n```\n\nDark mode is expressed purely by token flipping — these tabs carry no `dark:`\nutilities at all (`@custom-variant dark` at `global.css:32`), which is the house\npattern and worth preserving.\n\n**Why the tab *content* is hit harder than the tab label.** Every tab body\nrenders inside that same `bg-well` container (`SkillPage.tsx:109`), and the\nResearch/Eval/Publish tabs render Markdown through\n`packages/viewer/src/app/components/Markdown.tsx`, which is the one component\nthat pairs the deliberately-unflipped `neutral-*` ramp with explicit `dark:`\nvariants (`global.css:284-286` documents this arrangement):\n\n```tsx\n  1: \"text-base font-semibold text-neutral-900 dark:text-neutral-100\",\n  2: \"text-sm font-semibold text-neutral-900 dark:text-neutral-100\",\n```\n```tsx\n        <p className=\"text-neutral-700 dark:text-neutral-300\">\n```\n```tsx\n            <code key={i} className=\"rounded bg-neutral-100 px-1 font-mono text-[0.9em] dark:bg-neutral-900\">\n```\n\nThose `dark:` variants are correct and fire correctly — the `.dark` class is on\nthe root. `neutral-100` (`#f1e6d3`) and `neutral-300` (`#d5c3a3`) are the right\ninks *for a dark ground*, and `dark:bg-neutral-900` is the right chip *for a\ndark ground*. They are simply being painted onto a ground that never became\ndark. `ResearchTab` (`SkillPage.tsx:345-370`) puts `MarkdownContent` straight\ninto the `well` surface, which is where the two meet.\n\nThis is the same single defect, not a second one: no `dark:` variant in\n`Markdown.tsx` is wrong, and none should change.\n\nHow it drifted, since the archaeology explains the whole class of bug: dark mode\nshipped in `b6a2424` (#164, 2026-07-23); the folder tabs and the `well` token\narrived four days later in `35c419a` (#170, 2026-07-27). The token was born\nafter the `.dark` block was authored and nobody revisited it. `well` is also\nabsent from `docs/library/brand/Reference - Brand Palette.md`, so there was no\ndocument that would have caught the omission either.\n\n## Proposed contract\n\nAdd the missing token to the `.dark` block and delete the dead duplicate:\n\n```css\n/* @theme — delete the clobbered line, keep the light value */\n--color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n\n/* .dark — the intended night value */\n--color-well: #1b150d;  /* tabbed-section ground at night, a shade below canvas */\n```\n\n**Decisions:**\n\n- The dark value is `#1b150d` — the value already present as the dead\n  declaration at `global.css:49`, i.e. the original author's intent recovered\n  rather than a new colour invented.\n- In light mode `well` sits a shade *lighter* than `canvas` (`#f6eee0` vs\n  `#f1e6d3`); at night it sits a shade *darker* than `canvas` (`#1b150d` vs\n  `#16110a`). Both keep it distinct from `paper` and `surface`, which is the\n  token's stated job.\n- **No component classes change.** `TAB_ACTIVE` / `TAB_IDLE` in `SkillPage.tsx`\n  stay exactly as written; no `dark:` utility is added; no text colour is\n  hardcoded.\n- `well` is added to `docs/library/brand/Reference - Brand Palette.md` with both\n  values and its role, so the brand doc stops being silent about a shipped\n  surface token.\n\n## Acceptance criteria\n\n- [ ] In dark mode the active tab's label is legible against its own ground —\n      `ink` on `well` measures ≥ 7:1 (14.2:1 at the proposed value).\n- [ ] In dark mode the tabbed content surface reads as a dark ground continuous\n      with the rest of the night theme, and secondary copy on it (`ink-muted`)\n      measures ≥ 4.5:1 (7.78:1 at the proposed value).\n- [ ] The idle tab's `hover:bg-well/70` + `hover:text-ink` hover state is legible\n      in dark mode — the same pairing that fails today.\n- [ ] In dark mode, rendered Markdown on the tab surface is legible: headings\n      (`dark:text-neutral-100`) ≥ 7:1 and body copy (`dark:text-neutral-300`)\n      ≥ 7:1 against `well`. Verified on the Research tab with a real\n      `research/notes.md`.\n- [ ] In dark mode, inline code chips (`dark:bg-neutral-900`) and fenced code\n      blocks read as raised/inset against the surface rather than as dark\n      patches on a light page, and their text is legible against the chip.\n- [ ] Negative: `Markdown.tsx` is unchanged — no `dark:` variant is added,\n      removed, or retuned. Every one of them is already correct for a dark\n      ground.\n- [ ] Regression: light mode is pixel-identical. The active tab, idle tabs, the\n      content surface, and the row-hover at `SkillPage.tsx:264` all render\n      unchanged in daylight.\n- [ ] Negative: `--color-well` is declared exactly once in `@theme` and exactly\n      once in `.dark`; the duplicate declaration is gone.\n- [ ] Negative: `SkillPage.tsx` is unchanged — no hardcoded text colour, no new\n      `dark:` utility on the tabs.\n- [ ] `docs/library/brand/Reference - Brand Palette.md` lists `well` with its\n      light and dark values and its role.\n- [ ] Tests cover both themes across all four surfaces that consume the token\n      (active tab, tab content surface, idle-tab hover, menu-row hover at\n      `SkillPage.tsx:264`).\n\n## Implementation notes\n\nThe token has exactly four consumers, all in one file —\n`packages/viewer/src/app/next/SkillPage.tsx:19` (active tab), `:21` (idle-tab\nhover tint), `:109` (tab content surface), `:264` (menu row hover) — and there\nare no others in the viewer.\n\n**Do not mistake that for a small verification surface.** Consumer `:109` is the\nground for *every* tab body, so the visual blast radius is all Markdown and all\ncontent rendered in the Overview, Research, Eval, and Publish tabs. Verifying\nthe four class sites is not enough; check real rendered content in each tab, in\nboth themes — a bundle with a populated `research/notes.md` is the sharpest test\nbecause it exercises headings, body copy, inline code, and fenced blocks at\nonce.\n\nScope fences:\n\n- **Do not hardcode a text colour on the tabs.** The label already switches\n  correctly between `text-ink` and `text-ink-muted`; the ground is what's\n  missing. A literal black or white in `SkillPage.tsx` would mask this bug and\n  block the token fix.\n- **Do not re-theme the other surface tokens.** `canvas`, `surface`, `paper`,\n  and `border` have considered dark values; leave them.\n- **Do not flip the `neutral-*` ramp.** It is deliberately not flipped in dark\n  (`global.css:284-286`), and `Markdown.tsx` pairs it with explicit `dark:`\n  variants.\n- **Do not touch `Markdown.tsx`.** Its `dark:` variants look wrong on screen\n  today only because the ground beneath them is wrong. Retuning them would make\n  the content readable on the broken light ground and then break it a second\n  time when `well` is corrected.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/styles/global.css` — `@theme` (:34), the duplicate\n  `--color-well` (:49-50), the `.dark` block (:288)\n- `packages/viewer/src/app/next/SkillPage.tsx` — the four consumers above; `ResearchTab` (:345)\n- `packages/viewer/src/app/components/Markdown.tsx` — the `dark:` variants rendered on the surface (:28, :62-67, :82, :100)\n- `docs/library/brand/Reference - Brand Palette.md` — the palette table `well`\n  is missing from\n\n## Not in scope\n\nThe active tab's border is `border-neutral-900/50`, and the neutral ramp is\ndeliberately not flipped in dark — so once the ground goes dark, that hairline\nbecomes a dark border on a dark surface. Cosmetic, invisible rather than\nillegible, and it touches the ramp-flipping decision rather than this token.\nWorth a separate ticket if it reads poorly once the ground is corrected.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
+          "internal.fidelity": "summary:high",
           "internal.thread_id": "implement",
+          "command.output": "blob://sha256/80f3ce633c7056c1e248858a211f44a855f940860324afb27d2e9ff2ad399ef5",
+          "internal.node_visit_count": 1,
+          "graph.stall_timeout": "18000000ms",
+          "internal.retry_count.implement": 0,
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "last_response": "Implemented Issue #192.\n\n- Moved the intended `--color-well: #1b150d` from the clobbered light-theme declaration into `.dark`, while preserving the light value `#f6eee0` in [global.css](/home/daytona/",
+          "response.scope": "Plan ready for implementation: docs/proposals/2026-08-04-dark-mode-well-token.md\n\n--- BEGIN PLAN DOC ---\n# Dark-Mode Well Token\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6YKAKGKPFD70772920JR9J`; addresses GitHub issue #192.*\n\n## Status\n\nReady for implementation. This is a viewer theme-token correction, one\nfocused regression test, and a narrowly owned brand-library migration. It\ndoes not change component markup, Markdown styling, application state, core,\nCLI, or server behavior.\n\n## Outcome\n\nThe skill page's folder tabs and tab-content well will keep\n`--color-well: #f6eee0` in light mode and use the already-authored\n`#1b150d` value in dark mode. Moving that night value from a clobbered\ndeclaration in `@theme` into `.dark` restores the token-flipping contract:\nthe active tab, full tab-content surface, idle-tab hover, and version-menu-row\nhover all theme together without component-specific `dark:` utilities or\nhardcoded text colors.\n\nAt the fixed values, the reported dark-mode pairings become:\n\n| Pair | Contrast after the fix |\n| --- | ---: |\n| Markdown h1/h2 (`#f1e6d3`) on well | 14.66:1 |\n| Active-tab ink (`#ece3d2`) on well | 14.22:1 |\n| Markdown body (`#d5c3a3`) on well | 10.49:1 |\n| Muted ink (`#b6a988`) on well | 7.78:1 |\n\nLight mode remains `#2c2416` on `#f6eee0` for the active tab, 13.29:1.\n\n## Verified current state\n\nThe repository confirms the defect and the minimal correction:\n\n- `packages/viewer/src/styles/global.css` declares\n  `--color-well: #1b150d` and then immediately clobbers it with\n  `--color-well: #f6eee0` in `@theme`. The `.dark` block overrides the\n  neighboring surface and ink tokens but has no `well` declaration.\n- `packages/viewer/src/app/next/SkillPage.tsx` has exactly four `well`\n  utility sites: active-tab `bg-well`, idle-tab `hover:bg-well/70`, the\n  full tab-content `bg-well`, and version-menu-row `hover:bg-well`.\n- `packages/viewer/src/app/components/Markdown.tsx` deliberately leaves the\n  neutral ramp unflipped and selects light neutral text plus dark code\n  grounds with explicit `dark:` variants. Those classes are internally\n  legible on the intended night well and must not be retuned.\n- Overview and Research render Markdown directly on the well. Eval can\n  render Markdown, but that run-detail pane has its own `bg-surface`;\n  Publish uses ordinary JSX text. All four tab bodies still live within the\n  common well, so each tab remains part of the manual visual check.\n- `docs/library/brand/Reference - Brand Palette.md` predates the `well`\n  token and lists neither its role nor its light/dark values.\n- No existing test covers the CSS token or its four consumers. The current\n  viewer suite passes: 260 tests across 22 files.\n\nThe code also corrects three details in the issue report that should not be\ncarried into implementation:\n\n- `#1b150d` is slightly **lighter** than dark canvas `#16110a`, and sits\n  between canvas and paper `#1d1610`; it is not darker than canvas.\n- The `.dark` block existed before `b6a2424`; that commit reworked the\n  current dark-mode implementation. Commit `35c419a` later introduced both\n  `well` declarations together, including the dead night value.\n- Markdown is not rendered directly on the well by Research, Eval, and\n  Publish as a group. The direct cases are Overview and Research, with the\n  Eval and Publish distinctions described above.\n\nThese corrections do not change the requested fix.\n\n## Implementation contract\n\n1. In `packages/viewer/src/styles/global.css`, delete the dead\n   `--color-well: #1b150d` declaration from `@theme`, leaving the existing\n   light value declared exactly once.\n2. Add `--color-well: #1b150d` exactly once beside the other surface tokens\n   in `.dark`. Its comment should explain that issue #192 restores the night\n   value introduced with the folder tabs in #170, and should describe the\n   value as slightly above/lighter than dark canvas.\n3. Do not edit `packages/viewer/src/app/next/SkillPage.tsx` or\n   `packages/viewer/src/app/components/Markdown.tsx`. Theme behavior must\n   continue to flow solely through the token.\n4. Add focused automated coverage for the token, contrast contract, and all\n   four existing consumer sites without introducing a browser-test\n   dependency.\n5. Migrate the live brand reference narrowly: add `well` with its tabbed\n   section role, light value `#f6eee0`, and dark value `#1b150d`, and include\n   `--color-well` in the canonical-token list. No other library\n   reconciliation is part of this change.\n\n## Files and ownership\n\n### Viewer stylesheet\n\n- Modify `packages/viewer/src/styles/global.css`.\n\nThis is the only production-code edit.\n\n### Viewer regression test\n\n- Add `packages/viewer/src/styles/global.test.ts`.\n\nKeep the test beside the stylesheet because it protects the stylesheet and\ncomponent-source contract, not the stored-theme selection logic in\n`next/theme.test.ts`.\n\nThe test may use `bun:test`, `readFileSync`, and `import.meta.dir`; no new\nruntime or test dependency is needed. It should:\n\n1. Isolate the `@theme` and `.dark` blocks and assert that `--color-well`\n   appears exactly once in each and exactly twice in the stylesheet.\n2. Assert the exact values: `#f6eee0` for the base/light block and\n   `#1b150d` for `.dark`. This directly guards both the dark fix and\n   pixel-identical light mode.\n3. Read `SkillPage.tsx`, tokenize the relevant quoted class strings, and\n   assert the four semantic arrangements:\n   - active tab has `bg-well` with `text-ink`;\n   - idle tab has `bg-canvas`, `text-ink-muted`,\n     `hover:bg-well/70`, and `hover:text-ink`;\n   - the full-bleed tab-content container has `bg-well`;\n   - the version-menu row has `hover:bg-well`.\n4. Assert there are exactly four `bg-well`/`hover:bg-well` utility sites and\n   that these class arrangements do not acquire a `dark:bg-*` override or an\n   arbitrary hardcoded background/text color. Use token-set predicates\n   rather than whole class-string snapshots so layout-only class changes do\n   not make the test brittle.\n5. Resolve the relevant base and `.dark` color declarations and use a small\n   test-local WCAG relative-luminance helper to cover both themes:\n   - active-tab `ink` on `well` is at least 7:1;\n   - tab-content h1/h2 and body colors meet at least 7:1, and `ink-muted`\n     meets at least 4.5:1, on `well`;\n   - idle-hover `ink` is at least 7:1 after compositing 70% `well` over\n     `canvas`;\n   - selected and unselected version-row text meet 7:1 and 4.5:1\n     respectively on the opaque well hover;\n   - inline and fenced code text remains at least 7:1 against its\n     light/dark code background.\n\nThe exact-value checks catch the reported cascade failure. The contrast\nchecks preserve the accessibility reason those values matter, while the\nsource assertions ensure all four surfaces continue to participate in the\nsame two-theme token contract.\n\n### Brand-library migration\n\n- Modify `docs/library/brand/Reference - Brand Palette.md`.\n\nThis plan explicitly owns only the `well` migration requested by issue #192:\nadd one core-surface row containing the role and both theme values, and add\nthe token to the canonical-token list. Preserve the card's frontmatter,\nlinks, status, cross-surface reconciliation notes, and all unrelated palette\nwording.\n\n### Read-only verification surfaces\n\n- `packages/viewer/src/app/next/SkillPage.tsx`\n- `packages/viewer/src/app/components/Markdown.tsx`\n- `packages/viewer/src/app/next/EvalsSection.tsx`\n- `packages/viewer/src/pages/index.astro`\n\nThese establish the consumer, Markdown, nested-surface, and inherited-ink\ncontracts. They are not implementation targets.\n\n## Implementation sequence\n\n1. Add the regression test against the current files and confirm it fails\n   because `@theme` has two `well` declarations and `.dark` has none.\n2. Move the dead night value into `.dark`, preserving the one light value in\n   `@theme`; rerun the focused test.\n3. Apply the narrow brand-library migration and verify the documented\n   values exactly match the stylesheet.\n4. Run viewer tests and static/build validation.\n5. Perform the two-theme browser pass described below, then run the\n   repository gates.\n\n## Visual verification\n\nUse a real bundle with populated `research/notes.md` containing headings,\nparagraphs, inline code, and fenced code. In both light and dark mode:\n\n- inspect the active tab and each idle tab's hover state;\n- inspect Overview and Research Markdown on the well;\n- inspect Eval's content, noting that run-detail Markdown remains on its\n  nested `surface`;\n- inspect Publish's primary and muted ordinary text;\n- open the version menu and inspect selected and unselected row hover states;\n- confirm inline and fenced code read as intentional inset/raised elements;\n- confirm the well remains visually distinct from canvas, paper, and surface.\n\nLight mode should show no visual change. Dark mode should show a continuous\nnight surface with readable active-state, primary, muted, and Markdown text.\n\nThe repository has no Playwright, DOM, or visual-regression harness.\nIntroducing one for this CSS-token correction would expand scope\nsubstantially, so browser-computed hover behavior and pixel identity remain a\nmanual check; the Bun contract test and viewer build provide the durable\nautomated layer.\n\n## Validation commands\n\nFast feedback:\n\n```sh\nbun test packages/viewer/src/styles/global.test.ts\nbun test packages/viewer\nbun run --filter @skillmaker/viewer check\nbun run build:viewer\n```\n\nRepository gates:\n\n```sh\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun run build:viewer\nbun test test/e2e --timeout 30000\n```\n\nNo CLI/server behavior changes, so no new black-box e2e case is required.\n\n## Acceptance criteria\n\n- [ ] `--color-well` is declared exactly once in `@theme` as `#f6eee0`.\n- [ ] `--color-well` is declared exactly once in `.dark` as `#1b150d`.\n- [ ] Dark active-tab ink on well is at least 7:1; the expected ratio is\n      14.22:1.\n- [ ] Dark muted ink on well is at least 4.5:1; the expected ratio is\n      7.78:1.\n- [ ] Dark Markdown h1/h2 and body text on well are at least 7:1; expected\n      ratios are 14.66:1 and 10.49:1.\n- [ ] Inline and fenced code retain legible text and read as intentional\n      dark-theme elements within the corrected night surface.\n- [ ] Idle-tab and version-menu-row hover states are legible in both themes.\n- [ ] Automated coverage protects both theme values and all four existing\n      token-consumer sites.\n- [ ] Light mode keeps the existing well value and is visually unchanged\n      across the active tab, idle tabs, content surface, and menu-row hover.\n- [ ] `SkillPage.tsx` and `Markdown.tsx` have no diff.\n- [ ] Canvas, surface, paper, border, the neutral ramp, and all other palette\n      tokens are unchanged.\n- [ ] The brand palette reference lists `well`, both values, its role, and\n      its canonical token name.\n- [ ] Viewer tests, viewer check/build, and repository gates pass.\n\n## Risks and mitigations\n\n| Risk | Mitigation |\n| --- | --- |\n| A later duplicate silently wins by cascade order again. | Assert declaration counts per block and across the complete stylesheet, not only the effective value. |\n| A component masks the token with a local dark utility or literal color. | Protect the four token-based class arrangements and reject local dark/hardcoded color overrides in the focused test. |\n| Source-level consumer assertions become noisy after harmless class reordering. | Compare whitespace-delimited class token sets and semantic predicates, not full strings or snapshots. |\n| Unit tests do not execute browser hover/computed-style behavior. | Build the Tailwind/Astro viewer and complete the explicit two-theme browser pass; defer browser infrastructure rather than adding it ad hoc. |\n| The live brand card contains older cross-surface reconciliation questions. | Make only the explicitly owned `well` row/list migration; do not broaden this accessibility fix into a palette rewrite. |\n\n## Deferred follow-ups\n\n- The active tab's `border-neutral-900/50` may become visually quiet on the\n  corrected dark well. It is cosmetic and remains a separate issue because\n  changing it would revisit the deliberately unflipped neutral ramp.\n- Automated screenshot and interaction testing can be considered as a\n  repository-wide viewer-testing investment, not introduced solely for\n  issue #192.\n- The older brand-reference reconciliation notes and marketing-site\n  crosswalk remain outside this token correction.\n\n## Open questions\n\nNone. The intended night value, consumer contract, documentation migration,\nand verification thresholds are all recoverable from the current code and\nthe commit that introduced the folder tabs.\n--- END PLAN DOC ---",
+          "thread.start.current_node": "scope"
+        },
+        "node_outcomes": {
+          "validate_gates": {
+            "status": "succeeded",
+            "context_updates": {
+              "command.output": "blob://sha256/80f3ce633c7056c1e248858a211f44a855f940860324afb27d2e9ff2ad399ef5"
+            },
+            "notes": "Script completed: ./.fabro/scripts/fabro-validate",
+            "usage": null,
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 0,
+              "tool_time_ms": 208197,
+              "active_time_ms": 208197
+            }
+          },
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_stage": "scope",
+              "last_response": "Plan ready for implementation: docs/proposals/2026-08-04-dark-mode-well-token.md\n\n--- BEGIN PLAN DOC ---\n# Dark-Mode Well Token\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6YKAKGKPFD70772920JR9J`; ",
+              "response.scope": "Plan ready for implementation: docs/proposals/2026-08-04-dark-mode-well-token.md\n\n--- BEGIN PLAN DOC ---\n# Dark-Mode Well Token\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6YKAKGKPFD70772920JR9J`; addresses GitHub issue #192.*\n\n## Status\n\nReady for implementation. This is a viewer theme-token correction, one\nfocused regression test, and a narrowly owned brand-library migration. It\ndoes not change component markup, Markdown styling, application state, core,\nCLI, or server behavior.\n\n## Outcome\n\nThe skill page's folder tabs and tab-content well will keep\n`--color-well: #f6eee0` in light mode and use the already-authored\n`#1b150d` value in dark mode. Moving that night value from a clobbered\ndeclaration in `@theme` into `.dark` restores the token-flipping contract:\nthe active tab, full tab-content surface, idle-tab hover, and version-menu-row\nhover all theme together without component-specific `dark:` utilities or\nhardcoded text colors.\n\nAt the fixed values, the reported dark-mode pairings become:\n\n| Pair | Contrast after the fix |\n| --- | ---: |\n| Markdown h1/h2 (`#f1e6d3`) on well | 14.66:1 |\n| Active-tab ink (`#ece3d2`) on well | 14.22:1 |\n| Markdown body (`#d5c3a3`) on well | 10.49:1 |\n| Muted ink (`#b6a988`) on well | 7.78:1 |\n\nLight mode remains `#2c2416` on `#f6eee0` for the active tab, 13.29:1.\n\n## Verified current state\n\nThe repository confirms the defect and the minimal correction:\n\n- `packages/viewer/src/styles/global.css` declares\n  `--color-well: #1b150d` and then immediately clobbers it with\n  `--color-well: #f6eee0` in `@theme`. The `.dark` block overrides the\n  neighboring surface and ink tokens but has no `well` declaration.\n- `packages/viewer/src/app/next/SkillPage.tsx` has exactly four `well`\n  utility sites: active-tab `bg-well`, idle-tab `hover:bg-well/70`, the\n  full tab-content `bg-well`, and version-menu-row `hover:bg-well`.\n- `packages/viewer/src/app/components/Markdown.tsx` deliberately leaves the\n  neutral ramp unflipped and selects light neutral text plus dark code\n  grounds with explicit `dark:` variants. Those classes are internally\n  legible on the intended night well and must not be retuned.\n- Overview and Research render Markdown directly on the well. Eval can\n  render Markdown, but that run-detail pane has its own `bg-surface`;\n  Publish uses ordinary JSX text. All four tab bodies still live within the\n  common well, so each tab remains part of the manual visual check.\n- `docs/library/brand/Reference - Brand Palette.md` predates the `well`\n  token and lists neither its role nor its light/dark values.\n- No existing test covers the CSS token or its four consumers. The current\n  viewer suite passes: 260 tests across 22 files.\n\nThe code also corrects three details in the issue report that should not be\ncarried into implementation:\n\n- `#1b150d` is slightly **lighter** than dark canvas `#16110a`, and sits\n  between canvas and paper `#1d1610`; it is not darker than canvas.\n- The `.dark` block existed before `b6a2424`; that commit reworked the\n  current dark-mode implementation. Commit `35c419a` later introduced both\n  `well` declarations together, including the dead night value.\n- Markdown is not rendered directly on the well by Research, Eval, and\n  Publish as a group. The direct cases are Overview and Research, with the\n  Eval and Publish distinctions described above.\n\nThese corrections do not change the requested fix.\n\n## Implementation contract\n\n1. In `packages/viewer/src/styles/global.css`, delete the dead\n   `--color-well: #1b150d` declaration from `@theme`, leaving the existing\n   light value declared exactly once.\n2. Add `--color-well: #1b150d` exactly once beside the other surface tokens\n   in `.dark`. Its comment should explain that issue #192 restores the night\n   value introduced with the folder tabs in #170, and should describe the\n   value as slightly above/lighter than dark canvas.\n3. Do not edit `packages/viewer/src/app/next/SkillPage.tsx` or\n   `packages/viewer/src/app/components/Markdown.tsx`. Theme behavior must\n   continue to flow solely through the token.\n4. Add focused automated coverage for the token, contrast contract, and all\n   four existing consumer sites without introducing a browser-test\n   dependency.\n5. Migrate the live brand reference narrowly: add `well` with its tabbed\n   section role, light value `#f6eee0`, and dark value `#1b150d`, and include\n   `--color-well` in the canonical-token list. No other library\n   reconciliation is part of this change.\n\n## Files and ownership\n\n### Viewer stylesheet\n\n- Modify `packages/viewer/src/styles/global.css`.\n\nThis is the only production-code edit.\n\n### Viewer regression test\n\n- Add `packages/viewer/src/styles/global.test.ts`.\n\nKeep the test beside the stylesheet because it protects the stylesheet and\ncomponent-source contract, not the stored-theme selection logic in\n`next/theme.test.ts`.\n\nThe test may use `bun:test`, `readFileSync`, and `import.meta.dir`; no new\nruntime or test dependency is needed. It should:\n\n1. Isolate the `@theme` and `.dark` blocks and assert that `--color-well`\n   appears exactly once in each and exactly twice in the stylesheet.\n2. Assert the exact values: `#f6eee0` for the base/light block and\n   `#1b150d` for `.dark`. This directly guards both the dark fix and\n   pixel-identical light mode.\n3. Read `SkillPage.tsx`, tokenize the relevant quoted class strings, and\n   assert the four semantic arrangements:\n   - active tab has `bg-well` with `text-ink`;\n   - idle tab has `bg-canvas`, `text-ink-muted`,\n     `hover:bg-well/70`, and `hover:text-ink`;\n   - the full-bleed tab-content container has `bg-well`;\n   - the version-menu row has `hover:bg-well`.\n4. Assert there are exactly four `bg-well`/`hover:bg-well` utility sites and\n   that these class arrangements do not acquire a `dark:bg-*` override or an\n   arbitrary hardcoded background/text color. Use token-set predicates\n   rather than whole class-string snapshots so layout-only class changes do\n   not make the test brittle.\n5. Resolve the relevant base and `.dark` color declarations and use a small\n   test-local WCAG relative-luminance helper to cover both themes:\n   - active-tab `ink` on `well` is at least 7:1;\n   - tab-content h1/h2 and body colors meet at least 7:1, and `ink-muted`\n     meets at least 4.5:1, on `well`;\n   - idle-hover `ink` is at least 7:1 after compositing 70% `well` over\n     `canvas`;\n   - selected and unselected version-row text meet 7:1 and 4.5:1\n     respectively on the opaque well hover;\n   - inline and fenced code text remains at least 7:1 against its\n     light/dark code background.\n\nThe exact-value checks catch the reported cascade failure. The contrast\nchecks preserve the accessibility reason those values matter, while the\nsource assertions ensure all four surfaces continue to participate in the\nsame two-theme token contract.\n\n### Brand-library migration\n\n- Modify `docs/library/brand/Reference - Brand Palette.md`.\n\nThis plan explicitly owns only the `well` migration requested by issue #192:\nadd one core-surface row containing the role and both theme values, and add\nthe token to the canonical-token list. Preserve the card's frontmatter,\nlinks, status, cross-surface reconciliation notes, and all unrelated palette\nwording.\n\n### Read-only verification surfaces\n\n- `packages/viewer/src/app/next/SkillPage.tsx`\n- `packages/viewer/src/app/components/Markdown.tsx`\n- `packages/viewer/src/app/next/EvalsSection.tsx`\n- `packages/viewer/src/pages/index.astro`\n\nThese establish the consumer, Markdown, nested-surface, and inherited-ink\ncontracts. They are not implementation targets.\n\n## Implementation sequence\n\n1. Add the regression test against the current files and confirm it fails\n   because `@theme` has two `well` declarations and `.dark` has none.\n2. Move the dead night value into `.dark`, preserving the one light value in\n   `@theme`; rerun the focused test.\n3. Apply the narrow brand-library migration and verify the documented\n   values exactly match the stylesheet.\n4. Run viewer tests and static/build validation.\n5. Perform the two-theme browser pass described below, then run the\n   repository gates.\n\n## Visual verification\n\nUse a real bundle with populated `research/notes.md` containing headings,\nparagraphs, inline code, and fenced code. In both light and dark mode:\n\n- inspect the active tab and each idle tab's hover state;\n- inspect Overview and Research Markdown on the well;\n- inspect Eval's content, noting that run-detail Markdown remains on its\n  nested `surface`;\n- inspect Publish's primary and muted ordinary text;\n- open the version menu and inspect selected and unselected row hover states;\n- confirm inline and fenced code read as intentional inset/raised elements;\n- confirm the well remains visually distinct from canvas, paper, and surface.\n\nLight mode should show no visual change. Dark mode should show a continuous\nnight surface with readable active-state, primary, muted, and Markdown text.\n\nThe repository has no Playwright, DOM, or visual-regression harness.\nIntroducing one for this CSS-token correction would expand scope\nsubstantially, so browser-computed hover behavior and pixel identity remain a\nmanual check; the Bun contract test and viewer build provide the durable\nautomated layer.\n\n## Validation commands\n\nFast feedback:\n\n```sh\nbun test packages/viewer/src/styles/global.test.ts\nbun test packages/viewer\nbun run --filter @skillmaker/viewer check\nbun run build:viewer\n```\n\nRepository gates:\n\n```sh\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun run build:viewer\nbun test test/e2e --timeout 30000\n```\n\nNo CLI/server behavior changes, so no new black-box e2e case is required.\n\n## Acceptance criteria\n\n- [ ] `--color-well` is declared exactly once in `@theme` as `#f6eee0`.\n- [ ] `--color-well` is declared exactly once in `.dark` as `#1b150d`.\n- [ ] Dark active-tab ink on well is at least 7:1; the expected ratio is\n      14.22:1.\n- [ ] Dark muted ink on well is at least 4.5:1; the expected ratio is\n      7.78:1.\n- [ ] Dark Markdown h1/h2 and body text on well are at least 7:1; expected\n      ratios are 14.66:1 and 10.49:1.\n- [ ] Inline and fenced code retain legible text and read as intentional\n      dark-theme elements within the corrected night surface.\n- [ ] Idle-tab and version-menu-row hover states are legible in both themes.\n- [ ] Automated coverage protects both theme values and all four existing\n      token-consumer sites.\n- [ ] Light mode keeps the existing well value and is visually unchanged\n      across the active tab, idle tabs, content surface, and menu-row hover.\n- [ ] `SkillPage.tsx` and `Markdown.tsx` have no diff.\n- [ ] Canvas, surface, paper, border, the neutral ramp, and all other palette\n      tokens are unchanged.\n- [ ] The brand palette reference lists `well`, both values, its role, and\n      its canonical token name.\n- [ ] Viewer tests, viewer check/build, and repository gates pass.\n\n## Risks and mitigations\n\n| Risk | Mitigation |\n| --- | --- |\n| A later duplicate silently wins by cascade order again. | Assert declaration counts per block and across the complete stylesheet, not only the effective value. |\n| A component masks the token with a local dark utility or literal color. | Protect the four token-based class arrangements and reject local dark/hardcoded color overrides in the focused test. |\n| Source-level consumer assertions become noisy after harmless class reordering. | Compare whitespace-delimited class token sets and semantic predicates, not full strings or snapshots. |\n| Unit tests do not execute browser hover/computed-style behavior. | Build the Tailwind/Astro viewer and complete the explicit two-theme browser pass; defer browser infrastructure rather than adding it ad hoc. |\n| The live brand card contains older cross-surface reconciliation questions. | Make only the explicitly owned `well` row/list migration; do not broaden this accessibility fix into a palette rewrite. |\n\n## Deferred follow-ups\n\n- The active tab's `border-neutral-900/50` may become visually quiet on the\n  corrected dark well. It is cosmetic and remains a separate issue because\n  changing it would revisit the deliberately unflipped neutral ramp.\n- Automated screenshot and interaction testing can be considered as a\n  repository-wide viewer-testing investment, not introduced solely for\n  issue #192.\n- The older brand-reference reconciliation notes and marketing-site\n  crosswalk remain outside this token correction.\n\n## Open questions\n\nNone. The intended night value, consumer contract, documentation migration,\nand verification thresholds are all recoverable from the current code and\nthe commit that introduced the folder tabs.\n--- END PLAN DOC ---"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 58873,
+                    "output_tokens": 9389,
+                    "reasoning_tokens": 4290,
+                    "cache_read_tokens": 531929,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 970694
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 234854,
+              "tool_time_ms": 225703,
+              "active_time_ms": 460557
+            }
+          },
+          "implement": {
+            "status": "succeeded",
+            "context_updates": {
+              "response.implement": "Implemented Issue #192.\n\n- Moved the intended `--color-well: #1b150d` from the clobbered light-theme declaration into `.dark`, while preserving the light value `#f6eee0` in [global.css](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.css:49).\n- Added [global.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.test.ts:1), covering exact token declaration counts and values, all four `well` consumers, dark/light contrast contracts, and Markdown/code-theme pairings.\n- Documented `well`, its role, both values, and canonical token name in [Reference - Brand Palette.md](/home/daytona/workspace/skillmaker-studio/docs/library/brand/Reference%20-%20Brand%20Palette.md:24).\n- Left `SkillPage.tsx` and `Markdown.tsx` unchanged.\n\nValidation passed using the repository-pinned Bun 1.3.11:\n\n- `bunx tsc --noEmit -p packages/core`\n- `bunx tsc --noEmit -p packages/cli`\n- `bun test packages` — 1063 passed\n- `bun run build:viewer`\n- `bun test test/e2e --timeout 30000` — 370 passed, 16 expected skips\n\nNote: the system-default Bun 1.3.6 fails an unrelated `fs.watch` test; the repo pins Bun 1.3.11, which passes the full suite unchanged.",
+              "last_stage": "implement",
+              "last_response": "Implemented Issue #192.\n\n- Moved the intended `--color-well: #1b150d` from the clobbered light-theme declaration into `.dark`, while preserving the light value `#f6eee0` in [global.css](/home/daytona/"
+            },
+            "notes": "Stage completed: implement",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 74308,
+                    "output_tokens": 6602,
+                    "reasoning_tokens": 2791,
+                    "cache_read_tokens": 999153,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 576435
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 120394,
+              "tool_time_ms": 598134,
+              "active_time_ms": 718528
+            }
+          },
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          }
+        },
+        "next_node_id": "review",
+        "git_commit_sha": "76fc8ba38cd49880a9297ff783facd64d9fdb072",
+        "node_visits": {
+          "start": 1,
+          "implement": 1,
+          "scope": 1,
+          "validate_gates": 1
+        }
+      },
+      "diff": {
+        "summary": {
+          "files_changed": 4,
+          "additions": 423,
+          "deletions": 3
+        }
+      }
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-04T18:19:42.392898447Z",
+        "current_node": "review",
+        "completed_nodes": [
+          "start",
+          "scope",
+          "implement",
+          "validate_gates",
+          "review"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.thread_id": "validate_gates",
+          "thread.validate_gates.current_node": "review",
           "thread.start.current_node": "scope",
           "graph.default_fidelity": "summary:high",
           "internal.retry_count.validate_gates": 0,
-          "current_node": "validate_gates",
+          "current_node": "review",
           "internal.node_visit_count": 1,
           "graph.rankdir": "LR",
           "internal.retry_count.implement": 0,
@@ -870,19 +1021,23 @@
           "response.implement": "Implemented Issue #192.\n\n- Moved the intended `--color-well: #1b150d` from the clobbered light-theme declaration into `.dark`, while preserving the light value `#f6eee0` in [global.css](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.css:49).\n- Added [global.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.test.ts:1), covering exact token declaration counts and values, all four `well` consumers, dark/light contrast contracts, and Markdown/code-theme pairings.\n- Documented `well`, its role, both values, and canonical token name in [Reference - Brand Palette.md](/home/daytona/workspace/skillmaker-studio/docs/library/brand/Reference%20-%20Brand%20Palette.md:24).\n- Left `SkillPage.tsx` and `Markdown.tsx` unchanged.\n\nValidation passed using the repository-pinned Bun 1.3.11:\n\n- `bunx tsc --noEmit -p packages/core`\n- `bunx tsc --noEmit -p packages/cli`\n- `bun test packages` — 1063 passed\n- `bun run build:viewer`\n- `bun test test/e2e --timeout 30000` — 370 passed, 16 expected skips\n\nNote: the system-default Bun 1.3.6 fails an unrelated `fs.watch` test; the repo pins Bun 1.3.11, which passes the full suite unchanged.",
           "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
           "failure_class": "",
-          "last_response": "Implemented Issue #192.\n\n- Moved the intended `--color-well: #1b150d` from the clobbered light-theme declaration into `.dark`, while preserving the light value `#f6eee0` in [global.css](/home/daytona/",
+          "last_response": "One documentation correction is needed before this is PR-ready:\n\n- [Reference - Brand Palette.md](/home/daytona/workspace/skillmaker-studio/docs/library/brand/Reference%20-%20Brand%20Palette.md:79) st",
           "command.output": "blob://sha256/80f3ce633c7056c1e248858a211f44a855f940860324afb27d2e9ff2ad399ef5",
           "failure_signature": "",
+          "internal.retry_count.review": 0,
           "internal.retry_count.start": 0,
           "graph.stall_timeout": "18000000ms",
           "internal.run_id": "01KZ6YKAKGKPFD70772920JR9J",
           "internal.fidelity": "summary:high",
+          "preferred_label": "Fix",
           "internal.retry_count.scope": 0,
+          "response.review": "One documentation correction is needed before this is PR-ready:\n\n- [Reference - Brand Palette.md](/home/daytona/workspace/skillmaker-studio/docs/library/brand/Reference%20-%20Brand%20Palette.md:79) still says it was verified against viewer CSS lines 24–139 on 2026-07-17. The migration now documents dark `well` (`#1b150d`), which is at [global.css](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.css:297) and was introduced later. Update the verification/source note so the new dark-token claim has accurate provenance.\n\nEverything else is appropriately scoped: no Core/CLI changes, the approved library migration is narrow, `SkillPage.tsx` and `Markdown.tsx` remain unchanged, token declarations and all four consumers are covered, and the cited full gates passed. I also reran the focused test (3 passing) and viewer check (0 errors; only pre-existing hints).\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"review_ready\":false}}\n```",
           "outcome": "succeeded",
           "graph.max_node_visits": "8",
           "response.scope": "Plan ready for implementation: docs/proposals/2026-08-04-dark-mode-well-token.md\n\n--- BEGIN PLAN DOC ---\n# Dark-Mode Well Token\n\n*Implementation plan — 2026-08-04. Run\n`01KZ6YKAKGKPFD70772920JR9J`; addresses GitHub issue #192.*\n\n## Status\n\nReady for implementation. This is a viewer theme-token correction, one\nfocused regression test, and a narrowly owned brand-library migration. It\ndoes not change component markup, Markdown styling, application state, core,\nCLI, or server behavior.\n\n## Outcome\n\nThe skill page's folder tabs and tab-content well will keep\n`--color-well: #f6eee0` in light mode and use the already-authored\n`#1b150d` value in dark mode. Moving that night value from a clobbered\ndeclaration in `@theme` into `.dark` restores the token-flipping contract:\nthe active tab, full tab-content surface, idle-tab hover, and version-menu-row\nhover all theme together without component-specific `dark:` utilities or\nhardcoded text colors.\n\nAt the fixed values, the reported dark-mode pairings become:\n\n| Pair | Contrast after the fix |\n| --- | ---: |\n| Markdown h1/h2 (`#f1e6d3`) on well | 14.66:1 |\n| Active-tab ink (`#ece3d2`) on well | 14.22:1 |\n| Markdown body (`#d5c3a3`) on well | 10.49:1 |\n| Muted ink (`#b6a988`) on well | 7.78:1 |\n\nLight mode remains `#2c2416` on `#f6eee0` for the active tab, 13.29:1.\n\n## Verified current state\n\nThe repository confirms the defect and the minimal correction:\n\n- `packages/viewer/src/styles/global.css` declares\n  `--color-well: #1b150d` and then immediately clobbers it with\n  `--color-well: #f6eee0` in `@theme`. The `.dark` block overrides the\n  neighboring surface and ink tokens but has no `well` declaration.\n- `packages/viewer/src/app/next/SkillPage.tsx` has exactly four `well`\n  utility sites: active-tab `bg-well`, idle-tab `hover:bg-well/70`, the\n  full tab-content `bg-well`, and version-menu-row `hover:bg-well`.\n- `packages/viewer/src/app/components/Markdown.tsx` deliberately leaves the\n  neutral ramp unflipped and selects light neutral text plus dark code\n  grounds with explicit `dark:` variants. Those classes are internally\n  legible on the intended night well and must not be retuned.\n- Overview and Research render Markdown directly on the well. Eval can\n  render Markdown, but that run-detail pane has its own `bg-surface`;\n  Publish uses ordinary JSX text. All four tab bodies still live within the\n  common well, so each tab remains part of the manual visual check.\n- `docs/library/brand/Reference - Brand Palette.md` predates the `well`\n  token and lists neither its role nor its light/dark values.\n- No existing test covers the CSS token or its four consumers. The current\n  viewer suite passes: 260 tests across 22 files.\n\nThe code also corrects three details in the issue report that should not be\ncarried into implementation:\n\n- `#1b150d` is slightly **lighter** than dark canvas `#16110a`, and sits\n  between canvas and paper `#1d1610`; it is not darker than canvas.\n- The `.dark` block existed before `b6a2424`; that commit reworked the\n  current dark-mode implementation. Commit `35c419a` later introduced both\n  `well` declarations together, including the dead night value.\n- Markdown is not rendered directly on the well by Research, Eval, and\n  Publish as a group. The direct cases are Overview and Research, with the\n  Eval and Publish distinctions described above.\n\nThese corrections do not change the requested fix.\n\n## Implementation contract\n\n1. In `packages/viewer/src/styles/global.css`, delete the dead\n   `--color-well: #1b150d` declaration from `@theme`, leaving the existing\n   light value declared exactly once.\n2. Add `--color-well: #1b150d` exactly once beside the other surface tokens\n   in `.dark`. Its comment should explain that issue #192 restores the night\n   value introduced with the folder tabs in #170, and should describe the\n   value as slightly above/lighter than dark canvas.\n3. Do not edit `packages/viewer/src/app/next/SkillPage.tsx` or\n   `packages/viewer/src/app/components/Markdown.tsx`. Theme behavior must\n   continue to flow solely through the token.\n4. Add focused automated coverage for the token, contrast contract, and all\n   four existing consumer sites without introducing a browser-test\n   dependency.\n5. Migrate the live brand reference narrowly: add `well` with its tabbed\n   section role, light value `#f6eee0`, and dark value `#1b150d`, and include\n   `--color-well` in the canonical-token list. No other library\n   reconciliation is part of this change.\n\n## Files and ownership\n\n### Viewer stylesheet\n\n- Modify `packages/viewer/src/styles/global.css`.\n\nThis is the only production-code edit.\n\n### Viewer regression test\n\n- Add `packages/viewer/src/styles/global.test.ts`.\n\nKeep the test beside the stylesheet because it protects the stylesheet and\ncomponent-source contract, not the stored-theme selection logic in\n`next/theme.test.ts`.\n\nThe test may use `bun:test`, `readFileSync`, and `import.meta.dir`; no new\nruntime or test dependency is needed. It should:\n\n1. Isolate the `@theme` and `.dark` blocks and assert that `--color-well`\n   appears exactly once in each and exactly twice in the stylesheet.\n2. Assert the exact values: `#f6eee0` for the base/light block and\n   `#1b150d` for `.dark`. This directly guards both the dark fix and\n   pixel-identical light mode.\n3. Read `SkillPage.tsx`, tokenize the relevant quoted class strings, and\n   assert the four semantic arrangements:\n   - active tab has `bg-well` with `text-ink`;\n   - idle tab has `bg-canvas`, `text-ink-muted`,\n     `hover:bg-well/70`, and `hover:text-ink`;\n   - the full-bleed tab-content container has `bg-well`;\n   - the version-menu row has `hover:bg-well`.\n4. Assert there are exactly four `bg-well`/`hover:bg-well` utility sites and\n   that these class arrangements do not acquire a `dark:bg-*` override or an\n   arbitrary hardcoded background/text color. Use token-set predicates\n   rather than whole class-string snapshots so layout-only class changes do\n   not make the test brittle.\n5. Resolve the relevant base and `.dark` color declarations and use a small\n   test-local WCAG relative-luminance helper to cover both themes:\n   - active-tab `ink` on `well` is at least 7:1;\n   - tab-content h1/h2 and body colors meet at least 7:1, and `ink-muted`\n     meets at least 4.5:1, on `well`;\n   - idle-hover `ink` is at least 7:1 after compositing 70% `well` over\n     `canvas`;\n   - selected and unselected version-row text meet 7:1 and 4.5:1\n     respectively on the opaque well hover;\n   - inline and fenced code text remains at least 7:1 against its\n     light/dark code background.\n\nThe exact-value checks catch the reported cascade failure. The contrast\nchecks preserve the accessibility reason those values matter, while the\nsource assertions ensure all four surfaces continue to participate in the\nsame two-theme token contract.\n\n### Brand-library migration\n\n- Modify `docs/library/brand/Reference - Brand Palette.md`.\n\nThis plan explicitly owns only the `well` migration requested by issue #192:\nadd one core-surface row containing the role and both theme values, and add\nthe token to the canonical-token list. Preserve the card's frontmatter,\nlinks, status, cross-surface reconciliation notes, and all unrelated palette\nwording.\n\n### Read-only verification surfaces\n\n- `packages/viewer/src/app/next/SkillPage.tsx`\n- `packages/viewer/src/app/components/Markdown.tsx`\n- `packages/viewer/src/app/next/EvalsSection.tsx`\n- `packages/viewer/src/pages/index.astro`\n\nThese establish the consumer, Markdown, nested-surface, and inherited-ink\ncontracts. They are not implementation targets.\n\n## Implementation sequence\n\n1. Add the regression test against the current files and confirm it fails\n   because `@theme` has two `well` declarations and `.dark` has none.\n2. Move the dead night value into `.dark`, preserving the one light value in\n   `@theme`; rerun the focused test.\n3. Apply the narrow brand-library migration and verify the documented\n   values exactly match the stylesheet.\n4. Run viewer tests and static/build validation.\n5. Perform the two-theme browser pass described below, then run the\n   repository gates.\n\n## Visual verification\n\nUse a real bundle with populated `research/notes.md` containing headings,\nparagraphs, inline code, and fenced code. In both light and dark mode:\n\n- inspect the active tab and each idle tab's hover state;\n- inspect Overview and Research Markdown on the well;\n- inspect Eval's content, noting that run-detail Markdown remains on its\n  nested `surface`;\n- inspect Publish's primary and muted ordinary text;\n- open the version menu and inspect selected and unselected row hover states;\n- confirm inline and fenced code read as intentional inset/raised elements;\n- confirm the well remains visually distinct from canvas, paper, and surface.\n\nLight mode should show no visual change. Dark mode should show a continuous\nnight surface with readable active-state, primary, muted, and Markdown text.\n\nThe repository has no Playwright, DOM, or visual-regression harness.\nIntroducing one for this CSS-token correction would expand scope\nsubstantially, so browser-computed hover behavior and pixel identity remain a\nmanual check; the Bun contract test and viewer build provide the durable\nautomated layer.\n\n## Validation commands\n\nFast feedback:\n\n```sh\nbun test packages/viewer/src/styles/global.test.ts\nbun test packages/viewer\nbun run --filter @skillmaker/viewer check\nbun run build:viewer\n```\n\nRepository gates:\n\n```sh\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun run build:viewer\nbun test test/e2e --timeout 30000\n```\n\nNo CLI/server behavior changes, so no new black-box e2e case is required.\n\n## Acceptance criteria\n\n- [ ] `--color-well` is declared exactly once in `@theme` as `#f6eee0`.\n- [ ] `--color-well` is declared exactly once in `.dark` as `#1b150d`.\n- [ ] Dark active-tab ink on well is at least 7:1; the expected ratio is\n      14.22:1.\n- [ ] Dark muted ink on well is at least 4.5:1; the expected ratio is\n      7.78:1.\n- [ ] Dark Markdown h1/h2 and body text on well are at least 7:1; expected\n      ratios are 14.66:1 and 10.49:1.\n- [ ] Inline and fenced code retain legible text and read as intentional\n      dark-theme elements within the corrected night surface.\n- [ ] Idle-tab and version-menu-row hover states are legible in both themes.\n- [ ] Automated coverage protects both theme values and all four existing\n      token-consumer sites.\n- [ ] Light mode keeps the existing well value and is visually unchanged\n      across the active tab, idle tabs, content surface, and menu-row hover.\n- [ ] `SkillPage.tsx` and `Markdown.tsx` have no diff.\n- [ ] Canvas, surface, paper, border, the neutral ramp, and all other palette\n      tokens are unchanged.\n- [ ] The brand palette reference lists `well`, both values, its role, and\n      its canonical token name.\n- [ ] Viewer tests, viewer check/build, and repository gates pass.\n\n## Risks and mitigations\n\n| Risk | Mitigation |\n| --- | --- |\n| A later duplicate silently wins by cascade order again. | Assert declaration counts per block and across the complete stylesheet, not only the effective value. |\n| A component masks the token with a local dark utility or literal color. | Protect the four token-based class arrangements and reject local dark/hardcoded color overrides in the focused test. |\n| Source-level consumer assertions become noisy after harmless class reordering. | Compare whitespace-delimited class token sets and semantic predicates, not full strings or snapshots. |\n| Unit tests do not execute browser hover/computed-style behavior. | Build the Tailwind/Astro viewer and complete the explicit two-theme browser pass; defer browser infrastructure rather than adding it ad hoc. |\n| The live brand card contains older cross-surface reconciliation questions. | Make only the explicitly owned `well` row/list migration; do not broaden this accessibility fix into a palette rewrite. |\n\n## Deferred follow-ups\n\n- The active tab's `border-neutral-900/50` may become visually quiet on the\n  corrected dark well. It is cosmetic and remains a separate issue because\n  changing it would revisit the deliberately unflipped neutral ramp.\n- Automated screenshot and interaction testing can be considered as a\n  repository-wide viewer-testing investment, not introduced solely for\n  issue #192.\n- The older brand-reference reconciliation notes and marketing-site\n  crosswalk remain outside this token correction.\n\n## Open questions\n\nNone. The intended night value, consumer contract, documentation migration,\nand verification thresholds are all recoverable from the current code and\nthe commit that introduced the folder tabs.\n--- END PLAN DOC ---",
-          "last_stage": "implement",
+          "last_stage": "review",
           "graph.goal": "GitHub Issue #192: Dark mode: --color-well has no night value — the whole tabbed surface renders dark-mode ink on a light ground (1.07:1)\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/192\n\n## Summary\n\n`--color-well` — the ground for the skill page's folder tabs and the entire\ntabbed content surface — is the one brand surface token with no dark-mode value.\nAt night the tab and its content panel keep painting light parchment `#f6eee0`\nwhile everything drawn on them switches to dark-mode inks. The active tab's\nlabel renders at **1.11:1**; rendered Markdown on the same surface is worse —\nheadings at **1.07:1**, body copy at **1.50:1** — so the Research, Eval, and\nPublish tab content is effectively invisible, styled as though it were on a\nblack background while the ground stays cream. The intended dark value is\nalready in the file as a dead declaration. Restore it in the `.dark` block.\n\n## Motivation / Problem\n\nThe active tab tells you where you are in the skill page. In dark mode you\ncannot read it, so the primary navigation of the product's main surface has no\nvisible current-state indicator. The body copy on the same surface is affected\ntoo — `ink-muted` on `well` measures **2.02:1** at night — so the whole tabbed\nregion reads as washed out, not just the tab label.\n\nLight mode is unaffected and correct (`#2c2416` on `#f6eee0` = **13.3:1**); this\nis a dark-mode-only defect.\n\nThe tempting fix is to hardcode a dark text colour on the active tab. That would\nbe wrong: it treats the label as the defect when the *ground* is what never\nthemed, leaves the content surface still painting daylight parchment at night,\nand would itself become unreadable the moment `well` is corrected. The token is\nthe defect.\n\n## Observed behavior\n\nDark mode, skill page, any bundle.\n\n**The tabs.** The `OVERVIEW` tab is active and its label is near-invisible\nagainst its own fill; the inactive tabs beside it (`RESEARCH`, `EVAL`,\n`PUBLISH`) are legible, and the surrounding chrome is correctly dark.\n\n**The tab content — worse.** Open the Research tab on a bundle with\n`research/notes.md`. The rendered Markdown is washed out to the point of\nunreadability: headings (`Topic restatement`, `The architecture the skill must\nlive inside`) are barely discernible, body paragraphs are pale tan on cream, and\ninline code chips render as **dark chips with light text** — correct styling for\na dark theme, painted on a light page. The content is dressed for a black\nbackground it isn't on.\n\n**The diagnostic that proves it's the ground, not the text rules:** selecting\nthe text makes it fully legible. `.dark ::selection` (`global.css:329-331`)\nforces `color: #16110a` over an amber ground — the one place in dark mode where\na dark ink is hardcoded. Everywhere the theme's own inks apply, they are\ndark-mode inks on a light-mode surface.\n\nMeasured (WCAG 2.1 contrast ratio):\n\n| Pair | Dark mode today | After fix |\n|---|---|---|\n| Markdown h1/h2 — `neutral-100` `#f1e6d3` on `well` `#f6eee0` | **1.07:1** | **14.7:1** |\n| active tab label — `ink` `#ece3d2` on `well` `#f6eee0` | **1.11:1** | **14.2:1** |\n| Markdown body — `neutral-300` `#d5c3a3` on `well` `#f6eee0` | **1.50:1** | **10.5:1** |\n| surface body copy — `ink-muted` `#b6a988` on `well` `#f6eee0` | **2.02:1** | **7.78:1** |\n| active tab label, light mode — `#2c2416` on `#f6eee0` | 13.3:1 | unchanged |\n\n## Current shape\n\nEvery other brand surface token is redefined for dark. `well` is not.\n\n`packages/viewer/src/styles/global.css`, `@theme` block, lines 48-51 — note the\nduplicate declaration, where a dark value is written and immediately clobbered:\n\n```css\n  --color-paper: #f4ece0;\n  --color-well: #1b150d;\n  --color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n  --color-paper-dark: #e3d5bd;  /* colour of the hard offset shadow */\n```\n\nThe `.dark` block, lines 288-296, overrides its siblings and omits `well`:\n\n```css\n.dark {\n  color-scheme: dark;\n  --color-canvas: #16110a;      /* warm near-black ground */\n  --color-surface: #221a10;\n  --color-border: #3a3220;\n  --color-ink: #ece3d2;         /* parchment ink — body text + wordmark */\n  --color-ink-muted: #b6a988;\n  --color-paper: #1d1610;       /* sidebar / panel ground, a shade above canvas */\n  --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */\n```\n\nThe consuming components are already correct and need no change — the tab label\ncolour is properly conditional on active state, `packages/viewer/src/app/next/SkillPage.tsx:18-21`:\n\n```tsx\nconst TAB_ACTIVE =\n  \"relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink\";\nconst TAB_IDLE =\n  \"cursor-pointer rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-mono text-[11px] uppercase text-ink-muted hover:bg-well/70 hover:text-ink\";\n```\n\nDark mode is expressed purely by token flipping — these tabs carry no `dark:`\nutilities at all (`@custom-variant dark` at `global.css:32`), which is the house\npattern and worth preserving.\n\n**Why the tab *content* is hit harder than the tab label.** Every tab body\nrenders inside that same `bg-well` container (`SkillPage.tsx:109`), and the\nResearch/Eval/Publish tabs render Markdown through\n`packages/viewer/src/app/components/Markdown.tsx`, which is the one component\nthat pairs the deliberately-unflipped `neutral-*` ramp with explicit `dark:`\nvariants (`global.css:284-286` documents this arrangement):\n\n```tsx\n  1: \"text-base font-semibold text-neutral-900 dark:text-neutral-100\",\n  2: \"text-sm font-semibold text-neutral-900 dark:text-neutral-100\",\n```\n```tsx\n        <p className=\"text-neutral-700 dark:text-neutral-300\">\n```\n```tsx\n            <code key={i} className=\"rounded bg-neutral-100 px-1 font-mono text-[0.9em] dark:bg-neutral-900\">\n```\n\nThose `dark:` variants are correct and fire correctly — the `.dark` class is on\nthe root. `neutral-100` (`#f1e6d3`) and `neutral-300` (`#d5c3a3`) are the right\ninks *for a dark ground*, and `dark:bg-neutral-900` is the right chip *for a\ndark ground*. They are simply being painted onto a ground that never became\ndark. `ResearchTab` (`SkillPage.tsx:345-370`) puts `MarkdownContent` straight\ninto the `well` surface, which is where the two meet.\n\nThis is the same single defect, not a second one: no `dark:` variant in\n`Markdown.tsx` is wrong, and none should change.\n\nHow it drifted, since the archaeology explains the whole class of bug: dark mode\nshipped in `b6a2424` (#164, 2026-07-23); the folder tabs and the `well` token\narrived four days later in `35c419a` (#170, 2026-07-27). The token was born\nafter the `.dark` block was authored and nobody revisited it. `well` is also\nabsent from `docs/library/brand/Reference - Brand Palette.md`, so there was no\ndocument that would have caught the omission either.\n\n## Proposed contract\n\nAdd the missing token to the `.dark` block and delete the dead duplicate:\n\n```css\n/* @theme — delete the clobbered line, keep the light value */\n--color-well: #f6eee0;  /* tabbed-section ground: a shade lighter than canvas, distinct from paper+surface */\n\n/* .dark — the intended night value */\n--color-well: #1b150d;  /* tabbed-section ground at night, a shade below canvas */\n```\n\n**Decisions:**\n\n- The dark value is `#1b150d` — the value already present as the dead\n  declaration at `global.css:49`, i.e. the original author's intent recovered\n  rather than a new colour invented.\n- In light mode `well` sits a shade *lighter* than `canvas` (`#f6eee0` vs\n  `#f1e6d3`); at night it sits a shade *darker* than `canvas` (`#1b150d` vs\n  `#16110a`). Both keep it distinct from `paper` and `surface`, which is the\n  token's stated job.\n- **No component classes change.** `TAB_ACTIVE` / `TAB_IDLE` in `SkillPage.tsx`\n  stay exactly as written; no `dark:` utility is added; no text colour is\n  hardcoded.\n- `well` is added to `docs/library/brand/Reference - Brand Palette.md` with both\n  values and its role, so the brand doc stops being silent about a shipped\n  surface token.\n\n## Acceptance criteria\n\n- [ ] In dark mode the active tab's label is legible against its own ground —\n      `ink` on `well` measures ≥ 7:1 (14.2:1 at the proposed value).\n- [ ] In dark mode the tabbed content surface reads as a dark ground continuous\n      with the rest of the night theme, and secondary copy on it (`ink-muted`)\n      measures ≥ 4.5:1 (7.78:1 at the proposed value).\n- [ ] The idle tab's `hover:bg-well/70` + `hover:text-ink` hover state is legible\n      in dark mode — the same pairing that fails today.\n- [ ] In dark mode, rendered Markdown on the tab surface is legible: headings\n      (`dark:text-neutral-100`) ≥ 7:1 and body copy (`dark:text-neutral-300`)\n      ≥ 7:1 against `well`. Verified on the Research tab with a real\n      `research/notes.md`.\n- [ ] In dark mode, inline code chips (`dark:bg-neutral-900`) and fenced code\n      blocks read as raised/inset against the surface rather than as dark\n      patches on a light page, and their text is legible against the chip.\n- [ ] Negative: `Markdown.tsx` is unchanged — no `dark:` variant is added,\n      removed, or retuned. Every one of them is already correct for a dark\n      ground.\n- [ ] Regression: light mode is pixel-identical. The active tab, idle tabs, the\n      content surface, and the row-hover at `SkillPage.tsx:264` all render\n      unchanged in daylight.\n- [ ] Negative: `--color-well` is declared exactly once in `@theme` and exactly\n      once in `.dark`; the duplicate declaration is gone.\n- [ ] Negative: `SkillPage.tsx` is unchanged — no hardcoded text colour, no new\n      `dark:` utility on the tabs.\n- [ ] `docs/library/brand/Reference - Brand Palette.md` lists `well` with its\n      light and dark values and its role.\n- [ ] Tests cover both themes across all four surfaces that consume the token\n      (active tab, tab content surface, idle-tab hover, menu-row hover at\n      `SkillPage.tsx:264`).\n\n## Implementation notes\n\nThe token has exactly four consumers, all in one file —\n`packages/viewer/src/app/next/SkillPage.tsx:19` (active tab), `:21` (idle-tab\nhover tint), `:109` (tab content surface), `:264` (menu row hover) — and there\nare no others in the viewer.\n\n**Do not mistake that for a small verification surface.** Consumer `:109` is the\nground for *every* tab body, so the visual blast radius is all Markdown and all\ncontent rendered in the Overview, Research, Eval, and Publish tabs. Verifying\nthe four class sites is not enough; check real rendered content in each tab, in\nboth themes — a bundle with a populated `research/notes.md` is the sharpest test\nbecause it exercises headings, body copy, inline code, and fenced blocks at\nonce.\n\nScope fences:\n\n- **Do not hardcode a text colour on the tabs.** The label already switches\n  correctly between `text-ink` and `text-ink-muted`; the ground is what's\n  missing. A literal black or white in `SkillPage.tsx` would mask this bug and\n  block the token fix.\n- **Do not re-theme the other surface tokens.** `canvas`, `surface`, `paper`,\n  and `border` have considered dark values; leave them.\n- **Do not flip the `neutral-*` ramp.** It is deliberately not flipped in dark\n  (`global.css:284-286`), and `Markdown.tsx` pairs it with explicit `dark:`\n  variants.\n- **Do not touch `Markdown.tsx`.** Its `dark:` variants look wrong on screen\n  today only because the ground beneath them is wrong. Retuning them would make\n  the content readable on the broken light ground and then break it a second\n  time when `well` is corrected.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/styles/global.css` — `@theme` (:34), the duplicate\n  `--color-well` (:49-50), the `.dark` block (:288)\n- `packages/viewer/src/app/next/SkillPage.tsx` — the four consumers above; `ResearchTab` (:345)\n- `packages/viewer/src/app/components/Markdown.tsx` — the `dark:` variants rendered on the surface (:28, :62-67, :82, :100)\n- `docs/library/brand/Reference - Brand Palette.md` — the palette table `well`\n  is missing from\n\n## Not in scope\n\nThe active tab's border is `border-neutral-900/50`, and the neutral ramp is\ndeliberately not flipped in dark — so once the ground goes dark, that hairline\nbecomes a dark border on a dark surface. Cosmetic, invisible rather than\nillegible, and it touches the ramp-flipping decision rather than this token.\nWorth a separate ticket if it reads poorly once the ground is corrected.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n",
+          "review_ready": false,
           "thread.implement.current_node": "validate_gates"
         },
         "node_outcomes": {
@@ -936,6 +1091,44 @@
               "active_time_ms": 718528
             }
           },
+          "review": {
+            "status": "succeeded",
+            "preferred_label": "Fix",
+            "context_updates": {
+              "last_stage": "review",
+              "review_ready": false,
+              "last_response": "One documentation correction is needed before this is PR-ready:\n\n- [Reference - Brand Palette.md](/home/daytona/workspace/skillmaker-studio/docs/library/brand/Reference%20-%20Brand%20Palette.md:79) st",
+              "response.review": "One documentation correction is needed before this is PR-ready:\n\n- [Reference - Brand Palette.md](/home/daytona/workspace/skillmaker-studio/docs/library/brand/Reference%20-%20Brand%20Palette.md:79) still says it was verified against viewer CSS lines 24–139 on 2026-07-17. The migration now documents dark `well` (`#1b150d`), which is at [global.css](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/styles/global.css:297) and was introduced later. Update the verification/source note so the new dark-token claim has accurate provenance.\n\nEverything else is appropriately scoped: no Core/CLI changes, the approved library migration is narrow, `SkillPage.tsx` and `Markdown.tsx` remain unchanged, token declarations and all four consumers are covered, and the cited full gates passed. I also reran the focused test (3 passing) and viewer check (0 errors; only pre-existing hints).\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"review_ready\":false}}\n```"
+            },
+            "notes": "Stage completed: review",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 31467,
+                    "output_tokens": 1352,
+                    "reasoning_tokens": 1045,
+                    "cache_read_tokens": 98950,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 139357
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 26909,
+              "tool_time_ms": 53685,
+              "active_time_ms": 80594
+            }
+          },
           "start": {
             "status": "succeeded",
             "usage": null
@@ -977,12 +1170,13 @@
             }
           }
         },
-        "next_node_id": "review",
+        "next_node_id": "implement",
         "node_visits": {
           "scope": 1,
           "start": 1,
           "implement": 1,
-          "validate_gates": 1
+          "validate_gates": 1,
+          "review": 1
         }
       },
       "diff": {}
@@ -1525,6 +1719,204 @@
         "reasoning_tokens": 0,
         "cache_read_tokens": 0,
         "cache_write_tokens": 0
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "review@1": {
+      "first_event_seq": 826,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: review",
+        "failure_reason": null,
+        "timestamp": "2026-08-04T18:19:42.366070499Z"
+      },
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "medium"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-04T18:18:20.767907986Z",
+      "handler": "agent",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 81408,
+        "inference_time_ms": 26909,
+        "tool_time_ms": 53685,
+        "active_time_ms": 80594
+      },
+      "usage": {
+        "input_tokens": 31467,
+        "output_tokens": 1352,
+        "total_tokens": 132814,
+        "reasoning_tokens": 1045,
+        "cache_read_tokens": 98950,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 139357
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-terra"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:6217588f-e269-4cee-8870-8420c86c6df0",
+        "items": [
+          {
+            "id": "fa6a4ae060fb9620",
+            "status": "completed",
+            "order": 0,
+            "subject": "Inspect repository status, diff, and scoped implementation files"
+          },
+          {
+            "id": "0573af038d877ee1",
+            "status": "completed",
+            "order": 1,
+            "subject": "Review test coverage, comments, documentation migration, and validation evidence"
+          },
+          {
+            "id": "9154abe0c2e898a5",
+            "status": "completed",
+            "order": 2,
+            "subject": "Report PR readiness with required routing JSON"
+          }
+        ]
+      },
+      "subagents": [
+        {
+          "agent_id": "2a084939",
+          "depth": 1,
+          "task": "Independently review the Issue #192 implementation diff in the workspace for correctness, scope, test quality, documentation migration compliance, and comment style. Do not edit. Return only actionable findings with file/line evidence, or state ready.",
+          "status": {
+            "kind": "closed"
+          }
+        }
+      ],
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": false
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "context_window_tokens": 272000,
+        "input_tokens": 31452,
+        "usage_percent": 11.563235294117646,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-04T18:19:42.175415631Z",
+        "event_seq": 992,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 3268,
+            "usage_percent": 1.201470588235294
+          },
+          {
+            "category": "tools",
+            "tokens": 1088,
+            "usage_percent": 0.4
+          },
+          {
+            "category": "conversation",
+            "tokens": 27089,
+            "usage_percent": 9.959191176470588
+          },
+          {
+            "category": "other",
+            "tokens": 7,
+            "usage_percent": 0.002573529411764706
+          }
+        ],
+        "warnings": []
       },
       "agent_control": "running",
       "state": "succeeded"
