@@ -1,0 +1,103 @@
+digraph SmsFeature {
+    graph [
+        goal="Implement a Skillmaker Studio feature with post-review verification before handoff.",
+        default_fidelity="summary:high",
+        max_node_visits=8,
+        stall_timeout="5h"
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // Model split (director ruling, PR #188): sol-high where the graph
+    // makes judgment calls that gate everything downstream (scope, the
+    // verification judge); terra-medium for the in-loop worker stages.
+    scope [
+        label="Scope",
+        prompt="@prompts/scope.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-sol",
+        reasoning_effort="high",
+        timeout="90m"
+    ]
+
+    implement [
+        label="Implement",
+        prompt="@prompts/implement.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-terra",
+        reasoning_effort="medium",
+        timeout="90m"
+    ]
+
+    validate_gates [
+        shape=parallelogram,
+        label="Run repo gates",
+        script="./.fabro/scripts/fabro-validate",
+        timeout="90m"
+    ]
+
+    review [
+        label="Review",
+        prompt="@prompts/review.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-terra",
+        reasoning_effort="medium",
+        timeout="90m"
+    ]
+
+    verify [
+        label="Verify",
+        prompt="@prompts/verify.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-terra",
+        reasoning_effort="medium",
+        timeout="90m"
+    ]
+
+    verification_judge [
+        label="Verification Judge",
+        prompt="@prompts/verification-judge.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-sol",
+        reasoning_effort="high",
+        timeout="90m"
+    ]
+
+    handoff [
+        shape=tab,
+        label="Prepare PR",
+        prompt="@prompts/handoff.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-terra",
+        reasoning_effort="medium",
+        timeout="90m"
+    ]
+
+    start -> scope
+    scope -> implement [condition="outcome=succeeded"]
+    scope -> exit
+    implement -> validate_gates [condition="outcome=succeeded"]
+    implement -> exit
+    validate_gates -> implement [label="Fix validation", condition="outcome=failed"]
+    validate_gates -> review    [label="Validation OK", condition="outcome=succeeded"]
+    validate_gates -> exit
+
+    review -> implement [label="Fix", condition="review_ready=false"]
+    review -> verify    [label="Ready", condition="review_ready=true"]
+    review -> exit
+    verify -> verification_judge [condition="outcome=succeeded"]
+    verify -> exit
+    verification_judge -> verify    [label="Re-verify", condition="verification_route=verify"]
+    verification_judge -> implement [label="Fix implementation", condition="verification_route=implement"]
+    verification_judge -> handoff   [label="Verified", condition="verification_ready=true"]
+    verification_judge -> exit
+    handoff -> exit
+}

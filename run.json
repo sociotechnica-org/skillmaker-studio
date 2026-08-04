@@ -1,0 +1,610 @@
+{
+  "title": "Implement #194: Add keepalive to chat SSE stream",
+  "spec": {
+    "run_id": "01KZ6YKB8Z2Y2ZN5A67AYG5PAM",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": {
+          "type": "inline",
+          "value": "GitHub Issue #194: Chat SSE stream has no keepalive — Bun's idleTimeout tears it down every 30s, jumping the reader to the bottom\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/194\n\n## Summary\n\nThe chat SSE stream sends no periodic keepalive, so Bun's `idleTimeout: 30`\ntears the connection down every 30 seconds of quiet. The browser's `EventSource`\nsilently reconnects, the server replays the transcript buffer, and the reader —\nwho may be scrolled up mid-transcript — is yanked to the bottom. The\nmachine-level `/api/events-stream` already solves this with a 15 s heartbeat;\nthe chat stream never got one.\n\n## Motivation / Problem\n\nObservable cost: you cannot read a chat transcript. Scroll up to reread\nsomething the agent said and roughly every 30 seconds, with no interaction and\nno agent activity, the panel jumps to the bottom. On a long research\nconversation — exactly the material worth rereading — the transcript is\neffectively unreadable while the session is open.\n\nUnderneath the visible symptom, every idle chat session is churning: a\nconnection torn down and re-established twice a minute, each reconnect replaying\nthe entire event buffer over the wire, forever, for as long as the panel is\nopen.\n\nThe transcript-position damage on reconnect is a **separate defect** and is\nfiled alongside this one — this issue removes the 30-second cadence; the\ncompanion makes any future reconnect (network blip, laptop sleep, server\nrestart) harmless. Either can be built first.\n\n## Observed behavior\n\nOpen a chat panel on any skill, let the session go quiet, scroll to the middle\nof the transcript, and touch nothing. In roughly 25-30 seconds the panel jumps\nto the bottom. Repeats indefinitely. Confirmed by hand at >25 s.\n\nThe server log shows no error; nothing in the UI indicates the stream dropped\nand came back.\n\n## Current shape\n\nThe machine-level events stream is the working sibling — it has a heartbeat.\n`packages/cli/src/server/Server.ts:89`:\n\n```ts\nconst HEARTBEAT_MS = 15_000;\n```\n\ndriven at `Server.ts:2911` and written at `Server.ts:2535`:\n\n```ts\n  const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);\n```\n```ts\n    onHeartbeat: () => broadcast(\": heartbeat\\n\\n\"),\n```\n\nThe chat stream is built separately, in `ChatSessions.streamResponse`\n(`packages/cli/src/server/ChatSessions.ts:688-719`), and has **no interval at\nall** — one comment frame at connect, then bytes only when a real session event\noccurs:\n\n```ts\n        controller.enqueue(encoder.encode(\": connected\\n\\n\"));\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n          subscriber = sendEvent;\n          chat.subscribers.add(sendEvent);\n          chat.lastActivityAt = Date.now();\n        }\n```\n\nMeanwhile `Server.ts:2914-2923` sets a 30-second per-connection idle timeout,\nwith a comment that explains what it was reasoning about — cold-start request\nbursts — and does not consider long-lived SSE streams, which are idle by design:\n\n```ts\n    // Explicit safety net, not a fix by itself: Bun's default per-connection\n    // idle timeout is 10s, which a concurrent-request burst on cold start\n    // ... 30s gives real (non-runaway) requests headroom without hiding a\n    // genuine hang.\n    idleTimeout: 30,\n```\n\nSequence: 30 s of no bytes → Bun closes the socket → `EventSource` reconnects\n(UA default retry, ~3 s in Chrome; the server never sends a `retry:` field) →\nobserved period ≈ 30-33 s, matching the report.\n\nNote `streamResponse` also serves the case where **no live session exists** (the\npre-session model picker holds this stream open). That connection produces no\nevents by definition, so it is torn down every 30 s too.\n\nThe trap worth naming: `idleTimeout` is a *global* server setting and the chat\nstream is the only long-lived SSE endpoint that was added without the heartbeat\nits sibling already had. The fix belongs on the stream, not on the timeout.\n\n## Proposed contract\n\n`ChatSessions.streamResponse` writes an SSE comment frame on an interval, the\nsame shape and cadence the events stream already uses:\n\n```\n: keepalive\\n\\n\n```\n\nevery **15 000 ms** — half the 30 s idle timeout, matching `HEARTBEAT_MS`.\n\n**Decisions:**\n\n- The frame is an SSE **comment** (`:` prefix), not a data frame. `EventSource`\n  ignores it, so no client-side handling is needed and `ChatStreamEvent` is\n  unchanged.\n- Cadence is 15 000 ms, reusing the existing `HEARTBEAT_MS` value rather than\n  introducing a second number.\n- The interval is **per connection**, started in the stream's `start` and\n  **cleared in its `cancel`**, so a closed connection cannot leak a timer.\n- The keepalive runs **regardless of whether a live chat session exists** — the\n  pre-session picker's connection needs it just as much.\n- `idleTimeout: 30` in `Server.ts` is **not** changed. It is a deliberate safety\n  net with a documented rationale; raising or removing it to paper over a\n  missing keepalive would hide genuine hangs.\n- No `retry:` field is introduced. Reconnect cadence is not the problem;\n  reconnecting at all is.\n\n## Acceptance criteria\n\n- [ ] With a chat panel open and idle, the SSE connection survives at least\n      120 seconds without the server closing it and without `EventSource`\n      reconnecting.\n- [ ] Keepalive comment frames are observable on the wire at ~15 s intervals on\n      `/api/chat/:skill/stream`.\n- [ ] The keepalive is emitted on a connection opened when **no live session\n      exists** for that skill (pre-session picker case).\n- [ ] Negative: the keepalive frame produces no transcript item and no state\n      change — the client's `items` array and `state` are byte-identical before\n      and after a keepalive.\n- [ ] Negative / no leak: after the client disconnects, the connection's\n      interval is cleared — opening and closing N chat streams leaves no\n      accumulating timers.\n- [ ] Regression: `/api/events-stream` behavior is unchanged, still at\n      `HEARTBEAT_MS`, and `idleTimeout: 30` is still in force for ordinary\n      requests.\n- [ ] Regression: existing chat stream behavior is unchanged —\n      `test/e2e/chat-sessions.e2e.test.ts` passes unmodified (connect replay,\n      state frames, event ordering).\n- [ ] Tests cover: long-idle connection survival, keepalive cadence,\n      no-live-session case, and interval cleanup on disconnect.\n\n## Implementation notes\n\nThe events stream's heartbeat is driven by one server-level `setInterval` over a\nbroadcaster with many subscribers; the chat stream is a per-skill `Response`\nbuilt inside `streamResponse`, so its keepalive is naturally per-connection\ninstead. Guard the enqueue the same way `sendEvent` already does — a client that\nvanished mid-interval must not throw.\n\nScope fences:\n\n- **Do not change `idleTimeout`.** See the decision above.\n- **Do not add a data frame or extend `ChatStreamEvent`.** A comment frame\n  requires no client change; a new event type would.\n- **Do not touch the replay-on-connect behavior** — that is the companion\n  issue's territory, and the two fixes must not collide.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `streamResponse` (:688), its\n  `cancel` (:710)\n- `packages/cli/src/server/Server.ts` — `HEARTBEAT_MS` (:89), events-stream\n  heartbeat wiring (:2535, :2911), `idleTimeout` (:2923)\n- `packages/viewer/src/app/next/chatApi.ts` — the `EventSource` consumer (:196)\n\n---\n\n**Companion:** #195 — SSE reconnect wipes the transcript and destroys the reader's scroll position. This issue removes the ~30s cadence; #195 makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n"
+        },
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {
+          "agent_backend": "api"
+        },
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5.6-terra",
+          "fallbacks": {},
+          "controls": {
+            "reasoning_effort": "medium",
+            "speed": null
+          }
+        },
+        "git": {
+          "author": {
+            "name": "Fabro",
+            "email": "285810526+fabro-of-alexandria[bot]@users.noreply.github.com"
+          }
+        },
+        "prepare": {
+          "steps": [
+            {
+              "type": "command",
+              "command": [
+                "./.fabro/scripts/fabro-setup-env"
+              ]
+            }
+          ],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt"
+        },
+        "checkpoint": {
+          "exclude_globs": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ],
+          "skip_git_hooks": false,
+          "commit_timeout_ms": 30000
+        },
+        "clone": {
+          "enabled": true
+        },
+        "run_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "meta_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "environment": {
+          "id": "daytona",
+          "provider": "daytona",
+          "image": {
+            "docker": null,
+            "dockerfile": null
+          },
+          "resources": {
+            "cpu": null,
+            "memory": null,
+            "disk": null
+          },
+          "network": {
+            "mode": "allow_all",
+            "allow": []
+          },
+          "lifecycle": {
+            "preserve": false,
+            "stop_on_terminal": true,
+            "auto_stop": "1h"
+          },
+          "labels": {
+            "workflow": "sms-feature",
+            "project": "skillmaker-studio",
+            "host": "railway"
+          },
+          "env": {}
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null
+        },
+        "agent": {
+          "fabro_tools": false,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": {
+          "enabled": true,
+          "draft": true,
+          "auto_merge": false,
+          "merge_strategy": "squash"
+        },
+        "artifacts": {
+          "include": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ]
+        },
+        "integrations": {
+          "github": {
+            "permissions": {
+              "pull_requests": "write",
+              "contents": "write"
+            }
+          }
+        }
+      }
+    },
+    "graph": {
+      "name": "SmsFeature",
+      "nodes": {
+        "start": {
+          "id": "start",
+          "attrs": {
+            "shape": {
+              "String": "Mdiamond"
+            },
+            "label": {
+              "String": "Start"
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "shape": {
+              "String": "Msquare"
+            },
+            "label": {
+              "String": "Exit"
+            }
+          }
+        },
+        "handoff": {
+          "id": "handoff",
+          "attrs": {
+            "provider": {
+              "String": "openai"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "label": {
+              "String": "Prepare PR"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "backend": {
+              "String": "api"
+            },
+            "shape": {
+              "String": "tab"
+            },
+            "prompt": {
+              "String": "# Prepare PR\n\nPrepare the final pull request context.\n\nFabro's configured `[run.pull_request]` finalization creates the pull\nrequest after this node. Write the PR title and body to these files:\n\n- `/tmp/fabro-pr-title.txt`\n- `/tmp/fabro-pr-body.md`\n\nThe body must be honest reviewer context, not a sales pitch. Include:\n\n- Suggested PR title.\n- What changed and why, tied to the plan in `docs/proposals/`.\n- Validation: which gates ran (typecheck core/cli, `bun test packages`,\n  `bun test test/e2e`, `bun run build:viewer` if the viewer changed) and\n  their actual results.\n- What verification proved, with pointers to the run's\n  `verification-artifacts/` evidence.\n- Any remaining risks, known gaps, skipped checks, or manual follow-up —\n  stated plainly. If something was not verified, say so; do not imply\n  coverage that does not exist.\n\nKeep the summary concise and specific to Skillmaker Studio. Do not\ndescribe this as a handoff to a human; write it as PR-ready reviewer\ncontext.\n\nThe title file must contain exactly one line. The body file must contain\nMarkdown suitable for a draft pull request body.\n"
+            }
+          }
+        },
+        "verification_judge": {
+          "id": "verification_judge",
+          "attrs": {
+            "backend": {
+              "String": "api"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "prompt": {
+              "String": "# Verification Judge\n\nJudge whether the verification stage proved that the requested feature\nworks. This is a rubric stage. Do not perform implementation work unless\nyou need a tiny inspection command to understand evidence that already\nexists.\n\nRead:\n\n- The goal from the workflow context.\n- The checked-in plan under `docs/proposals/` named by the scope stage.\n- The implementation diff and changed files.\n- The verify node's final response and touched files from workflow\n  context when available.\n- `verification-artifacts/verification-plan.md`.\n- `verification-artifacts/report.md`.\n- Any CLI transcripts, JSON snapshots, screenshots, videos, or other\n  artifacts under `verification-artifacts/`.\n\nAssess the gates first:\n\n- Did the repo gates run on the final diff: typecheck core and cli,\n  `bun test packages`, `bun test test/e2e`, and `bun run build:viewer`\n  when `packages/viewer` changed? A missing or failed gate is\n  disqualifying regardless of other evidence.\n\nAssess both verification plans:\n\n- Was the technical plan's verification section sufficient for the\n  feature? Did the verifier identify gaps or weak assumptions in it?\n- Was the verifier's independent verification plan sufficient, and did\n  the verifier execute both the plan's relevant steps and its own\n  additional steps?\n\nAssess the evidence against the scope:\n\n- Does the diff actually match the scoped plan — nothing planned left\n  unimplemented, nothing significant implemented outside the plan?\n- Do CLI transcripts support the claimed behavior, including exit codes\n  and important output fields?\n- Do JSON snapshots show the expected machine-readable contract?\n- Do screenshots or videos support viewer or browser behavior?\n- Did the verifier use a realistic sample project when the feature can\n  be exercised outside the repository?\n- Are skipped checks justified and low risk? Are failures product\n  defects, harness limitations, or acceptable residual risks?\n\nAssess stage boundaries:\n\n- Verification may create artifacts under `verification-artifacts/`, but\n  it must not change checked-in source, tests, prompts, workflow\n  configuration, package metadata, plans, or other tracked repository\n  files outside `verification-artifacts/`.\n- Treat any verification-stage tracked file change outside\n  `verification-artifacts/` as implementation work that happened after\n  validation and review. Route to `Fix implementation` for that boundary\n  violation even when the change is tiny, test-only, or described as\n  harness hardening. The fix must happen in implementation so validation\n  and review rerun on the final diff.\n\nReject weak verification. Do not approve only because tests passed.\n\nRoute based on the smallest next step:\n\n- Route to `Re-verify` when the implementation appears plausible but the\n  verifier skipped important checks, failed to create an independent\n  verification plan, omitted required artifacts, or made claims that the\n  evidence does not support.\n- Route to `Fix implementation` only when the evidence points to a\n  product defect, an implementation gap, a diff/scope mismatch, a failed\n  or skipped repo gate, or a verification-stage tracked-file boundary\n  violation.\n- Route to `Verified` only when the evidence is sufficient.\n\nWhen verification is satisfactory, explain why the evidence is enough.\nWhen it is not satisfactory, explain the smallest implementation or\nverification work needed next.\n\nEnd with exactly one routing JSON object:\n\n```json\n{\"preferred_next_label\":\"Verified\",\"context_updates\":{\"verification_ready\":true,\"verification_route\":\"handoff\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Re-verify\",\"context_updates\":{\"verification_ready\":false,\"verification_route\":\"verify\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Fix implementation\",\"context_updates\":{\"verification_ready\":false,\"verification_route\":\"implement\"}}\n```\n"
+            },
+            "label": {
+              "String": "Verification Judge"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            }
+          }
+        },
+        "verify": {
+          "id": "verify",
+          "attrs": {
+            "backend": {
+              "String": "api"
+            },
+            "prompt": {
+              "String": "# Verify\n\nVerify that the implemented feature works. This is an execution stage,\nbut it is not an implementation stage.\n\nBefore running checks:\n\n- Read the goal from the workflow context.\n- Read the checked-in plan under `docs/proposals/` named by the scope\n  stage.\n- Inspect the implementation diff and changed files.\n- Read package-local README and guidance files for every package changed\n  by the implementation.\n\nDo not assume the plan's verification section is sufficient. First write\nan independent verification plan to:\n\n```text\nverification-artifacts/verification-plan.md\n```\n\nThat plan must include:\n\n- A short assessment of the technical plan's verification instructions.\n- Any gaps or weak assumptions in those instructions.\n- The checks from the technical plan that you will execute.\n- Additional checks needed to prove the feature works.\n- The artifacts you expect to capture as evidence.\n- Confirmation that the repo gates ran: typecheck core and cli,\n  `bun test packages`, `bun test test/e2e`, and `bun run build:viewer`\n  when the diff touches `packages/viewer`. If any gate did not run or\n  did not pass, that is a finding, not something to fix here.\n\nThen execute the verification plan. Prefer black-box, user-level\nverification over implementation inspection alone. When applicable:\n\n- Create a throwaway sample project under `/tmp/fabro-verify-*` when the\n  feature can be exercised outside this repository (Skillmaker operates\n  on any directory of skills, so this is usually possible). If the\n  sandbox does not permit that, use another scratch location and\n  document the fallback.\n- Invoke the CLI the way a user would (`bun packages/cli/src/main.ts …`\n  or the packaged bin) when CLI behavior is part of the feature.\n- Run the implemented feature through its CLI, server, or viewer\n  surfaces.\n- Capture CLI output transcripts and JSON output snapshots.\n- Use browser verification for viewer behavior; capture screenshots, and\n  video when practical.\n\nRepository write boundary:\n\n- Do not edit implementation source, checked-in tests, prompts, workflow\n  configuration, package metadata, plans, or other tracked repository\n  files outside `verification-artifacts/`.\n- Create verification-only helper scripts, notes, transcripts,\n  screenshots, videos, and JSON snapshots under\n  `verification-artifacts/`.\n- If verification uncovers a product defect, missing implementation\n  change, or checked-in test/harness issue, do not patch it in this\n  stage. Document the required change in\n  `verification-artifacts/report.md` and in your final response so the\n  Verification Judge can route back to implementation.\n- Before finishing, inspect tracked changes outside\n  `verification-artifacts/` and report any such changes explicitly as a\n  verification-stage boundary violation.\n\nStore evidence under `verification-artifacts/`:\n\n```text\nverification-artifacts/\n  verification-plan.md\n  report.md\n  cli/\n  json/\n  screenshots/\n  videos/\n```\n\nWrite the final verification report to\n`verification-artifacts/report.md`. The report must include:\n\n- What feature behavior was verified.\n- Which repo gates ran and their results.\n- What plan verification steps were executed, and what additional steps\n  were executed.\n- Commands run and where their full output was saved.\n- Artifact paths for screenshots, videos, JSON snapshots, and CLI\n  transcripts.\n- Any failures, gaps, skipped checks, or residual risk.\n\nDo not claim the feature is ready unless the evidence supports that\nclaim. Do not route the workflow with `verification_ready`; the\nVerification Judge owns that decision.\n\nYour final response must summarize the executed verification and list\nthe artifact paths you created.\n"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "label": {
+              "String": "Verify"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            }
+          }
+        },
+        "review": {
+          "id": "review",
+          "attrs": {
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "label": {
+              "String": "Review"
+            },
+            "prompt": {
+              "String": "# Review\n\nReview the implementation as if preparing a pull request.\n\nCheck:\n\n- The diff stays within the requested Skillmaker Studio scope and the\n  plan's named package boundaries: domain logic and schemas in\n  `packages/core`, deterministic CLI/server behavior in `packages/cli`,\n  browser UI in `packages/viewer`.\n- CLI changes have black-box tests for behavior, exit codes, and\n  important output fields; server-surface changes have `test/e2e`\n  coverage.\n- Viewer changes build (`bun run build:viewer` ran in validation).\n- Comments follow the house style: plain English prose explaining WHY,\n  citing issues, dated proposals, and rulings (see\n  `packages/core/src/Todo.ts` for the standard). Flag comments that\n  merely restate the code, and new non-obvious decisions left\n  uncommented or uncited.\n- No files under `docs/library` were freehand-edited outside an approved\n  library migration.\n- Validation output from the gates node is understood and any failures\n  are actionable.\n\nDo not make implementation, prompt, config, or test edits in this stage.\nIf a change is required, route back to implementation with enough context\nfor the next implement stage to make the fix.\n\nIf the implementation is not ready, be concrete about the remaining\nblocking work so the next implementation stage has actionable context.\n\nEnd with exactly one routing JSON object:\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"review_ready\":true}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"review_ready\":false}}\n```\n"
+            },
+            "provider": {
+              "String": "openai"
+            }
+          }
+        },
+        "implement": {
+          "id": "implement",
+          "attrs": {
+            "backend": {
+              "String": "api"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "label": {
+              "String": "Implement"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "prompt": {
+              "String": "# Implement\n\nImplement the Skillmaker Studio feature plan.\n\nBefore editing files:\n\n- Read the plan under `docs/proposals/` named by the scope stage.\n- Read package-local README and guidance files for every package or\n  surface touched by the plan; treat that guidance as owning\n  implementation workflow, tests, and validation for the touched package.\n\nWork rules:\n\n- Stay scoped to the plan, its named package boundaries, and directly\n  necessary shared configuration.\n- Do not freehand-edit `docs/library`; it is the live product context\n  library. Only touch that path when the approved plan explicitly owns a\n  library migration.\n- Do not broaden the plan during implementation. If the planned slice\n  cannot be implemented coherently without expanding scope, implement the\n  smallest coherent planned slice if possible; otherwise leave a clear\n  blocking note in the final response for review/human intervention. Do\n  not turn the stage into plan-only work.\n- Keep domain logic and schemas in `packages/core` (Effect-first, schema\n  changes ripple from here). When changing `packages/cli`, keep command\n  data on stdout and diagnostics on stderr, preserve stable exit codes,\n  and add or update black-box tests for CLI behavior. When changing\n  `packages/viewer`, keep browser UI state in viewer-owned\n  components/helpers.\n- Write comments in the house style: plain English prose that explains\n  WHY the code is shaped this way (not what it does) and cites its\n  sources — issue numbers, dated proposals, rulings — the way\n  `packages/core/src/Todo.ts` does. New non-obvious decisions get a\n  comment that names the plan or ruling that made them.\n- If this stage is reached after a validation failure, inspect the\n  validation output from the prior stage and fix the smallest relevant\n  issue.\n\nFull gates. Before finishing, run and pass ALL of:\n\n```bash\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun test test/e2e --timeout 30000\n```\n\nAND, whenever the diff touches `packages/viewer`:\n\n```bash\nbun run build:viewer\n```\n\nDo not hand off with any gate failing or skipped; a script node reruns\nthe same gates right after this stage and a failure routes straight back\nhere.\n\nBefore finishing, inspect `git diff --stat` and summarize the implemented\nchanges.\n"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            }
+          }
+        },
+        "validate_gates": {
+          "id": "validate_gates",
+          "attrs": {
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "script": {
+              "String": "./.fabro/scripts/fabro-validate"
+            },
+            "shape": {
+              "String": "parallelogram"
+            },
+            "label": {
+              "String": "Run repo gates"
+            }
+          }
+        },
+        "scope": {
+          "id": "scope",
+          "attrs": {
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "prompt": {
+              "String": "# Scope\n\nCreate or refine a durable technical implementation plan for the requested\nSkillmaker Studio feature. Do not edit implementation files in this stage.\n\n## The repository\n\nSkillmaker Studio is a bun + Effect TypeScript monorepo (bun workspaces,\n`packageManager: bun@…` pinned in the root `package.json`):\n\n- `packages/core` — the domain engine: skills, evals, journal, todos,\n  triage. Effect-first; schemas live here and everything else consumes\n  them.\n- `packages/cli` — the `skillmaker` CLI and the local server the Studio\n  UI rides on. Command execution is modeled as Effect programs; command\n  data goes on stdout, diagnostics on stderr, exit codes are stable.\n- `packages/viewer` — the Studio browser UI (Astro + React).\n- `packages/desktop`, `packages/docs-site`, `packages/marketing-site`,\n  `packages/skill` — desktop shell, sites, and the packaged\n  `/skillmaker` agent skill. Touch these only when the goal names them.\n- `test/e2e` — black-box end-to-end tests over the CLI and server\n  surfaces (`bun test test/e2e`).\n- `docs/` — plans and design docs; `docs/proposals/` holds dated\n  proposal/plan documents.\n\nRepository gates (mirrors `.github/workflows/ci.yml`): typecheck core and\ncli, `bun test packages`, `bun test test/e2e`, and `bun run build:viewer`.\nA later script node runs all of these; plan work that can pass them.\n\nHouse comment style — plan for it now so implementation inherits it:\ncomments are plain English prose that explains WHY the code is shaped the\nway it is, not what it does, and cites its sources — issue numbers,\ndated proposals, and rulings (e.g. \"ruling R2, 2026-07-17 data-model\nreconciliation\") — the way `packages/core/src/Todo.ts` does.\n\n## Planning rules\n\n- Read and obey the root `README.md`, `docs/README.md`, and any\n  package-local README or guidance files for packages named by the goal.\n- Write the plan to `docs/proposals/<yyyy-mm-dd>-<stable-feature-slug>.md`\n  (the house pattern for dated proposals). If a relevant plan already\n  exists there, refine it instead of creating a duplicate.\n- Keep work scoped to the packages and surfaces named by the goal.\n- Keep domain logic and schemas in `packages/core`; keep deterministic\n  CLI/server behavior in `packages/cli`; keep browser UI state in\n  `packages/viewer`.\n- Do not freehand-edit `docs/library`; it is the live product context\n  library. Only touch that path when the approved plan explicitly owns a\n  library migration.\n- Use Effect patterns already present in the touched packages.\n- Include black-box tests for CLI behavior, exit codes, and important\n  output fields when the CLI changes (unit tests in the package,\n  end-to-end coverage in `test/e2e` when the server surface changes).\n- Include viewer build validation (`bun run build:viewer`) when viewer\n  behavior changes.\n- Include risks, mitigations, acceptance criteria, and deferred\n  follow-ups.\n\n## Implementation handoff output\n\n- After writing or refining the plan, read the plan file back from disk.\n- Your final response is what the implementation stage receives. It must\n  show the real plan document, not a summary.\n- Start with `Plan ready for implementation: <plan-path>`.\n- Then paste the complete Markdown contents of the plan file between these\n  exact markers:\n\n```text\n--- BEGIN PLAN DOC ---\n<complete contents of docs/proposals/<yyyy-mm-dd>-<stable-feature-slug>.md>\n--- END PLAN DOC ---\n```\n\n- Do not summarize, paraphrase, omit sections, or replace the plan with a\n  status report.\n- If the plan has risks or open questions that need attention before\n  implementation, they must be present in the plan document itself.\n"
+            },
+            "label": {
+              "String": "Scope"
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "scope",
+          "attrs": {}
+        },
+        {
+          "from": "scope",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "scope",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "implement",
+          "to": "validate_gates",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "implement",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "validate_gates",
+          "to": "implement",
+          "attrs": {
+            "label": {
+              "String": "Fix validation"
+            },
+            "condition": {
+              "String": "outcome=failed"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "review",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            },
+            "label": {
+              "String": "Validation OK"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "review",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "review_ready=false"
+            },
+            "label": {
+              "String": "Fix"
+            }
+          }
+        },
+        {
+          "from": "review",
+          "to": "verify",
+          "attrs": {
+            "label": {
+              "String": "Ready"
+            },
+            "condition": {
+              "String": "review_ready=true"
+            }
+          }
+        },
+        {
+          "from": "review",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "verify",
+          "to": "verification_judge",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "verify",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "verification_judge",
+          "to": "verify",
+          "attrs": {
+            "label": {
+              "String": "Re-verify"
+            },
+            "condition": {
+              "String": "verification_route=verify"
+            }
+          }
+        },
+        {
+          "from": "verification_judge",
+          "to": "implement",
+          "attrs": {
+            "label": {
+              "String": "Fix implementation"
+            },
+            "condition": {
+              "String": "verification_route=implement"
+            }
+          }
+        },
+        {
+          "from": "verification_judge",
+          "to": "handoff",
+          "attrs": {
+            "label": {
+              "String": "Verified"
+            },
+            "condition": {
+              "String": "verification_ready=true"
+            }
+          }
+        },
+        {
+          "from": "verification_judge",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "handoff",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "default_fidelity": {
+          "String": "summary:high"
+        },
+        "stall_timeout": {
+          "Duration": {
+            "secs": 18000,
+            "nanos": 0
+          }
+        },
+        "max_node_visits": {
+          "Integer": 8
+        },
+        "rankdir": {
+          "String": "LR"
+        },
+        "goal": {
+          "String": "GitHub Issue #194: Chat SSE stream has no keepalive — Bun's idleTimeout tears it down every 30s, jumping the reader to the bottom\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/194\n\n## Summary\n\nThe chat SSE stream sends no periodic keepalive, so Bun's `idleTimeout: 30`\ntears the connection down every 30 seconds of quiet. The browser's `EventSource`\nsilently reconnects, the server replays the transcript buffer, and the reader —\nwho may be scrolled up mid-transcript — is yanked to the bottom. The\nmachine-level `/api/events-stream` already solves this with a 15 s heartbeat;\nthe chat stream never got one.\n\n## Motivation / Problem\n\nObservable cost: you cannot read a chat transcript. Scroll up to reread\nsomething the agent said and roughly every 30 seconds, with no interaction and\nno agent activity, the panel jumps to the bottom. On a long research\nconversation — exactly the material worth rereading — the transcript is\neffectively unreadable while the session is open.\n\nUnderneath the visible symptom, every idle chat session is churning: a\nconnection torn down and re-established twice a minute, each reconnect replaying\nthe entire event buffer over the wire, forever, for as long as the panel is\nopen.\n\nThe transcript-position damage on reconnect is a **separate defect** and is\nfiled alongside this one — this issue removes the 30-second cadence; the\ncompanion makes any future reconnect (network blip, laptop sleep, server\nrestart) harmless. Either can be built first.\n\n## Observed behavior\n\nOpen a chat panel on any skill, let the session go quiet, scroll to the middle\nof the transcript, and touch nothing. In roughly 25-30 seconds the panel jumps\nto the bottom. Repeats indefinitely. Confirmed by hand at >25 s.\n\nThe server log shows no error; nothing in the UI indicates the stream dropped\nand came back.\n\n## Current shape\n\nThe machine-level events stream is the working sibling — it has a heartbeat.\n`packages/cli/src/server/Server.ts:89`:\n\n```ts\nconst HEARTBEAT_MS = 15_000;\n```\n\ndriven at `Server.ts:2911` and written at `Server.ts:2535`:\n\n```ts\n  const heartbeat = setInterval(broadcaster.onHeartbeat, HEARTBEAT_MS);\n```\n```ts\n    onHeartbeat: () => broadcast(\": heartbeat\\n\\n\"),\n```\n\nThe chat stream is built separately, in `ChatSessions.streamResponse`\n(`packages/cli/src/server/ChatSessions.ts:688-719`), and has **no interval at\nall** — one comment frame at connect, then bytes only when a real session event\noccurs:\n\n```ts\n        controller.enqueue(encoder.encode(\": connected\\n\\n\"));\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n          subscriber = sendEvent;\n          chat.subscribers.add(sendEvent);\n          chat.lastActivityAt = Date.now();\n        }\n```\n\nMeanwhile `Server.ts:2914-2923` sets a 30-second per-connection idle timeout,\nwith a comment that explains what it was reasoning about — cold-start request\nbursts — and does not consider long-lived SSE streams, which are idle by design:\n\n```ts\n    // Explicit safety net, not a fix by itself: Bun's default per-connection\n    // idle timeout is 10s, which a concurrent-request burst on cold start\n    // ... 30s gives real (non-runaway) requests headroom without hiding a\n    // genuine hang.\n    idleTimeout: 30,\n```\n\nSequence: 30 s of no bytes → Bun closes the socket → `EventSource` reconnects\n(UA default retry, ~3 s in Chrome; the server never sends a `retry:` field) →\nobserved period ≈ 30-33 s, matching the report.\n\nNote `streamResponse` also serves the case where **no live session exists** (the\npre-session model picker holds this stream open). That connection produces no\nevents by definition, so it is torn down every 30 s too.\n\nThe trap worth naming: `idleTimeout` is a *global* server setting and the chat\nstream is the only long-lived SSE endpoint that was added without the heartbeat\nits sibling already had. The fix belongs on the stream, not on the timeout.\n\n## Proposed contract\n\n`ChatSessions.streamResponse` writes an SSE comment frame on an interval, the\nsame shape and cadence the events stream already uses:\n\n```\n: keepalive\\n\\n\n```\n\nevery **15 000 ms** — half the 30 s idle timeout, matching `HEARTBEAT_MS`.\n\n**Decisions:**\n\n- The frame is an SSE **comment** (`:` prefix), not a data frame. `EventSource`\n  ignores it, so no client-side handling is needed and `ChatStreamEvent` is\n  unchanged.\n- Cadence is 15 000 ms, reusing the existing `HEARTBEAT_MS` value rather than\n  introducing a second number.\n- The interval is **per connection**, started in the stream's `start` and\n  **cleared in its `cancel`**, so a closed connection cannot leak a timer.\n- The keepalive runs **regardless of whether a live chat session exists** — the\n  pre-session picker's connection needs it just as much.\n- `idleTimeout: 30` in `Server.ts` is **not** changed. It is a deliberate safety\n  net with a documented rationale; raising or removing it to paper over a\n  missing keepalive would hide genuine hangs.\n- No `retry:` field is introduced. Reconnect cadence is not the problem;\n  reconnecting at all is.\n\n## Acceptance criteria\n\n- [ ] With a chat panel open and idle, the SSE connection survives at least\n      120 seconds without the server closing it and without `EventSource`\n      reconnecting.\n- [ ] Keepalive comment frames are observable on the wire at ~15 s intervals on\n      `/api/chat/:skill/stream`.\n- [ ] The keepalive is emitted on a connection opened when **no live session\n      exists** for that skill (pre-session picker case).\n- [ ] Negative: the keepalive frame produces no transcript item and no state\n      change — the client's `items` array and `state` are byte-identical before\n      and after a keepalive.\n- [ ] Negative / no leak: after the client disconnects, the connection's\n      interval is cleared — opening and closing N chat streams leaves no\n      accumulating timers.\n- [ ] Regression: `/api/events-stream` behavior is unchanged, still at\n      `HEARTBEAT_MS`, and `idleTimeout: 30` is still in force for ordinary\n      requests.\n- [ ] Regression: existing chat stream behavior is unchanged —\n      `test/e2e/chat-sessions.e2e.test.ts` passes unmodified (connect replay,\n      state frames, event ordering).\n- [ ] Tests cover: long-idle connection survival, keepalive cadence,\n      no-live-session case, and interval cleanup on disconnect.\n\n## Implementation notes\n\nThe events stream's heartbeat is driven by one server-level `setInterval` over a\nbroadcaster with many subscribers; the chat stream is a per-skill `Response`\nbuilt inside `streamResponse`, so its keepalive is naturally per-connection\ninstead. Guard the enqueue the same way `sendEvent` already does — a client that\nvanished mid-interval must not throw.\n\nScope fences:\n\n- **Do not change `idleTimeout`.** See the decision above.\n- **Do not add a data frame or extend `ChatStreamEvent`.** A comment frame\n  requires no client change; a new event type would.\n- **Do not touch the replay-on-connect behavior** — that is the companion\n  issue's territory, and the two fixes must not collide.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `streamResponse` (:688), its\n  `cancel` (:710)\n- `packages/cli/src/server/Server.ts` — `HEARTBEAT_MS` (:89), events-stream\n  heartbeat wiring (:2535, :2911), `idleTimeout` (:2923)\n- `packages/viewer/src/app/next/chatApi.ts` — the `EventSource` consumer (:196)\n\n---\n\n**Companion:** #195 — SSE reconnect wipes the transcript and destroys the reader's scroll position. This issue removes the ~30s cadence; #195 makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim in the issue against the current code before acting on it; the issue is a report, not a spec — the code is the truth. Stay minimal: fix the reported defect with tests, nothing adjacent.\n"
+        }
+      }
+    },
+    "graph_source": "digraph SmsFeature {\n    graph [\n        goal=\"Implement a Skillmaker Studio feature with post-review verification before handoff.\",\n        default_fidelity=\"summary:high\",\n        max_node_visits=8,\n        stall_timeout=\"5h\"\n    ]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    // Model split (director ruling, PR #188): sol-high where the graph\n    // makes judgment calls that gate everything downstream (scope, the\n    // verification judge); terra-medium for the in-loop worker stages.\n    scope [\n        label=\"Scope\",\n        prompt=\"@prompts/scope.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        timeout=\"90m\"\n    ]\n\n    implement [\n        label=\"Implement\",\n        prompt=\"@prompts/implement.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    validate_gates [\n        shape=parallelogram,\n        label=\"Run repo gates\",\n        script=\"./.fabro/scripts/fabro-validate\",\n        timeout=\"90m\"\n    ]\n\n    review [\n        label=\"Review\",\n        prompt=\"@prompts/review.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    verify [\n        label=\"Verify\",\n        prompt=\"@prompts/verify.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    verification_judge [\n        label=\"Verification Judge\",\n        prompt=\"@prompts/verification-judge.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        timeout=\"90m\"\n    ]\n\n    handoff [\n        shape=tab,\n        label=\"Prepare PR\",\n        prompt=\"@prompts/handoff.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        timeout=\"90m\"\n    ]\n\n    start -> scope\n    scope -> implement [condition=\"outcome=succeeded\"]\n    scope -> exit\n    implement -> validate_gates [condition=\"outcome=succeeded\"]\n    implement -> exit\n    validate_gates -> implement [label=\"Fix validation\", condition=\"outcome=failed\"]\n    validate_gates -> review    [label=\"Validation OK\", condition=\"outcome=succeeded\"]\n    validate_gates -> exit\n\n    review -> implement [label=\"Fix\", condition=\"review_ready=false\"]\n    review -> verify    [label=\"Ready\", condition=\"review_ready=true\"]\n    review -> exit\n    verify -> verification_judge [condition=\"outcome=succeeded\"]\n    verify -> exit\n    verification_judge -> verify    [label=\"Re-verify\", condition=\"verification_route=verify\"]\n    verification_judge -> implement [label=\"Fix implementation\", condition=\"verification_route=implement\"]\n    verification_judge -> handoff   [label=\"Verified\", condition=\"verification_ready=true\"]\n    verification_judge -> exit\n    handoff -> exit\n}\n",
+    "workflow_slug": "sms-feature",
+    "source_directory": "/Users/jessmartin/Documents/code/skillmaker-studio",
+    "provenance": {
+      "server": {
+        "version": "0.315.0-nightly.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.315.0-nightly.0",
+        "name": "fabro-cli",
+        "version": "0.315.0-nightly.0"
+      },
+      "subject": {
+        "kind": "user",
+        "identity": {
+          "issuer": "https://github.com",
+          "subject": "27258"
+        },
+        "login": "jessmartin",
+        "auth_method": "github"
+      }
+    },
+    "manifest_blob": "38c6ba70babc38377165d9168a8ded861c3790bde74d04ebcf2d941b0afc2d21",
+    "definition_blob": "c91e37be6cfc474e9bdbb412c894c4a87f196d71e02ac36caad623c298f49729",
+    "git": {
+      "origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+      "branch": "main",
+      "sha": "01cc271ffd5a5370e63f3e327d3e57880d7da205",
+      "dirty": "clean",
+      "push_outcome": {
+        "type": "not_attempted"
+      }
+    }
+  },
+  "web_url": "https://fabro-st.up.railway.app/runs/01KZ6YKB8Z2Y2ZN5A67AYG5PAM",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-08-04T17:54:41.465227435Z",
+  "last_event_at": "2026-08-04T17:54:58.290613038Z",
+  "pending_control": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "sandbox": {
+    "kind": "ready",
+    "plan": {
+      "provider": "daytona"
+    },
+    "instance": {
+      "provider": "daytona",
+      "snapshot": "daytona-medium",
+      "runtime": {
+        "id": "fabro-01KZ6YKB8Z2Y2ZN5A67AYG5PAM",
+        "working_directory": "/home/daytona/workspace/skillmaker-studio",
+        "repo_cloned": true,
+        "clone_origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+        "clone_branch": "main",
+        "workspace_root": "/home/daytona/workspace",
+        "repos_root": "/home/daytona/repos",
+        "primary_repo_path": "/home/daytona/repos/sociotechnica-org/skillmaker-studio",
+        "primary_repo_link": "/home/daytona/workspace/skillmaker-studio"
+      }
+    }
+  },
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "stages": {}
+}
