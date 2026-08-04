@@ -65,9 +65,9 @@ export default defineConfig({
         {
           label: "Getting Started",
           items: [
+            { label: "Your first skill", slug: "getting-started/first-bundle" },
             { label: "Introduction", slug: "getting-started/introduction" },
             { label: "Install", slug: "getting-started/install" },
-            { label: "Your first Skill Bundle", slug: "getting-started/first-bundle" },
             { label: "Adopting an existing repo", slug: "getting-started/adopting-an-existing-repo" },
             { label: "Provider auth & troubleshooting", slug: "getting-started/provider-auth" },
             { label: "Desktop app", slug: "getting-started/desktop-app" },

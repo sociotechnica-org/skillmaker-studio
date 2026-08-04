@@ -1,159 +1,228 @@
 ---
-title: Your first Skill Bundle
-description: init → new → project add → start, with real CLI output, end to end.
+title: Your first skill
+description: A guided tour — start the Studio, describe a skill in a sentence, and walk it with an agent from research to a measured draft.
 ---
 
-This walkthrough was run verbatim against the real CLI in a brand-new
-directory while writing these docs. Follow along in your own scratch
-directory.
+Welcome. This page walks you through making your first skill in Skillmaker
+Studio — from one `npx` command to a drafted, honestly-measured `SKILL.md` —
+with an agent doing the production work and you making the calls. No prior
+setup, no cloned repo, no configuration files. Plan for a relaxed half hour;
+most of it is conversation.
 
-## 1. Create a workspace
+A quick word on what you're making. A **skill** is a `SKILL.md` file that
+teaches a coding agent (Claude Code, Codex, and compatible tools) how to do
+something your way. Skillmaker Studio's wager is that the file itself is the
+least interesting part: the research behind it, the design reasoning, the
+eval fixtures that probe where it might fail, and the measured evidence that
+it works are the durable asset. Studio keeps all of that together in a
+**Skill Bundle** — plain files in a directory you own — and `SKILL.md` is
+one of its outputs.
 
-In any **fresh, empty git repository**:
+## Before you start
 
-```sh
-mkdir my-skills && cd my-skills
-git init
-git config user.email "you@example.com"
-git config user.name "Your Name"
-skillmaker init
-```
+Two things need to be true on your machine:
 
-```text
-skillmaker: initialized workspace at /path/to/my-skills
-```
+1. **Node.js** (for `npx`) and **git**. Your skills live in a git
+   repository — Studio will set one up for you.
+2. **A coding agent, installed and signed in.** Studio's conversations run
+   through an agent you already have: either
+   [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) or
+   [Codex](https://developers.openai.com/codex/cli/). Install at least one
+   and make sure it works on its own (`claude` or `codex` runs and is
+   authenticated) before you start — Studio drives these tools; it can't
+   sign in for you. If chat never answers, this is the first thing to check:
+   see [Provider auth & troubleshooting](/getting-started/provider-auth/).
 
-`init` is idempotent — running it again reports `already initialized` and
-changes nothing. It creates:
+And two things worth knowing before you're surprised by them:
 
-```text
-my-skills/
-  skillmaker.config.json
-  .skillmaker/
-    events.jsonl
-```
+- **The agent works in your real project.** Its edits land as actual files
+  in the directory you choose — nothing is sandboxed away from you. That's
+  the point: everything it produces is yours, on disk, diffable.
+- **You are the gate.** The pipeline moves at human speed, on your say-so.
+  Studio will never advance a skill past a stage without you.
 
-`skillmaker.config.json` is the tracked app config (skills directory,
-provider commands, publish targets). `.skillmaker/events.jsonl` is the
-journal — the append-only, git-tracked history of every decision this
-workspace ever records. There's no `skills/` directory yet; it's created
-lazily by `skillmaker new`.
+## 1. Start the Studio
 
-## 2. Create a Skill Bundle
-
-```sh
-skillmaker new my-first-skill
-```
-
-```text
-skillmaker: created bundle my-first-skill
-```
-
-This scaffolds `skills/my-first-skill/`:
-
-```text
-skills/my-first-skill/
-  bundle.json               # identity only — slug, name, tags, targets
-  design.md                 # the skill's workflow thinking (skeleton)
-  stations.json              # per-state work config, copied from the default template
-  research/.gitkeep
-  evals/
-    risk-map.md               # coverage axis (empty table)
-    fixtures/.gitkeep
-  output/.gitkeep
-  runs/.gitkeep
-```
-
-and appends one `bundle.created` event to the journal. Use `--name "My
-Display Name"` if you want a display name other than the title-cased slug.
-
-## 3. Check status
+From any terminal, in any directory:
 
 ```sh
-skillmaker list
+npx skillmaker-studio start
 ```
 
-```text
-SLUG            STAGE  SUBSTATE
-my-first-skill  idea   working
-```
+This starts a small local server and opens your browser to the Studio
+(default: `http://localhost:4323`). On a first run with nothing set up yet,
+you'll land on a welcome screen with one button: **Create your first
+project**. Click it.
 
-```sh
-skillmaker status my-first-skill
-```
+:::note[CLI equivalent]
+`skillmaker start` serves every project registered on this machine, from
+wherever you run it. Terminal-first users can do this whole setup as
+`skillmaker init` + `skillmaker project add .` in a repo of their own —
+see the [CLI Reference](/cli/). The rest of this page stays in the browser.
+:::
 
-```text
-slug:        my-first-skill
-name:        My First Skill
-one-liner:
-tags:
-created:     2026-07-11
-stage:       idea
-substate:    working
-archived:    false
-events:      1
-last event:  bundle.created at 2026-07-11T10:34:04.034Z
-design:      sha256:e5f822e6d599
-output:      sha256:4f53cda18c2b
-drift:       no-version
-version:     (none recorded)
-fixtures:    0
-coverage:    0 covered, 0 partial, 0 gap
-last run:    (none)
-```
+## 2. Create a project
 
-Both commands rebuild the SQLite index from the journal + files before
-reading, so they're always consistent with what's on disk — delete
-`.skillmaker/studio.db` at any time and the next `list`/`status`/`start`
-rebuilds it from scratch with `reindex`'s output byte-identical.
+A **project** is just a directory on your machine where your skills will
+live. The dialog lets you browse to an existing directory, type a path, or
+create a new folder right there. Pick or create one — a fresh, empty folder
+is perfect for today.
 
-## 4. Register the project and open the board
+Don't worry about preparing the directory: anything that isn't already a
+Skillmaker workspace gets set up automatically when you click **Create
+project** (a git-friendly scaffold: one small config file and an append-only
+journal — more on that at the end).
 
-`skillmaker start` serves a **machine-level project registry** rather than
-the current directory, so register the workspace once (from inside it):
+## 3. Describe the skill you want
 
-```sh
-skillmaker project add .
-```
+You'll land on the new-skill launcher, which asks one question: *What skill
+would you like to create? Tell us about it.*
 
-```text
-skillmaker: registered /path/to/my-skills
-```
+Write real sentences, like you'd brief a colleague. Not a slug, not
+keywords — the more intent you give, the better the conversation starts.
+For example:
 
-then start the server — from anywhere, it no longer matters where:
+> A skill that writes release notes from merged PRs in my team's voice:
+> grouped by user impact, no commit-hash soup, honest about breaking
+> changes.
 
-```sh
-skillmaker start
-```
+The picker at the bottom of the box lists the agents Studio found on your
+machine — pick which model runs this skill's sessions. Then send.
 
-This serves the board and its API for every registered project on one
-origin (default port `4323`) and opens your browser. You should see
-**My First Skill** as a card in the `idea` column. (If the server was
-already running, the sidebar's **New project** button is the other door —
-it can browse to the directory, or create and initialize a fresh one,
-without touching the terminal.) Confirm the API is live from another
-terminal — project routes are scoped by the project's slug, its directory
-basename:
+(If Studio spotted existing `SKILL.md` files near your project, it offers
+them under *Import one of these?* — a way to bring an existing skill under
+management. For your first run, describing something new is more fun.)
 
-```sh
-curl -s http://localhost:4323/api/projects/my-skills/bundles
-```
+## 4. Meet the agent
 
-```json
-{"bundles":[{"slug":"my-first-skill","name":"My First Skill","oneLiner":"","tags":[],"created":"2026-07-11","stage":"idea","substate":"working","archived":false,"designHash":"sha256:e5f822e6d599...","outputHash":"sha256:4f53cda18c2b...","drift":"no-version"}],"fixtureCounts":{}}
-```
+Sending drops you onto the new skill's page, and a chat opens on the right.
+Your brief arrives with a context chip attached — machine-written context
+telling the agent where it is: inside Skillmaker Studio, working on this
+bundle, at this stage, with its production guidance to read before acting.
 
-If you run `skillmaker new another-skill` in a second terminal while the
-board is open, watch it appear on the board without reloading — the viewer
-holds an SSE connection over the journal file.
+This matters more than it sounds. A bare agent told "write release notes"
+would just... write release notes, once, for this repo. This agent knows its
+job is to build the *reusable skill* that does it — so its first move is to
+orient: it reads the bundle's actual state and asks you the one question
+that moves things forward. Answer it. This is the rhythm of the whole
+pipeline: the agent produces, you decide.
 
-## What you have now
+(Closing the panel or the tab loses nothing — reopening the chat resumes
+the same session where you left off.)
 
-A real Skill Bundle, tracked in git the moment you commit `skills/` and
-`.skillmaker/events.jsonl`. Next:
+## 5. Research — answer the open questions
 
-- [The Skill Bundle](/concepts/skill-bundle/) — what each file is for.
-- [The production state machine](/concepts/state-machine/) — how a bundle
+First real station. The agent researches your skill's domain: real sources,
+failure cases, the boundaries of what the skill should and shouldn't do.
+Its notes land in `research/notes.md`, which you can watch fill in on the
+skill page's **Research** tab.
+
+Then comes the part to actually show up for: research ends with **open
+design questions**, and the agent brings them to you **one at a time** —
+ask, wait, fold your answer back into the notes, next question — until they
+are all cleared or explicitly parked. These answers are where your judgment
+enters the skill. Take them seriously; one honest "I don't know, park it"
+beats a confident guess.
+
+## 6. Design — co-author design.md
+
+With research settled, the agent proposes the skill's design and you shape
+it together in conversation: what the skill is for, when an agent should
+reach for it, the workflow it teaches, and — most valuable — your **failure
+hypotheses**: the specific ways you suspect it could go wrong. Those
+hypotheses become your evals in step 8.
+
+The result is `design.md` — the *why* behind the skill, the document most
+skills never have. You can read it any time in the **Files** panel on the
+right.
+
+## 7. Draft — SKILL.md appears
+
+Now the agent drafts. `output/SKILL.md` — the actual skill text an agent
+will someday run — lands in the bundle, and the skill page's **Overview**
+tab starts showing its summary. Read it. Push back in chat on anything that
+doesn't sound like you; the draft is a conversation artifact like everything
+else here.
+
+## 8. Evals — measure it honestly
+
+This is the station that separates a Skillmaker skill from a pasted gist.
+The agent turns the design's failure hypotheses into **claims** (a risk map
+of what the skill is supposed to get right) and **fixtures** — small
+concrete test scenarios that probe them.
+
+Head to the **Eval** tab:
+
+- Each claim shows its coverage — and until fixtures have been run and
+  graded, its measurement honestly reads **not yet measured**. That's a
+  feature, not a gap: Studio never lets "a test exists" masquerade as "it
+  passes."
+- **Run all fixtures** executes them against your chosen agent.
+- When runs finish, read each response and grade it — **Pass** or
+  **Fail**, your judgment, recorded. Grade honestly; a real Fail is worth
+  more than a polite Pass, because it goes straight back into the
+  conversation as the next thing to fix.
+
+The [Evals section](/evals/fixtures-and-risk-maps/) covers this whole
+machinery in depth when you want it.
+
+## 9. Publish
+
+<!-- TODO(#185): the install-door publish (Publish tab buttons "All my
+     agents" / "This project's agents", provenance stamp, `skillmaker
+     publish --to user|project`) is in flight on PR #185. When it merges,
+     replace this section with the two-button walk. Until then this section
+     documents what main actually has. -->
+
+The **Publish** tab shows the skill's recorded versions next to their
+evidence, but its buttons are disabled today — the in-Studio publish flow
+is the one station still being built (see the
+[Roadmap](/roadmap/)). What exists now is the CLI door for workspaces with
+configured publish targets:
+[`skillmaker publish`](/cli/publish/), and the broader story in
+[Publishing and the skillbook](/concepts/publishing-and-the-skillbook/).
+
+Until the door opens, your drafted, measured `SKILL.md` sits in
+`output/SKILL.md` — a plain file you can copy wherever your agents read
+skills from.
+
+## Where everything lives
+
+You've now seen the whole shape of the Studio; here's the map of it.
+
+**The tabs are the stations.** Overview is the skill's front page (the
+draft's summary), Research holds the notes and decisions, Eval holds
+claims, fixtures, runs and grades, Publish holds versions and evidence.
+Each tab shows the state of one leg of the pipeline.
+
+**The Files panel is the whole bundle.** The right panel's **Files** tab
+browses every file in the bundle — research, design, draft, fixtures, runs.
+Nothing on the skill page is anything other than a view of these files.
+
+**Everything is files in your project.** The bundle is a directory
+(`skills/<your-skill>/`) inside the project directory you picked in step 2,
+plus an append-only journal (`.skillmaker/events.jsonl`) recording every
+decision. Commit them and your skill's entire history — reasoning, evidence,
+and all — travels with your repo. See
+[The Skill Bundle](/concepts/skill-bundle/) and
+[The journal](/concepts/journal/) for the anatomy.
+
+## When something doesn't work
+
+- **Chat never answers, or no agents appear in the picker** — your provider
+  isn't installed or isn't signed in. Fix it standalone first, then restart:
+  [Provider auth & troubleshooting](/getting-started/provider-auth/).
+- **On Windows** — support is new and lightly tested; if something breaks,
+  please [open an issue](https://github.com/sociotechnica-org/skillmaker-studio/issues)
+  with what you saw. That genuinely helps.
+- **Anything else that stopped you or confused you** — we want to hear it,
+  at the same place. You are exactly the reader this page was written for.
+
+## Where to next
+
+- [The production state machine](/concepts/state-machine/) — how a skill
   moves `idea → researching → drafting → evaluating → published`, and why
-  `skillmaker advance my-first-skill` refuses to move it yet.
-- [CLI Reference](/cli/) — every command and flag.
+  every move waits for you.
+- [Adopting an existing repo](/getting-started/adopting-an-existing-repo/)
+  — bring the skills you already have under management.
+- [CLI Reference](/cli/) — every station on this page has a terminal door.

@@ -65,5 +65,5 @@ bun run build:viewer   # from the repo root, once (or after viewer changes)
 ## See also
 
 [`skillmaker project`](/cli/project/) manages the registry `start` serves.
-[Your first Skill Bundle](/getting-started/first-bundle/) walks through
-opening the viewer and confirming the API is live with `curl`.
+[Your first skill](/getting-started/first-bundle/) is the guided tour
+that begins at `skillmaker start`.

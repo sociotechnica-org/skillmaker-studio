@@ -90,5 +90,5 @@ moved project is the main use.
 
 [`skillmaker start`](/cli/start/) serves the registry;
 [`skillmaker init`](/cli/init/) makes a directory registrable in the first
-place. [Your first Skill Bundle](/getting-started/first-bundle/) walks
-`init` → `project add` → `start` end to end.
+place. [Your first skill](/getting-started/first-bundle/) is the
+browser-first tour of the same path.

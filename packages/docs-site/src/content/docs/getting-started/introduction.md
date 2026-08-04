@@ -38,9 +38,9 @@ displayed.
 
 ## What's in these docs
 
-- **[Getting Started](/getting-started/install/)** — install (npm, curl,
-  or from source), walk through creating your first Skill Bundle and
-  opening the board, and build the desktop app.
+- **[Getting Started](/getting-started/first-bundle/)** — the guided tour
+  of making [your first skill](/getting-started/first-bundle/), install
+  options (npm, curl, or from source), and the desktop app.
 - **[Concepts](/concepts/skill-bundle/)** — the Skill Bundle's anatomy, the
   production state machine, the journal, and versions/drift.
 - **[Evals](/evals/fixtures-and-risk-maps/)** — the fixture kit, risk

@@ -22,7 +22,8 @@ skillmaker init
 skillmaker: initialized workspace at /path/to/my-existing-skills-repo
 ```
 
-This is the same `init` as [Your first Skill Bundle](/getting-started/first-bundle/)
+This is the same setup [Your first skill](/getting-started/first-bundle/)'s
+project-creation step runs
 — it only writes `skillmaker.config.json` and `.skillmaker/events.jsonl`.
 Your existing `SKILL.md` files are untouched.
 
@@ -144,5 +145,5 @@ reads them on the way in — is flagged as follow-up work, not yet built.
   contract, including `--json`.
 - [The Skill Bundle](/concepts/skill-bundle/) — what an adopted bundle
   looks like once it's in the studio.
-- [Your first Skill Bundle](/getting-started/first-bundle/) — the
+- [Your first skill](/getting-started/first-bundle/) — the
   from-scratch path, if you don't have an existing repo yet.
