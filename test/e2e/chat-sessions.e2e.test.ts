@@ -10,7 +10,7 @@
  * and helper-skill injection into the agent home. No real LLM -- CI-safe.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startE2eRegistryServer, type StartedE2eRegistryServer } from "./support/server.ts";
@@ -131,12 +131,6 @@ beforeAll(async () => {
   const orientBundle = JSON.parse(readFileSync(orientBundlePath, "utf8")) as Record<string, unknown>;
   writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: "orients the director" }, null, 2)}\n`);
 
-  // A William helper bundle in the workspace, to observe agent-home injection.
-  const williamDir = join(scratchDir, "skills", "william-draft-skill-md");
-  mkdirSync(join(williamDir, "output"), { recursive: true });
-  writeFileSync(join(williamDir, "bundle.json"), `${JSON.stringify({ slug: "william-draft-skill-md" })}\n`);
-  writeFileSync(join(williamDir, "output", "SKILL.md"), "# William drafts\n");
-
   // Point the claude-code provider at the fake chat adapter.
   const configPath = join(scratchDir, "skillmaker.config.json");
   const config = JSON.parse(readFileSync(configPath, "utf8")) as {
@@ -244,11 +238,23 @@ describe("chat sessions (D9)", () => {
     }
   }, 30_000);
 
-  test("agent home injection: helper skill installed under the scratch HOME, never the project", async () => {
-    const injected = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-draft-skill-md", "SKILL.md");
-    expect(existsSync(injected)).toBe(true);
+  test("agent home injection: packaged helpers install under the scratch HOME, never the project or bundle APIs", async () => {
+    const agentSkills = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills");
+    expect(existsSync(join(agentSkills, "william-research-a-skill", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(agentSkills, "william-draft-skill-md", "SKILL.md"))).toBe(true);
     // Chat runs DIRECT in the project -- no project-level skill install.
     expect(existsSync(join(scratchDir, ".claude", "skills"))).toBe(false);
+    expect(existsSync(join(scratchDir, "skills", "william-research-a-skill"))).toBe(false);
+    expect(existsSync(join(scratchDir, "skills", "william-draft-skill-md"))).toBe(false);
+
+    const bundles = (await getJson("/api/bundles")).body as unknown as {
+      bundles: ReadonlyArray<{ slug: string }>;
+    };
+    expect(bundles.bundles.map((bundle) => bundle.slug).sort()).toEqual([ORIENT_SKILL, SKILL].sort());
+    const catalog = (await getJson("/api/catalog")).body as unknown as {
+      entries: ReadonlyArray<{ slug: string }>;
+    };
+    expect(catalog.entries.map((entry) => entry.slug).sort()).toEqual([ORIENT_SKILL, SKILL].sort());
   });
 
   test("concurrent prompts are REJECTED (409) while a turn runs; cancel ends the turn with stopReason cancelled", async () => {

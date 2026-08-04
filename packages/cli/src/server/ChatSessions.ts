@@ -43,6 +43,7 @@ import { Effect } from "effect";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -55,7 +56,12 @@ const REAP_CHECK_MS = 60 * 1000;
 /** Per-provider budget for the capability probe (spawn + initialize + session/new). Adapters that can't answer in this window fall back to a bare provider-name catalog entry. */
 const PROBE_TIMEOUT_MS = 45_000;
 
-/** Skillmaker's own helper skills (William material), injected via the agent home -- resolved from the studio workspace's skillsDir when present, silently skipped when absent (a user project without the William bundles still chats fine, just without the helpers). */
+/**
+ * Skillmaker's own helper skills (William material), injected via the agent
+ * home. Issue #190 completes D6's product-shipping ruling: a workspace can
+ * override a helper while ordinary projects receive the packaged copy, so
+ * agents do not search outside the project for guidance we already ship.
+ */
 const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
 
 // ---------------------------------------------------------------------------
@@ -153,30 +159,57 @@ const copyDirRecursive = (src: string, dest: string): void => {
 export const agentHomeBaseDir = (): string =>
   process.env.SKILLMAKER_AGENT_HOME_DIR ?? join(homedir(), ".skillmaker", "agent-home");
 
+type HelperSource = "workspace" | "packaged";
+
+interface ResolvedHelper {
+  readonly sourceDir: string;
+  readonly source: HelperSource;
+}
+
+const resolveHelper = (
+  slug: string,
+  workspaceRoot: string,
+  skillsDir: string,
+  packagedSkillsDir: string | undefined,
+): ResolvedHelper | undefined => {
+  const sources: ReadonlyArray<readonly [HelperSource, string | undefined]> = [
+    ["workspace", join(workspaceRoot, skillsDir, slug)],
+    ["packaged", packagedSkillsDir === undefined ? undefined : join(packagedSkillsDir, slug)],
+  ];
+  for (const [source, bundleDir] of sources) {
+    if (bundleDir === undefined) continue;
+    if (existsSync(join(bundleDir, "output", "SKILL.md"))) {
+      return { sourceDir: join(bundleDir, "output"), source };
+    }
+    if (existsSync(join(bundleDir, "SKILL.md"))) {
+      return { sourceDir: bundleDir, source };
+    }
+  }
+  return undefined;
+};
+
 export const prepareAgentHome = (
   provider: string,
   workspaceRoot: string,
   skillsDir: string,
-): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {
+  packagedSkillsDirLocator: () => string | undefined = locatePackagedSkillsDir,
+): {
+  readonly home: string;
+  readonly installedHelpers: ReadonlyArray<{ readonly slug: string; readonly source: HelperSource }>;
+} => {
   const home = join(agentHomeBaseDir(), provider);
   mkdirSync(home, { recursive: true });
   seedProviderAuth(provider, home);
 
-  const installed: string[] = [];
+  const packagedSkillsDir = packagedSkillsDirLocator();
+  const installed: Array<{ slug: string; source: HelperSource }> = [];
   for (const slug of HELPER_SKILL_SLUGS) {
-    const bundleDir = join(workspaceRoot, skillsDir, slug);
-    // output/ layout is the William bundles' real shape; an in-place bundle
-    // (SKILL.md at the root) installs the bundle dir itself.
-    const sourceDir = existsSync(join(bundleDir, "output", "SKILL.md"))
-      ? join(bundleDir, "output")
-      : existsSync(join(bundleDir, "SKILL.md"))
-        ? bundleDir
-        : undefined;
-    if (sourceDir === undefined) continue;
+    const resolved = resolveHelper(slug, workspaceRoot, skillsDir, packagedSkillsDir);
+    if (resolved === undefined) continue;
     const dest = join(home, "skills", slug);
     rmSync(dest, { recursive: true, force: true });
-    copyDirRecursive(sourceDir, dest);
-    installed.push(slug);
+    copyDirRecursive(resolved.sourceDir, dest);
+    installed.push({ slug, source: resolved.source });
   }
   return { home, installedHelpers: installed };
 };
