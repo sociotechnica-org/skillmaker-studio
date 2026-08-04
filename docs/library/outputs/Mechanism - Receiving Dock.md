@@ -2,7 +2,7 @@
 type: Mechanism
 prefLabel: Receiving Dock
 context: outputs
-status: adopted
+status: dormant
 links:
   related_to:
     - "../_index/Vision - Board Lab Ship Receive"
@@ -16,6 +16,15 @@ links:
 ---
 
 ## WHAT
+
+**Dormant (director ruling 2026-08-04).** The Receive loop was removed in
+the radical simplification (D1; the superseding Vision card records the
+cut). It *might* return: the 2026-08-03 Danvers catch-up revived the
+receiving-dock idea as a demand thesis (org session logs informing the
+eval set — see `docs/sources/2026-08-03-danvers-catchup-product-notes.md`),
+but revival is explicitly dependent on the most important use cases of
+the FIRST CUSTOMER, not on the thesis. Until that customer exists and
+asks, this card describes removed machinery, kept as design memory.
 
 The Receive bay's intake process for **arriving skills** (issue #73),
 ruled by the Director across 2026-07-15/16. Receiving has one job in two
