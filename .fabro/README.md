@@ -64,14 +64,24 @@ Start → Scope → Implement → Gates → ReviewJudge → Prepare PR → Exit
   including the judge's noted imperfections.
 
 **Loop caps are enforced in the graph, not just the prompts**, via
-fabro's per-node `max_visits` (exceeding a cap terminates the run):
-Scope 1, Implement 4, Gates 4, ReviewJudge 2, Prepare PR 1, with
-graph-level `max_node_visits=4` as the backstop. Worst case: 1 initial
-Implement + 2 gate-failure bounces + 1 judge fix bounce = 4 Implement
-visits, 4 Gates runs, 2 ReviewJudge visits — at most 8 LLM stages per
-run. ReviewJudge's cap of 2 makes the fix verdict structurally
-once-per-run: a second fix would require a third judge visit, which the
-cap rejects.
+fabro's per-node `max_visits`. Cap semantics (pinned in fabro-core's
+executor after the first run on the reshaped graph failed instantly,
+2026-08-04): fabro increments the visit counter on entry and fails the
+run when `visits >= max_visits`, before executing the node — so
+`max_visits=N` allows only N−1 executions, and every cap here is
+intended-executions + 1. The graph-level `max_node_visits` follows the
+same >= rule and is checked in addition to per-node caps (both apply,
+despite the upstream docs saying per-node overrides), so it must be at
+least the largest per-node cap.
+
+Configured caps (execution ceiling → `max_visits`): Scope 1 → 2,
+Implement 4 → 5, Gates 4 → 5, ReviewJudge 2 → 3, Prepare PR 1 → 2,
+graph `max_node_visits=5`. Worst case: 1 initial Implement + 2
+gate-failure bounces + 1 judge fix bounce = 4 Implement executions, 4
+Gates runs, 2 ReviewJudge executions — at most 8 LLM stages per run.
+ReviewJudge's two-execution ceiling makes the fix verdict structurally
+once-per-run: a second fix would require a third judge execution, which
+the cap rejects.
 
 **Why**: the first real batch (2026-08-04) looped expensively — three
 runs cancelled after heavy cycling (implement ×5, verify ×3 observed),
