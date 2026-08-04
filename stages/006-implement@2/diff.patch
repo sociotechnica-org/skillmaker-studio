@@ -1,0 +1,55 @@
+diff --git a/packages/cli/src/server/ChatSessions.ts b/packages/cli/src/server/ChatSessions.ts
+index d0b55bd..c8fdcf0 100644
+--- a/packages/cli/src/server/ChatSessions.ts
++++ b/packages/cli/src/server/ChatSessions.ts
+@@ -58,9 +58,10 @@ const PROBE_TIMEOUT_MS = 45_000;
+ 
+ /**
+  * Skillmaker's own helper skills (William material), injected via the agent
+- * home. Issue #190 completes D6's product-shipping ruling: a workspace can
+- * override a helper while ordinary projects receive the packaged copy, so
+- * agents do not search outside the project for guidance we already ship.
++ * home. Issue #190 applies D6 in
++ * docs/proposals/2026-07-21-simplification.md: a workspace can override a
++ * helper while ordinary projects receive the packaged copy, so agents do not
++ * search outside the project for guidance we already ship.
+  */
+ const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
+ 
+diff --git a/packages/cli/test/ChatSessions.test.ts b/packages/cli/test/ChatSessions.test.ts
+index 937b0cc..9e7b006 100644
+--- a/packages/cli/test/ChatSessions.test.ts
++++ b/packages/cli/test/ChatSessions.test.ts
+@@ -89,13 +89,11 @@ describe("prepareAgentHome (#190)", () => {
+     expect(existsSync(join(workspace, "skills", DRAFT))).toBe(false);
+   });
+ 
+-  test("uses workspace helpers ahead of packaged copies, including root-layout helpers", () => {
++  test("installs workspace helpers when packaged lookup is unavailable, including root-layout helpers", () => {
+     writeHelper(join(workspace, "skills"), RESEARCH, "workspace research", "root");
+     writeHelper(join(workspace, "skills"), DRAFT, "workspace draft");
+-    writeHelper(packaged, RESEARCH, "packaged research");
+-    writeHelper(packaged, DRAFT, "packaged draft");
+ 
+-    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
++    const prepared = prepareAgentHome("claude-code", workspace, "skills", () => undefined);
+ 
+     expect(prepared.installedHelpers).toEqual([
+       { slug: RESEARCH, source: "workspace" },
+@@ -109,6 +107,7 @@ describe("prepareAgentHome (#190)", () => {
+     writeHelper(join(workspace, "skills"), RESEARCH, "workspace root", "root");
+     writeHelper(join(workspace, "skills"), RESEARCH, "workspace output");
+     writeHelper(packaged, DRAFT, "packaged draft", "root");
++    writeHelper(packaged, DRAFT, "packaged output");
+ 
+     const prepared = prepareAgentHome("claude-code", workspace, "skills", () => packaged);
+ 
+@@ -117,7 +116,7 @@ describe("prepareAgentHome (#190)", () => {
+       { slug: DRAFT, source: "packaged" },
+     ]);
+     expect(readFileSync(join(agentSkill(RESEARCH), "SKILL.md"), "utf8")).toBe("workspace output");
+-    expect(readFileSync(join(agentSkill(DRAFT), "SKILL.md"), "utf8")).toBe("packaged draft");
++    expect(readFileSync(join(agentSkill(DRAFT), "SKILL.md"), "utf8")).toBe("packaged output");
+   });
+ 
+   test("leaves an unresolved helper destination untouched", () => {
