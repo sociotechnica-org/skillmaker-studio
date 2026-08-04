@@ -12,7 +12,7 @@
  * cached per slug-mount. Without a server (`page.evals === null`) the
  * section renders the placeholder claims, inert -- never broken.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileContentView } from "../components/Markdown.tsx";
 import { postEvent } from "../runtime/api.ts";
 import { fetchBundleFile, fetchFixtureGlance, fetchRunGlance } from "./api.ts";
@@ -25,7 +25,9 @@ import {
   modelChipsForClaim,
   runAllButtonLabel,
   runsForFixture,
+  shouldSettleMissingResponse,
 } from "./evals.ts";
+import { useJournalTick } from "./liveRefresh.ts";
 import { useRunDispatch } from "./runsApi.ts";
 import type { ModelChip, ModelChipStatus, VersionScope } from "./evals.ts";
 import { Button, CLAIM_DOT, FADE_R } from "./ui.tsx";
@@ -36,6 +38,20 @@ const RUN_CAP = 8;
 
 /** A lazy fetch's three honest states -- loading and error render quiet, never as data. */
 type Lazy<T> = { readonly state: "loading" } | { readonly state: "ready"; readonly value: T } | { readonly state: "error" };
+
+/**
+ * A run's `response.md`, with the race-honest fourth state (walk BLOCKER):
+ * `absent` = the fetch 404ed but the run is recent/live enough that the
+ * recorder may still be writing -- retried on the next journal tick or
+ * re-expand, NEVER presented as "No response captured". Only `ready(null)`
+ * says that, and only once `shouldSettleMissingResponse` agrees the run is
+ * genuinely done and old.
+ */
+type ResponseLazy =
+  | { readonly state: "loading" }
+  | { readonly state: "ready"; readonly value: string | null }
+  | { readonly state: "absent" }
+  | { readonly state: "error" };
 
 const CHIP_CLASS: Record<ModelChipStatus, string> = {
   proven: "bg-emerald-100 text-emerald-800",
@@ -103,7 +119,7 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
   const [expandedRuns, setExpandedRuns] = useState<ReadonlySet<string>>(new Set());
   const [fixtureGlances, setFixtureGlances] = useState<Readonly<Record<string, Lazy<FixtureGlance>>>>({});
   const [runGlances, setRunGlances] = useState<Readonly<Record<string, Lazy<RunGlance>>>>({});
-  const [runResponses, setRunResponses] = useState<Readonly<Record<string, Lazy<string | null>>>>({});
+  const [runResponses, setRunResponses] = useState<Readonly<Record<string, ResponseLazy>>>({});
   const [queuedGaps, setQueuedGaps] = useState<ReadonlySet<string>>(new Set());
   const [mintingGaps, setMintingGaps] = useState<ReadonlySet<string>>(new Set());
   const [gapErrors, setGapErrors] = useState<Readonly<Record<string, string>>>({});
@@ -115,39 +131,79 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
   const runs = useRunDispatch(evals?.slug ?? "");
   const anyActive = runs.activeFixtures.size > 0 || runs.runAll !== null;
 
+  // A "settled" lazy state never refetches; error states retry on the next
+  // ensure (re-expand or journal tick) instead of caching the failure.
   const ensureFixtureGlance = (data: EvalsData, caseName: string): void => {
     setFixtureGlances((current) => {
-      if (current[caseName] !== undefined) return current;
+      const existing = current[caseName];
+      if (existing !== undefined && existing.state !== "error") return current;
       fetchFixtureGlance(data.slug, caseName).then(
         (value) => setFixtureGlances((c) => ({ ...c, [caseName]: { state: "ready", value } })),
         () => setFixtureGlances((c) => ({ ...c, [caseName]: { state: "error" } })),
       );
-      return { ...current, [caseName]: { state: "loading" } };
+      return existing !== undefined ? current : { ...current, [caseName]: { state: "loading" } };
     });
   };
 
-  const ensureRunGlance = (data: EvalsData, runId: string): void => {
+  const ensureRunGlance = (data: EvalsData, runId: string, refresh = false): void => {
     setRunGlances((current) => {
-      if (current[runId] !== undefined) return current;
+      const existing = current[runId];
+      if (existing !== undefined && existing.state === "loading") return current;
+      if (existing !== undefined && existing.state === "ready" && !refresh) return current;
       fetchRunGlance(data.slug, runId).then(
         (value) => setRunGlances((c) => ({ ...c, [runId]: { state: "ready", value } })),
-        () => setRunGlances((c) => ({ ...c, [runId]: { state: "error" } })),
+        // A refresh failure keeps the last good glance on screen.
+        () =>
+          setRunGlances((c) => {
+            const prev = c[runId];
+            return prev !== undefined && prev.state === "ready" ? c : { ...c, [runId]: { state: "error" } };
+          }),
       );
-      return { ...current, [runId]: { state: "loading" } };
+      // Quiet refresh: keep what's rendered while the refetch is in flight.
+      return existing !== undefined ? current : { ...current, [runId]: { state: "loading" } };
     });
   };
 
-  const ensureRunResponse = (data: EvalsData, runId: string): void => {
+  const ensureRunResponse = (data: EvalsData, run: EvalRun): void => {
     setRunResponses((current) => {
-      if (current[runId] !== undefined) return current;
-      fetchBundleFile(data.slug, `runs/${runId}/response.md`).then(
-        (content) => setRunResponses((c) => ({ ...c, [runId]: { state: "ready", value: content } })),
-        // A 404 here is the common honest case: the run captured no response.md.
-        () => setRunResponses((c) => ({ ...c, [runId]: { state: "ready", value: null } })),
+      const existing = current[run.id];
+      // Settled states never refetch; `absent`/`error` retry every ensure.
+      if (existing !== undefined && (existing.state === "loading" || existing.state === "ready")) return current;
+      fetchBundleFile(data.slug, `runs/${run.id}/response.md`).then(
+        (content) => setRunResponses((c) => ({ ...c, [run.id]: { state: "ready", value: content } })),
+        // The 404 fork (walk BLOCKER): a just-completed/still-running run's
+        // missing response.md may be the recorder racing us -- stay
+        // retryable (`absent`). Only a genuinely old, terminal run settles
+        // into the permanent "No response captured". Non-404 failures
+        // (server hiccup) are `error` -- retryable, never "no response".
+        (cause: unknown) =>
+          setRunResponses((c) => ({
+            ...c,
+            [run.id]:
+              !/:\s*404\b/.test(String(cause))
+                ? { state: "error" }
+                : shouldSettleMissingResponse(run, Date.now())
+                  ? { state: "ready", value: null }
+                  : { state: "absent" },
+          })),
       );
-      return { ...current, [runId]: { state: "loading" } };
+      return existing !== undefined ? current : { ...current, [run.id]: { state: "loading" } };
     });
   };
+
+  // The freshness loop: every journal tick re-checks what's EXPANDED --
+  // retryable response misses refetch, run glances refresh quietly (a
+  // completing run gains its verdict/invoked chip without a re-expand).
+  const tick = useJournalTick();
+  useEffect(() => {
+    if (evals === null || tick === 0) return;
+    for (const runId of expandedRuns) {
+      const run = evals.runs.find((r) => r.id === runId);
+      if (run !== undefined) ensureRunResponse(evals, run);
+      ensureRunGlance(evals, runId, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
 
   const toggleClaim = (claim: Claim): void => {
     const opening = !expandedClaims.has(claim.id);
@@ -179,7 +235,8 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
     });
     if (opening && evals !== null) {
       ensureRunGlance(evals, runId);
-      ensureRunResponse(evals, runId);
+      const run = evals.runs.find((r) => r.id === runId);
+      if (run !== undefined) ensureRunResponse(evals, run);
     }
   };
 
@@ -366,7 +423,7 @@ function FixtureBlock({
   readonly glance: Lazy<FixtureGlance> | undefined;
   readonly runs: ReadonlyArray<EvalRun>;
   readonly runGlances: Readonly<Record<string, Lazy<RunGlance>>>;
-  readonly runResponses: Readonly<Record<string, Lazy<string | null>>>;
+  readonly runResponses: Readonly<Record<string, ResponseLazy>>;
   readonly expandedRuns: ReadonlySet<string>;
   readonly onToggleRun: (runId: string) => void;
 }) {
@@ -476,7 +533,7 @@ function RunDetailBlock({
 }: {
   readonly run: EvalRun;
   readonly glance: Lazy<RunGlance> | undefined;
-  readonly response: Lazy<string | null> | undefined;
+  readonly response: ResponseLazy | undefined;
 }) {
   const artifacts =
     glance !== undefined && glance.state === "ready"
@@ -492,7 +549,13 @@ function RunDetailBlock({
       <div className="pt-1">
         {response === undefined || response.state === "loading" ? (
           <p className="text-[11px] text-ink-muted">Loading response…</p>
-        ) : response.state === "error" || response.value === null ? (
+        ) : response.state === "absent" ? (
+          // Retryable miss: the recorder may still be writing -- the next
+          // journal tick or re-expand refetches. Never the settled copy.
+          <p className="text-[11px] text-ink-muted">No response yet — still checking.</p>
+        ) : response.state === "error" ? (
+          <p className="text-[11px] text-ink-muted">Couldn't load the response — will retry.</p>
+        ) : response.value === null ? (
           <p className="text-[11px] text-ink-muted">No response captured.</p>
         ) : (
           <FileContentView

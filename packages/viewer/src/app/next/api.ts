@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiPath, useActiveProject } from "../runtime/projectScope.ts";
 import { getBundleDetail, getBundleFile, getFixtureDetail, getTodos } from "../runtime/api.ts";
 import { fetchProjects as fetchRegistryProjects } from "./projectsApi.ts";
-import { useJournalTick } from "./liveRefresh.ts";
+import { useJournalTick, type TickScope } from "./liveRefresh.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
 import { latestReviewOutcome, pendingReview } from "../runtime/reviewPanel.ts";
 import type { BundleDetailResponse, BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
@@ -244,10 +244,11 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       })),
       unclaimed: unclaimedFixtureCases(detail.fixtures, detail.riskCoverage.map((r) => r.riskId)),
     },
-    events: detail.events.slice(0, 5).map((e) => ({
-      type: e.type,
-      at: new Date(e.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-    })),
+    // `at` stays the raw ISO timestamp: the unread-dot stamps compare
+    // `type-at` pairs, and a day-granular display date made two same-day
+    // events indistinguishable (the dot never re-fired). Format at render
+    // time if these ever become visible copy.
+    events: detail.events.slice(0, 5).map((e) => ({ type: e.type, at: e.at })),
   };
 };
 
@@ -336,8 +337,11 @@ export const fetchRunGlance = async (slug: string, runId: string): Promise<RunGl
 /** Like useApiData, but distinguishes loading / live / error so views can
  * avoid the placeholder flash: show nothing while loading, placeholders
  * only when the server is absent, and honest empty states when live. */
-export function useApiStatus<T>(fetcher: () => Promise<T>): { readonly data?: T; readonly status: "loading" | "live" | "error" } {
-  const tick = useJournalTick();
+export function useApiStatus<T>(
+  fetcher: () => Promise<T>,
+  options: { readonly scope?: TickScope } = {},
+): { readonly data?: T; readonly status: "loading" | "live" | "error" } {
+  const tick = useJournalTick(options.scope ?? "active");
   // Refetch when the ACTIVE PROJECT changes -- every project-scoped path
   // this fetcher hits is rewritten through projectScope.apiPath.
   const project = useActiveProject();
@@ -365,8 +369,8 @@ export function useApiStatus<T>(fetcher: () => Promise<T>): { readonly data?: T;
   return state;
 }
 
-export function useApiData<T>(fetcher: () => Promise<T>, fallback: T): T {
-  const tick = useJournalTick();
+export function useApiData<T>(fetcher: () => Promise<T>, fallback: T, options: { readonly scope?: TickScope } = {}): T {
+  const tick = useJournalTick(options.scope ?? "active");
   const project = useActiveProject();
   const [data, setData] = useState<T | undefined>(undefined);
 

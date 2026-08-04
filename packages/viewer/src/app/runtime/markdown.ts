@@ -229,7 +229,9 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
   let inCode = false;
   let codeLang: string | undefined = undefined;
   let codeLines: Array<string> = [];
-  let listItems: Array<ReadonlyArray<InlineNode>> = [];
+  // Raw item texts, parsed at flush time so indented continuation lines
+  // (CommonMark wrapped list items) can join their item before inline parsing.
+  let listItems: Array<string> = [];
   let listOrdered = false;
   let paragraphLines: Array<string> = [];
   let quoteLines: Array<string> = [];
@@ -242,7 +244,7 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
   };
   const flushList = (): void => {
     if (listItems.length > 0) {
-      blocks.push({ kind: "list", ordered: listOrdered, items: listItems });
+      blocks.push({ kind: "list", ordered: listOrdered, items: listItems.map(parseInline) });
       listItems = [];
     }
   };
@@ -324,13 +326,23 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
       const ordered = unorderedMatch === null;
       if (listItems.length > 0 && ordered !== listOrdered) flushList();
       listOrdered = ordered;
-      listItems.push(parseInline((unorderedMatch?.[1] ?? orderedMatch?.[1]) ?? ""));
+      listItems.push((unorderedMatch?.[1] ?? orderedMatch?.[1]) ?? "");
       lineIndex += 1;
       continue;
     }
 
     if (line.trim().length === 0) {
       flushAll();
+      lineIndex += 1;
+      continue;
+    }
+
+    // CommonMark list continuation: while a list is open, an INDENTED
+    // non-blank line is the previous item's wrapped text -- it joins that
+    // item instead of flushing the list and leaking out as a root
+    // paragraph (walk-verified breakage, e2e-readiness log 2026-07-29).
+    if (listItems.length > 0 && /^\s/.test(line)) {
+      listItems[listItems.length - 1] += ` ${line.trim()}`;
       lineIndex += 1;
       continue;
     }
