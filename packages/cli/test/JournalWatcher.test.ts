@@ -30,9 +30,6 @@ describe("watchJournal", () => {
       appendFileSync(journal, "{}\n");
       let fired = 0;
       const handle = watchJournal(journal, () => fired++);
-      // fs.watch registration is asynchronous on Linux; avoid racing the
-      // append under test with the watcher becoming active.
-      await new Promise((resolve) => setTimeout(resolve, 150));
       appendFileSync(journal, "{}\n");
       expect(await waitFor(() => fired > 0)).toBe(true);
       handle.close();
