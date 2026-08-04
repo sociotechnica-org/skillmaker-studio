@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Deterministic validation gate for the sms-feature workflow: runs the
+# same checks as .github/workflows/ci.yml so an agent branch that passes
+# here also passes CI. Called by the "Run repo gates" script node in
+# workflow.fabro; a non-zero exit routes the graph back to Implement.
+#
+# The viewer build only runs when the diff touches packages/viewer -- it
+# is the slowest gate and a core/cli-only change can't break it. CI still
+# builds the viewer unconditionally, so this is a speed-up inside the
+# factory loop, not a loosening of the merge bar.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$REPO_ROOT"
+
+export PATH="$HOME/.bun/bin:$PATH"
+
+echo "== Typecheck core =="
+bunx tsc --noEmit -p packages/core
+
+echo "== Typecheck cli =="
+bunx tsc --noEmit -p packages/cli
+
+echo "== Unit tests (bun test packages) =="
+bun test packages
+
+echo "== E2E tests (bun test test/e2e) =="
+bun test test/e2e --timeout 30000
+
+# Diff against the merge base with the default branch when we can find
+# one; in a fresh sandbox clone with a detached run branch, fall back to
+# building unconditionally rather than guessing wrong and skipping.
+viewer_touched=true
+if base="$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null)"; then
+	if git diff --name-only "$base"...HEAD | grep -q '^packages/viewer/'; then
+		viewer_touched=true
+	else
+		viewer_touched=false
+	fi
+fi
+
+if [ "$viewer_touched" = true ]; then
+	echo "== Build viewer =="
+	bun run build:viewer
+else
+	echo "== Build viewer: skipped (no packages/viewer changes) =="
+fi
+
+echo "All repo gates passed."

@@ -1,0 +1,24 @@
+# Fabro project configuration for skillmaker-studio.
+# https://docs.fabro.computer/getting-started/quick-start
+#
+# Modeled on alexandria-internal's factory config. Kept deliberately
+# minimal and portable: anything machine-specific (server URLs, sandbox
+# credentials, GitHub App identity) lives on the server, not here.
+
+_version = 1
+
+# Auto-create pull requests on successful workflow runs. Draft to start:
+# the factory is new to this repo, so every PR gets human eyes before it
+# is even reviewable-for-merge. Flip draft off once the director trusts
+# the sms-feature output quality.
+[run.pull_request]
+enabled = true
+draft = true
+
+[run.environment]
+id = "default"
+
+[environments]
+
+[environments.default]
+provider = "local"

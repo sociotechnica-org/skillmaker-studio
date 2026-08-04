@@ -1,0 +1,80 @@
+# sms-feature: implement a Skillmaker Studio feature end to end.
+#
+# Adapted from alexandria-internal's ax-feature workflow. Backend copied
+# from there (api backend, OpenAI). Models per director ruling on PR
+# #188: gpt-5.6-terra medium is the run default (implement, verify,
+# review, handoff); scope and the verification judge override to
+# gpt-5.6-sol high in workflow.fabro -- think hard at the gates, run
+# lean in the loop.
+
+_version = 1
+
+[workflow]
+graph = "workflow.fabro"
+
+[run]
+goal = "Implement a Skillmaker Studio feature."
+
+[run.inputs]
+agent_backend = "api"
+
+[run.model]
+provider = "openai"
+name = "gpt-5.6-terra"
+
+[run.model.controls]
+reasoning_effort = "medium"
+
+[[run.prepare.steps]]
+command = ["./.fabro/scripts/fabro-setup-env"]
+
+# The fabro-of-alexandria GitHub App (made public 2026-08, installed
+# org-wide on sociotechnica-org) is the bot identity for this factory;
+# same numeric id alexandria's config uses. See .fabro/README.md.
+[run.git.author]
+name = "Fabro"
+email = "285810526+fabro-of-alexandria[bot]@users.noreply.github.com"
+
+# The server mints a scoped installation token with these permissions and
+# injects it as GITHUB_TOKEN in the sandbox. Requires the GitHub App
+# install (director-only step, documented in .fabro/README.md).
+[run.integrations.github.permissions]
+contents = "write"
+pull_requests = "write"
+
+[run.pull_request]
+enabled = true
+draft = true
+
+# Verification evidence is uploaded as run artifacts, never checkpointed
+# into the branch (it would otherwise land in the PR diff).
+[run.checkpoint]
+exclude_globs = [
+  "verification-artifacts/**",
+  "screenshots/**",
+  "test-results/**",
+]
+
+[run.artifacts]
+include = [
+  "verification-artifacts/**",
+  "screenshots/**",
+  "test-results/**",
+]
+
+[run.environment]
+id = "daytona"
+
+[environments]
+
+[environments.daytona]
+provider = "daytona"
+
+[environments.daytona.lifecycle]
+preserve = false
+auto_stop = "60m"
+
+[environments.daytona.labels]
+project = "skillmaker-studio"
+workflow = "sms-feature"
+host = "railway"
