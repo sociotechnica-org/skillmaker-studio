@@ -1,9 +1,11 @@
 # sms-feature: implement a Skillmaker Studio feature end to end.
 #
-# Adapted from alexandria-internal's ax-feature workflow. Backend and
-# model choices are copied from there (api backend, OpenAI gpt-5.5,
-# medium reasoning) as a starting default -- swap freely; nothing in the
-# graph depends on the model.
+# Adapted from alexandria-internal's ax-feature workflow. Backend copied
+# from there (api backend, OpenAI). Models per director ruling on PR
+# #188: gpt-5.6-terra medium is the run default (implement, verify,
+# review, handoff); scope and the verification judge override to
+# gpt-5.6-sol high in workflow.fabro -- think hard at the gates, run
+# lean in the loop.
 
 _version = 1
 
@@ -18,7 +20,7 @@ agent_backend = "api"
 
 [run.model]
 provider = "openai"
-name = "gpt-5.5"
+name = "gpt-5.6-terra"
 
 [run.model.controls]
 reasoning_effort = "medium"
@@ -26,9 +28,11 @@ reasoning_effort = "medium"
 [[run.prepare.steps]]
 command = ["./.fabro/scripts/fabro-setup-env"]
 
-# Placeholder identity: the numeric prefix must be replaced with the real
-# GitHub App user id after the director installs the bot on
-# sociotechnica-org/skillmaker-studio (see .fabro/README.md).
+# Placeholder identity until the director installs the GitHub App on
+# sociotechnica-org/skillmaker-studio (see .fabro/README.md). If the
+# recommended route is taken -- making fabro-of-alexandria public and
+# installing it here -- this becomes
+# "285810526+fabro-of-alexandria[bot]@users.noreply.github.com".
 [run.git.author]
 name = "Fabro"
 email = "fabro-of-skillmaker[bot]@users.noreply.github.com"

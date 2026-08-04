@@ -6,7 +6,9 @@ nothing here registers anything with a server or carries credentials.
 
 ## Running
 
-The CLI's current default target is the shared Railway Fabro server:
+**Decided (director ruling on PR #188):** this repo uses the shared
+Railway Fabro server — the same instance as alexandria, and the CLI's
+current default target:
 
 - Web UI: `https://fabro-st.up.railway.app/`
 - API: `https://fabro-st.up.railway.app/api/v1`
@@ -36,61 +38,78 @@ prompts) never go through `sms-feature` itself; they are operator work,
 hand-authored and director-reviewed — same boundary as alexandria's
 2026-07-09 ruling.
 
-## What is NOT done yet
+## Decisions and what is NOT done yet
 
-Three defaults were chosen to get a reviewable config; all three are
-open to reversal:
+Director rulings on PR #188:
 
-1. **Shared server.** This config targets the same Railway Fabro
-   instance as alexandria (`fabro-st`) rather than a dedicated one.
-   Shared scheduler capacity, shared Daytona quota, and — most
-   importantly — the server supports **one active GitHub App config**,
-   which today is `fabro-of-alexandria` (GetAlexandria-owned, private,
-   so not installable on `sociotechnica-org`). A dedicated server is the
-   clean alternative if that constraint bites (see below).
-2. **Model/backend copied from ax-feature**: `api` backend, OpenAI
-   `gpt-5.5`, medium reasoning (high for scope and the verification
-   judge). Nothing in the graph depends on the model; swap freely in
-   `workflows/sms-feature/workflow.toml` and `workflow.fabro`.
-3. **GitHub App not installed.** The workflow expects a bot with
+1. **Shared server: RATIFIED.** This repo runs on `fabro-st`, the same
+   Railway Fabro instance as alexandria. The load-bearing consequence:
+   the server holds **one active GitHub App config**, which today is
+   `fabro-of-alexandria` (GetAlexandria-owned, **private**, so not
+   installable on `sociotechnica-org` as-is). With the shared server
+   decided, the app strategy must be either an org-owned app made to
+   cover BOTH repos, or a server-side config change. The recommended
+   route and exact clicks are below — it is the director's next manual
+   step.
+2. **Models (ruled):** scope and the verification judge run
+   `gpt-5.6-sol` at high reasoning; implement, verify, review, and
+   prepare-PR run `gpt-5.6-terra` at medium. Set in
+   `workflows/sms-feature/workflow.fabro` (per-node) with the terra
+   default in `workflow.toml`.
+3. **GitHub App not installed yet.** The workflow expects a bot with
    `contents: write` and `pull_requests: write` on
-   `sociotechnica-org/skillmaker-studio`. Installing it is a
-   director-only step; until then, preflight will fail GitHub repository
-   access and auto-PR cannot work.
+   `sociotechnica-org/skillmaker-studio`. Until the install below is
+   done, preflight will fail GitHub repository access and auto-PR
+   cannot work.
 
-## Director-only: GitHub App install
+## Director-only: GitHub App install (next manual step)
 
-Mirroring how `fabro-of-alexandria` was set up (see
+Background from how `fabro-of-alexandria` was set up (see
 `alexandria-internal/docs/plans/fabro-setup/plan.md`, "GitHub App
-Ownership And Multi-Org Use"):
+Ownership And Multi-Org Use"): Fabro-generated apps start private, a
+private app can only be installed on the org that owns it, and fabro-st
+can hold only one app config.
 
-1. Fabro-generated GitHub Apps are **private**, and a private app can
-   only be installed on its owner. So the app must be owned by
-   `sociotechnica-org` (register it while acting as that org), e.g.
-   named `fabro-of-skillmaker`. `fabro install` opens GitHub with a
-   pre-filled app manifest carrying the needed permissions (Contents:
-   write, Metadata: read, Pull requests: write, Checks: write).
-2. **Constraint:** the Fabro server holds one active
-   `[server.integrations.github]` app config. fabro-st currently uses
-   `fabro-of-alexandria`. Options, in rough order of preference:
-   - Run a dedicated Fabro server for this repo (Railway template is the
-     same as fabro-st; reverses default 1).
-   - Make one app public and install it on both orgs, then point
-     fabro-st at it (upstream manifest hardcodes `"public": false`, so
-     this needs a manual app-settings flip after registration).
-   - Move fabro-st's app config to a sociotechnica-owned app (breaks the
-     alexandria factory; not recommended).
-3. On the chosen server, set the app secrets (`GITHUB_APP_CLIENT_SECRET`,
-   `GITHUB_APP_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY` — base64 or
-   single-line escaped PEM, raw multi-line PEM does not survive the
-   env-file format) and the `[server.integrations.github]`
-   `app_id`/`client_id`/`slug`.
-4. Install the app on `sociotechnica-org/skillmaker-studio` from the
-   app's install URL, then confirm with
-   `fabro doctor --server …` and `fabro preflight sms-feature …`.
-5. Update `[run.git.author]` in `workflows/sms-feature/workflow.toml`
-   with the real bot user id
-   (`<id>+<slug>[bot]@users.noreply.github.com`).
+**Recommended: make `fabro-of-alexandria` public and install it on this
+repo.** It covers both repos with zero server-side config change —
+fabro-st already trusts this app, so its `app_id`/`client_id`/secrets
+all stay untouched. Exact clicks:
+
+1. GitHub, acting as the `GetAlexandria` org: **Settings → Developer
+   settings → GitHub Apps → fabro-of-alexandria**.
+2. In the app's left nav choose **Advanced → Make this GitHub App
+   public** (the danger-zone toggle; upstream Fabro hardcodes
+   `"public": false` in the manifest, so this flip is manual by
+   design). Public here means *installable by others*, not that any
+   code or secret becomes visible.
+3. Open the app's public page
+   (`https://github.com/apps/fabro-of-alexandria`) → **Install** →
+   choose the `sociotechnica-org` account → **Only select
+   repositories** → `skillmaker-studio` → confirm. Requires org-owner
+   (or app-manager-approved) rights on sociotechnica-org.
+4. No server changes: `[server.integrations.github]` on fabro-st keeps
+   the same `app_id`/`client_id`/`slug`, and the existing
+   `GITHUB_APP_*` secrets remain valid — installation tokens are minted
+   per-installation.
+5. Confirm: `fabro doctor --server https://fabro-st.up.railway.app` and
+   `fabro preflight sms-feature --server … --goal "smoke"` must pass
+   repository access and token minting for
+   `sociotechnica-org/skillmaker-studio`.
+6. Update `[run.git.author]` in `workflows/sms-feature/workflow.toml`
+   to `285810526+fabro-of-alexandria[bot]@users.noreply.github.com`
+   (the id alexandria already uses for this app).
+
+Fallbacks, only if making the app public is unacceptable:
+
+- Register a new **public** app owned by either org (e.g.
+  `fabro-of-sociotechnica`), install it on both
+  `GetAlexandria/alexandria-internal` and
+  `sociotechnica-org/skillmaker-studio`, and repoint fabro-st's
+  `[server.integrations.github]` + `GITHUB_APP_*` secrets at it. This
+  is a server-side config change and briefly interrupts alexandria's
+  factory; coordinate the swap.
+- A dedicated server for this repo would also work but reverses the
+  ratified shared-server ruling; raise it with the director first.
 
 ## Local Docker factory: paused
 
