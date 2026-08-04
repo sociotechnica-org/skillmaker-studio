@@ -1,0 +1,14 @@
+diff --git a/packages/cli/test/JournalWatcher.test.ts b/packages/cli/test/JournalWatcher.test.ts
+index 377e7cc..ee75ab8 100644
+--- a/packages/cli/test/JournalWatcher.test.ts
++++ b/packages/cli/test/JournalWatcher.test.ts
+@@ -30,6 +30,9 @@ describe("watchJournal", () => {
+       appendFileSync(journal, "{}\n");
+       let fired = 0;
+       const handle = watchJournal(journal, () => fired++);
++      // fs.watch registration is asynchronous on Linux; avoid racing the
++      // append under test with the watcher becoming active.
++      await new Promise((resolve) => setTimeout(resolve, 150));
+       appendFileSync(journal, "{}\n");
+       expect(await waitFor(() => fired > 0)).toBe(true);
+       handle.close();
