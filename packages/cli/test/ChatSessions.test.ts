@@ -106,6 +106,7 @@ describe("prepareAgentHome (#190)", () => {
   test("resolves each helper independently and prefers output over a root SKILL.md", () => {
     writeHelper(join(workspace, "skills"), RESEARCH, "workspace root", "root");
     writeHelper(join(workspace, "skills"), RESEARCH, "workspace output");
+    writeHelper(packaged, RESEARCH, "packaged research");
     writeHelper(packaged, DRAFT, "packaged draft", "root");
     writeHelper(packaged, DRAFT, "packaged output");
 
