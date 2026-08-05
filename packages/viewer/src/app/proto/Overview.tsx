@@ -30,6 +30,7 @@
 import { useCallback, useState } from "react";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "../next/api.ts";
 import { apiPath } from "../runtime/projectScope.ts";
+import { MADE, TO_BE_MADE } from "./stations.ts";
 import type { BundleFile } from "../next/types.ts";
 
 /** A real monospace — deliberately NOT `font-mono`, which is Special Elite. */
@@ -310,7 +311,8 @@ function Overview({
       <div className="flex items-baseline justify-between pb-1 pt-8">
         <h2 className={LABEL}>Files</h2>
         <p className="text-[12px] text-ink-muted">
-          {rows.length - missing} here{missing > 0 ? ` · ${missing} not yet` : ""}
+          {rows.length - missing} {MADE}
+          {missing > 0 ? ` · ${missing} ${TO_BE_MADE}` : ""}
         </p>
       </div>
 
@@ -359,8 +361,13 @@ function Folder({ group: g, onOpenFile }: { readonly group: Group; readonly onOp
         <span className={`${CODE} text-[13px] text-ink`}>{g.name}/</span>
         <span className="flex-1" />
         <span className="text-[12px] text-ink-muted">
-          {here} file{here === 1 ? "" : "s"}
-          {missing > 0 && <span className="text-amber-700"> · {missing} not yet</span>}
+          {here} {MADE}
+          {missing > 0 && (
+            <span className="text-amber-700">
+              {" "}
+              · {missing} {TO_BE_MADE}
+            </span>
+          )}
         </span>
       </button>
       {open && (
@@ -393,7 +400,7 @@ function FileRow({ row, onOpen, indent }: { readonly row: Row; readonly onOpen: 
         {row.why !== null && <span className="block text-[12px] leading-snug text-ink-muted">{row.why}</span>}
         {!here && row.how !== null && <span className="block text-[12px] leading-snug text-amber-700">{row.how}</span>}
       </span>
-      <span className="shrink-0 text-[11px] text-ink-muted/70">{row.size === null ? "not yet" : `${(row.size / 1024).toFixed(1)} KB`}</span>
+      <span className="shrink-0 text-[11px] text-ink-muted/70">{row.size === null ? TO_BE_MADE : `${(row.size / 1024).toFixed(1)} KB`}</span>
     </button>
   );
 }
@@ -412,7 +419,7 @@ function FileView({ slug, path, row }: { readonly slug: string; readonly path: s
 
       {absent ? (
         <div className="rounded border border-dashed border-amber-600/60 bg-canvas/60 p-4">
-          <p className={LABEL}>This file doesn't exist yet</p>
+          <p className={LABEL}>Still {TO_BE_MADE}</p>
           {row.how !== null && <p className="pt-2 text-[14px] leading-relaxed text-ink">{row.how}</p>}
         </div>
       ) : content === null ? (
