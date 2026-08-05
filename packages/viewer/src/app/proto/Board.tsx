@@ -20,7 +20,7 @@
 import { fetchProjects, useApiStatus } from "../next/api.ts";
 import { FADE_R, STAGE_TINT } from "../next/ui.tsx";
 import type { Project, Stage } from "../next/types.ts";
-import { STATIONS } from "./stations.ts";
+import { MODE_LABEL, STATIONS } from "./stations.ts";
 
 /** The prototype's station name -> the display `Stage` the wire maps onto. */
 const STAGE_OF: Record<string, Stage> = {
@@ -65,7 +65,8 @@ export function ProtoBoard({
     <div className="p-6">
       <h1 className="font-display text-2xl">Making</h1>
       <p className="pb-4 pt-1 text-sm text-ink-muted">
-        Five benches. Each one answers a question and leaves a file behind.
+        Five benches. Each answers a question and leaves a file behind — but only three of them are benches we work at.
+        The last two are things other tools do, that this one has to stay on top of.
       </p>
 
       <div className="grid grid-cols-5 gap-3">
@@ -73,14 +74,29 @@ export function ProtoBoard({
           const stage = STAGE_OF[station.wire] ?? "Idea";
           const cards = projects.flatMap((p) => p.skills.filter((s) => s.stage === stage).map((s) => ({ p, s })));
           return (
-            <div key={station.wire} className="rounded border border-border bg-paper p-2">
+            <div
+              key={station.wire}
+              className={`rounded p-2 ${
+                station.mode === "made-here"
+                  ? "border border-border bg-paper"
+                  : "border border-dashed border-border bg-paper/40"
+              }`}
+            >
               <div className={`mb-1 inline-block rounded px-2 py-0.5 font-display text-xs ${STAGE_TINT[stage]}`}>
                 {station.name}
               </div>
-              {/* the two lines that turn a bucket into a bench */}
+              {/* the lines that turn a bucket into a bench */}
               <p className="pb-0.5 text-[12px] leading-snug text-ink">{station.question}</p>
-              <p className="pb-2 text-[11px] leading-snug text-ink-muted">
+              <p className="text-[11px] leading-snug text-ink-muted">
                 makes <span className="[font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace]">{station.makes}</span>
+              </p>
+              {/* the honest bit: whose hands do the work */}
+              <p
+                className={`pb-2 pt-1 text-[10px] uppercase tracking-[0.1em] ${
+                  station.mode === "made-here" ? "text-ink-muted/60" : "text-amber-700/80"
+                }`}
+              >
+                {MODE_LABEL[station.mode]}
               </p>
 
               {cards.map(({ p, s }) => (
