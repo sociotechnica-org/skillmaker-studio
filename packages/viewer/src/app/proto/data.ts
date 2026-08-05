@@ -379,74 +379,8 @@ export const SKILLS: ReadonlyArray<ProtoSkill> = [
   },
 ];
 
-// ----------------------------------------------------------------- the work
-
-export const COLUMNS = ["Queued", "Running", "Needs you", "Landed"] as const;
-export type Column = (typeof COLUMNS)[number];
-
-export type Work = {
-  readonly id: string;
-  readonly title: string;
-  readonly skill: string;
-  readonly column: Column;
-  readonly produces: ReadonlyArray<string>;
-  readonly kind: "draft" | "research" | "review" | "eval";
-  readonly detail: string;
-  readonly age: string;
-};
-
-export const WORK: ReadonlyArray<Work> = [
-  {
-    id: "w1",
-    title: "Run the fixtures",
-    skill: "william-draft-skill-md",
-    column: "Running",
-    produces: ["runs/"],
-    kind: "eval",
-    detail: "Four fixture cases on claude-opus-4-8.",
-    age: "running 4m",
-  },
-  {
-    id: "w2",
-    title: "Author a fixture for RE-1",
-    skill: "william-draft-skill-md",
-    column: "Queued",
-    produces: ["evals/fixtures/revise-notes-honored/"],
-    kind: "eval",
-    detail: "RE-1 is a gap in the risk map. No fixture buys it yet.",
-    age: "queued 1d",
-  },
-  {
-    id: "w3",
-    title: "Approve the drafted SKILL.md",
-    skill: "william-research-a-skill",
-    column: "Needs you",
-    produces: ["output/SKILL.md"],
-    kind: "review",
-    detail: "The drafting station is holding at awaiting-review.",
-    age: "waiting 2d",
-  },
-  {
-    id: "w4",
-    title: "Write design.md",
-    skill: "release-notes",
-    column: "Needs you",
-    produces: ["design.md"],
-    kind: "research",
-    detail: "Until Intent and The workflow have real content, drafting refuses to run.",
-    age: "idle 5h",
-  },
-  {
-    id: "w5",
-    title: "Draft output/SKILL.md",
-    skill: "william-draft-skill-md",
-    column: "Landed",
-    produces: ["output/SKILL.md"],
-    kind: "draft",
-    detail: "Drafting station run, reviewed and approved.",
-    age: "landed 2d",
-  },
-];
+/** Column order on the Board — the real app's, verbatim (next/types.ts:3). */
+export const STAGES = ["Idea", "Research", "Drafting", "Evals", "Published"] as const;
 
 export const STAGE_TINT: Record<SkillStage, string> = {
   Idea: "bg-neutral-200 text-neutral-700",
@@ -454,18 +388,4 @@ export const STAGE_TINT: Record<SkillStage, string> = {
   Drafting: "bg-indigo-100 text-indigo-800",
   Evals: "bg-amber-100 text-amber-800",
   Published: "bg-emerald-100 text-emerald-800",
-};
-
-export const KIND_TINT: Record<Work["kind"], string> = {
-  draft: "bg-indigo-100 text-indigo-800",
-  research: "bg-sky-100 text-sky-800",
-  review: "bg-red-100 text-red-700",
-  eval: "bg-emerald-100 text-emerald-800",
-};
-
-export const COLUMN_TINT: Record<Column, string> = {
-  Queued: "bg-neutral-200 text-neutral-700",
-  Running: "bg-amber-100 text-amber-800",
-  "Needs you": "bg-red-100 text-red-700",
-  Landed: "bg-emerald-100 text-emerald-800",
 };

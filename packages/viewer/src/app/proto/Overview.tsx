@@ -31,7 +31,26 @@ const CODE = "[font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace]
 /** The brand's structural device: all-caps micro-label, wide tracking. */
 const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted";
 
-const PINNED = ["Overview", "Research", "Eval", "Publish"] as const;
+/**
+ * TABS ARE EARNED (2026-08-05 ruling). Research · Eval · Publish are gone.
+ * They were four permanent rooms, three of them usually empty, standing
+ * for topics rather than for anything the skill had actually accumulated.
+ *
+ * What's left is one pinned tab and a rule:
+ *
+ *   Overview   always. The skill in sentences, and its folders.
+ *   a file     opened from Overview. Raw — the thing itself.
+ *   an earned  a tab that appears only once there is enough material to
+ *   tab        synthesize, and says something the raw files can't say on
+ *              their own. NONE EXIST YET, on purpose — the list below is
+ *              empty and the machinery reads from it, so adding one is a
+ *              data change, not a redesign.
+ *
+ * The test a candidate has to pass: does it REFLECT across several files
+ * (risk-map × fixtures × runs), rather than just displaying one of them?
+ * If one file answers it, it's a file, not a tab.
+ */
+const PINNED = ["Overview"] as const;
 type PinnedTab = (typeof PINNED)[number];
 type OpenTab = { readonly kind: "pinned"; readonly id: PinnedTab } | { readonly kind: "file"; readonly path: string };
 
@@ -103,10 +122,8 @@ export function SkillPane({ skill, initialFile = null }: { readonly skill: Proto
         <div className="px-6 py-6">
           {active.kind === "file" ? (
             <FileView skill={skill} path={active.path} />
-          ) : active.id === "Overview" ? (
-            <Overview skill={skill} onOpenFile={openFile} />
           ) : (
-            <p className="text-sm text-ink-muted">Unchanged from the current build — this prototype only remodels Overview.</p>
+            <Overview skill={skill} onOpenFile={openFile} />
           )}
         </div>
       </div>

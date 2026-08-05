@@ -19,7 +19,8 @@
  * the brief for this pass was the skill page.
  */
 import { useEffect, useState } from "react";
-import { COLUMN_TINT, COLUMNS, KIND_TINT, SKILLS, WORK, type Work } from "./data.ts";
+import { SKILLS, STAGE_TINT, STAGES } from "./data.ts";
+import { FADE_R } from "../next/ui.tsx";
 import { SkillPane } from "./Overview.tsx";
 
 type View = { readonly kind: "board" } | { readonly kind: "skill"; readonly slug: string; readonly file: string | null };
@@ -69,7 +70,6 @@ export default function ProtoShell() {
           }`}
         >
           <span>Board</span>
-          <span className="text-[11px] text-ink-muted">{WORK.filter((w) => w.column !== "Landed").length} live</span>
         </button>
 
         <p className="px-2 pb-1 pt-2 font-mono text-[10px] uppercase tracking-wider text-ink-muted">skills</p>
@@ -159,55 +159,38 @@ function ChatStub({ skill }: { readonly skill: string | null }) {
 
 // ------------------------------------------------------------------- board
 
+/**
+ * The Board, restored to what the app actually ships (next/views.tsx
+ * BoardView): five stage columns, a card per skill, tinted stage chips,
+ * the "All projects · Archived: drawer" footer. My earlier version --
+ * work-state columns with invented jobs -- is deleted, not parked.
+ *
+ * The framing that survives: this is the workstation. Work happens here.
+ * The skill page is what the work produced.
+ */
 function Board({ onOpenSkill }: { readonly onOpenSkill: (slug: string) => void }) {
   return (
     <div className="p-6">
-      <h1 className="font-display text-2xl">Board</h1>
-      <p className="pb-4 pt-1 text-sm text-ink-muted">
-        Every job in flight, across every skill. Carried over from the first sketch and left alone — this pass was about the skill page.
-      </p>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {COLUMNS.map((col) => {
-          const items = WORK.filter((w) => w.column === col);
-          return (
-            <div key={col} className="rounded border border-border bg-paper p-2">
-              <div className="flex items-baseline justify-between pb-2">
-                <span className={`rounded px-2 py-0.5 font-display text-xs ${COLUMN_TINT[col]}`}>{col}</span>
-                <span className="text-[11px] text-ink-muted">{items.length}</span>
-              </div>
-              {items.length === 0 && <p className="px-1 pb-2 text-[11px] text-ink-muted">Nothing here.</p>}
-              {items.map((w) => (
-                <WorkCard key={w.id} work={w} onOpenSkill={onOpenSkill} />
-              ))}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function WorkCard({ work, onOpenSkill }: { readonly work: Work; readonly onOpenSkill: (slug: string) => void }) {
-  return (
-    <div className="mb-2 rounded border border-border bg-surface p-2 shadow-sm">
-      <span className={`rounded px-1.5 text-[10px] ${KIND_TINT[work.kind]}`}>{work.kind}</span>
-      <p className="pt-1 font-display text-[13px] leading-snug text-ink">{work.title}</p>
-      <button
-        type="button"
-        onClick={() => onOpenSkill(work.skill)}
-        className="block truncate [font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace] text-[11px] text-ink-muted hover:text-ink"
-      >
-        {work.skill} ▸
-      </button>
-      <p className="pt-1 text-[11px] leading-snug text-ink-muted">{work.detail}</p>
-      <div className="flex flex-wrap gap-1 pt-1.5">
-        {work.produces.map((p) => (
-          <span key={p} className="rounded bg-canvas px-1.5 py-0.5 [font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace] text-[10px] text-ink-muted">
-            writes {p}
-          </span>
+      <h1 className="pb-4 font-display text-2xl">Board</h1>
+      <div className="grid grid-cols-5 gap-3">
+        {STAGES.map((stage) => (
+          <div key={stage} className="rounded border border-border bg-paper p-2">
+            <div className={`mb-2 inline-block rounded px-2 py-0.5 font-display text-xs ${STAGE_TINT[stage]}`}>{stage}</div>
+            {SKILLS.filter((s) => s.stage === stage).map((s) => (
+              <button
+                key={s.slug}
+                type="button"
+                onClick={() => onOpenSkill(s.slug)}
+                className="mb-2 block w-full rounded bg-surface p-2 text-left shadow-sm hover:shadow"
+              >
+                <div className={`font-display text-sm ${FADE_R}`}>{s.slug}</div>
+                <div className={`text-xs text-ink-muted ${FADE_R}`}>{s.project}</div>
+              </button>
+            ))}
+          </div>
         ))}
       </div>
-      <p className="pt-1 text-[11px] text-ink-muted/70">{work.age}</p>
+      <p className="pt-3 text-xs text-ink-muted">All projects · Archived: drawer</p>
     </div>
   );
 }
