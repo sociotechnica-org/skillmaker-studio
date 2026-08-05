@@ -21,7 +21,10 @@ const devSpaFallback = () => ({
       const isApi = pathname.startsWith("/api/");
       const isViteInternal = pathname.startsWith("/@") || pathname.startsWith("/src/");
       const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(pathname);
-      if (!isApi && !isViteInternal && !hasFileExtension && pathname !== "/") {
+      // Real Astro routes that must NOT be swallowed by the SPA fallback.
+      // /prototype is the usability-remodel sandbox (see src/app/proto/).
+      const isRealRoute = pathname === "/prototype" || pathname === "/prototype/";
+      if (!isApi && !isViteInternal && !hasFileExtension && !isRealRoute && pathname !== "/") {
         req.url = "/";
       }
       next();
