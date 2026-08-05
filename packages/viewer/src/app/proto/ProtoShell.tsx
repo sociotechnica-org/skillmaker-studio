@@ -39,6 +39,7 @@ import { BoardView, useSkillPage } from "../next/views.tsx";
 import { TopBarSkillControls } from "../next/SkillPage.tsx";
 import type { CenterView } from "../next/types.ts";
 import { SkillPane } from "./Overview.tsx";
+import { ProtoTasks } from "./Tasks.tsx";
 
 /** Top-bar bridge — same shape as NextShell's, minus the breadcrumb. */
 function TopBarControls({ slug, pinned, onPin }: { readonly slug: string; readonly pinned: string; readonly onPin: (v: string) => void }) {
@@ -141,7 +142,9 @@ export default function ProtoShell() {
             />
           )}
           {center.kind === "tasks" && (
-            <div className="p-6 text-sm text-ink-muted">Tasks is unchanged from the real app — not part of this prototype.</div>
+            <ProtoTasks
+              onOpenSkill={(project, slug) => setCenter({ kind: "skill", project: project.name, slug })}
+            />
           )}
           {center.kind === "new-skill" && (
             <div className="p-6 text-sm text-ink-muted">The new-skill launcher is unchanged — not part of this prototype.</div>

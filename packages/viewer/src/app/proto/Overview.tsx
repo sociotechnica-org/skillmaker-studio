@@ -35,6 +35,15 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "../next/api.ts";
 import { apiPath } from "../runtime/projectScope.ts";
 import { GROUP_TINT, PIECES, TO_BE_MADE } from "./pieces.ts";
+import {
+  OFFERS,
+  OFFER_BY_PATH,
+  missingFor,
+  readMarks,
+  writeMarks,
+  type Marks,
+  type OfferState,
+} from "./offers.ts";
 import type { BundleFile } from "../next/types.ts";
 
 /** A real monospace — deliberately NOT `font-mono`, which is Special Elite. */
@@ -158,94 +167,66 @@ const slotsFrom = (detail: Detail): ReadonlyArray<Slot> => {
 
 // ------------------------------------------------------------- the files
 
-/**
- * Files a bundle COULD have. A convention list, not a schema — each is
- * something the product already knows how to make, so a blank can say how.
- */
-const COULD_EXIST: ReadonlyArray<{ readonly path: string; readonly why: string; readonly how: string }> = [
-  { path: "design.md", why: "Intent and workflow.", how: "The researching station writes it, or write it by hand." },
-  { path: "dossier.md", why: "Context of use — the sentences on this card.", how: "Run skillmaker dossier to scaffold it." },
-  { path: "output/SKILL.md", why: "What ships.", how: "The drafting station writes it from design.md." },
-  { path: "evals/risk-map.md", why: "The ways it can go wrong.", how: "The evaluating station authors it once there's a draft." },
-];
-
 type Row = { readonly path: string; readonly size: number | null; readonly why: string | null; readonly how: string | null };
 
-/**
- * CLEARED-AWAY BLANKS (director ruling, 2026-08-05).
- *
- * "What bugs me most about having any kind of missing count is that the
- * maker may not care. They may be missing something intentionally because
- * their process doesn't use it. Having examples to change and reshape or
- * templates to work with = good. Forcing a method = bad."
- *
- * So a blank is an OFFER, not a deficiency, and the maker can decline it —
- * the website-builder ✕. Only blanks are dismissible: a file that exists is
- * never hidden, because hiding real content is a different and much worse
- * thing than declining a suggestion.
- *
- * Reversible on purpose. A cleared blank goes to a quiet "cleared away"
- * line you can restore from; nothing disappears without a way back.
- *
- * localStorage is the prototype's expedient. The real home is the bundle,
- * so the choice travels in git with the skill that made it — otherwise one
- * maker's "we don't do evals here" is invisible to the next person.
- */
-function useCleared(slug: string): readonly [ReadonlySet<string>, (key: string) => void, (key: string) => void] {
-  const storeKey = `sm-proto-cleared-${slug}`;
-  const [cleared, setCleared] = useState<ReadonlySet<string>>(new Set());
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(storeKey);
-      setCleared(new Set<string>(raw === null ? [] : (JSON.parse(raw) as string[])));
-    } catch {
-      setCleared(new Set());
-    }
-  }, [storeKey]);
-
-  const write = (next: ReadonlySet<string>) => {
-    setCleared(next);
-    try {
-      window.localStorage.setItem(storeKey, JSON.stringify([...next]));
-    } catch {}
-  };
-  const clear = (key: string) => write(new Set([...cleared, key]));
-  const restore = (key: string) => write(new Set([...cleared].filter((k) => k !== key)));
-  return [cleared, clear, restore] as const;
-}
-
-/** Stable keys for the two kinds of blank a maker can decline. */
-const slotKey = (s: Slot) => `slot:${s.lead}`;
-const fileKey = (r: Row) => `file:${r.path}`;
-
+/** Every file the bundle has, plus every offer it hasn't taken up yet. */
 const rowsFrom = (files: ReadonlyArray<BundleFile>): ReadonlyArray<Row> => {
   const have = new Set(files.map((f) => f.path));
-  const known = new Map(COULD_EXIST.map((c) => [c.path, c]));
-  const present: Row[] = files.map((f) => ({ path: f.path, size: f.size, why: known.get(f.path)?.why ?? null, how: null }));
-  const missing: Row[] = COULD_EXIST.filter((c) => !have.has(c.path)).map((c) => ({
-    path: c.path,
-    size: null,
-    why: c.why,
-    how: c.how,
+  const present: Row[] = files.map((f) => ({
+    path: f.path,
+    size: f.size,
+    why: OFFER_BY_PATH[f.path]?.why ?? null,
+    how: null,
   }));
-  return [...present, ...missing];
+  const absent: Row[] = OFFERS.filter((o) => !have.has(o.path)).map((o) => ({
+    path: o.path,
+    size: null,
+    why: o.why,
+    how: o.how,
+  }));
+  return [...present, ...absent];
 };
 
 /**
  * Which piece a file belongs to. A folder is where a file happens to sit on
- * disk; a piece is what it's FOR. Anything unmatched stays visible under
- * Overview's tally rather than being dropped.
+ * disk; a piece is what it's FOR. Unmatched files stay visible on the tab
+ * they land on rather than being dropped.
  */
 const PIECE_OF = (path: string): PieceName | null => {
   if (path === "dossier.md") return "Job";
   if (path === "design.md" || path.startsWith("research/")) return "Method";
   if (path.startsWith("output/")) return "Prompt";
-  // runs/ under Evals: a run is what an eval produced. Arguable — it's also
+  // runs/ under Evals: a run is what an eval produced. Arguable -- it's also
   // "how'd it do", which is a Release question. Flagged, not settled.
   if (path.startsWith("evals/") || path.startsWith("runs/")) return "Evals";
   return null;
 };
+
+/**
+ * Desire lives in `offers.ts` now — see the ruling there. The card's job is
+ * to present each blank as a choice with two buttons, not as a deficiency
+ * with a count.
+ */
+function useMarks(slug: string): readonly [Marks, (path: string, state: OfferState) => void, () => void] {
+  const [marks, setMarks] = useState<Marks>({});
+  useEffect(() => setMarks(readMarks(slug)), [slug]);
+  // Functional update, not `{...marks}`: two marks in the same tick (a
+  // maker clicking "Build this" twice quickly, or a test doing it in one
+  // pass) both read the same stale closure otherwise, and the first one is
+  // silently lost. Caught by driving the browser, not by typecheck.
+  const set = (path: string, state: OfferState) => {
+    setMarks((current) => {
+      const next = { ...current, [path]: state };
+      writeMarks(slug, next);
+      return next;
+    });
+  };
+  const resetAll = () => {
+    setMarks({});
+    writeMarks(slug, {});
+  };
+  return [marks, set, resetAll] as const;
+}
 
 // --------------------------------------------------------------- the page
 
@@ -255,15 +236,15 @@ export function SkillPane({ slug }: { readonly slug: string }) {
 
   const [open, setOpen] = useState<ReadonlyArray<string>>([]);
   const [active, setActive] = useState<OpenTab>({ kind: "pinned", id: "Overview" });
-  const [cleared, clear, restore] = useCleared(slug);
+  const [marks, mark, resetMarks] = useMarks(slug);
 
-  // A cleared blank leaves the card entirely; a file that EXISTS is never
-  // hidden, whatever the maker cleared.
+  // A cleared blank leaves the card; a file that EXISTS is never hidden,
+  // whatever the maker cleared.
   const allRows = rowsFrom(files);
-  const allSlots = slotsFrom(detail);
-  const rows = allRows.filter((r) => r.size !== null || !cleared.has(fileKey(r)));
-  const slots = allSlots.filter((s) => s.value !== null || !cleared.has(slotKey(s)));
-  const clearedCount = cleared.size;
+  const rows = allRows.filter((r) => r.size !== null || marks[r.path] !== "cleared");
+  const slots = slotsFrom(detail);
+  const have = new Set(files.map((f) => f.path));
+  const clearedCount = Object.values(marks).filter((m) => m === "cleared").length;
 
   const openFile = (path: string) => {
     if (!open.includes(path)) setOpen([...open, path]);
@@ -337,12 +318,14 @@ export function SkillPane({ slug }: { readonly slug: string }) {
               slots={slots}
               rows={rows}
               onGoTo={(id) => setActive({ kind: "pinned", id })}
-              onClear={clear}
+              marks={marks}
+              have={have}
+              onMark={mark}
               clearedCount={clearedCount}
-              onRestoreAll={() => [...cleared].forEach(restore)}
+              onRestoreAll={resetMarks}
             />
           ) : (
-            <PieceTab name={active.id} slots={slots} rows={rows} onOpenFile={openFile} onClear={clear} />
+            <PieceTab name={active.id} slots={slots} rows={rows} onOpenFile={openFile} onMark={mark} />
           )}
         </div>
       </div>
@@ -360,22 +343,27 @@ function Overview({
   detail,
   slots,
   rows,
+  marks,
+  have,
   onGoTo,
-  onClear,
+  onMark,
   clearedCount,
   onRestoreAll,
 }: {
   readonly detail: Detail;
   readonly slots: ReadonlyArray<Slot>;
   readonly rows: ReadonlyArray<Row>;
+  readonly marks: Marks;
+  readonly have: ReadonlySet<string>;
   readonly onGoTo: (id: TabId) => void;
-  readonly onClear: (key: string) => void;
+  readonly onMark: (path: string, state: OfferState) => void;
   readonly clearedCount: number;
   readonly onRestoreAll: () => void;
 }) {
   const said = slots.filter((s) => s.value !== null);
-  const unsaid = slots.filter((s) => s.value === null);
   const unmade = rows.filter((r) => r.size === null);
+  const wanted = unmade.filter((r) => marks[r.path] === "wanted");
+  const open = unmade.filter((r) => marks[r.path] !== "wanted");
 
   return (
     <div className="max-w-2xl">
@@ -394,42 +382,69 @@ function Overview({
         </div>
       )}
 
-      {/* EMPTY SPACE, not a scorecard. Each line is an offer with a way to
-          fill it and a ✕ to decline it. No counts, no totals, no progress:
-          a maker whose process doesn't use evals should be able to clear
-          that away and see a finished card. */}
-      {(unsaid.length > 0 || unmade.length > 0) && (
-        <div className="mt-6 rounded border border-dashed border-border bg-canvas/40 p-3">
+      {/* WANTED — the only thing worth tracking. These are work orders the
+          maker asked for; they live on the Tasks board until they exist. */}
+      {wanted.length > 0 && (
+        <div className="mt-6 rounded border border-emerald-700/50 bg-canvas/40 p-3">
+          <p className={LABEL}>You asked for</p>
+          <div className="flex flex-col pt-1">
+            {wanted.map((r) => {
+              const offer = OFFER_BY_PATH[r.path];
+              const missing = offer === undefined ? [] : missingFor(offer, have);
+              return (
+                <div key={r.path} className="border-t border-border/50 py-2 first:border-t-0">
+                  <div className="flex items-baseline gap-2">
+                    <span className={`${CODE} text-[14px] text-ink`}>{r.path}</span>
+                    <span className="flex-1" />
+                    <button
+                      type="button"
+                      onClick={() => onMark(r.path, "offered")}
+                      className="text-[11px] text-ink-muted hover:text-ink"
+                    >
+                      never mind
+                    </button>
+                  </div>
+                  {missing.length === 0 ? (
+                    <p className="text-[12px] leading-snug text-emerald-700">Ready — nothing in its way.</p>
+                  ) : (
+                    <p className="text-[12px] leading-snug text-amber-800">Blocked — waiting on {missing.join(", ")}.</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="pt-2 text-[12px] text-ink-muted">These are on the Tasks board.</p>
+        </div>
+      )}
+
+      {/* EMPTY SPACE — offers, not deficiencies. Two buttons, never a count:
+          build it (a want, trackable) or clear it away (not how I work). */}
+      {open.length > 0 && (
+        <div className="mt-4 rounded border border-dashed border-border bg-canvas/40 p-3">
           <p className={LABEL}>Empty space</p>
           <p className="pb-2 pt-1 text-[12px] leading-snug text-ink-muted">
-            Room the product left you. Fill what you want; clear away what your process doesn&rsquo;t use.
+            Room the product left you. Ask for what you want; clear away what your process doesn&rsquo;t use.
           </p>
-
           <div className="flex flex-col">
-            {unsaid.map((s) => (
-              <Offer
-                key={s.lead}
-                title={s.gap}
-                detail={s.question}
-                where={s.piece}
-                onGo={() => onGoTo(s.piece as TabId)}
-                onClear={() => onClear(slotKey(s))}
-              />
-            ))}
-            {unmade.map((r) => (
-              <Offer
-                key={r.path}
-                title={r.path}
-                detail={r.how ?? ""}
-                where={PIECE_OF(r.path) ?? "Job"}
-                mono
-                onGo={() => {
-                  const p = PIECE_OF(r.path);
-                  if (p !== null) onGoTo(p as TabId);
-                }}
-                onClear={() => onClear(fileKey(r))}
-              />
-            ))}
+            {open.map((r) => {
+              const offer = OFFER_BY_PATH[r.path];
+              const missing = offer === undefined ? [] : missingFor(offer, have);
+              return (
+                <OfferRow
+                  key={r.path}
+                  path={r.path}
+                  detail={r.how ?? ""}
+                  where={PIECE_OF(r.path) ?? "Job"}
+                  missing={missing}
+                  onGo={() => {
+                    const p = PIECE_OF(r.path);
+                    if (p !== null) onGoTo(p as TabId);
+                  }}
+                  onWant={() => onMark(r.path, "wanted")}
+                  onClear={() => onMark(r.path, "cleared")}
+                />
+              );
+            })}
           </div>
         </div>
       )}
@@ -447,35 +462,49 @@ function Overview({
 }
 
 /**
- * One piece of empty space: what could go here, how to fill it, where it
- * lives — and the website-builder ✕ that says "not for me". The ✕ is quiet
- * until hover, so declining is available without being suggested.
+ * One piece of empty space, as a choice. Two buttons and no count: BUILD
+ * THIS is the green one — the thing the product actually tracks — and ✕
+ * says "not how I work". A blocked offer can still be wanted: you declare
+ * desire now, and readiness fires it later.
  */
-function Offer({
-  title,
+function OfferRow({
+  path,
   detail,
   where,
-  mono,
+  missing,
   onGo,
+  onWant,
   onClear,
 }: {
-  readonly title: string;
+  readonly path: string;
   readonly detail: string;
   readonly where: string;
-  readonly mono?: boolean;
+  readonly missing: ReadonlyArray<string>;
   readonly onGo: () => void;
+  readonly onWant: () => void;
   readonly onClear: () => void;
 }) {
   return (
     <div className="group flex items-start gap-2 border-t border-border/50 py-2 first:border-t-0">
-      <span className="pt-0.5 text-[10px] text-ink-muted" aria-hidden="true">
+      <span className="pt-1 text-[10px] text-ink-muted" aria-hidden="true">
         ○
       </span>
       <button type="button" onClick={onGo} className="min-w-0 flex-1 text-left">
-        <span className={`block text-[14px] text-ink ${mono === true ? CODE : ""}`}>{title}</span>
+        <span className={`block ${CODE} text-[14px] text-ink`}>{path}</span>
         {detail !== "" && <span className="block text-[12px] leading-snug text-ink-muted">{detail}</span>}
+        {missing.length > 0 && (
+          <span className="block text-[12px] leading-snug text-amber-800">Needs {missing.join(", ")} first.</span>
+        )}
       </button>
-      <span className="shrink-0 pt-0.5 text-[11px] text-ink-muted">{where}</span>
+      <span className="shrink-0 pt-1 text-[11px] text-ink-muted">{where}</span>
+      <button
+        type="button"
+        onClick={onWant}
+        title={missing.length > 0 ? "Want it — it'll wait on the Tasks board until it can happen" : "Want it — ready to go"}
+        className="shrink-0 rounded border border-emerald-700/60 px-2 py-0.5 text-[11px] text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+      >
+        Build this
+      </button>
       <button
         type="button"
         onClick={onClear}
@@ -495,13 +524,13 @@ function PieceTab({
   slots,
   rows,
   onOpenFile,
-  onClear,
+  onMark,
 }: {
   readonly name: PieceName;
   readonly slots: ReadonlyArray<Slot>;
   readonly rows: ReadonlyArray<Row>;
   readonly onOpenFile: (path: string) => void;
-  readonly onClear: (key: string) => void;
+  readonly onMark: (path: string, state: OfferState) => void;
 }) {
   const piece = PIECES.find((p) => p.name === name);
   const mine = slots.filter((s) => s.piece === name);
@@ -527,20 +556,10 @@ function PieceTab({
               // sentence ("Don't use it to Paired with Job (Model Cards):
               // what should..."), so close the sentence honestly first and
               // put the question underneath as the prompt it is.
-              <div key={s.lead} className="group">
-                <p className="flex items-baseline gap-2 text-[15px] leading-relaxed">
-                  <span>
-                    <span className="text-ink-muted">{s.lead} </span>
-                    <span className="italic text-ink-muted">— not recorded</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onClear(slotKey(s))}
-                    title="Clear this away — my process doesn't use it"
-                    className="rounded px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:bg-surface hover:text-ink group-hover:opacity-100"
-                  >
-                    ✕
-                  </button>
+              <div key={s.lead}>
+                <p className="text-[15px] leading-relaxed">
+                  <span className="text-ink-muted">{s.lead} </span>
+                  <span className="italic text-ink-muted">— not recorded</span>
                 </p>
                 <p className="pl-4 text-[13px] leading-snug text-ink-muted">
                   {s.question} <span className={`${CODE} text-[11px]`}>{s.source}</span>
@@ -569,7 +588,7 @@ function PieceTab({
       <h2 className={`${LABEL} pb-1 pt-7`}>Files</h2>
       <div className="rounded border border-border bg-surface">
         {files.map((r) => (
-          <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} onClear={() => onClear(fileKey(r))} />
+          <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} onClear={() => onMark(r.path, "cleared")} />
         ))}
         {files.length === 0 && <p className="px-3 py-2 text-[13px] text-ink-muted">No files yet.</p>}
       </div>
