@@ -28,14 +28,14 @@
  * because those are controls, not a label.
  */
 import { useState } from "react";
-import { setActiveProject } from "../runtime/projectScope.ts";
 import { useProjectBootstrap } from "../runtime/useProjectBootstrap.ts";
 import { usePanelResize } from "../next/hooks.ts";
 import { CollapseIcon, ExpandIcon, PanelLeftIcon, PanelRightIcon } from "../next/icons.tsx";
 import { RightPanel } from "../next/RightPanel.tsx";
 import { Sidebar } from "../next/Sidebar.tsx";
 import { IconButton } from "../next/ui.tsx";
-import { BoardView, useSkillPage } from "../next/views.tsx";
+import { useSkillPage } from "../next/views.tsx";
+import { ProtoStatus } from "./Status.tsx";
 import { TopBarSkillControls } from "../next/SkillPage.tsx";
 import type { CenterView } from "../next/types.ts";
 import { SkillPane } from "./Overview.tsx";
@@ -110,6 +110,7 @@ export default function ProtoShell() {
             onNavigate={setCenter}
             newProjectOpen={newProjectOpen}
             onNewProjectOpenChange={setNewProjectOpen}
+            boardLabel="Status"
           />
         </div>
         {sidebarOpen && (
@@ -133,13 +134,7 @@ export default function ProtoShell() {
 
         <main className="relative flex-1 overflow-y-auto">
           {center.kind === "board" && (
-            <BoardView
-              onOpenSkill={(project, slug) => {
-                setActiveProject(project.slug);
-                setCenter({ kind: "skill", project: project.name, slug });
-              }}
-              onCreateProject={() => setNewProjectOpen(true)}
-            />
+            <ProtoStatus onOpenSkill={(project, slug) => setCenter({ kind: "skill", project: project.name, slug })} />
           )}
           {center.kind === "tasks" && (
             <ProtoTasks

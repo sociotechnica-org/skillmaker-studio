@@ -19,12 +19,19 @@ export function Sidebar({
   onNavigate,
   newProjectOpen,
   onNewProjectOpenChange,
+  boardLabel = "Board",
 }: {
   readonly center: CenterView;
   readonly onNavigate: (view: CenterView) => void;
   /** Dialog open state lives in the shell so the Board's empty-registry welcome can open the SAME dialog. */
   readonly newProjectOpen: boolean;
   readonly onNewProjectOpenChange: (open: boolean) => void;
+  /**
+   * Label for the first nav row. The /prototype fork calls it "Status",
+   * since that surface stopped being a stage board; defaults to "Board" so
+   * the shipping shell at `/` is unchanged.
+   */
+  readonly boardLabel?: string;
 }) {
   // Placeholder until the live fetch lands; astro dev without the API keeps
   // rendering data.ts's PROJECTS (fetchProjects resolves null there).
@@ -83,7 +90,7 @@ export function Sidebar({
 
       <nav className="px-2">
         <NavItem
-          label="Board"
+          label={boardLabel}
           icon={<BoardIcon />}
           active={center.kind === "board"}
           onClick={() => onNavigate({ kind: "board" })}
