@@ -363,7 +363,7 @@ function SlotLine({ slot, onOpenFile }: { readonly slot: Slot; readonly onOpenFi
           type="button"
           onClick={() => onOpenFile(slot.source)}
           title={slot.question}
-          className="text-left italic text-ink-muted/60 underline decoration-dotted underline-offset-4 hover:text-amber-700"
+          className="text-left italic text-ink-muted underline decoration-dotted underline-offset-4 hover:text-amber-800"
         >
           {slot.short} — not recorded
         </button>
@@ -405,7 +405,7 @@ function Shelf({ drawer: d, onOpenFile }: { readonly drawer: Drawer; readonly on
         <span className="shrink-0 text-[12px] text-ink-muted">
           {here} {MADE}
           {missing > 0 && (
-            <span className="text-amber-700">
+            <span className="text-amber-800">
               {" "}
               · {missing} {TO_BE_MADE}
             </span>
@@ -438,13 +438,13 @@ function FileRow({ row, onOpen, indent }: { readonly row: Row; readonly onOpen: 
         indent ? "pl-8" : ""
       }`}
     >
-      <span className={`shrink-0 text-[10px] ${here ? "text-emerald-700" : "text-ink-muted/40"}`}>{here ? "●" : "○"}</span>
+      <span className={`shrink-0 text-[10px] ${here ? "text-emerald-700" : "text-ink-muted"}`}>{here ? "●" : "○"}</span>
       <span className="min-w-0 flex-1">
-        <span className={`block truncate ${CODE} text-[13px] ${here ? "text-ink" : "text-ink-muted/70"}`}>{label}</span>
+        <span className={`block truncate ${CODE} text-[13px] ${here ? "text-ink" : "text-ink-muted"}`}>{label}</span>
         {row.why !== null && <span className="block text-[12px] leading-snug text-ink-muted">{row.why}</span>}
-        {!here && row.how !== null && <span className="block text-[12px] leading-snug text-amber-700">{row.how}</span>}
+        {!here && row.how !== null && <span className="block text-[12px] leading-snug text-amber-800">{row.how}</span>}
       </span>
-      <span className="shrink-0 text-[11px] text-ink-muted/70">{row.size === null ? TO_BE_MADE : `${(row.size / 1024).toFixed(1)} KB`}</span>
+      <span className="shrink-0 text-[11px] text-ink-muted">{row.size === null ? TO_BE_MADE : `${(row.size / 1024).toFixed(1)} KB`}</span>
     </button>
   );
 }
