@@ -1,55 +1,42 @@
 /**
- * PROTOTYPE — the skill page (folder pass, 2026-08-05).
+ * PROTOTYPE — the skill page (fork pass, 2026-08-05).
  *
- * TYPOGRAPHY FIX. The previous pass was unreadable, and the brand standard
- * says exactly why. `--font-mono` is NOT a monospace — it's aliased to
- * Special Elite, the distressed single-weight typewriter face
- * (`docs/library/brand/Reference - Typography.md`, viewer global.css:28).
- * The standard reserves it for "all-caps mono micro-labels with wide
- * tracking... the recurring structural device" — a garnish, not a body
- * face. I had it on paths, questions, sizes, breadcrumbs: 15 uses.
+ * LIVE DATA. The fixtures are gone. Everything below comes off the same
+ * `/api/*` the shipping app reads:
  *
- * Jess's own file tree (next/RightPanel.tsx) uses `font-mono` ZERO times.
- * Paths render in the body serif; real file contents escape to a true
- * monospace stack explicitly (RightPanel.tsx:292). That's the house rule,
- * and this file now follows it:
+ *   bundle detail   `bundle.oneLiner`, and `dossier` — which the server
+ *                   already returns as `{ job?, outOfScope?, basis?,
+ *                   evidence?, fitCriterion?, contexts[] }`. Absent keys
+ *                   are absent BECAUSE the bundle has no dossier.md. Every
+ *                   blank you see is a real gap on disk, not a staged one.
+ *   files           `GET /api/bundles/:slug/files`, the real tree
+ *   contents        `GET /api/bundles/:slug/file?path=`, on open
  *
- *   font-display  →  the skill's name. Once.
- *   font-mono     →  uppercase micro-labels only ("FILES", "STAGE"). Rare.
- *   body serif    →  every sentence, every folder, every file row.
- *   CODE          →  paths and file contents, in a REAL monospace.
+ * TYPOGRAPHY. `--font-mono` is NOT a monospace — it's aliased to Special
+ * Elite, the distressed typewriter (`Reference - Typography.md`; viewer
+ * global.css:28). The standard reserves it for all-caps micro-labels with
+ * wide tracking. Jess's own file tree uses it zero times: paths render in
+ * the body serif, contents escape to a true monospace (RightPanel:292).
+ * Same rules here.
  *
- * LAYOUT. Top half is prose — short sentences, normal font. Bottom half is
- * a folder list: collapsed by default, expand one to find its files. Root
- * files sit above the folders, because that's where they sit on disk.
+ * TABS ARE EARNED. Research · Eval · Publish are gone — four permanent
+ * rooms, three usually empty, standing for topics rather than for anything
+ * a skill had accumulated. What's left is Overview plus the files you
+ * open. The test a candidate tab must pass: does it REFLECT across several
+ * files (risk-map × fixtures × runs) rather than display one of them? If
+ * one file answers it, it's a file, not a tab. The earned list is
+ * deliberately empty, and the bar reads from it.
  */
-import { useState } from "react";
-import { STAGE_TINT, type ManifestFile, type ProtoSkill, type Slot } from "./data.ts";
+import { useCallback, useState } from "react";
+import { fetchBundleFile, fetchBundleFiles, useApiData } from "../next/api.ts";
+import { apiPath } from "../runtime/projectScope.ts";
+import type { BundleFile } from "../next/types.ts";
 
 /** A real monospace — deliberately NOT `font-mono`, which is Special Elite. */
 const CODE = "[font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace]";
 /** The brand's structural device: all-caps micro-label, wide tracking. */
 const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted";
 
-/**
- * TABS ARE EARNED (2026-08-05 ruling). Research · Eval · Publish are gone.
- * They were four permanent rooms, three of them usually empty, standing
- * for topics rather than for anything the skill had actually accumulated.
- *
- * What's left is one pinned tab and a rule:
- *
- *   Overview   always. The skill in sentences, and its folders.
- *   a file     opened from Overview. Raw — the thing itself.
- *   an earned  a tab that appears only once there is enough material to
- *   tab        synthesize, and says something the raw files can't say on
- *              their own. NONE EXIST YET, on purpose — the list below is
- *              empty and the machinery reads from it, so adding one is a
- *              data change, not a redesign.
- *
- * The test a candidate has to pass: does it REFLECT across several files
- * (risk-map × fixtures × runs), rather than just displaying one of them?
- * If one file answers it, it's a file, not a tab.
- */
 const PINNED = ["Overview"] as const;
 type PinnedTab = (typeof PINNED)[number];
 type OpenTab = { readonly kind: "pinned"; readonly id: PinnedTab } | { readonly kind: "file"; readonly path: string };
@@ -59,14 +46,172 @@ const TAB_ACTIVE =
 const TAB_IDLE =
   "flex items-center gap-1.5 rounded-t-lg border border-b-0 border-border bg-canvas px-3 py-1.5 font-display text-[12px] text-ink-muted hover:bg-well/70 hover:text-ink";
 
-const same = (a: OpenTab, b: OpenTab) =>
-  a.kind === b.kind && (a.kind === "pinned" ? a.id === (b as typeof a).id : a.path === (b as { path: string }).path);
+// --------------------------------------------------------------- the wire
 
-export function SkillPane({ skill, initialFile = null }: { readonly skill: ProtoSkill; readonly initialFile?: string | null }) {
-  const [open, setOpen] = useState<ReadonlyArray<string>>(initialFile === null ? [] : [initialFile]);
-  const [active, setActive] = useState<OpenTab>(
-    initialFile === null ? { kind: "pinned", id: "Overview" } : { kind: "file", path: initialFile },
-  );
+/** The dossier as the server already serialises it (core/src/Dossier.ts:32). */
+type WireDossier = {
+  readonly job?: string;
+  readonly outOfScope?: string;
+  readonly basis?: string;
+  readonly evidence?: string;
+  readonly fitCriterion?: string;
+  readonly contexts?: ReadonlyArray<{ readonly name?: string }>;
+};
+
+type Detail = {
+  readonly name: string;
+  readonly oneLiner: string;
+  readonly dossier: WireDossier;
+};
+
+const EMPTY_DETAIL: Detail = { name: "", oneLiner: "", dossier: {} };
+
+const fetchDetail = async (slug: string): Promise<Detail> => {
+  const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}`));
+  if (!response.ok) throw new Error(`bundle: ${response.status}`);
+  const body = (await response.json()) as {
+    bundle?: { name?: unknown; oneLiner?: unknown };
+    dossier?: WireDossier;
+  };
+  return {
+    name: typeof body.bundle?.name === "string" ? body.bundle.name : slug,
+    oneLiner: typeof body.bundle?.oneLiner === "string" ? body.bundle.oneLiner : "",
+    dossier: body.dossier ?? {},
+  };
+};
+
+// ------------------------------------------------------------- the madlib
+
+/**
+ * The sentences: Playmaker's synopsis ("What it does / Reach for it when /
+ * The story / Trigger") fused with the dossier's ruled sections. The blank
+ * text is the scaffold's own question, shortened — the full one is the
+ * tooltip, verbatim from `writeDossierScaffold`.
+ */
+type Slot = {
+  readonly lead: string;
+  readonly value: string | null;
+  readonly short: string;
+  readonly question: string;
+  readonly source: string;
+};
+
+const slotsFrom = (detail: Detail): ReadonlyArray<Slot> => {
+  const d = detail.dossier;
+  const contexts = d.contexts ?? [];
+  return [
+    {
+      lead: "It",
+      // The dossier's Job when written; otherwise bundle.json's one-liner,
+      // which every bundle has. Never blank in practice.
+      value: d.job ?? (detail.oneLiner === "" ? null : detail.oneLiner),
+      short: "what it does",
+      question: "One line: what does this skill do?",
+      source: "dossier.md",
+    },
+    {
+      lead: "Don't use it to",
+      value: d.outOfScope ?? null,
+      short: "what it must not be used for",
+      question: "Paired with Job (Model Cards): what should this explicitly NOT be used for?",
+      source: "dossier.md",
+    },
+    {
+      lead: "It runs",
+      value: contexts.length === 0 ? null : contexts.map((c) => c.name ?? "unnamed").join(", "),
+      short: "what comes before and after it",
+      question: "Walk the last real time this ran: what came right before it, and what happened right after?",
+      source: "dossier.md",
+    },
+    {
+      lead: "It's built on",
+      value: d.basis ?? null,
+      short: "whose method it follows",
+      question:
+        "A named framework, or someone's way of doing it — record who, so an ambiguous case has a source of truth to ask.",
+      source: "dossier.md",
+    },
+    {
+      lead: "Evidence",
+      value: d.evidence ?? null,
+      short: "whether performance data exists",
+      question: "Does performance data exist? Where does it live? Do we have permission to use it?",
+      source: "dossier.md",
+    },
+    {
+      lead: "You'd know it worked if",
+      value: d.fitCriterion ?? null,
+      short: "the one pass/fail test",
+      question:
+        "If you had to write one pass/fail test today, what would it check? The answer seeds the first fixture's answer key.",
+      source: "dossier.md",
+    },
+  ];
+};
+
+// ------------------------------------------------------------- the files
+
+/**
+ * Files a bundle COULD have. A convention list, not a schema — each one is
+ * something the product already knows how to make, so a blank can say how.
+ * Anything the tree actually returns wins; these fill the holes.
+ */
+const COULD_EXIST: ReadonlyArray<{ readonly path: string; readonly why: string; readonly how: string }> = [
+  { path: "design.md", why: "Intent and workflow.", how: "The researching station writes it, or write it by hand." },
+  { path: "dossier.md", why: "Context of use — the sentences above.", how: "Run skillmaker dossier to scaffold it." },
+  { path: "output/SKILL.md", why: "What ships.", how: "The drafting station writes it from design.md." },
+  { path: "evals/risk-map.md", why: "The ways it can go wrong.", how: "The evaluating station authors it once there's a draft." },
+];
+
+type Row = { readonly path: string; readonly size: number | null; readonly why: string | null; readonly how: string | null };
+
+const rowsFrom = (files: ReadonlyArray<BundleFile>): ReadonlyArray<Row> => {
+  const have = new Set(files.map((f) => f.path));
+  const known = new Map(COULD_EXIST.map((c) => [c.path, c]));
+  const present: Row[] = files.map((f) => ({
+    path: f.path,
+    size: f.size,
+    why: known.get(f.path)?.why ?? null,
+    how: null,
+  }));
+  const missing: Row[] = COULD_EXIST.filter((c) => !have.has(c.path)).map((c) => ({
+    path: c.path,
+    size: null,
+    why: c.why,
+    how: c.how,
+  }));
+  return [...present, ...missing];
+};
+
+type Group = { readonly name: string; readonly rows: ReadonlyArray<Row> };
+
+function group(rows: ReadonlyArray<Row>): { readonly root: ReadonlyArray<Row>; readonly folders: ReadonlyArray<Group> } {
+  const root: Row[] = [];
+  const folders: Group[] = [];
+  for (const r of rows) {
+    const cut = r.path.indexOf("/");
+    if (cut === -1) {
+      root.push(r);
+      continue;
+    }
+    const name = r.path.slice(0, cut);
+    const hit = folders.find((g) => g.name === name);
+    if (hit === undefined) folders.push({ name, rows: [r] });
+    else (hit.rows as Row[]).push(r);
+  }
+  return { root, folders };
+}
+
+// --------------------------------------------------------------- the page
+
+export function SkillPane({ slug }: { readonly slug: string }) {
+  const detail = useApiData(useCallback(() => fetchDetail(slug), [slug]), EMPTY_DETAIL);
+  const files = useApiData(useCallback(() => fetchBundleFiles(slug), [slug]), [] as ReadonlyArray<BundleFile>);
+
+  const [open, setOpen] = useState<ReadonlyArray<string>>([]);
+  const [active, setActive] = useState<OpenTab>({ kind: "pinned", id: "Overview" });
+
+  const rows = rowsFrom(files);
 
   const openFile = (path: string) => {
     if (!open.includes(path)) setOpen([...open, path]);
@@ -88,8 +233,9 @@ export function SkillPane({ skill, initialFile = null }: { readonly skill: Proto
       <div className="flex flex-wrap items-end gap-1 px-6 pt-4">
         {PINNED.map((id) => {
           const tab: OpenTab = { kind: "pinned", id };
+          const on = active.kind === "pinned" && active.id === id;
           return (
-            <button key={id} type="button" onClick={() => setActive(tab)} className={same(active, tab) ? TAB_ACTIVE : TAB_IDLE}>
+            <button key={id} type="button" onClick={() => setActive(tab)} className={on ? TAB_ACTIVE : TAB_IDLE}>
               {id}
             </button>
           );
@@ -98,11 +244,16 @@ export function SkillPane({ skill, initialFile = null }: { readonly skill: Proto
         {open.length > 0 && <span className="mx-1.5 mb-2 h-4 w-px bg-border" />}
 
         {open.map((path) => {
-          const tab: OpenTab = { kind: "file", path };
+          const on = active.kind === "file" && active.path === path;
           const name = path.split("/").pop() ?? path;
           return (
-            <span key={path} className={same(active, tab) ? TAB_ACTIVE : TAB_IDLE}>
-              <button type="button" onClick={() => setActive(tab)} className={`max-w-[150px] truncate ${CODE} text-[11px]`} title={path}>
+            <span key={path} className={on ? TAB_ACTIVE : TAB_IDLE}>
+              <button
+                type="button"
+                onClick={() => setActive({ kind: "file", path })}
+                className={`max-w-[150px] truncate ${CODE} text-[11px]`}
+                title={path}
+              >
                 {name}
               </button>
               <button
@@ -121,9 +272,9 @@ export function SkillPane({ skill, initialFile = null }: { readonly skill: Proto
       <div className="flex-1 border-t border-neutral-900/50 bg-well">
         <div className="px-6 py-6">
           {active.kind === "file" ? (
-            <FileView skill={skill} path={active.path} />
+            <FileView slug={slug} path={active.path} row={rows.find((r) => r.path === active.path)} />
           ) : (
-            <Overview skill={skill} onOpenFile={openFile} />
+            <Overview detail={detail} rows={rows} onOpenFile={openFile} />
           )}
         </div>
       </div>
@@ -131,29 +282,51 @@ export function SkillPane({ skill, initialFile = null }: { readonly skill: Proto
   );
 }
 
-// -------------------------------------------------------------- top half
+function Overview({
+  detail,
+  rows,
+  onOpenFile,
+}: {
+  readonly detail: Detail;
+  readonly rows: ReadonlyArray<Row>;
+  readonly onOpenFile: (path: string) => void;
+}) {
+  const { root, folders } = group(rows);
+  const missing = rows.filter((r) => r.size === null).length;
 
-function Overview({ skill, onOpenFile }: { readonly skill: ProtoSkill; readonly onOpenFile: (path: string) => void }) {
   return (
     <div className="max-w-2xl">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <h1 className="font-display text-xl">{skill.name}</h1>
-        <span className={`rounded px-1.5 py-0.5 text-[11px] ${STAGE_TINT[skill.stage]}`}>{skill.stage}</span>
-      </div>
+      <h1 className="font-display text-xl">{detail.name}</h1>
 
-      {/* the madlib — plain sentences, body serif, no chrome */}
       <div className="flex flex-col gap-1.5 pt-4">
-        {skill.slots.map((slot) => (
+        {slotsFrom(detail).map((slot) => (
           <SlotLine key={slot.lead} slot={slot} onOpenFile={onOpenFile} />
         ))}
       </div>
 
-      <Files skill={skill} onOpenFile={onOpenFile} />
+      {/* The five facts — stage · version · drift · proven on · coverage —
+          were here. Cut 2026-08-05 to be earned back. */}
+
+      <div className="flex items-baseline justify-between pb-1 pt-8">
+        <h2 className={LABEL}>Files</h2>
+        <p className="text-[12px] text-ink-muted">
+          {rows.length - missing} here{missing > 0 ? ` · ${missing} not yet` : ""}
+        </p>
+      </div>
+
+      <div className="rounded border border-border bg-surface">
+        {root.map((r) => (
+          <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} indent={false} />
+        ))}
+        {folders.map((g) => (
+          <Folder key={g.name} group={g} onOpenFile={onOpenFile} />
+        ))}
+        {rows.length === 0 && <p className="px-3 py-2 text-[12px] text-ink-muted">No files — is the server running?</p>}
+      </div>
     </div>
   );
 }
 
-/** One sentence. A gap reads as a gap, quietly, and links to where it's written. */
 function SlotLine({ slot, onOpenFile }: { readonly slot: Slot; readonly onOpenFile: (path: string) => void }) {
   return (
     <p className="text-[15px] leading-relaxed">
@@ -174,64 +347,10 @@ function SlotLine({ slot, onOpenFile }: { readonly slot: Slot; readonly onOpenFi
   );
 }
 
-/* The five facts — stage · version · drift · proven on · coverage — were
-   here, lifted from the existing overview card. Cut 2026-08-05 to be
-   earned back: they were five numbers competing with the sentences before
-   anyone had asked for them. The data still rides on ProtoSkill, so
-   bringing any single one back is a one-line change. */
-
-// ----------------------------------------------------------- bottom half
-
-type Group = { readonly name: string; readonly files: ReadonlyArray<ManifestFile> };
-
-/** Root files first, then one group per top-level folder — like the disk. */
-function group(files: ReadonlyArray<ManifestFile>): { readonly root: ReadonlyArray<ManifestFile>; readonly folders: ReadonlyArray<Group> } {
-  const root: ManifestFile[] = [];
-  const folders: Group[] = [];
-  for (const f of files) {
-    const cut = f.path.indexOf("/");
-    if (cut === -1) {
-      root.push(f);
-      continue;
-    }
-    const name = f.path.slice(0, cut);
-    const hit = folders.find((g) => g.name === name);
-    if (hit === undefined) folders.push({ name, files: [f] });
-    else (hit.files as ManifestFile[]).push(f);
-  }
-  return { root, folders };
-}
-
-function Files({ skill, onOpenFile }: { readonly skill: ProtoSkill; readonly onOpenFile: (path: string) => void }) {
-  const { root, folders } = group(skill.files);
-  const missing = skill.files.filter((f) => f.size === null).length;
-
-  return (
-    <>
-      <div className="flex items-baseline justify-between pb-1 pt-8">
-        <h2 className={LABEL}>Files</h2>
-        <p className="text-[12px] text-ink-muted">
-          {skill.files.length - missing} here{missing > 0 ? ` · ${missing} not yet` : ""}
-        </p>
-      </div>
-
-      <div className="rounded border border-border bg-surface">
-        {root.map((f) => (
-          <FileRow key={f.path} file={f} onOpen={() => onOpenFile(f.path)} indent={false} />
-        ))}
-        {folders.map((g) => (
-          <Folder key={g.name} group={g} onOpenFile={onOpenFile} />
-        ))}
-      </div>
-    </>
-  );
-}
-
-/** Collapsed by default: a folder is a lid, not a list. */
 function Folder({ group: g, onOpenFile }: { readonly group: Group; readonly onOpenFile: (path: string) => void }) {
   const [open, setOpen] = useState(false);
-  const missing = g.files.filter((f) => f.size === null).length;
-  const here = g.files.length - missing;
+  const missing = g.rows.filter((r) => r.size === null).length;
+  const here = g.rows.length - missing;
 
   return (
     <div className="border-t border-border/70 first:border-t-0">
@@ -246,8 +365,8 @@ function Folder({ group: g, onOpenFile }: { readonly group: Group; readonly onOp
       </button>
       {open && (
         <div className="border-t border-border/50 bg-canvas/40">
-          {g.files.map((f) => (
-            <FileRow key={f.path} file={f} onOpen={() => onOpenFile(f.path)} indent />
+          {g.rows.map((r) => (
+            <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} indent />
           ))}
         </div>
       )}
@@ -255,16 +374,15 @@ function Folder({ group: g, onOpenFile }: { readonly group: Group; readonly onOp
   );
 }
 
-function FileRow({ file, onOpen, indent }: { readonly file: ManifestFile; readonly onOpen: () => void; readonly indent: boolean }) {
-  const here = file.size !== null;
-  // Inside a folder the leading directory is redundant — show the tail.
-  const label = indent ? file.path.slice(file.path.indexOf("/") + 1) : file.path;
+function FileRow({ row, onOpen, indent }: { readonly row: Row; readonly onOpen: () => void; readonly indent: boolean }) {
+  const here = row.size !== null;
+  const label = indent ? row.path.slice(row.path.indexOf("/") + 1) : row.path;
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      title={file.path}
+      title={row.path}
       className={`flex w-full items-baseline gap-2 border-t border-border/50 px-3 py-1.5 text-left first:border-t-0 hover:bg-well/60 ${
         indent ? "pl-8" : ""
       }`}
@@ -272,47 +390,33 @@ function FileRow({ file, onOpen, indent }: { readonly file: ManifestFile; readon
       <span className={`shrink-0 text-[10px] ${here ? "text-emerald-700" : "text-ink-muted/40"}`}>{here ? "●" : "○"}</span>
       <span className="min-w-0 flex-1">
         <span className={`block truncate ${CODE} text-[13px] ${here ? "text-ink" : "text-ink-muted/70"}`}>{label}</span>
-        <span className="block text-[12px] leading-snug text-ink-muted">{file.why}</span>
-        {!here && file.how !== null && <span className="block text-[12px] leading-snug text-amber-700">{file.how}</span>}
+        {row.why !== null && <span className="block text-[12px] leading-snug text-ink-muted">{row.why}</span>}
+        {!here && row.how !== null && <span className="block text-[12px] leading-snug text-amber-700">{row.how}</span>}
       </span>
-      <span className="shrink-0 text-[11px] text-ink-muted/70">{file.size === null ? "not yet" : `${(file.size / 1024).toFixed(1)} KB`}</span>
+      <span className="shrink-0 text-[11px] text-ink-muted/70">{row.size === null ? "not yet" : `${(row.size / 1024).toFixed(1)} KB`}</span>
     </button>
   );
 }
 
-// ------------------------------------------------------------- file viewer
-
-function FileView({ skill, path }: { readonly skill: ProtoSkill; readonly path: string }) {
-  const file = skill.files.find((f) => f.path === path);
-  const content = skill.contents[path];
-  const slots = skill.slots.filter((s) => s.source === path && s.value === null);
+function FileView({ slug, path, row }: { readonly slug: string; readonly path: string; readonly row: Row | undefined }) {
+  const absent = row !== undefined && row.size === null;
+  const content = useApiData(
+    useCallback(() => (absent ? Promise.resolve("") : fetchBundleFile(slug, path)), [slug, path, absent]),
+    null as string | null,
+  );
 
   return (
     <div className="max-w-3xl">
       <p className={`pb-1 ${CODE} text-[13px] text-ink`}>{path}</p>
-      {file !== undefined && <p className="pb-3 text-[13px] text-ink-muted">{file.why}</p>}
+      {row?.why != null && <p className="pb-3 text-[13px] text-ink-muted">{row.why}</p>}
 
-      {file !== undefined && file.size === null ? (
+      {absent ? (
         <div className="rounded border border-dashed border-amber-600/60 bg-canvas/60 p-4">
           <p className={LABEL}>This file doesn't exist yet</p>
-          {file.how !== null && <p className="pt-2 text-[14px] leading-relaxed text-ink">{file.how}</p>}
-          {slots.length > 0 && (
-            <>
-              <p className="pt-4 text-[13px] text-ink-muted">It would answer:</p>
-              <ul className="flex flex-col gap-2 pt-2">
-                {slots.map((s) => (
-                  <li key={s.lead} className="text-[14px] leading-relaxed text-ink">
-                    {s.question}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
+          {row.how !== null && <p className="pt-2 text-[14px] leading-relaxed text-ink">{row.how}</p>}
         </div>
-      ) : content === undefined ? (
-        <p className="rounded border border-border bg-surface p-3 text-[13px] text-ink-muted">
-          No preview in the prototype — the real viewer renders this from the files endpoint.
-        </p>
+      ) : content === null ? (
+        <p className="text-[13px] text-ink-muted">Loading…</p>
       ) : (
         <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded border border-border bg-surface p-3 text-xs leading-relaxed ${CODE}`}>
           {content}

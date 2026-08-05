@@ -1,11 +1,15 @@
 ---
 // PROTOTYPE route (usability remodel, 2026-08-05) — /prototype.
 //
-// Deliberately OUTSIDE the shipping shell at "/": this is a sandbox for
-// arguing about where work happens and what a maker is looking at. It
-// shares the brand CSS and nothing else, so it can be torn up freely and
-// deleted in one commit. `astro.config.mjs` exempts this path from the
-// dev SPA fallback.
+// A copy of index.astro, pointed at the prototype shell. Same fonts, same
+// pre-paint theme script, same body classes — so DARK MODE, the parchment
+// ground and the type all behave exactly as they do at "/". The only
+// difference is which shell mounts.
+//
+// `astro.config.mjs` exempts this path from the dev SPA fallback; the CLI's
+// static server already serves it, because Astro emits it as
+// dist/prototype/index.html and the server tries a directory index before
+// falling back.
 import ProtoShell from "../app/proto/ProtoShell.tsx";
 import "../styles/global.css";
 ---
@@ -15,7 +19,7 @@ import "../styles/global.css";
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Prototype — where the work is</title>
+    <title>Skillmaker Studio — prototype</title>
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,6 +27,21 @@ import "../styles/global.css";
       href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&display=swap"
       rel="stylesheet"
     />
+    <!-- Apply the theme before paint so there's no light→dark flash.
+         Verbatim from index.astro — the prototype shares the same
+         localStorage key, so the toggle in the real sidebar carries your
+         choice between "/" and here. -->
+    <script is:inline>
+      (function () {
+        try {
+          var stored = localStorage.getItem("sm-theme");
+          var dark =
+            stored === "dark" ||
+            (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch {}
+      })();
+    </script>
   </head>
   <body class="min-h-screen text-ink antialiased">
     <ProtoShell client:load />
