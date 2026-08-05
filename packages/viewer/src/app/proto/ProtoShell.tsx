@@ -85,7 +85,8 @@ export default function ProtoShell() {
           >
             <span className="min-w-0 flex-1">
               <span className="block truncate font-mono text-[12px] text-ink">{s.slug}</span>
-              <span className="block truncate text-[11px] text-ink-muted">{s.oneLiner}</span>
+              {/* the madlib's first line IS the one-liner — no second field to drift */}
+              <span className="block truncate text-[11px] text-ink-muted">{s.slots[0]?.value ?? "no job recorded"}</span>
             </span>
           </button>
         ))}
@@ -118,9 +119,10 @@ export default function ProtoShell() {
         <main className="flex-1 overflow-y-auto">
           {note && (
             <div className="border-b border-amber-600/30 bg-amber-100/50 px-6 py-2.5 text-[12px] leading-snug text-ink">
-              <strong className="font-display">The change:</strong> the file tree and the file viewer moved out of the chat panel and into
-              Overview. Reading <span className="font-mono">SKILL.md</span> no longer costs you the conversation — the right panel is chat,
-              and only chat. Everything on this page already exists in the build; nothing new was invented for it.
+              <strong className="font-display">The change:</strong> Overview is undivided — madlib sentences, then the files, blanks
+              included. Opening a file opens a <em>tab</em>, like a browser, so twelve files is twelve tabs and Overview never becomes a
+              workspace. The right panel is chat, and only chat. The sentences come from the dossier's own six questions
+              (<span className="font-mono">core/src/Dossier.ts</span>) — nothing on this page was invented for the prototype.
             </div>
           )}
 

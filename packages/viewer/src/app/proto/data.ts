@@ -1,82 +1,84 @@
 /**
- * PROTOTYPE — stand-in data, PRESENT TENSE (redo, 2026-08-05).
+ * PROTOTYPE — stand-in data, PRESENT TENSE (madlibs pass, 2026-08-05).
  *
- * Sketch v0 drew a card for a product that doesn't exist yet — risk heat
- * maps, model split-tests, growth plays. This pass throws all of that out
- * and uses only what the build has TODAY:
+ * The madlib sentences are NOT invented for this prototype. They are the
+ * Playmaker synopsis ("What it does / Reach for it when / The story /
+ * Trigger", `docs/_archive/.../library-migration-prep.md:105`) fused with
+ * the dossier — which is already adopted, already shipped, and already
+ * written as questions:
  *
- *   · the real file trees of the two `william-*` bundles under skills/
- *   · real file contents (excerpted)
- *   · `bundle.json`'s slug / name / oneLiner / tags
- *   · the five facts the Skill page already computes and shows in Jess's
- *     little overview card: stage · version · drift · proven on · coverage
- *     (see next/views.tsx OverviewCard and next/api.ts:208-224)
+ *   packages/core/src/Dossier.ts:32   DOSSIER_SECTIONS =
+ *     Job · Contexts · Out-of-scope · Basis · Evidence · Fit criterion
+ *   packages/core/src/Dossier.ts:322  the scaffold, whose HTML comments ARE
+ *     the instructions a blank should show. Every question below is lifted
+ *     from it verbatim.
  *
- * Nothing here is a new concept. The five facts' VALUES are illustrative;
- * their SHAPE is exactly what `/api/bundles/:slug` already returns.
+ * And the library card says exactly what a blank should do:
+ *   "An unanswered section is an honest gap, not a defect: the
+ *    bundle-detail page names it plainly ('fit criterion: unrecorded') and
+ *    nothing anywhere blocks on it."
+ *   — docs/library/authoring/Entity - Dossier.md
+ *
+ * File lists are the real trees under skills/. `dossier.md` genuinely does
+ * not exist in either william bundle yet, and `research/` is genuinely
+ * empty — so the blanks below are real blanks, not staged ones.
  */
 
 export type SkillStage = "Idea" | "Research" | "Drafting" | "Evals" | "Published";
 
-/** Exactly the wire shape: a flat path list. The tree is built at render. */
-export type ProtoFile = { readonly path: string; readonly size: number };
+/**
+ * One madlib line. `value === null` is an honest gap: the line still
+ * renders, carrying the scaffold's own question and where to answer it.
+ */
+export type Slot = {
+  /** The lead-in. Reads as a sentence with `value`. */
+  readonly lead: string;
+  readonly value: string | null;
+  /** The scaffold question shown in the blank, verbatim from Dossier.ts. */
+  readonly question: string;
+  /** Where this sentence is written down. */
+  readonly source: string;
+};
+
+/**
+ * A file the bundle has, or a file it COULD have. `size === null` means it
+ * doesn't exist — which is where the blanks live, per the brief.
+ */
+export type ManifestFile = {
+  readonly path: string;
+  readonly size: number | null;
+  /** One line: what this file is for. */
+  readonly why: string;
+  /** How to bring it into being. Only meaningful when it doesn't exist. */
+  readonly how: string | null;
+};
 
 export type ProtoSkill = {
   readonly slug: string;
   readonly name: string;
   readonly project: string;
-  /** bundle.json's oneLiner — one sentence, already plain-ish English. */
-  readonly oneLiner: string;
-  /** Plain English, for a human: what this is, why it exists. Today this
-      is the opening of design.md's `## Intent`, de-jargoned. */
-  readonly summary: string;
-  readonly tags: ReadonlyArray<string>;
-  /** The five facts Jess's overview card already shows. */
   readonly stage: SkillStage;
   readonly versionShort: string | null;
   readonly drift: string;
   readonly provenOn: string;
   readonly coverage: string;
-  /** The handful worth surfacing above the tree, and why each matters. */
-  readonly keyFiles: ReadonlyArray<{ readonly path: string; readonly why: string }>;
-  readonly files: ReadonlyArray<ProtoFile>;
-  /** path → contents. Absent = "no preview in the prototype". */
+  readonly slots: ReadonlyArray<Slot>;
+  readonly files: ReadonlyArray<ManifestFile>;
   readonly contents: Readonly<Record<string, string>>;
 };
 
-// --------------------------------------------------- william-draft-skill-md
+// ---------------------------------------------------- the scaffold's own words
 
-const DRAFT_FILES: ReadonlyArray<ProtoFile> = [
-  { path: "bundle.json", size: 262 },
-  { path: "design.md", size: 6144 },
-  { path: "stations.json", size: 418 },
-  { path: "output/SKILL.md", size: 5320 },
-  { path: "evals/risk-map.md", size: 3180 },
-  { path: "evals/fixtures/golden-basic/case.json", size: 108 },
-  { path: "evals/fixtures/golden-basic/prompt.md", size: 340 },
-  { path: "evals/fixtures/golden-basic/expected/answer-key.md", size: 890 },
-  { path: "evals/fixtures/golden-basic/files/design.md", size: 2210 },
-  { path: "evals/fixtures/trigger-basic/case.json", size: 104 },
-  { path: "evals/fixtures/trigger-basic/prompt.md", size: 296 },
-  { path: "evals/fixtures/trigger-basic/expected/answer-key.md", size: 640 },
-  { path: "evals/fixtures/trigger-basic/files/design.md", size: 2180 },
-  { path: "evals/fixtures/refusal-empty-design/case.json", size: 110 },
-  { path: "evals/fixtures/refusal-empty-design/prompt.md", size: 288 },
-  { path: "evals/fixtures/refusal-empty-design/expected/answer-key.md", size: 520 },
-  { path: "evals/fixtures/refusal-empty-design/files/design.md", size: 410 },
-  { path: "evals/fixtures/hard-case-conflicting-sections/case.json", size: 126 },
-  { path: "evals/fixtures/hard-case-conflicting-sections/prompt.md", size: 352 },
-  { path: "evals/fixtures/hard-case-conflicting-sections/expected/answer-key.md", size: 1020 },
-  { path: "evals/fixtures/hard-case-conflicting-sections/files/design.md", size: 2460 },
-  { path: "runs/b78fca9b/run.json", size: 620 },
-  { path: "runs/b78fca9b/transcript.jsonl", size: 48210 },
-  { path: "runs/71a6d789/run.json", size: 618 },
-  { path: "runs/71a6d789/transcript.jsonl", size: 51440 },
-  { path: "runs/d7ba511e/run.json", size: 611 },
-  { path: "runs/d7ba511e/transcript.jsonl", size: 39880 },
-  { path: "runs/c4c8cd44/run.json", size: 624 },
-  { path: "runs/c4c8cd44/transcript.jsonl", size: 44120 },
-];
+const Q_JOB = "One line: what does this skill do?";
+const Q_CONTEXTS =
+  "Walk the last real time this ran: what came right before it, and what happened right after?";
+const Q_OUT_OF_SCOPE = "Paired with Job (Model Cards): what should this explicitly NOT be used for?";
+const Q_BASIS = "A named framework, or someone's way of doing it — record who, so an ambiguous case has a source of truth to ask.";
+const Q_EVIDENCE = "Does performance data exist? Where does it live? Do we have permission to use it?";
+const Q_FIT = "If you had to write one pass/fail test today, what would it check? The answer seeds the first fixture's answer key.";
+const Q_TRIGGER = "When should an agent reach for this on its own? This is nearly the frontmatter description — the string that actually drives invocation.";
+
+// --------------------------------------------------- william-draft-skill-md
 
 const DRAFT_CONTENTS: Record<string, string> = {
   "output/SKILL.md": `---
@@ -176,22 +178,41 @@ bundle: william-draft-skill-md
 }`,
 };
 
-// -------------------------------------------------- william-research-a-skill
-
-const RESEARCH_FILES: ReadonlyArray<ProtoFile> = [
-  { path: "bundle.json", size: 240 },
-  { path: "design.md", size: 4980 },
-  { path: "stations.json", size: 418 },
-  { path: "output/SKILL.md", size: 4120 },
-  { path: "research/notes.md", size: 2210 },
-  { path: "evals/risk-map.md", size: 1440 },
-  { path: "evals/fixtures/golden-basic/case.json", size: 102 },
-  { path: "evals/fixtures/golden-basic/prompt.md", size: 310 },
-  { path: "runs/791a4742/run.json", size: 612 },
-  { path: "runs/791a4742/transcript.jsonl", size: 33200 },
-  { path: "runs/6a0f37ec/run.json", size: 609 },
-  { path: "runs/6a0f37ec/transcript.jsonl", size: 29870 },
+const DRAFT_FILES: ReadonlyArray<ManifestFile> = [
+  { path: "output/SKILL.md", size: 5320, why: "What ships. The words an agent actually reads.", how: null },
+  { path: "design.md", size: 6144, why: "Why it's shaped this way — the intent and the workflow.", how: null },
+  {
+    path: "dossier.md",
+    size: null,
+    why: "The context-of-use record: job, contexts, basis, evidence, fit criterion.",
+    how: "Run `skillmaker dossier` to scaffold it, or answer the blanks above and it gets written for you.",
+  },
+  { path: "evals/risk-map.md", size: 3180, why: "The ways it can go wrong, and which ones a fixture covers.", how: null },
+  { path: "evals/fixtures/golden-basic/case.json", size: 108, why: "The happy path — buys IN-1 and ADV-1.", how: null },
+  { path: "evals/fixtures/trigger-basic/case.json", size: 104, why: "Does it fire on its own? Buys IN-2.", how: null },
+  { path: "evals/fixtures/refusal-empty-design/case.json", size: 110, why: "It must decline, not draft.", how: null },
+  { path: "evals/fixtures/hard-case-conflicting-sections/case.json", size: 126, why: "Contradictory design sections. Buys RE-2, partially.", how: null },
+  {
+    path: "evals/fixtures/revise-notes-honored/case.json",
+    size: null,
+    why: "RE-1 is a gap in the risk map — no fixture buys it.",
+    how: "Run `skillmaker fixture add revise-notes-honored`, then write its prompt and answer key.",
+  },
+  { path: "runs/c4c8cd44/run.json", size: 624, why: "golden-basic · pass · claude-opus-4-8", how: null },
+  { path: "runs/87a630d0/run.json", size: 620, why: "trigger-basic · pass · claude-opus-4-8", how: null },
+  { path: "runs/e028b735/run.json", size: 618, why: "hard-case-conflicting-sections · pass · claude-opus-4-8", how: null },
+  { path: "runs/7eb2319b/run.json", size: 611, why: "refusal-empty-design · pass · claude-opus-4-8", how: null },
+  {
+    path: "research/notes.md",
+    size: null,
+    why: "What the research turned up. research/ is empty in this bundle.",
+    how: "Run the researching station (`skillmaker station run researching`), or write it by hand.",
+  },
+  { path: "bundle.json", size: 262, why: "Slug, name, one-liner, tags, targets.", how: null },
+  { path: "stations.json", size: 418, why: "Which agent runs at each station.", how: null },
 ];
+
+// -------------------------------------------------- william-research-a-skill
 
 const RESEARCH_CONTENTS: Record<string, string> = {
   "output/SKILL.md": `---
@@ -221,13 +242,24 @@ Before anyone drafts, someone has to find out what the skill actually has
 to survive. This is that step, made explicit and reviewable.`,
 };
 
-// ------------------------------------------------------------ release-notes
-
-const RELEASE_FILES: ReadonlyArray<ProtoFile> = [
-  { path: "bundle.json", size: 198 },
-  { path: "design.md", size: 620 },
-  { path: "stations.json", size: 418 },
+const RESEARCH_FILES: ReadonlyArray<ManifestFile> = [
+  { path: "output/SKILL.md", size: 4120, why: "What ships.", how: null },
+  { path: "design.md", size: 4980, why: "Why it's shaped this way.", how: null },
+  {
+    path: "dossier.md",
+    size: null,
+    why: "The context-of-use record.",
+    how: "Run `skillmaker dossier` to scaffold it.",
+  },
+  { path: "research/notes.md", size: 2210, why: "What the research turned up.", how: null },
+  { path: "evals/risk-map.md", size: 1440, why: "The ways it can go wrong.", how: null },
+  { path: "evals/fixtures/golden-basic/case.json", size: 102, why: "The happy path.", how: null },
+  { path: "runs/791a4742/run.json", size: 612, why: "golden-basic · ungraded", how: null },
+  { path: "bundle.json", size: 240, why: "Slug, name, one-liner, tags, targets.", how: null },
+  { path: "stations.json", size: 418, why: "Which agent runs at each station.", how: null },
 ];
+
+// ------------------------------------------------------------ release-notes
 
 const RELEASE_CONTENTS: Record<string, string> = {
   "design.md": `---
@@ -244,24 +276,58 @@ bundle: release-notes
 <!-- Numbered steps the agent follows. -->`,
 };
 
+const RELEASE_FILES: ReadonlyArray<ManifestFile> = [
+  {
+    path: "output/SKILL.md",
+    size: null,
+    why: "What ships. Nothing ships yet.",
+    how: "The drafting station writes this — but it refuses while design.md is still a scaffold. Fill in design.md first.",
+  },
+  { path: "design.md", size: 620, why: "Still the scaffold — its comments haven't been replaced with real content.", how: null },
+  { path: "dossier.md", size: null, why: "The context-of-use record.", how: "Run `skillmaker dossier` to scaffold it." },
+  {
+    path: "evals/risk-map.md",
+    size: null,
+    why: "The ways it can go wrong.",
+    how: "The evaluating station authors this once there's a draft to evaluate.",
+  },
+  { path: "bundle.json", size: 198, why: "Slug, name, one-liner, tags, targets.", how: null },
+  { path: "stations.json", size: 418, why: "Which agent runs at each station.", how: null },
+];
+
 export const SKILLS: ReadonlyArray<ProtoSkill> = [
   {
     slug: "william-draft-skill-md",
     name: "William Draft Skill Md",
     project: "skillmaker-studio",
-    oneLiner: "Drafts output/SKILL.md from a bundle's design.md — the drafting station's default agent.",
-    summary:
-      "Hand it a bundle's design.md and it writes the actual skill file an agent will install and run. It is deliberately narrow: it will not research a topic from scratch, it will not write eval fixtures, and if design.md is still an empty scaffold it stops and says so rather than inventing a skill.",
-    tags: ["meta", "stations"],
     stage: "Evals",
     versionShort: "a3f19c22",
     drift: "in sync",
     provenOn: "claude-opus-4-8",
     coverage: "3 of 7 risks",
-    keyFiles: [
-      { path: "output/SKILL.md", why: "What ships. The words an agent actually reads." },
-      { path: "design.md", why: "Why it's shaped this way — the intent and the workflow." },
-      { path: "evals/risk-map.md", why: "The ways it can go wrong, and which have a fixture." },
+    slots: [
+      {
+        lead: "It",
+        value: "drafts a bundle's output/SKILL.md from its design.md — the drafting station's default agent.",
+        question: Q_JOB,
+        source: "bundle.json · oneLiner",
+      },
+      {
+        lead: "Reach for it when",
+        value: "you're handed a bundle's design.md, and prior review notes if there are any, and asked to produce or update output/SKILL.md.",
+        question: Q_TRIGGER,
+        source: "design.md · ## When to use / triggers",
+      },
+      {
+        lead: "Don't reach for it to",
+        value: "research a topic from scratch — that's the researching station — or to write eval fixtures, which is the evaluating station's job.",
+        question: Q_OUT_OF_SCOPE,
+        source: "dossier.md · ## Out-of-scope",
+      },
+      { lead: "It runs", value: null, question: Q_CONTEXTS, source: "dossier.md · ## Contexts" },
+      { lead: "It's built on", value: null, question: Q_BASIS, source: "dossier.md · ## Basis" },
+      { lead: "The evidence is", value: null, question: Q_EVIDENCE, source: "dossier.md · ## Evidence" },
+      { lead: "You'd know it worked if", value: null, question: Q_FIT, source: "dossier.md · ## Fit criterion" },
     ],
     files: DRAFT_FILES,
     contents: DRAFT_CONTENTS,
@@ -270,19 +336,29 @@ export const SKILLS: ReadonlyArray<ProtoSkill> = [
     slug: "william-research-a-skill",
     name: "William Research A Skill",
     project: "skillmaker-studio",
-    oneLiner: "Researches a proposed skill and produces an approved design.md.",
-    summary:
-      "The step before drafting. It works out what a proposed skill has to survive and writes that down as design.md, so the drafting agent has something real to work from. Its output is a document for a human to approve, not a shippable skill.",
-    tags: ["meta", "stations"],
     stage: "Drafting",
     versionShort: "7b40e1d5",
     drift: "edited since last version",
     provenOn: "none yet",
     coverage: "1 of 4 risks",
-    keyFiles: [
-      { path: "output/SKILL.md", why: "What ships." },
-      { path: "design.md", why: "Why it's shaped this way." },
-      { path: "research/notes.md", why: "What the research turned up." },
+    slots: [
+      {
+        lead: "It",
+        value: "researches a proposed skill and produces an approved design.md.",
+        question: Q_JOB,
+        source: "bundle.json · oneLiner",
+      },
+      {
+        lead: "Reach for it when",
+        value: "a skill has been proposed but nobody has worked out yet what it has to survive.",
+        question: Q_TRIGGER,
+        source: "design.md · ## When to use / triggers",
+      },
+      { lead: "Don't reach for it to", value: null, question: Q_OUT_OF_SCOPE, source: "dossier.md · ## Out-of-scope" },
+      { lead: "It runs", value: null, question: Q_CONTEXTS, source: "dossier.md · ## Contexts" },
+      { lead: "It's built on", value: null, question: Q_BASIS, source: "dossier.md · ## Basis" },
+      { lead: "The evidence is", value: null, question: Q_EVIDENCE, source: "dossier.md · ## Evidence" },
+      { lead: "You'd know it worked if", value: null, question: Q_FIT, source: "dossier.md · ## Fit criterion" },
     ],
     files: RESEARCH_FILES,
     contents: RESEARCH_CONTENTS,
@@ -291,16 +367,25 @@ export const SKILLS: ReadonlyArray<ProtoSkill> = [
     slug: "release-notes",
     name: "Release Notes",
     project: "skillmaker-studio",
-    oneLiner: "Writes release notes from a tag range, in the house voice.",
-    summary:
-      "Brand new — nothing but a scaffold so far. design.md still has its placeholder comments in it, which is exactly why the drafting station would refuse to run.",
-    tags: ["ops"],
     stage: "Idea",
     versionShort: null,
     drift: "no version recorded",
     provenOn: "none yet",
     coverage: "no risk map yet",
-    keyFiles: [{ path: "design.md", why: "Start here — it's still a scaffold." }],
+    slots: [
+      {
+        lead: "It",
+        value: "writes release notes from a tag range, in the house voice.",
+        question: Q_JOB,
+        source: "bundle.json · oneLiner",
+      },
+      { lead: "Reach for it when", value: null, question: Q_TRIGGER, source: "design.md · ## When to use / triggers" },
+      { lead: "Don't reach for it to", value: null, question: Q_OUT_OF_SCOPE, source: "dossier.md · ## Out-of-scope" },
+      { lead: "It runs", value: null, question: Q_CONTEXTS, source: "dossier.md · ## Contexts" },
+      { lead: "It's built on", value: null, question: Q_BASIS, source: "dossier.md · ## Basis" },
+      { lead: "The evidence is", value: null, question: Q_EVIDENCE, source: "dossier.md · ## Evidence" },
+      { lead: "You'd know it worked if", value: null, question: Q_FIT, source: "dossier.md · ## Fit criterion" },
+    ],
     files: RELEASE_FILES,
     contents: RELEASE_CONTENTS,
   },
@@ -308,13 +393,6 @@ export const SKILLS: ReadonlyArray<ProtoSkill> = [
 
 // ----------------------------------------------------------------- the work
 
-/**
- * The Board, unchanged from sketch v0 in shape but re-grounded: a job now
- * names the FILE it produces, not an invented "block". Columns are work
- * states. This half of the argument still needs your ruling — the redo
- * brief was about the skill page, so I left it alone rather than quietly
- * redesigning it too.
- */
 export const COLUMNS = ["Queued", "Running", "Needs you", "Landed"] as const;
 export type Column = (typeof COLUMNS)[number];
 
@@ -323,7 +401,6 @@ export type Work = {
   readonly title: string;
   readonly skill: string;
   readonly column: Column;
-  /** Paths this job writes. The join between Board and folder. */
   readonly produces: ReadonlyArray<string>;
   readonly kind: "draft" | "research" | "review" | "eval";
   readonly detail: string;
