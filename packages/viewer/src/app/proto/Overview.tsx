@@ -314,7 +314,6 @@ export function SkillPane({ slug }: { readonly slug: string }) {
             <FileView slug={slug} path={active.path} row={rows.find((r) => r.path === active.path)} />
           ) : active.id === "Overview" ? (
             <Overview
-              detail={detail}
               slots={slots}
               rows={rows}
               onGoTo={(id) => setActive({ kind: "pinned", id })}
@@ -340,7 +339,6 @@ export function SkillPane({ slug }: { readonly slug: string }) {
  * written renders as prose; what isn't collects into one gap paragraph.
  */
 function Overview({
-  detail,
   slots,
   rows,
   marks,
@@ -350,7 +348,6 @@ function Overview({
   clearedCount,
   onRestoreAll,
 }: {
-  readonly detail: Detail;
   readonly slots: ReadonlyArray<Slot>;
   readonly rows: ReadonlyArray<Row>;
   readonly marks: Marks;
@@ -367,12 +364,10 @@ function Overview({
 
   return (
     <div className="max-w-2xl">
-      <h1 className="font-display text-xl">{detail.name}</h1>
-
       {said.length === 0 ? (
-        <p className="pt-4 text-[15px] leading-relaxed text-ink-muted">Nothing about this skill has been written down yet.</p>
+        <p className="text-[15px] leading-relaxed text-ink-muted">Nothing about this skill has been written down yet.</p>
       ) : (
-        <div className="flex flex-col gap-1.5 pt-4">
+        <div className="flex flex-col gap-1.5">
           {said.map((s) => (
             <p key={s.lead} className="text-[15px] leading-relaxed">
               <span className="text-ink-muted">{s.lead} </span>

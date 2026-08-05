@@ -123,10 +123,27 @@ export default function ProtoShell() {
       </aside>
 
       <div className={`relative flex min-w-[300px] flex-col ${expanded ? "hidden" : "flex-1"}`}>
-        {/* The bar keeps its controls and loses its label: the skill's name
-            is already in the sidebar, and was reading as a second title. */}
+        {/* The title is back in the bar (2026-08-05). It came out when the
+            skill page had one big heading and the bar duplicated it. Now the
+            page is tabs — Job, Method, Prompt, Evals, plus opened files —
+            and each names ITSELF, so nothing on screen said which skill you
+            were in once you left Overview, and the sidebar selection alone
+            was doing too much work. The bar is the one place that holds
+            still across every tab, so identity lives here and the tabs are
+            free to be about their own contents.
+
+            Slug, not display name: it's what the sidebar row says, so the
+            two read as the same thing selected. */}
         <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3">
           {!sidebarOpen && <span className="w-7 shrink-0" />}
+          {center.kind === "skill" && (
+            <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
+              <span className="shrink-0 whitespace-nowrap font-display text-sm text-ink-muted">{center.project} /</span>
+              <span className="truncate font-display text-sm" title={center.slug}>
+                {center.slug}
+              </span>
+            </div>
+          )}
           <span className="flex-1" />
           {center.kind === "skill" && <TopBarControls slug={center.slug} pinned={pinned} onPin={setPinned} />}
           {onSkillPage && !rightOpen && <span className="w-7 shrink-0" />}
