@@ -35,8 +35,7 @@ import { CollapseIcon, ExpandIcon, PanelLeftIcon, PanelRightIcon } from "../next
 import { RightPanel } from "../next/RightPanel.tsx";
 import { Sidebar } from "../next/Sidebar.tsx";
 import { IconButton } from "../next/ui.tsx";
-import { useSkillPage } from "../next/views.tsx";
-import { ProtoBoard } from "./Board.tsx";
+import { BoardView, useSkillPage } from "../next/views.tsx";
 import { TopBarSkillControls } from "../next/SkillPage.tsx";
 import type { CenterView } from "../next/types.ts";
 import { SkillPane } from "./Overview.tsx";
@@ -133,7 +132,7 @@ export default function ProtoShell() {
 
         <main className="relative flex-1 overflow-y-auto">
           {center.kind === "board" && (
-            <ProtoBoard
+            <BoardView
               onOpenSkill={(project, slug) => {
                 setActiveProject(project.slug);
                 setCenter({ kind: "skill", project: project.name, slug });

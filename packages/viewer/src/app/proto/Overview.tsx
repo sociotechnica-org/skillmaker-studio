@@ -30,7 +30,7 @@
 import { useCallback, useState } from "react";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "../next/api.ts";
 import { apiPath } from "../runtime/projectScope.ts";
-import { MADE, TO_BE_MADE } from "./pieces.ts";
+import { GROUP_TINT, MADE, PIECES, TO_BE_MADE, type Group as PieceGroup } from "./pieces.ts";
 import type { BundleFile } from "../next/types.ts";
 
 /** A real monospace — deliberately NOT `font-mono`, which is Special Elite. */
@@ -184,23 +184,48 @@ const rowsFrom = (files: ReadonlyArray<BundleFile>): ReadonlyArray<Row> => {
   return [...present, ...missing];
 };
 
-type Group = { readonly name: string; readonly rows: ReadonlyArray<Row> };
+/**
+ * FILES ARE ORGANISED BY PIECE, NOT BY FOLDER (director ruling,
+ * 2026-08-05): "Job → Method | Prompt. Evals. It's the stuff of the skill,
+ * it's what makes the baseball card, it's the categories I'd organise files
+ * under."
+ *
+ * So the four pieces are the card's drawers. A folder is where a file
+ * happens to sit on disk; a piece is what the file is FOR, which is the
+ * thing a maker is actually looking for.
+ *
+ * Assignment is by path, first match wins. Anything unmatched lands in
+ * "Bundle" rather than being dropped — an organiser that silently loses
+ * files is worse than one with a junk drawer.
+ */
+const PIECE_OF = (path: string): string => {
+  if (path === "dossier.md") return "Job";
+  if (path === "design.md" || path.startsWith("research/")) return "Method";
+  if (path.startsWith("output/")) return "Prompt";
+  // runs/ sits under Evals: a run is what an eval produced. Arguable — it's
+  // also "how'd it do", which is a Release question. Flagged, not settled.
+  if (path.startsWith("evals/") || path.startsWith("runs/")) return "Evals";
+  return "Bundle";
+};
 
-function group(rows: ReadonlyArray<Row>): { readonly root: ReadonlyArray<Row>; readonly folders: ReadonlyArray<Group> } {
-  const root: Row[] = [];
-  const folders: Group[] = [];
+/** A drawer on the card: one of the four pieces, or the junk drawer. */
+type Drawer = {
+  readonly name: string;
+  /** What this piece IS — absent for the junk drawer. */
+  readonly is: string | null;
+  readonly group: PieceGroup | null;
+  readonly rows: ReadonlyArray<Row>;
+};
+
+function drawers(rows: ReadonlyArray<Row>): ReadonlyArray<Drawer> {
+  const out: Drawer[] = PIECES.map((p) => ({ name: p.name, is: p.is, group: p.group, rows: [] }));
+  out.push({ name: "Bundle", is: "identity and wiring — not part of the skill itself", group: null, rows: [] });
   for (const r of rows) {
-    const cut = r.path.indexOf("/");
-    if (cut === -1) {
-      root.push(r);
-      continue;
-    }
-    const name = r.path.slice(0, cut);
-    const hit = folders.find((g) => g.name === name);
-    if (hit === undefined) folders.push({ name, rows: [r] });
-    else (hit.rows as Row[]).push(r);
+    const name = PIECE_OF(r.path);
+    const hit = out.find((d) => d.name === name) ?? out[out.length - 1];
+    if (hit !== undefined) (hit.rows as Row[]).push(r);
   }
-  return { root, folders };
+  return out.filter((d) => d.rows.length > 0);
 }
 
 // --------------------------------------------------------------- the page
@@ -292,7 +317,7 @@ function Overview({
   readonly rows: ReadonlyArray<Row>;
   readonly onOpenFile: (path: string) => void;
 }) {
-  const { root, folders } = group(rows);
+  const shelves = drawers(rows);
   const missing = rows.filter((r) => r.size === null).length;
 
   return (
@@ -309,7 +334,7 @@ function Overview({
           were here. Cut 2026-08-05 to be earned back. */}
 
       <div className="flex items-baseline justify-between pb-1 pt-8">
-        <h2 className={LABEL}>Files</h2>
+        <h2 className={LABEL}>The stuff of this skill</h2>
         <p className="text-[12px] text-ink-muted">
           {rows.length - missing} {MADE}
           {missing > 0 ? ` · ${missing} ${TO_BE_MADE}` : ""}
@@ -317,14 +342,14 @@ function Overview({
       </div>
 
       <div className="rounded border border-border bg-surface">
-        {root.map((r) => (
-          <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} indent={false} />
-        ))}
-        {folders.map((g) => (
-          <Folder key={g.name} group={g} onOpenFile={onOpenFile} />
+        {shelves.map((d) => (
+          <Shelf key={d.name} drawer={d} onOpenFile={onOpenFile} />
         ))}
         {rows.length === 0 && <p className="px-3 py-2 text-[12px] text-ink-muted">No files — is the server running?</p>}
       </div>
+      <p className="pt-2 text-[12px] text-ink-muted">
+        Two pieces stay here and inform the other two; two of them leave and run somewhere else.
+      </p>
     </div>
   );
 }
@@ -349,18 +374,35 @@ function SlotLine({ slot, onOpenFile }: { readonly slot: Slot; readonly onOpenFi
   );
 }
 
-function Folder({ group: g, onOpenFile }: { readonly group: Group; readonly onOpenFile: (path: string) => void }) {
+/**
+ * One piece of the skill, as a drawer on the card. Collapsed by default:
+ * the four names plus their made/to-be-made counts ARE the baseball card,
+ * and opening one is how you get to the files under it.
+ *
+ * Colour carries the inward/outward cut without a word — teal for the two
+ * that stay and inform, gold for the two that leave and run. The junk
+ * drawer ("Bundle") has no group and stays uncoloured, which is the point:
+ * it isn't part of the skill.
+ */
+function Shelf({ drawer: d, onOpenFile }: { readonly drawer: Drawer; readonly onOpenFile: (path: string) => void }) {
   const [open, setOpen] = useState(false);
-  const missing = g.rows.filter((r) => r.size === null).length;
-  const here = g.rows.length - missing;
+  const missing = d.rows.filter((r) => r.size === null).length;
+  const here = d.rows.length - missing;
 
   return (
     <div className="border-t border-border/70 first:border-t-0">
       <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-well/60">
         <span className={`inline-block w-3 shrink-0 text-ink-muted transition-transform ${open ? "rotate-90" : ""}`}>›</span>
-        <span className={`${CODE} text-[13px] text-ink`}>{g.name}/</span>
-        <span className="flex-1" />
-        <span className="text-[12px] text-ink-muted">
+        <span
+          className={`shrink-0 rounded px-1.5 py-0.5 font-display text-[12px] ${
+            d.group === null ? "text-ink-muted" : GROUP_TINT[d.group]
+          }`}
+        >
+          {d.name}
+        </span>
+        {d.is !== null && <span className="min-w-0 flex-1 truncate text-[12px] text-ink-muted">{d.is}</span>}
+        {d.is === null && <span className="flex-1" />}
+        <span className="shrink-0 text-[12px] text-ink-muted">
           {here} {MADE}
           {missing > 0 && (
             <span className="text-amber-700">
@@ -372,7 +414,7 @@ function Folder({ group: g, onOpenFile }: { readonly group: Group; readonly onOp
       </button>
       {open && (
         <div className="border-t border-border/50 bg-canvas/40">
-          {g.rows.map((r) => (
+          {d.rows.map((r) => (
             <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} indent />
           ))}
         </div>
@@ -383,7 +425,9 @@ function Folder({ group: g, onOpenFile }: { readonly group: Group; readonly onOp
 
 function FileRow({ row, onOpen, indent }: { readonly row: Row; readonly onOpen: () => void; readonly indent: boolean }) {
   const here = row.size !== null;
-  const label = indent ? row.path.slice(row.path.indexOf("/") + 1) : row.path;
+  // Rows sit under a PIECE now, not a folder, so the leading directory is
+  // no longer redundant -- show the whole path.
+  const label = row.path;
 
   return (
     <button
