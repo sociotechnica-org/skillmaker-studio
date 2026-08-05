@@ -31,10 +31,10 @@
  * use a real monospace via CODE. Solid colour tokens only: alpha-modified
  * ink collapses toward the ground at night.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "../next/api.ts";
 import { apiPath } from "../runtime/projectScope.ts";
-import { GROUP_TINT, MADE, PIECES, TO_BE_MADE } from "./pieces.ts";
+import { GROUP_TINT, PIECES, TO_BE_MADE } from "./pieces.ts";
 import type { BundleFile } from "../next/types.ts";
 
 /** A real monospace — deliberately NOT `font-mono`, which is Special Elite. */
@@ -171,6 +171,54 @@ const COULD_EXIST: ReadonlyArray<{ readonly path: string; readonly why: string; 
 
 type Row = { readonly path: string; readonly size: number | null; readonly why: string | null; readonly how: string | null };
 
+/**
+ * CLEARED-AWAY BLANKS (director ruling, 2026-08-05).
+ *
+ * "What bugs me most about having any kind of missing count is that the
+ * maker may not care. They may be missing something intentionally because
+ * their process doesn't use it. Having examples to change and reshape or
+ * templates to work with = good. Forcing a method = bad."
+ *
+ * So a blank is an OFFER, not a deficiency, and the maker can decline it —
+ * the website-builder ✕. Only blanks are dismissible: a file that exists is
+ * never hidden, because hiding real content is a different and much worse
+ * thing than declining a suggestion.
+ *
+ * Reversible on purpose. A cleared blank goes to a quiet "cleared away"
+ * line you can restore from; nothing disappears without a way back.
+ *
+ * localStorage is the prototype's expedient. The real home is the bundle,
+ * so the choice travels in git with the skill that made it — otherwise one
+ * maker's "we don't do evals here" is invisible to the next person.
+ */
+function useCleared(slug: string): readonly [ReadonlySet<string>, (key: string) => void, (key: string) => void] {
+  const storeKey = `sm-proto-cleared-${slug}`;
+  const [cleared, setCleared] = useState<ReadonlySet<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storeKey);
+      setCleared(new Set<string>(raw === null ? [] : (JSON.parse(raw) as string[])));
+    } catch {
+      setCleared(new Set());
+    }
+  }, [storeKey]);
+
+  const write = (next: ReadonlySet<string>) => {
+    setCleared(next);
+    try {
+      window.localStorage.setItem(storeKey, JSON.stringify([...next]));
+    } catch {}
+  };
+  const clear = (key: string) => write(new Set([...cleared, key]));
+  const restore = (key: string) => write(new Set([...cleared].filter((k) => k !== key)));
+  return [cleared, clear, restore] as const;
+}
+
+/** Stable keys for the two kinds of blank a maker can decline. */
+const slotKey = (s: Slot) => `slot:${s.lead}`;
+const fileKey = (r: Row) => `file:${r.path}`;
+
 const rowsFrom = (files: ReadonlyArray<BundleFile>): ReadonlyArray<Row> => {
   const have = new Set(files.map((f) => f.path));
   const known = new Map(COULD_EXIST.map((c) => [c.path, c]));
@@ -207,9 +255,15 @@ export function SkillPane({ slug }: { readonly slug: string }) {
 
   const [open, setOpen] = useState<ReadonlyArray<string>>([]);
   const [active, setActive] = useState<OpenTab>({ kind: "pinned", id: "Overview" });
+  const [cleared, clear, restore] = useCleared(slug);
 
-  const rows = rowsFrom(files);
-  const slots = slotsFrom(detail);
+  // A cleared blank leaves the card entirely; a file that EXISTS is never
+  // hidden, whatever the maker cleared.
+  const allRows = rowsFrom(files);
+  const allSlots = slotsFrom(detail);
+  const rows = allRows.filter((r) => r.size !== null || !cleared.has(fileKey(r)));
+  const slots = allSlots.filter((s) => s.value !== null || !cleared.has(slotKey(s)));
+  const clearedCount = cleared.size;
 
   const openFile = (path: string) => {
     if (!open.includes(path)) setOpen([...open, path]);
@@ -232,32 +286,15 @@ export function SkillPane({ slug }: { readonly slug: string }) {
         {TABS.map((id) => {
           const on = active.kind === "pinned" && active.id === id;
           const piece = PIECES.find((p) => p.name === id);
-          const gaps =
-            id === "Overview" ? 0 : rows.filter((r) => r.size === null && PIECE_OF(r.path) === id).length +
-              slots.filter((s) => s.piece === id && s.value === null).length;
           return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActive({ kind: "pinned", id })}
-              className={on ? TAB_ACTIVE : TAB_IDLE}
-              title={gaps > 0 ? `${id}: ${gaps} ${TO_BE_MADE}` : undefined}
-            >
+            <button key={id} type="button" onClick={() => setActive({ kind: "pinned", id })} className={on ? TAB_ACTIVE : TAB_IDLE}>
               {/* colour says which half of the skill this piece is: the two
-                  that stay and inform, or the two that leave and run */}
+                  that stay and inform, or the two that leave and run.
+                  NO GAP COUNT -- see the ruling in pieces.ts: a count reads
+                  as a score against the maker, and a blank they left on
+                  purpose is not a deficiency. */}
               {piece !== undefined && <span className={`h-1.5 w-1.5 rounded-full ${GROUP_TINT[piece.group]}`} />}
               {id}
-              {/* A bare number next to a tab reads as "how many things are in
-                  here" -- the opposite of what it means. The hollow ring is
-                  the same mark a file row uses for something not yet made, so
-                  "○3" reads as "three still to be made" in the card's own
-                  vocabulary rather than as a contents count. */}
-              {gaps > 0 && (
-                <span className="text-[10px] text-amber-800">
-                  <span aria-hidden="true">○</span>
-                  {gaps}
-                </span>
-              )}
             </button>
           );
         })}
@@ -295,9 +332,17 @@ export function SkillPane({ slug }: { readonly slug: string }) {
           {active.kind === "file" ? (
             <FileView slug={slug} path={active.path} row={rows.find((r) => r.path === active.path)} />
           ) : active.id === "Overview" ? (
-            <Overview detail={detail} slots={slots} rows={rows} onGoTo={(id) => setActive({ kind: "pinned", id })} />
+            <Overview
+              detail={detail}
+              slots={slots}
+              rows={rows}
+              onGoTo={(id) => setActive({ kind: "pinned", id })}
+              onClear={clear}
+              clearedCount={clearedCount}
+              onRestoreAll={() => [...cleared].forEach(restore)}
+            />
           ) : (
-            <PieceTab name={active.id} slots={slots} rows={rows} onOpenFile={openFile} />
+            <PieceTab name={active.id} slots={slots} rows={rows} onOpenFile={openFile} onClear={clear} />
           )}
         </div>
       </div>
@@ -316,11 +361,17 @@ function Overview({
   slots,
   rows,
   onGoTo,
+  onClear,
+  clearedCount,
+  onRestoreAll,
 }: {
   readonly detail: Detail;
   readonly slots: ReadonlyArray<Slot>;
   readonly rows: ReadonlyArray<Row>;
   readonly onGoTo: (id: TabId) => void;
+  readonly onClear: (key: string) => void;
+  readonly clearedCount: number;
+  readonly onRestoreAll: () => void;
 }) {
   const said = slots.filter((s) => s.value !== null);
   const unsaid = slots.filter((s) => s.value === null);
@@ -343,53 +394,98 @@ function Overview({
         </div>
       )}
 
-      {/* the honest part: one paragraph, not six dotted blanks */}
+      {/* EMPTY SPACE, not a scorecard. Each line is an offer with a way to
+          fill it and a ✕ to decline it. No counts, no totals, no progress:
+          a maker whose process doesn't use evals should be able to clear
+          that away and see a finished card. */}
       {(unsaid.length > 0 || unmade.length > 0) && (
         <div className="mt-6 rounded border border-dashed border-border bg-canvas/40 p-3">
-          <p className={LABEL}>Not written down</p>
-          {unsaid.length > 0 && (
-            <p className="pt-1.5 text-[14px] leading-relaxed text-ink">
-              {joinPhrases(unsaid.map((s) => s.gap))}.
-            </p>
-          )}
-          {unmade.length > 0 && (
-            <p className="pt-1.5 text-[14px] leading-relaxed text-ink">
-              {unmade.length === 1 ? "One file is" : `${unmade.length} files are`} still {TO_BE_MADE}:{" "}
-              {joinPhrases(unmade.map((r) => r.path))}.
-            </p>
-          )}
-          <div className="flex flex-wrap gap-1.5 pt-3">
-            {PIECES.map((p) => {
-              const n =
-                unsaid.filter((s) => s.piece === p.name).length + unmade.filter((r) => PIECE_OF(r.path) === p.name).length;
-              if (n === 0) return null;
-              return (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => onGoTo(p.name as TabId)}
-                  className="rounded border border-border px-2 py-1 text-[12px] text-ink-muted hover:border-amber-600 hover:text-ink"
-                >
-                  {p.name} · {n} open
-                </button>
-              );
-            })}
+          <p className={LABEL}>Empty space</p>
+          <p className="pb-2 pt-1 text-[12px] leading-snug text-ink-muted">
+            Room the product left you. Fill what you want; clear away what your process doesn&rsquo;t use.
+          </p>
+
+          <div className="flex flex-col">
+            {unsaid.map((s) => (
+              <Offer
+                key={s.lead}
+                title={s.gap}
+                detail={s.question}
+                where={s.piece}
+                onGo={() => onGoTo(s.piece as TabId)}
+                onClear={() => onClear(slotKey(s))}
+              />
+            ))}
+            {unmade.map((r) => (
+              <Offer
+                key={r.path}
+                title={r.path}
+                detail={r.how ?? ""}
+                where={PIECE_OF(r.path) ?? "Job"}
+                mono
+                onGo={() => {
+                  const p = PIECE_OF(r.path);
+                  if (p !== null) onGoTo(p as TabId);
+                }}
+                onClear={() => onClear(fileKey(r))}
+              />
+            ))}
           </div>
         </div>
       )}
 
-      <p className="pt-6 text-[12px] text-ink-muted">
-        {rows.length - unmade.length} {MADE}
-        {unmade.length > 0 ? ` · ${unmade.length} ${TO_BE_MADE}` : ""} across the four pieces.
-      </p>
+      {clearedCount > 0 && (
+        <p className="pt-3 text-[12px] text-ink-muted">
+          {clearedCount} cleared away.{" "}
+          <button type="button" onClick={onRestoreAll} className="underline decoration-dotted underline-offset-4 hover:text-ink">
+            Bring them back
+          </button>
+        </p>
+      )}
     </div>
   );
 }
 
-/** "a, b and c" — a sentence, not a comma-separated dump. */
-function joinPhrases(items: ReadonlyArray<string>): string {
-  if (items.length <= 1) return items[0] ?? "";
-  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+/**
+ * One piece of empty space: what could go here, how to fill it, where it
+ * lives — and the website-builder ✕ that says "not for me". The ✕ is quiet
+ * until hover, so declining is available without being suggested.
+ */
+function Offer({
+  title,
+  detail,
+  where,
+  mono,
+  onGo,
+  onClear,
+}: {
+  readonly title: string;
+  readonly detail: string;
+  readonly where: string;
+  readonly mono?: boolean;
+  readonly onGo: () => void;
+  readonly onClear: () => void;
+}) {
+  return (
+    <div className="group flex items-start gap-2 border-t border-border/50 py-2 first:border-t-0">
+      <span className="pt-0.5 text-[10px] text-ink-muted" aria-hidden="true">
+        ○
+      </span>
+      <button type="button" onClick={onGo} className="min-w-0 flex-1 text-left">
+        <span className={`block text-[14px] text-ink ${mono === true ? CODE : ""}`}>{title}</span>
+        {detail !== "" && <span className="block text-[12px] leading-snug text-ink-muted">{detail}</span>}
+      </button>
+      <span className="shrink-0 pt-0.5 text-[11px] text-ink-muted">{where}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        title="Clear this away — my process doesn't use it"
+        className="shrink-0 rounded px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:bg-surface hover:text-ink group-hover:opacity-100"
+      >
+        ✕
+      </button>
+    </div>
+  );
 }
 
 // ------------------------------------------------------------ piece tabs
@@ -399,11 +495,13 @@ function PieceTab({
   slots,
   rows,
   onOpenFile,
+  onClear,
 }: {
   readonly name: PieceName;
   readonly slots: ReadonlyArray<Slot>;
   readonly rows: ReadonlyArray<Row>;
   readonly onOpenFile: (path: string) => void;
+  readonly onClear: (key: string) => void;
 }) {
   const piece = PIECES.find((p) => p.name === name);
   const mine = slots.filter((s) => s.piece === name);
@@ -429,10 +527,20 @@ function PieceTab({
               // sentence ("Don't use it to Paired with Job (Model Cards):
               // what should..."), so close the sentence honestly first and
               // put the question underneath as the prompt it is.
-              <div key={s.lead}>
-                <p className="text-[15px] leading-relaxed">
-                  <span className="text-ink-muted">{s.lead} </span>
-                  <span className="italic text-ink-muted">— not recorded</span>
+              <div key={s.lead} className="group">
+                <p className="flex items-baseline gap-2 text-[15px] leading-relaxed">
+                  <span>
+                    <span className="text-ink-muted">{s.lead} </span>
+                    <span className="italic text-ink-muted">— not recorded</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onClear(slotKey(s))}
+                    title="Clear this away — my process doesn't use it"
+                    className="rounded px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:bg-surface hover:text-ink group-hover:opacity-100"
+                  >
+                    ✕
+                  </button>
                 </p>
                 <p className="pl-4 text-[13px] leading-snug text-ink-muted">
                   {s.question} <span className={`${CODE} text-[11px]`}>{s.source}</span>
@@ -461,7 +569,7 @@ function PieceTab({
       <h2 className={`${LABEL} pb-1 pt-7`}>Files</h2>
       <div className="rounded border border-border bg-surface">
         {files.map((r) => (
-          <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} />
+          <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} onClear={() => onClear(fileKey(r))} />
         ))}
         {files.length === 0 && <p className="px-3 py-2 text-[13px] text-ink-muted">No files yet.</p>}
       </div>
@@ -469,15 +577,13 @@ function PieceTab({
   );
 }
 
-function FileRow({ row, onOpen }: { readonly row: Row; readonly onOpen: () => void }) {
+function FileRow({ row, onOpen, onClear }: { readonly row: Row; readonly onOpen: () => void; readonly onClear: () => void }) {
   const here = row.size !== null;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={row.path}
-      className="flex w-full items-baseline gap-2 border-t border-border/50 px-3 py-1.5 text-left first:border-t-0 hover:bg-well/60"
+    <div
+      className="group flex w-full items-baseline gap-2 border-t border-border/50 px-3 py-1.5 text-left first:border-t-0 hover:bg-well/60"
     >
+    <button type="button" onClick={onOpen} title={row.path} className="flex min-w-0 flex-1 items-baseline gap-2 text-left">
       <span className={`shrink-0 text-[10px] ${here ? "text-emerald-700" : "text-ink-muted"}`}>{here ? "●" : "○"}</span>
       <span className="min-w-0 flex-1">
         <span className={`block truncate ${CODE} text-[13px] ${here ? "text-ink" : "text-ink-muted"}`}>{row.path}</span>
@@ -486,6 +592,18 @@ function FileRow({ row, onOpen }: { readonly row: Row; readonly onOpen: () => vo
       </span>
       <span className="shrink-0 text-[11px] text-ink-muted">{row.size === null ? TO_BE_MADE : `${(row.size / 1024).toFixed(1)} KB`}</span>
     </button>
+    {/* only a blank can be declined -- a file that exists is never hidden */}
+    {!here && (
+      <button
+        type="button"
+        onClick={onClear}
+        title="Clear this away — my process doesn't use it"
+        className="shrink-0 rounded px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:bg-surface hover:text-ink group-hover:opacity-100"
+      >
+        ✕
+      </button>
+    )}
+    </div>
   );
 }
 

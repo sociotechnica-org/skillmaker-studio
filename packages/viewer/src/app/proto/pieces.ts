@@ -190,3 +190,38 @@ export const MODEL_SELECTION_IS_UNRECORDED = true;
 
 /** OPEN RULING — does Method hold grounding and structure, or split in two? */
 export const OPEN_METHOD = "grounding + structure: one piece or two?";
+
+/**
+ * RULING — A BLANK IS AN OFFER, NOT A DEFICIENCY (2026-08-05).
+ *
+ * Director: "What bugs me most about having any kind of missing count is
+ * that the maker may not care. They may be missing something intentionally
+ * because their process doesn't use it... Having examples to change and
+ * reshape or templates to work with = good. Forcing a method = bad."
+ *
+ * So: no gap counts, no progress meters, no totals anywhere on the card. A
+ * skill with three of four pieces empty is not 25% complete — it may be
+ * finished. What a blank gets instead is empty space, an instruction for
+ * filling it, and a ✕ for declining it, exactly like a website builder.
+ *
+ * Declining is reversible and, in the real thing, belongs in the bundle
+ * rather than in localStorage: "we don't do evals here" is a fact about the
+ * skill that should travel in git, not a fact about one person's browser.
+ *
+ * WHERE THIS GOES NEXT (director, same ruling): "We know that a missing
+ * piece = a work order = an agent activating a skill. We can map those and
+ * then add in triggers + explainers in empty spaces to make them more
+ * actionable."
+ *
+ * That is the causal chain the whole product turns on, and it's already
+ * half-built: `stations.json` maps produces → doer → skill, which is
+ * exactly "this blank, filled by this agent, running this skill." Empty
+ * space becomes a button that starts real work, and the three states of a
+ * blank become: offered · declined · running. What's missing today is only
+ * the join between a named blank and the station that fills it.
+ *
+ * NOT built yet, deliberately: templates and worked examples. The director:
+ * "We haven't earned templates and examples yet, but empty space and
+ * instructions on how to fill it will be fine."
+ */
+export const BLANKS_ARE_OFFERS = true;
