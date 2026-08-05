@@ -19,7 +19,7 @@
  * the brief for this pass was the skill page.
  */
 import { useEffect, useState } from "react";
-import { COLUMN_TINT, COLUMNS, KIND_TINT, SKILLS, STAGE_TINT, WORK, type Work } from "./data.ts";
+import { COLUMN_TINT, COLUMNS, KIND_TINT, SKILLS, WORK, type Work } from "./data.ts";
 import { SkillPane } from "./Overview.tsx";
 
 type View = { readonly kind: "board" } | { readonly kind: "skill"; readonly slug: string; readonly file: string | null };
@@ -38,7 +38,6 @@ function viewFromHash(): View {
 export default function ProtoShell() {
   const [view, setViewState] = useState<View>({ kind: "board" });
   const [chatOpen, setChatOpen] = useState(true);
-  const [note, setNote] = useState(true);
 
   useEffect(() => {
     setViewState(viewFromHash());
@@ -94,36 +93,8 @@ export default function ProtoShell() {
 
       {/* center -------------------------------------------------------- */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
-          <span className="font-display text-sm">{onSkillPage ? skill.slug : "Board"}</span>
-          {onSkillPage && <span className={`rounded px-1.5 text-[11px] ${STAGE_TINT[skill.stage]}`}>{skill.stage}</span>}
-          <span className="flex-1" />
-          <button
-            type="button"
-            onClick={() => setNote(!note)}
-            className="font-mono text-[10px] uppercase tracking-wider text-ink-muted hover:text-ink"
-          >
-            {note ? "hide" : "show"} the change
-          </button>
-          <button
-            type="button"
-            onClick={() => setChatOpen(!chatOpen)}
-            className={`rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wider ${
-              chatOpen ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:bg-surface hover:text-ink"
-            }`}
-          >
-            chat
-          </button>
-        </header>
 
         <main className="flex-1 overflow-y-auto">
-          {note && (
-            <div className="border-b border-amber-600/30 bg-amber-100/50 px-6 py-2.5 text-[12px] leading-snug text-ink">
-              <strong className="font-display">The change:</strong> plain sentences on top, folders below. Open a folder to find its
-              files; open a file and it becomes a tab. The right panel is chat, and only chat.
-            </div>
-          )}
-
           {onSkillPage ? (
             <SkillPane key={`${skill.slug}:${view.kind === "skill" ? (view.file ?? "") : ""}`} skill={skill} initialFile={view.kind === "skill" ? view.file : null} />
           ) : (
@@ -136,8 +107,16 @@ export default function ProtoShell() {
       {chatOpen && (
         <aside className="flex w-[340px] shrink-0 flex-col border-l border-border bg-paper">
           <div className="flex h-11 shrink-0 items-center px-3">
-            <span className="rounded bg-surface px-2 py-1 font-display text-[12px] shadow-sm">Chat</span>
-            <span className="pl-2 text-[11px] text-ink-muted">no Files tab — that's the point</span>
+            <span className="font-display text-[13px]">Chat</span>
+            <span className="flex-1" />
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              title="Hide chat"
+              className="rounded px-1.5 py-1 text-ink-muted hover:bg-surface hover:text-ink"
+            >
+              ›
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto px-3 pb-3">
             <ChatStub skill={onSkillPage ? skill.slug : null} />
@@ -146,6 +125,16 @@ export default function ProtoShell() {
             <div className="rounded border border-border bg-surface px-3 py-2 text-[12px] text-ink-muted">Ask about this skill…</div>
           </div>
         </aside>
+      )}
+      {!chatOpen && (
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          title="Show chat"
+          className="w-7 shrink-0 border-l border-border bg-paper text-[11px] text-ink-muted hover:bg-surface hover:text-ink"
+        >
+          ‹
+        </button>
       )}
     </div>
   );

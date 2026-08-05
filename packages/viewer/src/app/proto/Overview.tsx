@@ -131,7 +131,6 @@ function Overview({ skill, onOpenFile }: { readonly skill: ProtoSkill; readonly 
         ))}
       </div>
 
-      <Facts skill={skill} />
       <Files skill={skill} onOpenFile={onOpenFile} />
     </div>
   );
@@ -158,25 +157,11 @@ function SlotLine({ slot, onOpenFile }: { readonly slot: Slot; readonly onOpenFi
   );
 }
 
-function Facts({ skill }: { readonly skill: ProtoSkill }) {
-  const facts: ReadonlyArray<readonly [string, string]> = [
-    ["Stage", skill.stage],
-    ["Version", skill.versionShort ?? "none"],
-    ["Drift", skill.drift],
-    ["Proven on", skill.provenOn],
-    ["Coverage", skill.coverage],
-  ];
-  return (
-    <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border pt-4 sm:grid-cols-5">
-      {facts.map(([k, v]) => (
-        <div key={k}>
-          <dt className={LABEL}>{k}</dt>
-          <dd className="pt-0.5 text-[13px] text-ink">{v}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
+/* The five facts — stage · version · drift · proven on · coverage — were
+   here, lifted from the existing overview card. Cut 2026-08-05 to be
+   earned back: they were five numbers competing with the sentences before
+   anyone had asked for them. The data still rides on ProtoSkill, so
+   bringing any single one back is a one-line change. */
 
 // ----------------------------------------------------------- bottom half
 
