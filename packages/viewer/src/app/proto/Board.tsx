@@ -1,28 +1,33 @@
 /**
- * PROTOTYPE — the Board (naming pass, 2026-08-05).
+ * PROTOTYPE — the Board (pieces pass, 2026-08-05).
  *
- * A fork of `next/views.tsx` BoardView. Same data, same grid, same cards —
- * the only change is what the columns SAY, and it's the point of the pass:
+ * The five equal columns are gone, because a skill does not have five
+ * equal parts. It has four, in two groups of two, plus a status layer that
+ * was never a column at all:
  *
- *   before   a stage chip:  Idea · Research · Drafting · Evals · Published
- *   after    a station:     the making-act, the question it answers, and
- *                           the file that comes out of it
+ *   ┌ What it is ─────────────┐      ┌ What goes out ──────────┐
+ *   │   Job        Method     │  ──▶ │   Prompt       Evals    │
+ *   │   stays here, informs   │      │   leaves, runs elsewhere│
+ *   └─────────────────────────┘      └─────────────────────────┘
+ *                                     └ Release: what's true of
+ *                                       the two that left
  *
- * That third line is the chain made visible. `stations.json` already says
- * `produces: ["design.md", "output/SKILL.md"]` per station; the Board has
- * simply never shown it, so a column read as "a bucket cards sit in"
- * instead of "a bench where a named thing gets made".
+ * The arrow is load-bearing: Job and Method don't go anywhere, they INFORM
+ * the two that do. Colour carries the same fact — teal for the pieces that
+ * stay, gold for the pieces that leave — so the asymmetry is readable
+ * before a word is.
  *
- * Held deliberately: the columns still track the same wire stages, so a
- * card is in the same place it was. This is a vocabulary change, not a
- * workflow change.
+ * CONSEQUENCE worth ruling on: `published` no longer has a column, so a
+ * published skill's card sits under Prompt wearing a "live" mark. That
+ * follows from "publish isn't a piece", but it moves cards, which makes it
+ * more than a rename. Flagged rather than assumed.
  */
 import { fetchProjects, useApiStatus } from "../next/api.ts";
-import { FADE_R, STAGE_TINT } from "../next/ui.tsx";
+import { FADE_R } from "../next/ui.tsx";
 import type { Project, Stage } from "../next/types.ts";
-import { MODE_LABEL, STATIONS } from "./stations.ts";
+import { GROUP_EDGE, GROUP_LABEL, GROUP_TINT, GROUP_TITLE, PIECES, RELEASE, type Group, type Piece } from "./pieces.ts";
 
-/** The prototype's station name -> the display `Stage` the wire maps onto. */
+/** The display `Stage` each wire literal maps onto in the real app's types. */
 const STAGE_OF: Record<string, Stage> = {
   idea: "Idea",
   researching: "Research",
@@ -30,6 +35,8 @@ const STAGE_OF: Record<string, Stage> = {
   evaluating: "Evals",
   published: "Published",
 };
+
+type Card = { readonly project: Project; readonly slug: string; readonly live: boolean };
 
 export function ProtoBoard({
   onOpenSkill,
@@ -61,60 +68,102 @@ export function ProtoBoard({
     );
   }
 
+  /** Cards for a piece. Published skills fold into Prompt, marked live. */
+  const cardsFor = (piece: Piece): ReadonlyArray<Card> => {
+    const stage = STAGE_OF[piece.wire] ?? "Idea";
+    const own = projects.flatMap((project) =>
+      project.skills.filter((s) => s.stage === stage).map((s) => ({ project, slug: s.slug, live: false })),
+    );
+    if (piece.wire !== "drafting") return own;
+    const live = projects.flatMap((project) =>
+      project.skills.filter((s) => s.stage === "Published").map((s) => ({ project, slug: s.slug, live: true })),
+    );
+    return [...own, ...live];
+  };
+
   return (
     <div className="p-6">
-      <h1 className="font-display text-2xl">Making</h1>
-      <p className="pb-4 pt-1 text-sm text-ink-muted">
-        Five benches. Each answers a question and leaves a file behind — but only three of them are benches we work at.
-        The last two are things other tools do, that this one has to stay on top of.
+      <h1 className="font-display text-2xl">The skill</h1>
+      <p className="max-w-3xl pb-5 pt-1 text-sm leading-relaxed text-ink-muted">
+        Four pieces. Two of them stay here and inform the other two; two of them leave and run somewhere else.
       </p>
 
-      <div className="grid grid-cols-5 gap-3">
-        {STATIONS.map((station) => {
-          const stage = STAGE_OF[station.wire] ?? "Idea";
-          const cards = projects.flatMap((p) => p.skills.filter((s) => s.stage === stage).map((s) => ({ p, s })));
-          return (
-            <div
-              key={station.wire}
-              className={`rounded p-2 ${
-                station.mode === "made-here"
-                  ? "border border-border bg-paper"
-                  : "border border-dashed border-border bg-paper/40"
-              }`}
-            >
-              <div className={`mb-1 inline-block rounded px-2 py-0.5 font-display text-xs ${STAGE_TINT[stage]}`}>
-                {station.name}
-              </div>
-              {/* the lines that turn a bucket into a bench */}
-              <p className="pb-0.5 text-[12px] leading-snug text-ink">{station.question}</p>
-              <p className="text-[11px] leading-snug text-ink-muted">
-                makes <span className="[font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace]">{station.makes}</span>
-              </p>
-              {/* the honest bit: whose hands do the work */}
-              <p
-                className={`pb-2 pt-1 text-[10px] uppercase tracking-[0.1em] ${
-                  station.mode === "made-here" ? "text-ink-muted/60" : "text-amber-700/80"
-                }`}
-              >
-                {MODE_LABEL[station.mode]}
-              </p>
+      <div className="flex flex-wrap items-stretch gap-3">
+        <GroupBox group="informs" cardsFor={cardsFor} onOpenSkill={onOpenSkill} />
 
-              {cards.map(({ p, s }) => (
-                <button
-                  key={`${p.name}/${s.slug}`}
-                  type="button"
-                  onClick={() => onOpenSkill(p, s.slug)}
-                  className="mb-2 block w-full rounded bg-surface p-2 text-left shadow-sm hover:shadow"
-                >
-                  <div className={`font-display text-sm ${FADE_R}`}>{s.slug}</div>
-                  <div className={`text-xs text-ink-muted ${FADE_R}`}>{p.name}</div>
-                </button>
-              ))}
-            </div>
-          );
-        })}
+        {/* the arrow is the claim: the first two feed the second two */}
+        <div className="flex items-center px-1 text-2xl text-ink-muted/50" aria-hidden="true">
+          ▶
+        </div>
+
+        <GroupBox group="ships" cardsFor={cardsFor} onOpenSkill={onOpenSkill} />
       </div>
-      <p className="pt-3 text-xs text-ink-muted">All projects · Archived: drawer</p>
+
+      {/* Release — a status layer over the pieces that left, not a column */}
+      <div className="mt-3 max-w-3xl rounded border border-dashed border-border bg-paper/40 p-3">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="font-display text-sm">{RELEASE.name}</span>
+          <span className="text-[12px] text-ink-muted">{RELEASE.is}</span>
+        </div>
+        <ul className="flex flex-col gap-1 pt-2">
+          {RELEASE.asks.map((q) => (
+            <li key={q} className="flex items-baseline gap-2 text-[13px] text-ink">
+              <span className="text-ink-muted/50">?</span>
+              {q}
+            </li>
+          ))}
+        </ul>
+        <p className="pt-2 text-[12px] leading-snug text-amber-700">{RELEASE.unresolved}</p>
+      </div>
+
+      <p className="pt-4 text-xs text-ink-muted">All projects · Archived: drawer</p>
+    </div>
+  );
+}
+
+function GroupBox({
+  group,
+  cardsFor,
+  onOpenSkill,
+}: {
+  readonly group: Group;
+  readonly cardsFor: (piece: Piece) => ReadonlyArray<Card>;
+  readonly onOpenSkill: (project: Project, slug: string) => void;
+}) {
+  const pieces = PIECES.filter((p) => p.group === group);
+  return (
+    <div className={`min-w-[340px] flex-1 rounded-lg border ${GROUP_EDGE[group]} p-3`}>
+      <div className="flex flex-wrap items-baseline gap-2 pb-2">
+        <h2 className="font-display text-sm">{GROUP_TITLE[group]}</h2>
+        <span className="text-[11px] uppercase tracking-[0.1em] text-ink-muted">{GROUP_LABEL[group]}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {pieces.map((piece) => (
+          <div key={piece.wire} className="rounded border border-border bg-paper p-2">
+            <div className={`mb-1 inline-block rounded px-2 py-0.5 font-display text-xs ${GROUP_TINT[group]}`}>{piece.name}</div>
+            <p className="pb-0.5 text-[12px] leading-snug text-ink">{piece.is}</p>
+            <p className="pb-2 text-[11px] leading-snug text-ink-muted">
+              <span className="[font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace]">{piece.makes}</span>
+            </p>
+            {cardsFor(piece).map((card) => (
+              <button
+                key={`${card.project.name}/${card.slug}`}
+                type="button"
+                onClick={() => onOpenSkill(card.project, card.slug)}
+                className="mb-2 block w-full rounded bg-surface p-2 text-left shadow-sm hover:shadow"
+              >
+                <div className={`font-display text-sm ${FADE_R}`}>{card.slug}</div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-xs text-ink-muted ${FADE_R}`}>{card.project.name}</span>
+                  {card.live && (
+                    <span className="shrink-0 rounded bg-emerald-100 px-1 text-[10px] text-emerald-800">live</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

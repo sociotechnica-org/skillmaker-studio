@@ -30,7 +30,7 @@
 import { useCallback, useState } from "react";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "../next/api.ts";
 import { apiPath } from "../runtime/projectScope.ts";
-import { MADE, TO_BE_MADE } from "./stations.ts";
+import { MADE, TO_BE_MADE } from "./pieces.ts";
 import type { BundleFile } from "../next/types.ts";
 
 /** A real monospace — deliberately NOT `font-mono`, which is Special Elite. */
