@@ -236,12 +236,28 @@ export function SkillPane({ slug }: { readonly slug: string }) {
             id === "Overview" ? 0 : rows.filter((r) => r.size === null && PIECE_OF(r.path) === id).length +
               slots.filter((s) => s.piece === id && s.value === null).length;
           return (
-            <button key={id} type="button" onClick={() => setActive({ kind: "pinned", id })} className={on ? TAB_ACTIVE : TAB_IDLE}>
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActive({ kind: "pinned", id })}
+              className={on ? TAB_ACTIVE : TAB_IDLE}
+              title={gaps > 0 ? `${id}: ${gaps} ${TO_BE_MADE}` : undefined}
+            >
               {/* colour says which half of the skill this piece is: the two
                   that stay and inform, or the two that leave and run */}
               {piece !== undefined && <span className={`h-1.5 w-1.5 rounded-full ${GROUP_TINT[piece.group]}`} />}
               {id}
-              {gaps > 0 && <span className="text-[10px] text-amber-800">{gaps}</span>}
+              {/* A bare number next to a tab reads as "how many things are in
+                  here" -- the opposite of what it means. The hollow ring is
+                  the same mark a file row uses for something not yet made, so
+                  "○3" reads as "three still to be made" in the card's own
+                  vocabulary rather than as a contents count. */}
+              {gaps > 0 && (
+                <span className="text-[10px] text-amber-800">
+                  <span aria-hidden="true">○</span>
+                  {gaps}
+                </span>
+              )}
             </button>
           );
         })}
