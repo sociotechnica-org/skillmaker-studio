@@ -1,36 +1,40 @@
 /**
- * PROTOTYPE — the skill page (fork pass, 2026-08-05).
+ * PROTOTYPE — the skill card (tabs-are-pieces pass, 2026-08-05).
  *
- * LIVE DATA. The fixtures are gone. Everything below comes off the same
- * `/api/*` the shipping app reads:
+ * The four pieces are the tab bar now:
  *
- *   bundle detail   `bundle.oneLiner`, and `dossier` — which the server
- *                   already returns as `{ job?, outOfScope?, basis?,
- *                   evidence?, fitCriterion?, contexts[] }`. Absent keys
- *                   are absent BECAUSE the bundle has no dossier.md. Every
- *                   blank you see is a real gap on disk, not a staged one.
- *   files           `GET /api/bundles/:slug/files`, the real tree
- *   contents        `GET /api/bundles/:slug/file?path=`, on open
+ *   Overview · Job · Method · Prompt · Evals   + whatever files you open
  *
- * TYPOGRAPHY. `--font-mono` is NOT a monospace — it's aliased to Special
- * Elite, the distressed typewriter (`Reference - Typography.md`; viewer
- * global.css:28). The standard reserves it for all-caps micro-labels with
- * wide tracking. Jess's own file tree uses it zero times: paths render in
- * the body serif, contents escape to a true monospace (RightPanel:292).
- * Same rules here.
+ * Earlier passes had four PERMANENT rooms named for topics (Research, Eval,
+ * Publish) and rightly killed them. This is not that. These four tabs are
+ * the parts a skill is made of, so every one of them is about this skill
+ * and every one has something to say — including "nothing here yet", which
+ * is the most useful thing a new skill's card can tell you.
  *
- * TABS ARE EARNED. Research · Eval · Publish are gone — four permanent
- * rooms, three usually empty, standing for topics rather than for anything
- * a skill had accumulated. What's left is Overview plus the files you
- * open. The test a candidate tab must pass: does it REFLECT across several
- * files (risk-map × fixtures × runs) rather than display one of them? If
- * one file answers it, it's a file, not a tab. The earned list is
- * deliberately empty, and the bar reads from it.
+ * OVERVIEW IS SYNTHESIS. It doesn't repeat the tabs; it reads across them.
+ * The sentences that ARE written render as plain prose, and everything not
+ * written down collects into one honest gap paragraph that names what's
+ * missing and sends you to the tab that owns it. A skill with nothing
+ * recorded reads as a short, blunt paragraph rather than six dotted blanks.
+ *
+ * Files still earn their own tabs — click one anywhere and it opens beside
+ * the pieces, closable, exactly like a browser.
+ *
+ * LIVE DATA throughout: bundle detail for the one-liner and the dossier
+ * (which the server already returns as `{job, outOfScope, basis, evidence,
+ * fitCriterion, contexts}`), the files endpoint for the tree, the file
+ * endpoint on open. Absent dossier keys are absent because the bundle has
+ * no dossier.md — every gap named below is real.
+ *
+ * TYPOGRAPHY: `--font-mono` is Special Elite, a display face, not a
+ * monospace — reserved for all-caps micro-labels. Paths and file contents
+ * use a real monospace via CODE. Solid colour tokens only: alpha-modified
+ * ink collapses toward the ground at night.
  */
 import { useCallback, useState } from "react";
 import { fetchBundleFile, fetchBundleFiles, useApiData } from "../next/api.ts";
 import { apiPath } from "../runtime/projectScope.ts";
-import { GROUP_TINT, MADE, PIECES, TO_BE_MADE, type Group as PieceGroup } from "./pieces.ts";
+import { GROUP_TINT, MADE, PIECES, TO_BE_MADE } from "./pieces.ts";
 import type { BundleFile } from "../next/types.ts";
 
 /** A real monospace — deliberately NOT `font-mono`, which is Special Elite. */
@@ -38,9 +42,11 @@ const CODE = "[font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace]
 /** The brand's structural device: all-caps micro-label, wide tracking. */
 const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted";
 
-const PINNED = ["Overview"] as const;
-type PinnedTab = (typeof PINNED)[number];
-type OpenTab = { readonly kind: "pinned"; readonly id: PinnedTab } | { readonly kind: "file"; readonly path: string };
+type PieceName = "Job" | "Method" | "Prompt" | "Evals";
+type TabId = "Overview" | PieceName;
+const TABS: ReadonlyArray<TabId> = ["Overview", "Job", "Method", "Prompt", "Evals"];
+
+type OpenTab = { readonly kind: "pinned"; readonly id: TabId } | { readonly kind: "file"; readonly path: string };
 
 const TAB_ACTIVE =
   "relative z-10 -mb-px flex items-center gap-1.5 rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-display text-[12px] text-ink";
@@ -59,21 +65,14 @@ type WireDossier = {
   readonly contexts?: ReadonlyArray<{ readonly name?: string }>;
 };
 
-type Detail = {
-  readonly name: string;
-  readonly oneLiner: string;
-  readonly dossier: WireDossier;
-};
+type Detail = { readonly name: string; readonly oneLiner: string; readonly dossier: WireDossier };
 
 const EMPTY_DETAIL: Detail = { name: "", oneLiner: "", dossier: {} };
 
 const fetchDetail = async (slug: string): Promise<Detail> => {
   const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}`));
   if (!response.ok) throw new Error(`bundle: ${response.status}`);
-  const body = (await response.json()) as {
-    bundle?: { name?: unknown; oneLiner?: unknown };
-    dossier?: WireDossier;
-  };
+  const body = (await response.json()) as { bundle?: { name?: unknown; oneLiner?: unknown }; dossier?: WireDossier };
   return {
     name: typeof body.bundle?.name === "string" ? body.bundle.name : slug,
     oneLiner: typeof body.bundle?.oneLiner === "string" ? body.bundle.oneLiner : "",
@@ -84,15 +83,18 @@ const fetchDetail = async (slug: string): Promise<Detail> => {
 // ------------------------------------------------------------- the madlib
 
 /**
- * The sentences: Playmaker's synopsis ("What it does / Reach for it when /
- * The story / Trigger") fused with the dossier's ruled sections. The blank
- * text is the scaffold's own question, shortened — the full one is the
- * tooltip, verbatim from `writeDossierScaffold`.
+ * Each sentence belongs to a PIECE, which is what lets Overview synthesise
+ * and each tab own its share. Note that Prompt has no sentence: nothing in
+ * the data model records what model a skill is written for. That silence is
+ * the honest surfacing of `MODEL_SELECTION_IS_UNRECORDED` in pieces.ts.
  */
 type Slot = {
+  readonly piece: PieceName;
   readonly lead: string;
   readonly value: string | null;
-  readonly short: string;
+  /** How the gap reads in Overview's synthesis — a noun phrase. */
+  readonly gap: string;
+  /** The scaffold's full question, verbatim, for the piece tab. */
   readonly question: string;
   readonly source: string;
 };
@@ -102,47 +104,51 @@ const slotsFrom = (detail: Detail): ReadonlyArray<Slot> => {
   const contexts = d.contexts ?? [];
   return [
     {
+      piece: "Job",
       lead: "It",
-      // The dossier's Job when written; otherwise bundle.json's one-liner,
-      // which every bundle has. Never blank in practice.
       value: d.job ?? (detail.oneLiner === "" ? null : detail.oneLiner),
-      short: "what it does",
+      gap: "what it does",
       question: "One line: what does this skill do?",
       source: "dossier.md",
     },
     {
+      piece: "Job",
       lead: "Don't use it to",
       value: d.outOfScope ?? null,
-      short: "what it must not be used for",
+      gap: "what it must not be used for",
       question: "Paired with Job (Model Cards): what should this explicitly NOT be used for?",
       source: "dossier.md",
     },
     {
+      piece: "Job",
       lead: "It runs",
       value: contexts.length === 0 ? null : contexts.map((c) => c.name ?? "unnamed").join(", "),
-      short: "what comes before and after it",
+      gap: "where it actually gets used",
       question: "Walk the last real time this ran: what came right before it, and what happened right after?",
       source: "dossier.md",
     },
     {
+      piece: "Method",
       lead: "It's built on",
       value: d.basis ?? null,
-      short: "whose method it follows",
+      gap: "whose method it follows",
       question:
         "A named framework, or someone's way of doing it — record who, so an ambiguous case has a source of truth to ask.",
       source: "dossier.md",
     },
     {
+      piece: "Evals",
       lead: "Evidence",
       value: d.evidence ?? null,
-      short: "whether performance data exists",
+      gap: "whether performance data exists",
       question: "Does performance data exist? Where does it live? Do we have permission to use it?",
       source: "dossier.md",
     },
     {
+      piece: "Evals",
       lead: "You'd know it worked if",
       value: d.fitCriterion ?? null,
-      short: "the one pass/fail test",
+      gap: "the one pass/fail test",
       question:
         "If you had to write one pass/fail test today, what would it check? The answer seeds the first fixture's answer key.",
       source: "dossier.md",
@@ -153,13 +159,12 @@ const slotsFrom = (detail: Detail): ReadonlyArray<Slot> => {
 // ------------------------------------------------------------- the files
 
 /**
- * Files a bundle COULD have. A convention list, not a schema — each one is
+ * Files a bundle COULD have. A convention list, not a schema — each is
  * something the product already knows how to make, so a blank can say how.
- * Anything the tree actually returns wins; these fill the holes.
  */
 const COULD_EXIST: ReadonlyArray<{ readonly path: string; readonly why: string; readonly how: string }> = [
   { path: "design.md", why: "Intent and workflow.", how: "The researching station writes it, or write it by hand." },
-  { path: "dossier.md", why: "Context of use — the sentences above.", how: "Run skillmaker dossier to scaffold it." },
+  { path: "dossier.md", why: "Context of use — the sentences on this card.", how: "Run skillmaker dossier to scaffold it." },
   { path: "output/SKILL.md", why: "What ships.", how: "The drafting station writes it from design.md." },
   { path: "evals/risk-map.md", why: "The ways it can go wrong.", how: "The evaluating station authors it once there's a draft." },
 ];
@@ -169,12 +174,7 @@ type Row = { readonly path: string; readonly size: number | null; readonly why: 
 const rowsFrom = (files: ReadonlyArray<BundleFile>): ReadonlyArray<Row> => {
   const have = new Set(files.map((f) => f.path));
   const known = new Map(COULD_EXIST.map((c) => [c.path, c]));
-  const present: Row[] = files.map((f) => ({
-    path: f.path,
-    size: f.size,
-    why: known.get(f.path)?.why ?? null,
-    how: null,
-  }));
+  const present: Row[] = files.map((f) => ({ path: f.path, size: f.size, why: known.get(f.path)?.why ?? null, how: null }));
   const missing: Row[] = COULD_EXIST.filter((c) => !have.has(c.path)).map((c) => ({
     path: c.path,
     size: null,
@@ -185,48 +185,19 @@ const rowsFrom = (files: ReadonlyArray<BundleFile>): ReadonlyArray<Row> => {
 };
 
 /**
- * FILES ARE ORGANISED BY PIECE, NOT BY FOLDER (director ruling,
- * 2026-08-05): "Job → Method | Prompt. Evals. It's the stuff of the skill,
- * it's what makes the baseball card, it's the categories I'd organise files
- * under."
- *
- * So the four pieces are the card's drawers. A folder is where a file
- * happens to sit on disk; a piece is what the file is FOR, which is the
- * thing a maker is actually looking for.
- *
- * Assignment is by path, first match wins. Anything unmatched lands in
- * "Bundle" rather than being dropped — an organiser that silently loses
- * files is worse than one with a junk drawer.
+ * Which piece a file belongs to. A folder is where a file happens to sit on
+ * disk; a piece is what it's FOR. Anything unmatched stays visible under
+ * Overview's tally rather than being dropped.
  */
-const PIECE_OF = (path: string): string => {
+const PIECE_OF = (path: string): PieceName | null => {
   if (path === "dossier.md") return "Job";
   if (path === "design.md" || path.startsWith("research/")) return "Method";
   if (path.startsWith("output/")) return "Prompt";
-  // runs/ sits under Evals: a run is what an eval produced. Arguable — it's
-  // also "how'd it do", which is a Release question. Flagged, not settled.
+  // runs/ under Evals: a run is what an eval produced. Arguable — it's also
+  // "how'd it do", which is a Release question. Flagged, not settled.
   if (path.startsWith("evals/") || path.startsWith("runs/")) return "Evals";
-  return "Bundle";
+  return null;
 };
-
-/** A drawer on the card: one of the four pieces, or the junk drawer. */
-type Drawer = {
-  readonly name: string;
-  /** What this piece IS — absent for the junk drawer. */
-  readonly is: string | null;
-  readonly group: PieceGroup | null;
-  readonly rows: ReadonlyArray<Row>;
-};
-
-function drawers(rows: ReadonlyArray<Row>): ReadonlyArray<Drawer> {
-  const out: Drawer[] = PIECES.map((p) => ({ name: p.name, is: p.is, group: p.group, rows: [] }));
-  out.push({ name: "Bundle", is: "identity and wiring — not part of the skill itself", group: null, rows: [] });
-  for (const r of rows) {
-    const name = PIECE_OF(r.path);
-    const hit = out.find((d) => d.name === name) ?? out[out.length - 1];
-    if (hit !== undefined) (hit.rows as Row[]).push(r);
-  }
-  return out.filter((d) => d.rows.length > 0);
-}
 
 // --------------------------------------------------------------- the page
 
@@ -238,6 +209,7 @@ export function SkillPane({ slug }: { readonly slug: string }) {
   const [active, setActive] = useState<OpenTab>({ kind: "pinned", id: "Overview" });
 
   const rows = rowsFrom(files);
+  const slots = slotsFrom(detail);
 
   const openFile = (path: string) => {
     if (!open.includes(path)) setOpen([...open, path]);
@@ -257,12 +229,19 @@ export function SkillPane({ slug }: { readonly slug: string }) {
   return (
     <div className="flex min-h-full flex-col">
       <div className="flex flex-wrap items-end gap-1 px-6 pt-4">
-        {PINNED.map((id) => {
-          const tab: OpenTab = { kind: "pinned", id };
+        {TABS.map((id) => {
           const on = active.kind === "pinned" && active.id === id;
+          const piece = PIECES.find((p) => p.name === id);
+          const gaps =
+            id === "Overview" ? 0 : rows.filter((r) => r.size === null && PIECE_OF(r.path) === id).length +
+              slots.filter((s) => s.piece === id && s.value === null).length;
           return (
-            <button key={id} type="button" onClick={() => setActive(tab)} className={on ? TAB_ACTIVE : TAB_IDLE}>
+            <button key={id} type="button" onClick={() => setActive({ kind: "pinned", id })} className={on ? TAB_ACTIVE : TAB_IDLE}>
+              {/* colour says which half of the skill this piece is: the two
+                  that stay and inform, or the two that leave and run */}
+              {piece !== undefined && <span className={`h-1.5 w-1.5 rounded-full ${GROUP_TINT[piece.group]}`} />}
               {id}
+              {gaps > 0 && <span className="text-[10px] text-amber-800">{gaps}</span>}
             </button>
           );
         })}
@@ -299,8 +278,10 @@ export function SkillPane({ slug }: { readonly slug: string }) {
         <div className="px-6 py-6">
           {active.kind === "file" ? (
             <FileView slug={slug} path={active.path} row={rows.find((r) => r.path === active.path)} />
+          ) : active.id === "Overview" ? (
+            <Overview detail={detail} slots={slots} rows={rows} onGoTo={(id) => setActive({ kind: "pinned", id })} />
           ) : (
-            <Overview detail={detail} rows={rows} onOpenFile={openFile} />
+            <PieceTab name={active.id} slots={slots} rows={rows} onOpenFile={openFile} />
           )}
         </div>
       </div>
@@ -308,139 +289,182 @@ export function SkillPane({ slug }: { readonly slug: string }) {
   );
 }
 
+// ------------------------------------------------------------- synthesis
+
+/**
+ * Overview reads ACROSS the four tabs rather than repeating them. What's
+ * written renders as prose; what isn't collects into one gap paragraph.
+ */
 function Overview({
   detail,
+  slots,
   rows,
-  onOpenFile,
+  onGoTo,
 }: {
   readonly detail: Detail;
+  readonly slots: ReadonlyArray<Slot>;
   readonly rows: ReadonlyArray<Row>;
-  readonly onOpenFile: (path: string) => void;
+  readonly onGoTo: (id: TabId) => void;
 }) {
-  const shelves = drawers(rows);
-  const missing = rows.filter((r) => r.size === null).length;
+  const said = slots.filter((s) => s.value !== null);
+  const unsaid = slots.filter((s) => s.value === null);
+  const unmade = rows.filter((r) => r.size === null);
 
   return (
     <div className="max-w-2xl">
       <h1 className="font-display text-xl">{detail.name}</h1>
 
-      <div className="flex flex-col gap-1.5 pt-4">
-        {slotsFrom(detail).map((slot) => (
-          <SlotLine key={slot.lead} slot={slot} onOpenFile={onOpenFile} />
-        ))}
-      </div>
+      {said.length === 0 ? (
+        <p className="pt-4 text-[15px] leading-relaxed text-ink-muted">Nothing about this skill has been written down yet.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5 pt-4">
+          {said.map((s) => (
+            <p key={s.lead} className="text-[15px] leading-relaxed">
+              <span className="text-ink-muted">{s.lead} </span>
+              <span className="text-ink">{s.value}</span>
+            </p>
+          ))}
+        </div>
+      )}
 
-      {/* The five facts — stage · version · drift · proven on · coverage —
-          were here. Cut 2026-08-05 to be earned back. */}
+      {/* the honest part: one paragraph, not six dotted blanks */}
+      {(unsaid.length > 0 || unmade.length > 0) && (
+        <div className="mt-6 rounded border border-dashed border-border bg-canvas/40 p-3">
+          <p className={LABEL}>Not written down</p>
+          {unsaid.length > 0 && (
+            <p className="pt-1.5 text-[14px] leading-relaxed text-ink">
+              {joinPhrases(unsaid.map((s) => s.gap))}.
+            </p>
+          )}
+          {unmade.length > 0 && (
+            <p className="pt-1.5 text-[14px] leading-relaxed text-ink">
+              {unmade.length === 1 ? "One file is" : `${unmade.length} files are`} still {TO_BE_MADE}:{" "}
+              {joinPhrases(unmade.map((r) => r.path))}.
+            </p>
+          )}
+          <div className="flex flex-wrap gap-1.5 pt-3">
+            {PIECES.map((p) => {
+              const n =
+                unsaid.filter((s) => s.piece === p.name).length + unmade.filter((r) => PIECE_OF(r.path) === p.name).length;
+              if (n === 0) return null;
+              return (
+                <button
+                  key={p.name}
+                  type="button"
+                  onClick={() => onGoTo(p.name as TabId)}
+                  className="rounded border border-border px-2 py-1 text-[12px] text-ink-muted hover:border-amber-600 hover:text-ink"
+                >
+                  {p.name} · {n} open
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      <div className="flex items-baseline justify-between pb-1 pt-8">
-        <h2 className={LABEL}>The stuff of this skill</h2>
-        <p className="text-[12px] text-ink-muted">
-          {rows.length - missing} {MADE}
-          {missing > 0 ? ` · ${missing} ${TO_BE_MADE}` : ""}
-        </p>
-      </div>
-
-      <div className="rounded border border-border bg-surface">
-        {shelves.map((d) => (
-          <Shelf key={d.name} drawer={d} onOpenFile={onOpenFile} />
-        ))}
-        {rows.length === 0 && <p className="px-3 py-2 text-[12px] text-ink-muted">No files — is the server running?</p>}
-      </div>
-      <p className="pt-2 text-[12px] text-ink-muted">
-        Two pieces stay here and inform the other two; two of them leave and run somewhere else.
+      <p className="pt-6 text-[12px] text-ink-muted">
+        {rows.length - unmade.length} {MADE}
+        {unmade.length > 0 ? ` · ${unmade.length} ${TO_BE_MADE}` : ""} across the four pieces.
       </p>
     </div>
   );
 }
 
-function SlotLine({ slot, onOpenFile }: { readonly slot: Slot; readonly onOpenFile: (path: string) => void }) {
-  return (
-    <p className="text-[15px] leading-relaxed">
-      <span className="text-ink-muted">{slot.lead} </span>
-      {slot.value === null ? (
-        <button
-          type="button"
-          onClick={() => onOpenFile(slot.source)}
-          title={slot.question}
-          className="text-left italic text-ink-muted underline decoration-dotted underline-offset-4 hover:text-amber-800"
-        >
-          {slot.short} — not recorded
-        </button>
-      ) : (
-        <span className="text-ink">{slot.value}</span>
-      )}
-    </p>
-  );
+/** "a, b and c" — a sentence, not a comma-separated dump. */
+function joinPhrases(items: ReadonlyArray<string>): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-/**
- * One piece of the skill, as a drawer on the card. Collapsed by default:
- * the four names plus their made/to-be-made counts ARE the baseball card,
- * and opening one is how you get to the files under it.
- *
- * Colour carries the inward/outward cut without a word — teal for the two
- * that stay and inform, gold for the two that leave and run. The junk
- * drawer ("Bundle") has no group and stays uncoloured, which is the point:
- * it isn't part of the skill.
- */
-function Shelf({ drawer: d, onOpenFile }: { readonly drawer: Drawer; readonly onOpenFile: (path: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const missing = d.rows.filter((r) => r.size === null).length;
-  const here = d.rows.length - missing;
+// ------------------------------------------------------------ piece tabs
+
+function PieceTab({
+  name,
+  slots,
+  rows,
+  onOpenFile,
+}: {
+  readonly name: PieceName;
+  readonly slots: ReadonlyArray<Slot>;
+  readonly rows: ReadonlyArray<Row>;
+  readonly onOpenFile: (path: string) => void;
+}) {
+  const piece = PIECES.find((p) => p.name === name);
+  const mine = slots.filter((s) => s.piece === name);
+  const files = rows.filter((r) => PIECE_OF(r.path) === name);
 
   return (
-    <div className="border-t border-border/70 first:border-t-0">
-      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-well/60">
-        <span className={`inline-block w-3 shrink-0 text-ink-muted transition-transform ${open ? "rotate-90" : ""}`}>›</span>
-        <span
-          className={`shrink-0 rounded px-1.5 py-0.5 font-display text-[12px] ${
-            d.group === null ? "text-ink-muted" : GROUP_TINT[d.group]
-          }`}
-        >
-          {d.name}
-        </span>
-        {d.is !== null && <span className="min-w-0 flex-1 truncate text-[12px] text-ink-muted">{d.is}</span>}
-        {d.is === null && <span className="flex-1" />}
-        <span className="shrink-0 text-[12px] text-ink-muted">
-          {here} {MADE}
-          {missing > 0 && (
-            <span className="text-amber-800">
-              {" "}
-              · {missing} {TO_BE_MADE}
-            </span>
+    <div className="max-w-2xl">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h1 className="font-display text-xl">{name}</h1>
+        {piece !== undefined && <span className="text-[13px] text-ink-muted">{piece.is}</span>}
+      </div>
+      {piece !== undefined && (
+        <p className="pt-1 text-[12px] text-ink-muted">
+          {piece.group === "informs" ? "Stays here — it informs the prompt and the evals." : "Leaves here — it runs somewhere else."}
+        </p>
+      )}
+
+      {mine.length > 0 && (
+        <div className="flex flex-col gap-2 pt-5">
+          {mine.map((s) =>
+            s.value === null ? (
+              // The lead and the scaffold's question don't compose into a
+              // sentence ("Don't use it to Paired with Job (Model Cards):
+              // what should..."), so close the sentence honestly first and
+              // put the question underneath as the prompt it is.
+              <div key={s.lead}>
+                <p className="text-[15px] leading-relaxed">
+                  <span className="text-ink-muted">{s.lead} </span>
+                  <span className="italic text-ink-muted">— not recorded</span>
+                </p>
+                <p className="pl-4 text-[13px] leading-snug text-ink-muted">
+                  {s.question} <span className={`${CODE} text-[11px]`}>{s.source}</span>
+                </p>
+              </div>
+            ) : (
+              <p key={s.lead} className="text-[15px] leading-relaxed">
+                <span className="text-ink-muted">{s.lead} </span>
+                <span className="text-ink">{s.value}</span>
+              </p>
+            ),
           )}
-        </span>
-      </button>
-      {open && (
-        <div className="border-t border-border/50 bg-canvas/40">
-          {d.rows.map((r) => (
-            <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} indent />
-          ))}
         </div>
       )}
+
+      {/* the model-selection silence, said out loud where it belongs */}
+      {name === "Prompt" && (
+        <p className="mt-5 rounded border border-dashed border-border bg-canvas/40 p-3 text-[14px] leading-relaxed text-ink">
+          Nothing records which model this prompt is written for. <span className="text-ink-muted">
+            bundle.json's <span className={CODE}>targets</span> names agents, not models; the chat panel picks per session; a run
+            records whatever it happened to use.
+          </span>
+        </p>
+      )}
+
+      <h2 className={`${LABEL} pb-1 pt-7`}>Files</h2>
+      <div className="rounded border border-border bg-surface">
+        {files.map((r) => (
+          <FileRow key={r.path} row={r} onOpen={() => onOpenFile(r.path)} />
+        ))}
+        {files.length === 0 && <p className="px-3 py-2 text-[13px] text-ink-muted">No files yet.</p>}
+      </div>
     </div>
   );
 }
 
-function FileRow({ row, onOpen, indent }: { readonly row: Row; readonly onOpen: () => void; readonly indent: boolean }) {
+function FileRow({ row, onOpen }: { readonly row: Row; readonly onOpen: () => void }) {
   const here = row.size !== null;
-  // Rows sit under a PIECE now, not a folder, so the leading directory is
-  // no longer redundant -- show the whole path.
-  const label = row.path;
-
   return (
     <button
       type="button"
       onClick={onOpen}
       title={row.path}
-      className={`flex w-full items-baseline gap-2 border-t border-border/50 px-3 py-1.5 text-left first:border-t-0 hover:bg-well/60 ${
-        indent ? "pl-8" : ""
-      }`}
+      className="flex w-full items-baseline gap-2 border-t border-border/50 px-3 py-1.5 text-left first:border-t-0 hover:bg-well/60"
     >
       <span className={`shrink-0 text-[10px] ${here ? "text-emerald-700" : "text-ink-muted"}`}>{here ? "●" : "○"}</span>
       <span className="min-w-0 flex-1">
-        <span className={`block truncate ${CODE} text-[13px] ${here ? "text-ink" : "text-ink-muted"}`}>{label}</span>
+        <span className={`block truncate ${CODE} text-[13px] ${here ? "text-ink" : "text-ink-muted"}`}>{row.path}</span>
         {row.why !== null && <span className="block text-[12px] leading-snug text-ink-muted">{row.why}</span>}
         {!here && row.how !== null && <span className="block text-[12px] leading-snug text-amber-800">{row.how}</span>}
       </span>
