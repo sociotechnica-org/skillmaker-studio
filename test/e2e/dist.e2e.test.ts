@@ -38,6 +38,7 @@ import { startE2eRegistryServer } from "./support/server.ts";
 const repoRoot = join(import.meta.dir, "..", "..");
 const distBinary = join(repoRoot, "dist", "skillmaker");
 const distViewer = join(repoRoot, "dist", "viewer-dist");
+const distPackagedSkills = join(repoRoot, "dist", "packaged-skills");
 
 const distArtifactsPresent = existsSync(distBinary) && existsSync(distViewer);
 
@@ -71,12 +72,17 @@ describe.skipIf(!distArtifactsPresent)(
   "skillmaker distributed binary: golden path (Phase 12a)",
   () => {
     beforeAll(async () => {
-      // "Install": copy the two distributable pieces into a directory that
+      // "Install": copy the three distributable pieces into a directory that
       // shares nothing with the repo checkout, exactly as a real install
       // would (docs/dist.md).
       installDir = mkdtempSync(join(tmpdir(), "skillmaker-dist-install-"));
+      // The skip guard intentionally covers the binary and viewer only. Once
+      // those prove this is a built distribution, missing helper payloads
+      // must fail loudly instead of becoming a misleading skip.
+      expect(existsSync(distPackagedSkills)).toBe(true);
       cpSync(distBinary, join(installDir, "skillmaker"));
       cpSync(distViewer, join(installDir, "viewer-dist"), { recursive: true });
+      cpSync(distPackagedSkills, join(installDir, "packaged-skills"), { recursive: true });
       binaryPath = join(installDir, "skillmaker");
       Bun.spawnSync(["chmod", "+x", binaryPath]);
 
@@ -169,6 +175,12 @@ describe.skipIf(!distArtifactsPresent)(
       const html = await response.text();
       expect(html).toContain("astro-island");
       expect(html).toContain("Skillmaker Studio");
+    });
+
+    test("installed layout includes both packaged William helper payloads", () => {
+      for (const slug of ["william-research-a-skill", "william-draft-skill-md"]) {
+        expect(existsSync(join(installDir, "packaged-skills", slug, "output", "SKILL.md"))).toBe(true);
+      }
     });
 
     test("claim file exists at the started port", () => {

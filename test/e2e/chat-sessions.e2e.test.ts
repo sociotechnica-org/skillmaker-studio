@@ -22,6 +22,7 @@ const fakeChatAdapter = join(import.meta.dir, "fixtures", "fake-acp-chat.cjs");
 let scratchDir: string;
 let scratchHome: string;
 let fakeStateDir: string;
+let fakeClaudeConfigDir: string;
 let server: StartedE2eRegistryServer;
 let baseUrl: string;
 let projectUrl: string;
@@ -119,6 +120,8 @@ beforeAll(async () => {
   scratchDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-"));
   scratchHome = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-home-"));
   fakeStateDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-state-"));
+  fakeClaudeConfigDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-claude-config-"));
+  writeFileSync(join(fakeClaudeConfigDir, ".credentials.json"), "{}\n");
   Bun.spawnSync(["git", "init", "-q"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
@@ -130,12 +133,6 @@ beforeAll(async () => {
   const orientBundlePath = join(scratchDir, "skills", ORIENT_SKILL, "bundle.json");
   const orientBundle = JSON.parse(readFileSync(orientBundlePath, "utf8")) as Record<string, unknown>;
   writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: "orients the director" }, null, 2)}\n`);
-
-  // A William helper bundle in the workspace, to observe agent-home injection.
-  const williamDir = join(scratchDir, "skills", "william-draft-skill-md");
-  mkdirSync(join(williamDir, "output"), { recursive: true });
-  writeFileSync(join(williamDir, "bundle.json"), `${JSON.stringify({ slug: "william-draft-skill-md" })}\n`);
-  writeFileSync(join(williamDir, "output", "SKILL.md"), "# William drafts\n");
 
   // Point the claude-code provider at the fake chat adapter.
   const configPath = join(scratchDir, "skillmaker.config.json");
@@ -154,6 +151,7 @@ beforeAll(async () => {
     env: {
       FAKE_CHAT_STATE_DIR: fakeStateDir,
       SKILLMAKER_AGENT_HOME_DIR: join(scratchHome, ".skillmaker", "agent-home"),
+      CLAUDE_CONFIG_DIR: fakeClaudeConfigDir,
     },
   });
   baseUrl = server.baseUrl;
@@ -163,7 +161,7 @@ beforeAll(async () => {
 afterAll(async () => {
   server?.process.kill("SIGTERM");
   await server?.process.exited;
-  for (const dir of [scratchDir, scratchHome, fakeStateDir]) {
+  for (const dir of [scratchDir, scratchHome, fakeStateDir, fakeClaudeConfigDir]) {
     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -218,7 +216,7 @@ describe("chat sessions (D9)", () => {
       expect(text).toContain(`(slug: ${SKILL})`);
       expect(text).toContain("The current step is: clarify intent and research.");
       expect(text).toContain("william-draft-skill-md");
-      expect(text).not.toContain("william-research-a-skill");
+      expect(text).toContain("william-research-a-skill");
       expect(text).toContain("\n\n---\n\nhello agent");
       expect(text).toContain("turn 2: and again");
       // The preamble names the skillmaker CLI as the studio-state door (D6)
@@ -245,12 +243,17 @@ describe("chat sessions (D9)", () => {
     }
   }, 30_000);
 
-  test("agent home injection: helper skill installed under the scratch HOME, never the project", async () => {
-    const injected = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-draft-skill-md", "SKILL.md");
-    expect(existsSync(injected)).toBe(true);
-    expect(
-      existsSync(join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-research-a-skill")),
-    ).toBe(false);
+  test("agent home injection uses packaged helpers, never writes them into the project", async () => {
+    for (const slug of ["william-research-a-skill", "william-draft-skill-md"]) {
+      expect(
+        existsSync(join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", slug, "SKILL.md")),
+      ).toBe(true);
+      expect(existsSync(join(scratchDir, "skills", slug))).toBe(false);
+    }
+    const bundles = await getJson("/bundles");
+    expect((bundles.body.bundles as ReadonlyArray<{ slug: string }>).map(({ slug }) => slug).sort()).toEqual(
+      [SKILL, ORIENT_SKILL].sort(),
+    );
     // Chat runs DIRECT in the project -- no project-level skill install.
     expect(existsSync(join(scratchDir, ".claude", "skills"))).toBe(false);
   });
@@ -412,7 +415,7 @@ describe("chat sessions (D9)", () => {
       expect(text).toContain("turn 1: You're inside Skillmaker Studio.");
       expect(text).toContain("orients the director"); // the bundle's one-liner
       expect(text).toContain("william-draft-skill-md");
-      expect(text).not.toContain("william-research-a-skill");
+      expect(text).toContain("william-research-a-skill");
       expect(text).toContain("Orient the director");
       // Preamble ALONE: machine context only, no separator, no user words.
       expect(text).not.toContain("\n\n---\n\n");

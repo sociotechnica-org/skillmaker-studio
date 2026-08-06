@@ -43,6 +43,7 @@ import { Effect } from "effect";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -55,7 +56,7 @@ const REAP_CHECK_MS = 60 * 1000;
 /** Per-provider budget for the capability probe (spawn + initialize + session/new). Adapters that can't answer in this window fall back to a bare provider-name catalog entry. */
 const PROBE_TIMEOUT_MS = 45_000;
 
-/** Skillmaker's own helper skills (William material), injected via the agent home -- resolved from the studio workspace's skillsDir when present, silently skipped when absent (a user project without the William bundles still chats fine, just without the helpers). */
+/** Skillmaker's own helper skills (William material), injected via the agent home. Issue #190 and docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md: a workspace may override a helper while fresh projects receive the product-packaged copy. */
 const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
 
 // ---------------------------------------------------------------------------
@@ -153,30 +154,49 @@ const copyDirRecursive = (src: string, dest: string): void => {
 export const agentHomeBaseDir = (): string =>
   process.env.SKILLMAKER_AGENT_HOME_DIR ?? join(homedir(), ".skillmaker", "agent-home");
 
+interface InstalledHelper {
+  readonly slug: string;
+  readonly source: "workspace" | "packaged";
+}
+
+interface PrepareAgentHomeOptions {
+  /** Test seam: production locates packaged skills itself; tests supply a synthetic tree or explicitly model an un-packaged build. */
+  readonly packagedSkillsDir: string | undefined;
+}
+
+const helperSourceDir = (skillsRoot: string, slug: string): string | undefined => {
+  const bundleDir = join(skillsRoot, slug);
+  // output/ is the shipped William layout; an in-place SKILL.md also stays
+  // supported so either source family can use the same install contract.
+  if (existsSync(join(bundleDir, "output", "SKILL.md"))) return join(bundleDir, "output");
+  return existsSync(join(bundleDir, "SKILL.md")) ? bundleDir : undefined;
+};
+
 export const prepareAgentHome = (
   provider: string,
   workspaceRoot: string,
   skillsDir: string,
-): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {
+  options?: PrepareAgentHomeOptions,
+): { readonly home: string; readonly installedHelpers: ReadonlyArray<InstalledHelper> } => {
   const home = join(agentHomeBaseDir(), provider);
   mkdirSync(home, { recursive: true });
   seedProviderAuth(provider, home);
 
-  const installed: string[] = [];
+  const packagedSkillsDir = options === undefined ? locatePackagedSkillsDir() : options.packagedSkillsDir;
+  const workspaceSkillsDir = join(workspaceRoot, skillsDir);
+  const installed: InstalledHelper[] = [];
   for (const slug of HELPER_SKILL_SLUGS) {
-    const bundleDir = join(workspaceRoot, skillsDir, slug);
-    // output/ layout is the William bundles' real shape; an in-place bundle
-    // (SKILL.md at the root) installs the bundle dir itself.
-    const sourceDir = existsSync(join(bundleDir, "output", "SKILL.md"))
-      ? join(bundleDir, "output")
-      : existsSync(join(bundleDir, "SKILL.md"))
-        ? bundleDir
+    const workspaceSource = helperSourceDir(workspaceSkillsDir, slug);
+    const packagedSource =
+      workspaceSource === undefined && packagedSkillsDir !== undefined
+        ? helperSourceDir(packagedSkillsDir, slug)
         : undefined;
+    const sourceDir = workspaceSource ?? packagedSource;
     if (sourceDir === undefined) continue;
     const dest = join(home, "skills", slug);
     rmSync(dest, { recursive: true, force: true });
     copyDirRecursive(sourceDir, dest);
-    installed.push(slug);
+    installed.push({ slug, source: workspaceSource === undefined ? "packaged" : "workspace" });
   }
   return { home, installedHelpers: installed };
 };
@@ -798,7 +818,7 @@ export class ChatSessionManager {
 
     const providerProfile = resolveProviderProfile(provider);
     const { home, installedHelpers } = prepareAgentHome(provider, this.root, this.config.skillsDir);
-    chat.installedHelpers = installedHelpers;
+    chat.installedHelpers = installedHelpers.map(({ slug }) => slug);
 
     const outcome = await Effect.runPromise(
       Effect.result(
