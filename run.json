@@ -491,7 +491,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-06T14:43:38.207698106Z",
-  "last_event_at": "2026-08-06T15:07:18.366879988Z",
+  "last_event_at": "2026-08-06T15:11:06.816703890Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -624,9 +624,9 @@
       }
     },
     {
-      "seq": 0,
+      "seq": 1129,
       "checkpoint": {
-        "timestamp": "2026-08-06T15:07:19.082802676Z",
+        "timestamp": "2026-08-06T15:07:25.292458731Z",
         "current_node": "implement",
         "completed_nodes": [
           "start",
@@ -635,29 +635,164 @@
         ],
         "node_retries": {},
         "context_values": {
+          "thread.start.current_node": "scope",
+          "failure_class": "",
+          "graph.default_fidelity": "summary:high",
+          "internal.fidelity": "summary:high",
+          "internal.thread_id": "scope",
+          "graph.stall_timeout": "18000000ms",
+          "graph.rankdir": "LR",
+          "graph.max_node_visits": "5",
+          "outcome": "succeeded",
+          "internal.run_id": "01KZBRE9Q06N5BWK2W5A71X25P",
+          "last_response": "Implemented Issue #190.\n\n- [`ChatSessions.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:156) now resolves each William helper workspace-first, then falls back ",
+          "response.scope": "Created the implementation plan at [2026-08-06-chat-agent-home-packaged-helper-fallback.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md).\n\nIt verifies current behavior, accounts for issue #203’s richer-result interaction, defines deterministic fallback tests, updates fresh-project chat and distribution E2E coverage, and preserves all permission, station, UI, and workspace-index scope fences. No implementation files were edited; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md",
+          "failure_signature": "",
+          "internal.retry_count.start": 0,
+          "graph.goal": "GitHub Issue #190: Chat agent home seeds William helpers from the workspace only — no packaged fallback, so fresh projects trigger a permission storm\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/190\n\n## Summary\n\nChat sessions seed Skillmaker's own helper skills (the William bundles) into the\nagent home from the **user's workspace `skills/` directory only**, with no\nproduct-packaged fallback. Every project that doesn't hand-carry the William\nbundles — i.e. every real user project — starts its chat agent with no helpers,\nso the agent goes hunting the operator's filesystem for them, and each\nout-of-project path it touches raises a permission card. D6's \"William ships\ninside the product\" was delivered for station runs (`resolveStationSkillDir`);\nthe chat path never got it. Give `prepareAgentHome` the same fallback.\n\n## Motivation / Problem\n\nThis is the first-run experience for new users, and it is the opposite of what\nthe getting-started tour promises. The chat permission policy is deliberately\nquiet — anything touching paths inside the project auto-approves silently — so a\nwell-provisioned agent should raise close to zero cards while it researches and\ndrafts inside the bundle. Instead the very first session becomes a permission\nstorm, and the cause is entirely self-inflicted: the agent is searching for\nproduct machinery that should have been handed to it at spawn.\n\nCost is concentrated on exactly the population we can least afford to burn\n(outside testers on a fresh project, per the \"Your first skill\" tour), and the\nfailure is silent — `prepareAgentHome` skips a missing helper without a warning,\nso nothing in the UI, logs, or journal says the agent is running unequipped.\n\n## Observed behavior\n\nFresh project on v0.6.2 via `npx skillmaker-studio@latest start`, project root\n`/Users/danvers/skills`, provider `claude-code`, one chat session on a new\nbundle.\n\nThe agent home has no `skills/` directory at all:\n\n```\n$ ls ~/.skillmaker/agent-home/claude-code/\n.claude.json  .credentials.json  .last-cleanup  backups\nprojects  session-env  sessions  shell-snapshots\n```\n\nThe session's transcript contains **24 tool calls, 23 of which reference paths\noutside the project root** — every one of them a permission card the human had\nto clear. The first call and several after it are the agent looking for its own\nmissing helpers, then falling back to searching the operator's machine:\n\n```\nls /Users/danvers/.skillmaker/agent-home/claude-code/skills/\nfind / -maxdepth 8 -type d -iname \"william-*\"\nfind ~/.claude -maxdepth 4 -iname \"*william*\"\nls ~/.claude/skills/\nls ~/conductor/repos/\n```\n\nExactly one of the 24 calls stayed inside the project.\n\nSeeding the two bundles into `~/.skillmaker/agent-home/claude-code/skills/` by\nhand removes the hunt — confirming the diagnosis and giving users a stopgap.\n\n## Current shape\n\nThe station path already resolves this correctly, and the fix is \"make chat\nmatch station.\"\n\n**Station runs (correct).** `Server.ts:2278` calls `locatePackagedSkillsDir()`\nand threads it into `runStation`, which resolves per slug in\n`resolveStationSkillDir` (`packages/core/src/StationEngine.ts:423`): the\nworkspace's own `<skillsDir>/<slug>/` wins when it has a `bundle.json`, else the\nproduct-packaged copy. `StationRun.ts:84` does the same for the CLI. That\nfunction's doc comment already states the fence this issue depends on —\npackaged skills are visible to *station resolution only*; they never appear on\nthe Board, in bundle listings, or in the index.\n\n**Chat (broken).** `prepareAgentHome` (`packages/cli/src/server/ChatSessions.ts:156-182`)\nlooks in one place and gives up:\n\n```ts\nconst bundleDir = join(workspaceRoot, skillsDir, slug);\nconst sourceDir = existsSync(join(bundleDir, \"output\", \"SKILL.md\"))\n  ? join(bundleDir, \"output\")\n  : existsSync(join(bundleDir, \"SKILL.md\"))\n    ? bundleDir\n    : undefined;\nif (sourceDir === undefined) continue;   // silent\n```\n\n`ChatSessions.ts` does not import `locatePackagedSkillsDir` at all — the only\nconsumers are `Server.ts` and `commands/StationRun.ts`. The declaring comment at\n`ChatSessions.ts:58` records the gap as intended behavior (\"silently skipped\nwhen absent … still chats fine, just without the helpers\"), which is what needs\nrevising: it does not chat fine, it chats loudly.\n\nThe trap worth naming: this is the same defect as friction-log entry #1\n(\"William isn't distributed — every workspace must hand-carry his bundles\"),\nwhich PR #171 was believed to have closed. #171 fixed *station skill resolution*\nand left *agent-home seeding* on the old assumption, so the repo's own\nself-hosted `skills/` workspace — which does carry the William bundles — masks\nit for every maintainer.\n\n## Proposed contract\n\nPer helper slug in `HELPER_SKILL_SLUGS`, resolution order:\n\n| # | Source | Condition | `source` |\n|---|---|---|---|\n| 1 | `<workspaceRoot>/<skillsDir>/<slug>/output/SKILL.md` → seed `output/` | file exists | `workspace` |\n| 2 | `<workspaceRoot>/<skillsDir>/<slug>/SKILL.md` → seed the bundle dir | file exists | `workspace` |\n| 3 | `<packagedSkillsDir>/<slug>/output/SKILL.md` → seed `output/` | `locatePackagedSkillsDir()` returned a dir and the file exists | `packaged` |\n| 4 | `<packagedSkillsDir>/<slug>/SKILL.md` → seed the bundle dir | as above | `packaged` |\n| — | none | skip this slug, no throw | — |\n\nDestination is unchanged: `<agentHome>/skills/<slug>/`, holding `SKILL.md` at\nits root.\n\n`installedHelpers` grows a source so callers and tests can assert *which* copy\nwon:\n\n```ts\n{ home: string, installedHelpers: ReadonlyArray<{ slug: string, source: \"workspace\" | \"packaged\" }> }\n```\n\n**Decisions:**\n\n- Workspace copies always win, matching `resolveStationSkillDir` — hacking on\n  William in this repo's self-hosted workspace keeps working, and any workspace\n  can override a packaged helper by drafting its own.\n- Resolution is **per slug**, not all-or-nothing: a workspace carrying one\n  helper and not the other gets one of each source.\n- The workspace probe keeps its existing two-layout shape (`output/SKILL.md`\n  first, then a root `SKILL.md`), and the packaged probe uses the same shape.\n- A slug that resolves to a source **replaces** the destination (existing\n  `rmSync` + copy), so a stale helper from an older version cannot survive an\n  upgrade. This clobbers hand-seeded workarounds, which is intended.\n- A slug that resolves **nowhere** leaves any pre-existing destination\n  untouched (today's behavior, unchanged) — the seeding step must not delete\n  material it cannot replace.\n- `locatePackagedSkillsDir()` returning `undefined` is not an error: a source\n  checkout without the packaged dir behaves exactly as today.\n- Packaged helpers remain invisible as workspace bundles. They are copied into\n  the agent home and nowhere else — no Board row, no bundle listing, no index\n  entry, no write into the user's `skills/` directory or personal config dir.\n- No new UI and no new config knob. The permission policy itself is not touched.\n\n## Acceptance criteria\n\n- [ ] On a project whose `skills/` directory contains neither William bundle,\n      starting a chat session leaves both `william-research-a-skill/SKILL.md`\n      and `william-draft-skill-md/SKILL.md` present under\n      `<agentHome>/<provider>/skills/`, sourced from the packaged copies.\n- [ ] On a workspace that carries its own copy of a helper, that copy is what\n      lands in the agent home, and `installedHelpers` reports it as\n      `source: \"workspace\"` — the packaged copy does not override it.\n- [ ] With one helper in the workspace and one only packaged, both land, each\n      reporting its own source.\n- [ ] Negative: when a slug resolves in neither location, `prepareAgentHome`\n      returns without throwing, omits that slug from `installedHelpers`, the\n      chat session still starts, and any pre-existing directory at that\n      destination is left byte-identical.\n- [ ] Negative: no packaged helper is written into the user's project — after a\n      chat session on a fresh project, `<workspaceRoot>/<skillsDir>/` contains\n      only the user's own bundles, and neither William slug appears in a bundle\n      listing or on the Board.\n- [ ] Idempotency: calling `prepareAgentHome` twice for the same provider yields\n      the same tree — no nested `skills/<slug>/output/`, no accumulation, no\n      duplicate entries in `installedHelpers`.\n- [ ] Upgrade: a destination holding an older/edited copy of a helper is\n      replaced by the resolved source rather than merged with it.\n- [ ] Regression: station skill resolution is unchanged — the existing\n      workspace-wins / packaged-fallback behavior and its precondition error\n      message still hold for `skillmaker station run` and server-triggered\n      station runs.\n- [ ] Regression: the packaged-skills drift and location tests in\n      `packages/cli/test/PackagedSkills.test.ts` still pass unmodified, and the\n      compiled-binary layout still ships `packaged-skills` alongside the\n      executable (`test/e2e/dist.e2e.test.ts`).\n- [ ] Tests cover: packaged-only, workspace-only, mixed, neither, repeat-call\n      idempotency, stale-destination replacement, and the no-write-into-project\n      assertion. `prepareAgentHome` has no unit test today, so this is new\n      coverage, not an amendment.\n\n## Implementation notes\n\n`locatePackagedSkillsDir` lives in the same package as `ChatSessions.ts`\n(`packages/cli/src/PackagedSkills.ts`), so this needs no cross-package\nplumbing — unlike the station path, where `StationEngine` sits in `core` and\ntakes the directory as an option. Prefer calling it inside `prepareAgentHome`\nover threading a new parameter through every call site, unless a test seam makes\nthe parameter clearly better.\n\nScope fences, aimed at the plausible over-reaches here:\n\n- **Do not touch the permission policy.** `makeChatPermissionPolicy` and the\n  path-scoping in `AcpClient.ts` are correct as written; this issue removes the\n  *reason* the agent leaves the project, not the guard that reports it. In\n  particular, do not add an allowlist, an \"always allow\" affordance, or a\n  config knob for auto-approval — those are separate product decisions.\n- **Do not widen `HELPER_SKILL_SLUGS`.** Which helpers ship is a product\n  ruling, not part of this fix.\n- **Do not make a missing packaged directory fatal.** Source checkouts that\n  haven't built `dist` must keep working.\n- **Do not surface seeding in the UI.** If a signal is wanted for the silent-skip\n  case, a server-side log line is the ceiling for this issue.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `HELPER_SKILL_SLUGS` (:58),\n  `prepareAgentHome` (:156), its two call sites (:598 capability probe, :793\n  session start)\n- `packages/cli/src/PackagedSkills.ts` — `locatePackagedSkillsDir`\n- `packages/core/src/StationEngine.ts` — `resolveStationSkillDir` (:423), the\n  behavior to mirror\n- `packages/cli/test/PackagedSkills.test.ts` — existing drift/location coverage\n\n## Not in scope\n\nOne adjacent defect found while diagnosing this, deliberately **not** bundled\nhere — file separately if wanted: `permissionPathsOutside`\n(`packages/core/src/AcpClient.ts:431`) classifies every `~`-anchored path as\noutside the root unconditionally, so a home-anchored reference to the project\ndirectory itself (`~/skills/...` when the project *is* `~/skills`) raises a\npermission card it shouldn't. Latent — it did not contribute to the transcript\nabove.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. The fix should mirror the workspace-wins-then-packaged-fallback resolution StationEngine uses (packages/core/src/StationEngine.ts resolveStationSkillDir, packages/cli/src/PackagedSkills.ts). Stay minimal: fix with tests, nothing adjacent.\n",
+          "internal.retry_count.implement": 0,
+          "current_node": "implement",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "last_stage": "implement",
+          "response.implement": "Implemented Issue #190.\n\n- [`ChatSessions.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:156) now resolves each William helper workspace-first, then falls back to `locatePackagedSkillsDir()`. Installed helpers report `{ slug, source }`; session preambles still receive only slug strings.\n- Added deterministic agent-home coverage in [`ChatAgentHome.test.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatAgentHome.test.ts:1): packaged-only, workspace precedence, mixed sources, neither/preserve, idempotency, and stale replacement.\n- Updated the chat E2E to use a fresh workspace and verify packaged helpers enter only the agent home, not workspace bundles/Board data.\n- Updated the compiled-distribution E2E to copy and verify `packaged-skills/`; it passes against a freshly built distribution.\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: `bun test packages/cli/test/ChatAgentHome.test.ts`\n- Passed: `bun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000`\n- Passed: `bun test test/e2e --timeout 30000`\n- Passed: `bun run build:dist && bun test test/e2e/dist.e2e.test.ts --timeout 30000`\n- Passed: `git diff --check`\n\nOne required gate remains externally blocked: `bun test packages` consistently has 1068 passing tests and one failure in the untouched [`JournalWatcher.test.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:34), whose existing-file append watch callback never fires in this environment. I reran that test and the full package suite; the same unrelated failure reproduced.",
+          "internal.node_visit_count": 1,
+          "thread.scope.current_node": "implement",
+          "internal.retry_count.scope": 0
+        },
+        "node_outcomes": {
+          "implement": {
+            "status": "succeeded",
+            "context_updates": {
+              "response.implement": "Implemented Issue #190.\n\n- [`ChatSessions.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:156) now resolves each William helper workspace-first, then falls back to `locatePackagedSkillsDir()`. Installed helpers report `{ slug, source }`; session preambles still receive only slug strings.\n- Added deterministic agent-home coverage in [`ChatAgentHome.test.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatAgentHome.test.ts:1): packaged-only, workspace precedence, mixed sources, neither/preserve, idempotency, and stale replacement.\n- Updated the chat E2E to use a fresh workspace and verify packaged helpers enter only the agent home, not workspace bundles/Board data.\n- Updated the compiled-distribution E2E to copy and verify `packaged-skills/`; it passes against a freshly built distribution.\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: `bun test packages/cli/test/ChatAgentHome.test.ts`\n- Passed: `bun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000`\n- Passed: `bun test test/e2e --timeout 30000`\n- Passed: `bun run build:dist && bun test test/e2e/dist.e2e.test.ts --timeout 30000`\n- Passed: `git diff --check`\n\nOne required gate remains externally blocked: `bun test packages` consistently has 1068 passing tests and one failure in the untouched [`JournalWatcher.test.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:34), whose existing-file append watch callback never fires in this environment. I reran that test and the full package suite; the same unrelated failure reproduced.",
+              "last_stage": "implement",
+              "last_response": "Implemented Issue #190.\n\n- [`ChatSessions.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:156) now resolves each William helper workspace-first, then falls back "
+            },
+            "notes": "Stage completed: implement",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 82965,
+                    "output_tokens": 11947,
+                    "reasoning_tokens": 1667,
+                    "cache_read_tokens": 1051718,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 674537
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 136586,
+              "tool_time_ms": 474294,
+              "active_time_ms": 610880
+            }
+          },
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Created the implementation plan at [2026-08-06-chat-agent-home-packaged-helper-fallback.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback",
+              "last_stage": "scope",
+              "response.scope": "Created the implementation plan at [2026-08-06-chat-agent-home-packaged-helper-fallback.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md).\n\nIt verifies current behavior, accounts for issue #203’s richer-result interaction, defines deterministic fallback tests, updates fresh-project chat and distribution E2E coverage, and preserves all permission, station, UI, and workspace-index scope fences. No implementation files were edited; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 97095,
+                    "output_tokens": 11311,
+                    "reasoning_tokens": 6989,
+                    "cache_read_tokens": 2161621,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 2115277
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 401941,
+              "tool_time_ms": 392530,
+              "active_time_ms": 794471
+            }
+          },
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          }
+        },
+        "next_node_id": "validate_gates",
+        "git_commit_sha": "582ab7e20566d7d0f05072781b7f2983efda7d10",
+        "node_visits": {
+          "scope": 1,
+          "start": 1,
+          "implement": 1
+        }
+      },
+      "diff": {
+        "patch": "diff --git a/packages/cli/src/server/ChatSessions.ts b/packages/cli/src/server/ChatSessions.ts\nindex 92561aa..0eaa8a8 100644\n--- a/packages/cli/src/server/ChatSessions.ts\n+++ b/packages/cli/src/server/ChatSessions.ts\n@@ -43,6 +43,7 @@ import { Effect } from \"effect\";\n import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from \"node:fs\";\n import { homedir } from \"node:os\";\n import { join } from \"node:path\";\n+import { locatePackagedSkillsDir } from \"../PackagedSkills.ts\";\n \n // ---------------------------------------------------------------------------\n // Tunables\n@@ -55,7 +56,7 @@ const REAP_CHECK_MS = 60 * 1000;\n /** Per-provider budget for the capability probe (spawn + initialize + session/new). Adapters that can't answer in this window fall back to a bare provider-name catalog entry. */\n const PROBE_TIMEOUT_MS = 45_000;\n \n-/** Skillmaker's own helper skills (William material), injected via the agent home -- resolved from the studio workspace's skillsDir when present, silently skipped when absent (a user project without the William bundles still chats fine, just without the helpers). */\n+/** Skillmaker's own helper skills (William material), injected via the agent home. Issue #190 and docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md: a workspace may override a helper while fresh projects receive the product-packaged copy. */\n const HELPER_SKILL_SLUGS = [\"william-research-a-skill\", \"william-draft-skill-md\"] as const;\n \n // ---------------------------------------------------------------------------\n@@ -153,30 +154,49 @@ const copyDirRecursive = (src: string, dest: string): void => {\n export const agentHomeBaseDir = (): string =>\n   process.env.SKILLMAKER_AGENT_HOME_DIR ?? join(homedir(), \".skillmaker\", \"agent-home\");\n \n+interface InstalledHelper {\n+  readonly slug: string;\n+  readonly source: \"workspace\" | \"packaged\";\n+}\n+\n+interface PrepareAgentHomeOptions {\n+  /** Test seam: production locates packaged skills itself; tests supply a synthetic tree or explicitly model an un-packaged build. */\n+  readonly packagedSkillsDir: string | undefined;\n+}\n+\n+const helperSourceDir = (skillsRoot: string, slug: string): string | undefined => {\n+  const bundleDir = join(skillsRoot, slug);\n+  // output/ is the shipped William layout; an in-place SKILL.md also stays\n+  // supported so either source family can use the same install contract.\n+  if (existsSync(join(bundleDir, \"output\", \"SKILL.md\"))) return join(bundleDir, \"output\");\n+  return existsSync(join(bundleDir, \"SKILL.md\")) ? bundleDir : undefined;\n+};\n+\n export const prepareAgentHome = (\n   provider: string,\n   workspaceRoot: string,\n   skillsDir: string,\n-): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {\n+  options?: PrepareAgentHomeOptions,\n+): { readonly home: string; readonly installedHelpers: ReadonlyArray<InstalledHelper> } => {\n   const home = join(agentHomeBaseDir(), provider);\n   mkdirSync(home, { recursive: true });\n   seedProviderAuth(provider, home);\n \n-  const installed: string[] = [];\n+  const packagedSkillsDir = options === undefined ? locatePackagedSkillsDir() : options.packagedSkillsDir;\n+  const workspaceSkillsDir = join(workspaceRoot, skillsDir);\n+  const installed: InstalledHelper[] = [];\n   for (const slug of HELPER_SKILL_SLUGS) {\n-    const bundleDir = join(workspaceRoot, skillsDir, slug);\n-    // output/ layout is the William bundles' real shape; an in-place bundle\n-    // (SKILL.md at the root) installs the bundle dir itself.\n-    const sourceDir = existsSync(join(bundleDir, \"output\", \"SKILL.md\"))\n-      ? join(bundleDir, \"output\")\n-      : existsSync(join(bundleDir, \"SKILL.md\"))\n-        ? bundleDir\n+    const workspaceSource = helperSourceDir(workspaceSkillsDir, slug);\n+    const packagedSource =\n+      workspaceSource === undefined && packagedSkillsDir !== undefined\n+        ? helperSourceDir(packagedSkillsDir, slug)\n         : undefined;\n+    const sourceDir = workspaceSource ?? packagedSource;\n     if (sourceDir === undefined) continue;\n     const dest = join(home, \"skills\", slug);\n     rmSync(dest, { recursive: true, force: true });\n     copyDirRecursive(sourceDir, dest);\n-    installed.push(slug);\n+    installed.push({ slug, source: workspaceSource === undefined ? \"packaged\" : \"workspace\" });\n   }\n   return { home, installedHelpers: installed };\n };\n@@ -798,7 +818,7 @@ export class ChatSessionManager {\n \n     const providerProfile = resolveProviderProfile(provider);\n     const { home, installedHelpers } = prepareAgentHome(provider, this.root, this.config.skillsDir);\n-    chat.installedHelpers = installedHelpers;\n+    chat.installedHelpers = installedHelpers.map(({ slug }) => slug);\n \n     const outcome = await Effect.runPromise(\n       Effect.result(\ndiff --git a/packages/cli/test/ChatAgentHome.test.ts b/packages/cli/test/ChatAgentHome.test.ts\nnew file mode 100644\nindex 0000000..6d66e56\n--- /dev/null\n+++ b/packages/cli/test/ChatAgentHome.test.ts\n@@ -0,0 +1,145 @@\n+import { afterEach, describe, expect, test } from \"bun:test\";\n+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from \"node:fs\";\n+import { tmpdir } from \"node:os\";\n+import { join } from \"node:path\";\n+import { prepareAgentHome } from \"../src/server/ChatSessions.ts\";\n+\n+const HELPERS = [\"william-research-a-skill\", \"william-draft-skill-md\"] as const;\n+\n+let cleanup: (() => void) | undefined;\n+\n+afterEach(() => {\n+  cleanup?.();\n+  cleanup = undefined;\n+});\n+\n+const withScratch = (\n+  run: (paths: { readonly workspace: string; readonly packaged: string; readonly agentHome: string }) => void,\n+): void => {\n+  const root = mkdtempSync(join(tmpdir(), \"skillmaker-chat-agent-home-\"));\n+  const workspace = join(root, \"workspace\");\n+  const packaged = join(root, \"packaged\");\n+  const agentHome = join(root, \"agent-home\");\n+  const authHome = join(root, \"codex-home\");\n+  const previousAgentHome = process.env.SKILLMAKER_AGENT_HOME_DIR;\n+  const previousCodexHome = process.env.CODEX_HOME;\n+  mkdirSync(authHome, { recursive: true });\n+  process.env.SKILLMAKER_AGENT_HOME_DIR = agentHome;\n+  process.env.CODEX_HOME = authHome;\n+  cleanup = () => {\n+    if (previousAgentHome === undefined) delete process.env.SKILLMAKER_AGENT_HOME_DIR;\n+    else process.env.SKILLMAKER_AGENT_HOME_DIR = previousAgentHome;\n+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;\n+    else process.env.CODEX_HOME = previousCodexHome;\n+    rmSync(root, { recursive: true, force: true });\n+  };\n+  run({ workspace, packaged, agentHome });\n+};\n+\n+const writeHelper = (root: string, slug: string, content: string, layout: \"output\" | \"root\"): void => {\n+  const dir = layout === \"output\" ? join(root, slug, \"output\") : join(root, slug);\n+  mkdirSync(dir, { recursive: true });\n+  writeFileSync(join(dir, \"SKILL.md\"), content);\n+};\n+\n+const installedSkill = (agentHome: string, slug: string): string =>\n+  join(agentHome, \"codex\", \"skills\", slug, \"SKILL.md\");\n+\n+describe(\"prepareAgentHome helper installation\", () => {\n+  test(\"installs packaged-only helpers without writing them into the workspace\", () => {\n+    withScratch(({ workspace, packaged, agentHome }) => {\n+      writeHelper(packaged, HELPERS[0], \"packaged output\\n\", \"output\");\n+      writeHelper(packaged, HELPERS[1], \"packaged root\\n\", \"root\");\n+\n+      const result = prepareAgentHome(\"codex\", workspace, \"skills\", { packagedSkillsDir: packaged });\n+\n+      expect(result.installedHelpers).toEqual([\n+        { slug: HELPERS[0], source: \"packaged\" },\n+        { slug: HELPERS[1], source: \"packaged\" },\n+      ]);\n+      expect(readFileSync(installedSkill(agentHome, HELPERS[0]), \"utf8\")).toBe(\"packaged output\\n\");\n+      expect(readFileSync(installedSkill(agentHome, HELPERS[1]), \"utf8\")).toBe(\"packaged root\\n\");\n+      expect(existsSync(join(workspace, \"skills\", HELPERS[0]))).toBe(false);\n+      expect(existsSync(join(workspace, \"skills\", HELPERS[1]))).toBe(false);\n+    });\n+  });\n+\n+  test(\"workspace helpers win over packaged copies in both supported layouts\", () => {\n+    withScratch(({ workspace, packaged, agentHome }) => {\n+      const workspaceSkills = join(workspace, \"skills\");\n+      writeHelper(workspaceSkills, HELPERS[0], \"workspace output\\n\", \"output\");\n+      writeHelper(workspaceSkills, HELPERS[1], \"workspace root\\n\", \"root\");\n+      writeHelper(packaged, HELPERS[0], \"packaged root\\n\", \"root\");\n+      writeHelper(packaged, HELPERS[1], \"packaged output\\n\", \"output\");\n+\n+      const result = prepareAgentHome(\"codex\", workspace, \"skills\", { packagedSkillsDir: packaged });\n+\n+      expect(result.installedHelpers).toEqual([\n+        { slug: HELPERS[0], source: \"workspace\" },\n+        { slug: HELPERS[1], source: \"workspace\" },\n+      ]);\n+      expect(readFileSync(installedSkill(agentHome, HELPERS[0]), \"utf8\")).toBe(\"workspace output\\n\");\n+      expect(readFileSync(installedSkill(agentHome, HELPERS[1]), \"utf8\")).toBe(\"workspace root\\n\");\n+    });\n+  });\n+\n+  test(\"resolves each helper independently across workspace and packaged sources\", () => {\n+    withScratch(({ workspace, packaged, agentHome }) => {\n+      writeHelper(join(workspace, \"skills\"), HELPERS[0], \"workspace\\n\", \"output\");\n+      writeHelper(packaged, HELPERS[1], \"packaged\\n\", \"output\");\n+\n+      const result = prepareAgentHome(\"codex\", workspace, \"skills\", { packagedSkillsDir: packaged });\n+\n+      expect(result.installedHelpers).toEqual([\n+        { slug: HELPERS[0], source: \"workspace\" },\n+        { slug: HELPERS[1], source: \"packaged\" },\n+      ]);\n+      expect(readFileSync(installedSkill(agentHome, HELPERS[0]), \"utf8\")).toBe(\"workspace\\n\");\n+      expect(readFileSync(installedSkill(agentHome, HELPERS[1]), \"utf8\")).toBe(\"packaged\\n\");\n+    });\n+  });\n+\n+  test(\"leaves unresolved pre-existing helpers untouched\", () => {\n+    withScratch(({ workspace, agentHome }) => {\n+      const destination = join(agentHome, \"codex\", \"skills\", HELPERS[0]);\n+      mkdirSync(join(destination, \"nested\"), { recursive: true });\n+      writeFileSync(join(destination, \"SKILL.md\"), \"edited\\n\");\n+      writeFileSync(join(destination, \"nested\", \"keep.md\"), \"keep\\n\");\n+\n+      const result = prepareAgentHome(\"codex\", workspace, \"skills\", { packagedSkillsDir: undefined });\n+\n+      expect(result.installedHelpers).toEqual([]);\n+      expect(readFileSync(join(destination, \"SKILL.md\"), \"utf8\")).toBe(\"edited\\n\");\n+      expect(readFileSync(join(destination, \"nested\", \"keep.md\"), \"utf8\")).toBe(\"keep\\n\");\n+    });\n+  });\n+\n+  test(\"is idempotent and never nests an output directory\", () => {\n+    withScratch(({ workspace, packaged, agentHome }) => {\n+      writeHelper(join(workspace, \"skills\"), HELPERS[0], \"workspace\\n\", \"output\");\n+      writeHelper(packaged, HELPERS[1], \"packaged\\n\", \"root\");\n+\n+      const first = prepareAgentHome(\"codex\", workspace, \"skills\", { packagedSkillsDir: packaged });\n+      const second = prepareAgentHome(\"codex\", workspace, \"skills\", { packagedSkillsDir: packaged });\n+\n+      expect(second).toEqual(first);\n+      expect(existsSync(join(agentHome, \"codex\", \"skills\", HELPERS[0], \"output\"))).toBe(false);\n+      expect(existsSync(join(agentHome, \"codex\", \"skills\", HELPERS[1], \"output\"))).toBe(false);\n+    });\n+  });\n+\n+  test(\"replaces a stale destination completely when a helper resolves\", () => {\n+    withScratch(({ workspace, packaged, agentHome }) => {\n+      writeHelper(packaged, HELPERS[0], \"new source\\n\", \"output\");\n+      const destination = join(agentHome, \"codex\", \"skills\", HELPERS[0]);\n+      mkdirSync(join(destination, \"obsolete\"), { recursive: true });\n+      writeFileSync(join(destination, \"SKILL.md\"), \"old source\\n\");\n+      writeFileSync(join(destination, \"obsolete\", \"old.md\"), \"old\\n\");\n+\n+      prepareAgentHome(\"codex\", workspace, \"skills\", { packagedSkillsDir: packaged });\n+\n+      expect(readFileSync(join(destination, \"SKILL.md\"), \"utf8\")).toBe(\"new source\\n\");\n+      expect(existsSync(join(destination, \"obsolete\"))).toBe(false);\n+    });\n+  });\n+});\ndiff --git a/test/e2e/chat-sessions.e2e.test.ts b/test/e2e/chat-sessions.e2e.test.ts\nindex 3a5fcba..899c846 100644\n--- a/test/e2e/chat-sessions.e2e.test.ts\n+++ b/test/e2e/chat-sessions.e2e.test.ts\n@@ -22,6 +22,7 @@ const fakeChatAdapter = join(import.meta.dir, \"fixtures\", \"fake-acp-chat.cjs\");\n let scratchDir: string;\n let scratchHome: string;\n let fakeStateDir: string;\n+let fakeClaudeConfigDir: string;\n let server: StartedE2eRegistryServer;\n let baseUrl: string;\n let projectUrl: string;\n@@ -119,6 +120,8 @@ beforeAll(async () => {\n   scratchDir = mkdtempSync(join(tmpdir(), \"skillmaker-e2e-chat-\"));\n   scratchHome = mkdtempSync(join(tmpdir(), \"skillmaker-e2e-chat-home-\"));\n   fakeStateDir = mkdtempSync(join(tmpdir(), \"skillmaker-e2e-chat-state-\"));\n+  fakeClaudeConfigDir = mkdtempSync(join(tmpdir(), \"skillmaker-e2e-chat-claude-config-\"));\n+  writeFileSync(join(fakeClaudeConfigDir, \".credentials.json\"), \"{}\\n\");\n   Bun.spawnSync([\"git\", \"init\", \"-q\"], { cwd: scratchDir });\n \n   expect(runCli([\"init\", \"--json\"], scratchDir).exitCode).toBe(0);\n@@ -131,12 +134,6 @@ beforeAll(async () => {\n   const orientBundle = JSON.parse(readFileSync(orientBundlePath, \"utf8\")) as Record<string, unknown>;\n   writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: \"orients the director\" }, null, 2)}\\n`);\n \n-  // A William helper bundle in the workspace, to observe agent-home injection.\n-  const williamDir = join(scratchDir, \"skills\", \"william-draft-skill-md\");\n-  mkdirSync(join(williamDir, \"output\"), { recursive: true });\n-  writeFileSync(join(williamDir, \"bundle.json\"), `${JSON.stringify({ slug: \"william-draft-skill-md\" })}\\n`);\n-  writeFileSync(join(williamDir, \"output\", \"SKILL.md\"), \"# William drafts\\n\");\n-\n   // Point the claude-code provider at the fake chat adapter.\n   const configPath = join(scratchDir, \"skillmaker.config.json\");\n   const config = JSON.parse(readFileSync(configPath, \"utf8\")) as {\n@@ -154,6 +151,7 @@ beforeAll(async () => {\n     env: {\n       FAKE_CHAT_STATE_DIR: fakeStateDir,\n       SKILLMAKER_AGENT_HOME_DIR: join(scratchHome, \".skillmaker\", \"agent-home\"),\n+      CLAUDE_CONFIG_DIR: fakeClaudeConfigDir,\n     },\n   });\n   baseUrl = server.baseUrl;\n@@ -163,7 +161,7 @@ beforeAll(async () => {\n afterAll(async () => {\n   server?.process.kill(\"SIGTERM\");\n   await server?.process.exited;\n-  for (const dir of [scratchDir, scratchHome, fakeStateDir]) {\n+  for (const dir of [scratchDir, scratchHome, fakeStateDir, fakeClaudeConfigDir]) {\n     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });\n   }\n });\n@@ -218,7 +216,7 @@ describe(\"chat sessions (D9)\", () => {\n       expect(text).toContain(`(slug: ${SKILL})`);\n       expect(text).toContain(\"The current step is: clarify intent and research.\");\n       expect(text).toContain(\"william-draft-skill-md\");\n-      expect(text).not.toContain(\"william-research-a-skill\");\n+      expect(text).toContain(\"william-research-a-skill\");\n       expect(text).toContain(\"\\n\\n---\\n\\nhello agent\");\n       expect(text).toContain(\"turn 2: and again\");\n       // The preamble names the skillmaker CLI as the studio-state door (D6)\n@@ -245,12 +243,17 @@ describe(\"chat sessions (D9)\", () => {\n     }\n   }, 30_000);\n \n-  test(\"agent home injection: helper skill installed under the scratch HOME, never the project\", async () => {\n-    const injected = join(scratchHome, \".skillmaker\", \"agent-home\", \"claude-code\", \"skills\", \"william-draft-skill-md\", \"SKILL.md\");\n-    expect(existsSync(injected)).toBe(true);\n-    expect(\n-      existsSync(join(scratchHome, \".skillmaker\", \"agent-home\", \"claude-code\", \"skills\", \"william-research-a-skill\")),\n-    ).toBe(false);\n+  test(\"agent home injection uses packaged helpers, never writes them into the project\", async () => {\n+    for (const slug of [\"william-research-a-skill\", \"william-draft-skill-md\"]) {\n+      expect(\n+        existsSync(join(scratchHome, \".skillmaker\", \"agent-home\", \"claude-code\", \"skills\", slug, \"SKILL.md\")),\n+      ).toBe(true);\n+      expect(existsSync(join(scratchDir, \"skills\", slug))).toBe(false);\n+    }\n+    const bundles = await getJson(\"/bundles\");\n+    expect((bundles.body.bundles as ReadonlyArray<{ slug: string }>).map(({ slug }) => slug).sort()).toEqual(\n+      [SKILL, ORIENT_SKILL].sort(),\n+    );\n     // Chat runs DIRECT in the project -- no project-level skill install.\n     expect(existsSync(join(scratchDir, \".claude\", \"skills\"))).toBe(false);\n   });\n@@ -412,7 +415,7 @@ describe(\"chat sessions (D9)\", () => {\n       expect(text).toContain(\"turn 1: You're inside Skillmaker Studio.\");\n       expect(text).toContain(\"orients the director\"); // the bundle's one-liner\n       expect(text).toContain(\"william-draft-skill-md\");\n-      expect(text).not.toContain(\"william-research-a-skill\");\n+      expect(text).toContain(\"william-research-a-skill\");\n       expect(text).toContain(\"Orient the director\");\n       // Preamble ALONE: machine context only, no separator, no user words.\n       expect(text).not.toContain(\"\\n\\n---\\n\\n\");\ndiff --git a/test/e2e/dist.e2e.test.ts b/test/e2e/dist.e2e.test.ts\nindex b13cda7..fd9fbac 100644\n--- a/test/e2e/dist.e2e.test.ts\n+++ b/test/e2e/dist.e2e.test.ts\n@@ -38,6 +38,7 @@ import { startE2eRegistryServer } from \"./support/server.ts\";\n const repoRoot = join(import.meta.dir, \"..\", \"..\");\n const distBinary = join(repoRoot, \"dist\", \"skillmaker\");\n const distViewer = join(repoRoot, \"dist\", \"viewer-dist\");\n+const distPackagedSkills = join(repoRoot, \"dist\", \"packaged-skills\");\n \n const distArtifactsPresent = existsSync(distBinary) && existsSync(distViewer);\n \n@@ -71,12 +72,17 @@ describe.skipIf(!distArtifactsPresent)(\n   \"skillmaker distributed binary: golden path (Phase 12a)\",\n   () => {\n     beforeAll(async () => {\n-      // \"Install\": copy the two distributable pieces into a directory that\n+      // \"Install\": copy the three distributable pieces into a directory that\n       // shares nothing with the repo checkout, exactly as a real install\n       // would (docs/dist.md).\n       installDir = mkdtempSync(join(tmpdir(), \"skillmaker-dist-install-\"));\n+      // The skip guard intentionally covers the binary and viewer only. Once\n+      // those prove this is a built distribution, missing helper payloads\n+      // must fail loudly instead of becoming a misleading skip.\n+      expect(existsSync(distPackagedSkills)).toBe(true);\n       cpSync(distBinary, join(installDir, \"skillmaker\"));\n       cpSync(distViewer, join(installDir, \"viewer-dist\"), { recursive: true });\n+      cpSync(distPackagedSkills, join(installDir, \"packaged-skills\"), { recursive: true });\n       binaryPath = join(installDir, \"skillmaker\");\n       Bun.spawnSync([\"chmod\", \"+x\", binaryPath]);\n \n@@ -171,6 +177,12 @@ describe.skipIf(!distArtifactsPresent)(\n       expect(html).toContain(\"Skillmaker Studio\");\n     });\n \n+    test(\"installed layout includes both packaged William helper payloads\", () => {\n+      for (const slug of [\"william-research-a-skill\", \"william-draft-skill-md\"]) {\n+        expect(existsSync(join(installDir, \"packaged-skills\", slug, \"output\", \"SKILL.md\"))).toBe(true);\n+      }\n+    });\n+\n     test(\"claim file exists at the started port\", () => {\n       expect(existsSync(claimPath())).toBe(true);\n       const claim = JSON.parse(readFileSync(claimPath(), \"utf8\")) as {\n",
+        "summary": {
+          "files_changed": 5,
+          "additions": 642,
+          "deletions": 28
+        }
+      }
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-06T15:11:06.837054924Z",
+        "current_node": "validate_gates",
+        "completed_nodes": [
+          "start",
+          "scope",
+          "implement",
+          "validate_gates"
+        ],
+        "node_retries": {},
+        "context_values": {
           "failure_class": "",
           "graph.max_node_visits": "5",
           "graph.stall_timeout": "18000000ms",
-          "graph.rankdir": "LR",
-          "internal.run_id": "01KZBRE9Q06N5BWK2W5A71X25P",
-          "current_node": "implement",
           "internal.node_visit_count": 1,
-          "outcome": "succeeded",
-          "thread.start.current_node": "scope",
           "last_response": "Implemented Issue #190.\n\n- [`ChatSessions.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:156) now resolves each William helper workspace-first, then falls back ",
-          "internal.thread_id": "scope",
-          "last_stage": "implement",
-          "response.scope": "Created the implementation plan at [2026-08-06-chat-agent-home-packaged-helper-fallback.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md).\n\nIt verifies current behavior, accounts for issue #203’s richer-result interaction, defines deterministic fallback tests, updates fresh-project chat and distribution E2E coverage, and preserves all permission, station, UI, and workspace-index scope fences. No implementation files were edited; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md",
+          "thread.implement.current_node": "validate_gates",
+          "internal.thread_id": "implement",
           "internal.retry_count.scope": 0,
+          "graph.goal": "GitHub Issue #190: Chat agent home seeds William helpers from the workspace only — no packaged fallback, so fresh projects trigger a permission storm\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/190\n\n## Summary\n\nChat sessions seed Skillmaker's own helper skills (the William bundles) into the\nagent home from the **user's workspace `skills/` directory only**, with no\nproduct-packaged fallback. Every project that doesn't hand-carry the William\nbundles — i.e. every real user project — starts its chat agent with no helpers,\nso the agent goes hunting the operator's filesystem for them, and each\nout-of-project path it touches raises a permission card. D6's \"William ships\ninside the product\" was delivered for station runs (`resolveStationSkillDir`);\nthe chat path never got it. Give `prepareAgentHome` the same fallback.\n\n## Motivation / Problem\n\nThis is the first-run experience for new users, and it is the opposite of what\nthe getting-started tour promises. The chat permission policy is deliberately\nquiet — anything touching paths inside the project auto-approves silently — so a\nwell-provisioned agent should raise close to zero cards while it researches and\ndrafts inside the bundle. Instead the very first session becomes a permission\nstorm, and the cause is entirely self-inflicted: the agent is searching for\nproduct machinery that should have been handed to it at spawn.\n\nCost is concentrated on exactly the population we can least afford to burn\n(outside testers on a fresh project, per the \"Your first skill\" tour), and the\nfailure is silent — `prepareAgentHome` skips a missing helper without a warning,\nso nothing in the UI, logs, or journal says the agent is running unequipped.\n\n## Observed behavior\n\nFresh project on v0.6.2 via `npx skillmaker-studio@latest start`, project root\n`/Users/danvers/skills`, provider `claude-code`, one chat session on a new\nbundle.\n\nThe agent home has no `skills/` directory at all:\n\n```\n$ ls ~/.skillmaker/agent-home/claude-code/\n.claude.json  .credentials.json  .last-cleanup  backups\nprojects  session-env  sessions  shell-snapshots\n```\n\nThe session's transcript contains **24 tool calls, 23 of which reference paths\noutside the project root** — every one of them a permission card the human had\nto clear. The first call and several after it are the agent looking for its own\nmissing helpers, then falling back to searching the operator's machine:\n\n```\nls /Users/danvers/.skillmaker/agent-home/claude-code/skills/\nfind / -maxdepth 8 -type d -iname \"william-*\"\nfind ~/.claude -maxdepth 4 -iname \"*william*\"\nls ~/.claude/skills/\nls ~/conductor/repos/\n```\n\nExactly one of the 24 calls stayed inside the project.\n\nSeeding the two bundles into `~/.skillmaker/agent-home/claude-code/skills/` by\nhand removes the hunt — confirming the diagnosis and giving users a stopgap.\n\n## Current shape\n\nThe station path already resolves this correctly, and the fix is \"make chat\nmatch station.\"\n\n**Station runs (correct).** `Server.ts:2278` calls `locatePackagedSkillsDir()`\nand threads it into `runStation`, which resolves per slug in\n`resolveStationSkillDir` (`packages/core/src/StationEngine.ts:423`): the\nworkspace's own `<skillsDir>/<slug>/` wins when it has a `bundle.json`, else the\nproduct-packaged copy. `StationRun.ts:84` does the same for the CLI. That\nfunction's doc comment already states the fence this issue depends on —\npackaged skills are visible to *station resolution only*; they never appear on\nthe Board, in bundle listings, or in the index.\n\n**Chat (broken).** `prepareAgentHome` (`packages/cli/src/server/ChatSessions.ts:156-182`)\nlooks in one place and gives up:\n\n```ts\nconst bundleDir = join(workspaceRoot, skillsDir, slug);\nconst sourceDir = existsSync(join(bundleDir, \"output\", \"SKILL.md\"))\n  ? join(bundleDir, \"output\")\n  : existsSync(join(bundleDir, \"SKILL.md\"))\n    ? bundleDir\n    : undefined;\nif (sourceDir === undefined) continue;   // silent\n```\n\n`ChatSessions.ts` does not import `locatePackagedSkillsDir` at all — the only\nconsumers are `Server.ts` and `commands/StationRun.ts`. The declaring comment at\n`ChatSessions.ts:58` records the gap as intended behavior (\"silently skipped\nwhen absent … still chats fine, just without the helpers\"), which is what needs\nrevising: it does not chat fine, it chats loudly.\n\nThe trap worth naming: this is the same defect as friction-log entry #1\n(\"William isn't distributed — every workspace must hand-carry his bundles\"),\nwhich PR #171 was believed to have closed. #171 fixed *station skill resolution*\nand left *agent-home seeding* on the old assumption, so the repo's own\nself-hosted `skills/` workspace — which does carry the William bundles — masks\nit for every maintainer.\n\n## Proposed contract\n\nPer helper slug in `HELPER_SKILL_SLUGS`, resolution order:\n\n| # | Source | Condition | `source` |\n|---|---|---|---|\n| 1 | `<workspaceRoot>/<skillsDir>/<slug>/output/SKILL.md` → seed `output/` | file exists | `workspace` |\n| 2 | `<workspaceRoot>/<skillsDir>/<slug>/SKILL.md` → seed the bundle dir | file exists | `workspace` |\n| 3 | `<packagedSkillsDir>/<slug>/output/SKILL.md` → seed `output/` | `locatePackagedSkillsDir()` returned a dir and the file exists | `packaged` |\n| 4 | `<packagedSkillsDir>/<slug>/SKILL.md` → seed the bundle dir | as above | `packaged` |\n| — | none | skip this slug, no throw | — |\n\nDestination is unchanged: `<agentHome>/skills/<slug>/`, holding `SKILL.md` at\nits root.\n\n`installedHelpers` grows a source so callers and tests can assert *which* copy\nwon:\n\n```ts\n{ home: string, installedHelpers: ReadonlyArray<{ slug: string, source: \"workspace\" | \"packaged\" }> }\n```\n\n**Decisions:**\n\n- Workspace copies always win, matching `resolveStationSkillDir` — hacking on\n  William in this repo's self-hosted workspace keeps working, and any workspace\n  can override a packaged helper by drafting its own.\n- Resolution is **per slug**, not all-or-nothing: a workspace carrying one\n  helper and not the other gets one of each source.\n- The workspace probe keeps its existing two-layout shape (`output/SKILL.md`\n  first, then a root `SKILL.md`), and the packaged probe uses the same shape.\n- A slug that resolves to a source **replaces** the destination (existing\n  `rmSync` + copy), so a stale helper from an older version cannot survive an\n  upgrade. This clobbers hand-seeded workarounds, which is intended.\n- A slug that resolves **nowhere** leaves any pre-existing destination\n  untouched (today's behavior, unchanged) — the seeding step must not delete\n  material it cannot replace.\n- `locatePackagedSkillsDir()` returning `undefined` is not an error: a source\n  checkout without the packaged dir behaves exactly as today.\n- Packaged helpers remain invisible as workspace bundles. They are copied into\n  the agent home and nowhere else — no Board row, no bundle listing, no index\n  entry, no write into the user's `skills/` directory or personal config dir.\n- No new UI and no new config knob. The permission policy itself is not touched.\n\n## Acceptance criteria\n\n- [ ] On a project whose `skills/` directory contains neither William bundle,\n      starting a chat session leaves both `william-research-a-skill/SKILL.md`\n      and `william-draft-skill-md/SKILL.md` present under\n      `<agentHome>/<provider>/skills/`, sourced from the packaged copies.\n- [ ] On a workspace that carries its own copy of a helper, that copy is what\n      lands in the agent home, and `installedHelpers` reports it as\n      `source: \"workspace\"` — the packaged copy does not override it.\n- [ ] With one helper in the workspace and one only packaged, both land, each\n      reporting its own source.\n- [ ] Negative: when a slug resolves in neither location, `prepareAgentHome`\n      returns without throwing, omits that slug from `installedHelpers`, the\n      chat session still starts, and any pre-existing directory at that\n      destination is left byte-identical.\n- [ ] Negative: no packaged helper is written into the user's project — after a\n      chat session on a fresh project, `<workspaceRoot>/<skillsDir>/` contains\n      only the user's own bundles, and neither William slug appears in a bundle\n      listing or on the Board.\n- [ ] Idempotency: calling `prepareAgentHome` twice for the same provider yields\n      the same tree — no nested `skills/<slug>/output/`, no accumulation, no\n      duplicate entries in `installedHelpers`.\n- [ ] Upgrade: a destination holding an older/edited copy of a helper is\n      replaced by the resolved source rather than merged with it.\n- [ ] Regression: station skill resolution is unchanged — the existing\n      workspace-wins / packaged-fallback behavior and its precondition error\n      message still hold for `skillmaker station run` and server-triggered\n      station runs.\n- [ ] Regression: the packaged-skills drift and location tests in\n      `packages/cli/test/PackagedSkills.test.ts` still pass unmodified, and the\n      compiled-binary layout still ships `packaged-skills` alongside the\n      executable (`test/e2e/dist.e2e.test.ts`).\n- [ ] Tests cover: packaged-only, workspace-only, mixed, neither, repeat-call\n      idempotency, stale-destination replacement, and the no-write-into-project\n      assertion. `prepareAgentHome` has no unit test today, so this is new\n      coverage, not an amendment.\n\n## Implementation notes\n\n`locatePackagedSkillsDir` lives in the same package as `ChatSessions.ts`\n(`packages/cli/src/PackagedSkills.ts`), so this needs no cross-package\nplumbing — unlike the station path, where `StationEngine` sits in `core` and\ntakes the directory as an option. Prefer calling it inside `prepareAgentHome`\nover threading a new parameter through every call site, unless a test seam makes\nthe parameter clearly better.\n\nScope fences, aimed at the plausible over-reaches here:\n\n- **Do not touch the permission policy.** `makeChatPermissionPolicy` and the\n  path-scoping in `AcpClient.ts` are correct as written; this issue removes the\n  *reason* the agent leaves the project, not the guard that reports it. In\n  particular, do not add an allowlist, an \"always allow\" affordance, or a\n  config knob for auto-approval — those are separate product decisions.\n- **Do not widen `HELPER_SKILL_SLUGS`.** Which helpers ship is a product\n  ruling, not part of this fix.\n- **Do not make a missing packaged directory fatal.** Source checkouts that\n  haven't built `dist` must keep working.\n- **Do not surface seeding in the UI.** If a signal is wanted for the silent-skip\n  case, a server-side log line is the ceiling for this issue.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `HELPER_SKILL_SLUGS` (:58),\n  `prepareAgentHome` (:156), its two call sites (:598 capability probe, :793\n  session start)\n- `packages/cli/src/PackagedSkills.ts` — `locatePackagedSkillsDir`\n- `packages/core/src/StationEngine.ts` — `resolveStationSkillDir` (:423), the\n  behavior to mirror\n- `packages/cli/test/PackagedSkills.test.ts` — existing drift/location coverage\n\n## Not in scope\n\nOne adjacent defect found while diagnosing this, deliberately **not** bundled\nhere — file separately if wanted: `permissionPathsOutside`\n(`packages/core/src/AcpClient.ts:431`) classifies every `~`-anchored path as\noutside the root unconditionally, so a home-anchored reference to the project\ndirectory itself (`~/skills/...` when the project *is* `~/skills`) raises a\npermission card it shouldn't. Latent — it did not contribute to the transcript\nabove.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. The fix should mirror the workspace-wins-then-packaged-fallback resolution StationEngine uses (packages/core/src/StationEngine.ts resolveStationSkillDir, packages/cli/src/PackagedSkills.ts). Stay minimal: fix with tests, nothing adjacent.\n",
+          "internal.retry_count.start": 0,
+          "internal.retry_count.implement": 0,
+          "command.output": "blob://sha256/43031c668bca40aebdd2b340fe25e010534a7092e2be7152517853b1d4f51183",
+          "internal.run_id": "01KZBRE9Q06N5BWK2W5A71X25P",
+          "graph.rankdir": "LR",
+          "last_stage": "implement",
+          "current_node": "validate_gates",
+          "thread.start.current_node": "scope",
+          "outcome": "succeeded",
+          "response.scope": "Created the implementation plan at [2026-08-06-chat-agent-home-packaged-helper-fallback.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md).\n\nIt verifies current behavior, accounts for issue #203’s richer-result interaction, defines deterministic fallback tests, updates fresh-project chat and distribution E2E coverage, and preserves all permission, station, UI, and workspace-index scope fences. No implementation files were edited; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md",
           "thread.scope.current_node": "implement",
+          "internal.retry_count.validate_gates": 0,
           "failure_signature": "",
           "graph.default_fidelity": "summary:high",
-          "graph.goal": "GitHub Issue #190: Chat agent home seeds William helpers from the workspace only — no packaged fallback, so fresh projects trigger a permission storm\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/190\n\n## Summary\n\nChat sessions seed Skillmaker's own helper skills (the William bundles) into the\nagent home from the **user's workspace `skills/` directory only**, with no\nproduct-packaged fallback. Every project that doesn't hand-carry the William\nbundles — i.e. every real user project — starts its chat agent with no helpers,\nso the agent goes hunting the operator's filesystem for them, and each\nout-of-project path it touches raises a permission card. D6's \"William ships\ninside the product\" was delivered for station runs (`resolveStationSkillDir`);\nthe chat path never got it. Give `prepareAgentHome` the same fallback.\n\n## Motivation / Problem\n\nThis is the first-run experience for new users, and it is the opposite of what\nthe getting-started tour promises. The chat permission policy is deliberately\nquiet — anything touching paths inside the project auto-approves silently — so a\nwell-provisioned agent should raise close to zero cards while it researches and\ndrafts inside the bundle. Instead the very first session becomes a permission\nstorm, and the cause is entirely self-inflicted: the agent is searching for\nproduct machinery that should have been handed to it at spawn.\n\nCost is concentrated on exactly the population we can least afford to burn\n(outside testers on a fresh project, per the \"Your first skill\" tour), and the\nfailure is silent — `prepareAgentHome` skips a missing helper without a warning,\nso nothing in the UI, logs, or journal says the agent is running unequipped.\n\n## Observed behavior\n\nFresh project on v0.6.2 via `npx skillmaker-studio@latest start`, project root\n`/Users/danvers/skills`, provider `claude-code`, one chat session on a new\nbundle.\n\nThe agent home has no `skills/` directory at all:\n\n```\n$ ls ~/.skillmaker/agent-home/claude-code/\n.claude.json  .credentials.json  .last-cleanup  backups\nprojects  session-env  sessions  shell-snapshots\n```\n\nThe session's transcript contains **24 tool calls, 23 of which reference paths\noutside the project root** — every one of them a permission card the human had\nto clear. The first call and several after it are the agent looking for its own\nmissing helpers, then falling back to searching the operator's machine:\n\n```\nls /Users/danvers/.skillmaker/agent-home/claude-code/skills/\nfind / -maxdepth 8 -type d -iname \"william-*\"\nfind ~/.claude -maxdepth 4 -iname \"*william*\"\nls ~/.claude/skills/\nls ~/conductor/repos/\n```\n\nExactly one of the 24 calls stayed inside the project.\n\nSeeding the two bundles into `~/.skillmaker/agent-home/claude-code/skills/` by\nhand removes the hunt — confirming the diagnosis and giving users a stopgap.\n\n## Current shape\n\nThe station path already resolves this correctly, and the fix is \"make chat\nmatch station.\"\n\n**Station runs (correct).** `Server.ts:2278` calls `locatePackagedSkillsDir()`\nand threads it into `runStation`, which resolves per slug in\n`resolveStationSkillDir` (`packages/core/src/StationEngine.ts:423`): the\nworkspace's own `<skillsDir>/<slug>/` wins when it has a `bundle.json`, else the\nproduct-packaged copy. `StationRun.ts:84` does the same for the CLI. That\nfunction's doc comment already states the fence this issue depends on —\npackaged skills are visible to *station resolution only*; they never appear on\nthe Board, in bundle listings, or in the index.\n\n**Chat (broken).** `prepareAgentHome` (`packages/cli/src/server/ChatSessions.ts:156-182`)\nlooks in one place and gives up:\n\n```ts\nconst bundleDir = join(workspaceRoot, skillsDir, slug);\nconst sourceDir = existsSync(join(bundleDir, \"output\", \"SKILL.md\"))\n  ? join(bundleDir, \"output\")\n  : existsSync(join(bundleDir, \"SKILL.md\"))\n    ? bundleDir\n    : undefined;\nif (sourceDir === undefined) continue;   // silent\n```\n\n`ChatSessions.ts` does not import `locatePackagedSkillsDir` at all — the only\nconsumers are `Server.ts` and `commands/StationRun.ts`. The declaring comment at\n`ChatSessions.ts:58` records the gap as intended behavior (\"silently skipped\nwhen absent … still chats fine, just without the helpers\"), which is what needs\nrevising: it does not chat fine, it chats loudly.\n\nThe trap worth naming: this is the same defect as friction-log entry #1\n(\"William isn't distributed — every workspace must hand-carry his bundles\"),\nwhich PR #171 was believed to have closed. #171 fixed *station skill resolution*\nand left *agent-home seeding* on the old assumption, so the repo's own\nself-hosted `skills/` workspace — which does carry the William bundles — masks\nit for every maintainer.\n\n## Proposed contract\n\nPer helper slug in `HELPER_SKILL_SLUGS`, resolution order:\n\n| # | Source | Condition | `source` |\n|---|---|---|---|\n| 1 | `<workspaceRoot>/<skillsDir>/<slug>/output/SKILL.md` → seed `output/` | file exists | `workspace` |\n| 2 | `<workspaceRoot>/<skillsDir>/<slug>/SKILL.md` → seed the bundle dir | file exists | `workspace` |\n| 3 | `<packagedSkillsDir>/<slug>/output/SKILL.md` → seed `output/` | `locatePackagedSkillsDir()` returned a dir and the file exists | `packaged` |\n| 4 | `<packagedSkillsDir>/<slug>/SKILL.md` → seed the bundle dir | as above | `packaged` |\n| — | none | skip this slug, no throw | — |\n\nDestination is unchanged: `<agentHome>/skills/<slug>/`, holding `SKILL.md` at\nits root.\n\n`installedHelpers` grows a source so callers and tests can assert *which* copy\nwon:\n\n```ts\n{ home: string, installedHelpers: ReadonlyArray<{ slug: string, source: \"workspace\" | \"packaged\" }> }\n```\n\n**Decisions:**\n\n- Workspace copies always win, matching `resolveStationSkillDir` — hacking on\n  William in this repo's self-hosted workspace keeps working, and any workspace\n  can override a packaged helper by drafting its own.\n- Resolution is **per slug**, not all-or-nothing: a workspace carrying one\n  helper and not the other gets one of each source.\n- The workspace probe keeps its existing two-layout shape (`output/SKILL.md`\n  first, then a root `SKILL.md`), and the packaged probe uses the same shape.\n- A slug that resolves to a source **replaces** the destination (existing\n  `rmSync` + copy), so a stale helper from an older version cannot survive an\n  upgrade. This clobbers hand-seeded workarounds, which is intended.\n- A slug that resolves **nowhere** leaves any pre-existing destination\n  untouched (today's behavior, unchanged) — the seeding step must not delete\n  material it cannot replace.\n- `locatePackagedSkillsDir()` returning `undefined` is not an error: a source\n  checkout without the packaged dir behaves exactly as today.\n- Packaged helpers remain invisible as workspace bundles. They are copied into\n  the agent home and nowhere else — no Board row, no bundle listing, no index\n  entry, no write into the user's `skills/` directory or personal config dir.\n- No new UI and no new config knob. The permission policy itself is not touched.\n\n## Acceptance criteria\n\n- [ ] On a project whose `skills/` directory contains neither William bundle,\n      starting a chat session leaves both `william-research-a-skill/SKILL.md`\n      and `william-draft-skill-md/SKILL.md` present under\n      `<agentHome>/<provider>/skills/`, sourced from the packaged copies.\n- [ ] On a workspace that carries its own copy of a helper, that copy is what\n      lands in the agent home, and `installedHelpers` reports it as\n      `source: \"workspace\"` — the packaged copy does not override it.\n- [ ] With one helper in the workspace and one only packaged, both land, each\n      reporting its own source.\n- [ ] Negative: when a slug resolves in neither location, `prepareAgentHome`\n      returns without throwing, omits that slug from `installedHelpers`, the\n      chat session still starts, and any pre-existing directory at that\n      destination is left byte-identical.\n- [ ] Negative: no packaged helper is written into the user's project — after a\n      chat session on a fresh project, `<workspaceRoot>/<skillsDir>/` contains\n      only the user's own bundles, and neither William slug appears in a bundle\n      listing or on the Board.\n- [ ] Idempotency: calling `prepareAgentHome` twice for the same provider yields\n      the same tree — no nested `skills/<slug>/output/`, no accumulation, no\n      duplicate entries in `installedHelpers`.\n- [ ] Upgrade: a destination holding an older/edited copy of a helper is\n      replaced by the resolved source rather than merged with it.\n- [ ] Regression: station skill resolution is unchanged — the existing\n      workspace-wins / packaged-fallback behavior and its precondition error\n      message still hold for `skillmaker station run` and server-triggered\n      station runs.\n- [ ] Regression: the packaged-skills drift and location tests in\n      `packages/cli/test/PackagedSkills.test.ts` still pass unmodified, and the\n      compiled-binary layout still ships `packaged-skills` alongside the\n      executable (`test/e2e/dist.e2e.test.ts`).\n- [ ] Tests cover: packaged-only, workspace-only, mixed, neither, repeat-call\n      idempotency, stale-destination replacement, and the no-write-into-project\n      assertion. `prepareAgentHome` has no unit test today, so this is new\n      coverage, not an amendment.\n\n## Implementation notes\n\n`locatePackagedSkillsDir` lives in the same package as `ChatSessions.ts`\n(`packages/cli/src/PackagedSkills.ts`), so this needs no cross-package\nplumbing — unlike the station path, where `StationEngine` sits in `core` and\ntakes the directory as an option. Prefer calling it inside `prepareAgentHome`\nover threading a new parameter through every call site, unless a test seam makes\nthe parameter clearly better.\n\nScope fences, aimed at the plausible over-reaches here:\n\n- **Do not touch the permission policy.** `makeChatPermissionPolicy` and the\n  path-scoping in `AcpClient.ts` are correct as written; this issue removes the\n  *reason* the agent leaves the project, not the guard that reports it. In\n  particular, do not add an allowlist, an \"always allow\" affordance, or a\n  config knob for auto-approval — those are separate product decisions.\n- **Do not widen `HELPER_SKILL_SLUGS`.** Which helpers ship is a product\n  ruling, not part of this fix.\n- **Do not make a missing packaged directory fatal.** Source checkouts that\n  haven't built `dist` must keep working.\n- **Do not surface seeding in the UI.** If a signal is wanted for the silent-skip\n  case, a server-side log line is the ceiling for this issue.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `HELPER_SKILL_SLUGS` (:58),\n  `prepareAgentHome` (:156), its two call sites (:598 capability probe, :793\n  session start)\n- `packages/cli/src/PackagedSkills.ts` — `locatePackagedSkillsDir`\n- `packages/core/src/StationEngine.ts` — `resolveStationSkillDir` (:423), the\n  behavior to mirror\n- `packages/cli/test/PackagedSkills.test.ts` — existing drift/location coverage\n\n## Not in scope\n\nOne adjacent defect found while diagnosing this, deliberately **not** bundled\nhere — file separately if wanted: `permissionPathsOutside`\n(`packages/core/src/AcpClient.ts:431`) classifies every `~`-anchored path as\noutside the root unconditionally, so a home-anchored reference to the project\ndirectory itself (`~/skills/...` when the project *is* `~/skills`) raises a\npermission card it shouldn't. Latent — it did not contribute to the transcript\nabove.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. The fix should mirror the workspace-wins-then-packaged-fallback resolution StationEngine uses (packages/core/src/StationEngine.ts resolveStationSkillDir, packages/cli/src/PackagedSkills.ts). Stay minimal: fix with tests, nothing adjacent.\n",
           "response.implement": "Implemented Issue #190.\n\n- [`ChatSessions.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:156) now resolves each William helper workspace-first, then falls back to `locatePackagedSkillsDir()`. Installed helpers report `{ slug, source }`; session preambles still receive only slug strings.\n- Added deterministic agent-home coverage in [`ChatAgentHome.test.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/test/ChatAgentHome.test.ts:1): packaged-only, workspace precedence, mixed sources, neither/preserve, idempotency, and stale replacement.\n- Updated the chat E2E to use a fresh workspace and verify packaged helpers enter only the agent home, not workspace bundles/Board data.\n- Updated the compiled-distribution E2E to copy and verify `packaged-skills/`; it passes against a freshly built distribution.\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: `bun test packages/cli/test/ChatAgentHome.test.ts`\n- Passed: `bun test test/e2e/chat-sessions.e2e.test.ts --timeout 30000`\n- Passed: `bun test test/e2e --timeout 30000`\n- Passed: `bun run build:dist && bun test test/e2e/dist.e2e.test.ts --timeout 30000`\n- Passed: `git diff --check`\n\nOne required gate remains externally blocked: `bun test packages` consistently has 1068 passing tests and one failure in the untouched [`JournalWatcher.test.ts`](/home/daytona/workspace/skillmaker-studio/packages/cli/test/JournalWatcher.test.ts:34), whose existing-file append watch callback never fires in this environment. I reran that test and the full package suite; the same unrelated failure reproduced.",
-          "internal.retry_count.start": 0,
           "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
-          "internal.fidelity": "summary:high",
-          "internal.retry_count.implement": 0
+          "internal.fidelity": "summary:high"
         },
         "node_outcomes": {
           "implement": {
@@ -700,6 +835,20 @@
             "status": "succeeded",
             "usage": null
           },
+          "validate_gates": {
+            "status": "succeeded",
+            "context_updates": {
+              "command.output": "blob://sha256/43031c668bca40aebdd2b340fe25e010534a7092e2be7152517853b1d4f51183"
+            },
+            "notes": "Script completed: ./.fabro/scripts/fabro-validate",
+            "usage": null,
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 0,
+              "tool_time_ms": 220731,
+              "active_time_ms": 220731
+            }
+          },
           "scope": {
             "status": "succeeded",
             "context_updates": {
@@ -737,11 +886,12 @@
             }
           }
         },
-        "next_node_id": "validate_gates",
+        "next_node_id": "review_judge",
         "node_visits": {
           "start": 1,
           "scope": 1,
-          "implement": 1
+          "implement": 1,
+          "validate_gates": 1
         }
       },
       "diff": {}
@@ -773,11 +923,103 @@
   "superseded_by": null,
   "pending_interviews": {},
   "stages": {
+    "validate_gates@1": {
+      "first_event_seq": 1132,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Script completed: ./.fabro/scripts/fabro-validate",
+        "failure_reason": null,
+        "timestamp": "2026-08-06T15:11:06.816703890Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": {
+        "script": "./.fabro/scripts/fabro-validate",
+        "command": "exec 2>&1\n./.fabro/scripts/fabro-validate",
+        "language": "shell",
+        "timeout_ms": 5400000
+      },
+      "script_timing": {
+        "output": "blob://sha256/43031c668bca40aebdd2b340fe25e010534a7092e2be7152517853b1d4f51183",
+        "exit_code": 0,
+        "duration_ms": 220731,
+        "termination": "exited",
+        "output_bytes": 348541,
+        "live_streaming": true
+      },
+      "parallel_results": null,
+      "output": null,
+      "output_bytes": 348541,
+      "live_streaming": true,
+      "termination": "exited",
+      "started_at": "2026-08-06T15:07:25.385063891Z",
+      "handler": "command",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 220947,
+        "inference_time_ms": 0,
+        "tool_time_ms": 220731,
+        "active_time_ms": 220731
+      },
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "start@1": {
+      "first_event_seq": 20,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-08-06T14:43:40.957613482Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-06T14:43:40.573263431Z",
+      "handler": "start",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 0,
+        "inference_time_ms": 0,
+        "tool_time_ms": 0,
+        "active_time_ms": 0
+      },
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
     "implement@1": {
       "first_event_seq": 831,
       "prompt": null,
       "response": null,
-      "completion": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: implement",
+        "failure_reason": null,
+        "timestamp": "2026-08-06T15:07:19.082532909Z"
+      },
       "provider_used": {
         "mode": "agent",
         "provider": "openai",
@@ -792,8 +1034,12 @@
       "started_at": "2026-08-06T14:57:05.095960591Z",
       "handler": "agent",
       "graph_visit": 1,
-      "live_inference_ms": 136577,
-      "live_tool_ms": 474281,
+      "timing": {
+        "wall_time_ms": 613555,
+        "inference_time_ms": 136586,
+        "tool_time_ms": 474294,
+        "active_time_ms": 610880
+      },
       "usage": {
         "input_tokens": 82965,
         "output_tokens": 11947,
@@ -958,42 +1204,6 @@
           }
         ],
         "warnings": []
-      },
-      "agent_control": "running",
-      "state": "running"
-    },
-    "start@1": {
-      "first_event_seq": 20,
-      "prompt": null,
-      "response": null,
-      "completion": {
-        "outcome": "succeeded",
-        "notes": null,
-        "failure_reason": null,
-        "timestamp": "2026-08-06T14:43:40.957613482Z"
-      },
-      "provider_used": null,
-      "diff": null,
-      "script_invocation": null,
-      "script_timing": null,
-      "parallel_results": null,
-      "output": null,
-      "started_at": "2026-08-06T14:43:40.573263431Z",
-      "handler": "start",
-      "graph_visit": 1,
-      "timing": {
-        "wall_time_ms": 0,
-        "inference_time_ms": 0,
-        "tool_time_ms": 0,
-        "active_time_ms": 0
-      },
-      "usage": {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "total_tokens": 0,
-        "reasoning_tokens": 0,
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0
       },
       "agent_control": "running",
       "state": "succeeded"

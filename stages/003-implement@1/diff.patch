@@ -1,0 +1,378 @@
+diff --git a/packages/cli/src/server/ChatSessions.ts b/packages/cli/src/server/ChatSessions.ts
+index 92561aa..0eaa8a8 100644
+--- a/packages/cli/src/server/ChatSessions.ts
++++ b/packages/cli/src/server/ChatSessions.ts
+@@ -43,6 +43,7 @@ import { Effect } from "effect";
+ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+ import { homedir } from "node:os";
+ import { join } from "node:path";
++import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
+ 
+ // ---------------------------------------------------------------------------
+ // Tunables
+@@ -55,7 +56,7 @@ const REAP_CHECK_MS = 60 * 1000;
+ /** Per-provider budget for the capability probe (spawn + initialize + session/new). Adapters that can't answer in this window fall back to a bare provider-name catalog entry. */
+ const PROBE_TIMEOUT_MS = 45_000;
+ 
+-/** Skillmaker's own helper skills (William material), injected via the agent home -- resolved from the studio workspace's skillsDir when present, silently skipped when absent (a user project without the William bundles still chats fine, just without the helpers). */
++/** Skillmaker's own helper skills (William material), injected via the agent home. Issue #190 and docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md: a workspace may override a helper while fresh projects receive the product-packaged copy. */
+ const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
+ 
+ // ---------------------------------------------------------------------------
+@@ -153,30 +154,49 @@ const copyDirRecursive = (src: string, dest: string): void => {
+ export const agentHomeBaseDir = (): string =>
+   process.env.SKILLMAKER_AGENT_HOME_DIR ?? join(homedir(), ".skillmaker", "agent-home");
+ 
++interface InstalledHelper {
++  readonly slug: string;
++  readonly source: "workspace" | "packaged";
++}
++
++interface PrepareAgentHomeOptions {
++  /** Test seam: production locates packaged skills itself; tests supply a synthetic tree or explicitly model an un-packaged build. */
++  readonly packagedSkillsDir: string | undefined;
++}
++
++const helperSourceDir = (skillsRoot: string, slug: string): string | undefined => {
++  const bundleDir = join(skillsRoot, slug);
++  // output/ is the shipped William layout; an in-place SKILL.md also stays
++  // supported so either source family can use the same install contract.
++  if (existsSync(join(bundleDir, "output", "SKILL.md"))) return join(bundleDir, "output");
++  return existsSync(join(bundleDir, "SKILL.md")) ? bundleDir : undefined;
++};
++
+ export const prepareAgentHome = (
+   provider: string,
+   workspaceRoot: string,
+   skillsDir: string,
+-): { readonly home: string; readonly installedHelpers: ReadonlyArray<string> } => {
++  options?: PrepareAgentHomeOptions,
++): { readonly home: string; readonly installedHelpers: ReadonlyArray<InstalledHelper> } => {
+   const home = join(agentHomeBaseDir(), provider);
+   mkdirSync(home, { recursive: true });
+   seedProviderAuth(provider, home);
+ 
+-  const installed: string[] = [];
++  const packagedSkillsDir = options === undefined ? locatePackagedSkillsDir() : options.packagedSkillsDir;
++  const workspaceSkillsDir = join(workspaceRoot, skillsDir);
++  const installed: InstalledHelper[] = [];
+   for (const slug of HELPER_SKILL_SLUGS) {
+-    const bundleDir = join(workspaceRoot, skillsDir, slug);
+-    // output/ layout is the William bundles' real shape; an in-place bundle
+-    // (SKILL.md at the root) installs the bundle dir itself.
+-    const sourceDir = existsSync(join(bundleDir, "output", "SKILL.md"))
+-      ? join(bundleDir, "output")
+-      : existsSync(join(bundleDir, "SKILL.md"))
+-        ? bundleDir
++    const workspaceSource = helperSourceDir(workspaceSkillsDir, slug);
++    const packagedSource =
++      workspaceSource === undefined && packagedSkillsDir !== undefined
++        ? helperSourceDir(packagedSkillsDir, slug)
+         : undefined;
++    const sourceDir = workspaceSource ?? packagedSource;
+     if (sourceDir === undefined) continue;
+     const dest = join(home, "skills", slug);
+     rmSync(dest, { recursive: true, force: true });
+     copyDirRecursive(sourceDir, dest);
+-    installed.push(slug);
++    installed.push({ slug, source: workspaceSource === undefined ? "packaged" : "workspace" });
+   }
+   return { home, installedHelpers: installed };
+ };
+@@ -798,7 +818,7 @@ export class ChatSessionManager {
+ 
+     const providerProfile = resolveProviderProfile(provider);
+     const { home, installedHelpers } = prepareAgentHome(provider, this.root, this.config.skillsDir);
+-    chat.installedHelpers = installedHelpers;
++    chat.installedHelpers = installedHelpers.map(({ slug }) => slug);
+ 
+     const outcome = await Effect.runPromise(
+       Effect.result(
+diff --git a/packages/cli/test/ChatAgentHome.test.ts b/packages/cli/test/ChatAgentHome.test.ts
+new file mode 100644
+index 0000000..6d66e56
+--- /dev/null
++++ b/packages/cli/test/ChatAgentHome.test.ts
+@@ -0,0 +1,145 @@
++import { afterEach, describe, expect, test } from "bun:test";
++import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { prepareAgentHome } from "../src/server/ChatSessions.ts";
++
++const HELPERS = ["william-research-a-skill", "william-draft-skill-md"] as const;
++
++let cleanup: (() => void) | undefined;
++
++afterEach(() => {
++  cleanup?.();
++  cleanup = undefined;
++});
++
++const withScratch = (
++  run: (paths: { readonly workspace: string; readonly packaged: string; readonly agentHome: string }) => void,
++): void => {
++  const root = mkdtempSync(join(tmpdir(), "skillmaker-chat-agent-home-"));
++  const workspace = join(root, "workspace");
++  const packaged = join(root, "packaged");
++  const agentHome = join(root, "agent-home");
++  const authHome = join(root, "codex-home");
++  const previousAgentHome = process.env.SKILLMAKER_AGENT_HOME_DIR;
++  const previousCodexHome = process.env.CODEX_HOME;
++  mkdirSync(authHome, { recursive: true });
++  process.env.SKILLMAKER_AGENT_HOME_DIR = agentHome;
++  process.env.CODEX_HOME = authHome;
++  cleanup = () => {
++    if (previousAgentHome === undefined) delete process.env.SKILLMAKER_AGENT_HOME_DIR;
++    else process.env.SKILLMAKER_AGENT_HOME_DIR = previousAgentHome;
++    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
++    else process.env.CODEX_HOME = previousCodexHome;
++    rmSync(root, { recursive: true, force: true });
++  };
++  run({ workspace, packaged, agentHome });
++};
++
++const writeHelper = (root: string, slug: string, content: string, layout: "output" | "root"): void => {
++  const dir = layout === "output" ? join(root, slug, "output") : join(root, slug);
++  mkdirSync(dir, { recursive: true });
++  writeFileSync(join(dir, "SKILL.md"), content);
++};
++
++const installedSkill = (agentHome: string, slug: string): string =>
++  join(agentHome, "codex", "skills", slug, "SKILL.md");
++
++describe("prepareAgentHome helper installation", () => {
++  test("installs packaged-only helpers without writing them into the workspace", () => {
++    withScratch(({ workspace, packaged, agentHome }) => {
++      writeHelper(packaged, HELPERS[0], "packaged output\n", "output");
++      writeHelper(packaged, HELPERS[1], "packaged root\n", "root");
++
++      const result = prepareAgentHome("codex", workspace, "skills", { packagedSkillsDir: packaged });
++
++      expect(result.installedHelpers).toEqual([
++        { slug: HELPERS[0], source: "packaged" },
++        { slug: HELPERS[1], source: "packaged" },
++      ]);
++      expect(readFileSync(installedSkill(agentHome, HELPERS[0]), "utf8")).toBe("packaged output\n");
++      expect(readFileSync(installedSkill(agentHome, HELPERS[1]), "utf8")).toBe("packaged root\n");
++      expect(existsSync(join(workspace, "skills", HELPERS[0]))).toBe(false);
++      expect(existsSync(join(workspace, "skills", HELPERS[1]))).toBe(false);
++    });
++  });
++
++  test("workspace helpers win over packaged copies in both supported layouts", () => {
++    withScratch(({ workspace, packaged, agentHome }) => {
++      const workspaceSkills = join(workspace, "skills");
++      writeHelper(workspaceSkills, HELPERS[0], "workspace output\n", "output");
++      writeHelper(workspaceSkills, HELPERS[1], "workspace root\n", "root");
++      writeHelper(packaged, HELPERS[0], "packaged root\n", "root");
++      writeHelper(packaged, HELPERS[1], "packaged output\n", "output");
++
++      const result = prepareAgentHome("codex", workspace, "skills", { packagedSkillsDir: packaged });
++
++      expect(result.installedHelpers).toEqual([
++        { slug: HELPERS[0], source: "workspace" },
++        { slug: HELPERS[1], source: "workspace" },
++      ]);
++      expect(readFileSync(installedSkill(agentHome, HELPERS[0]), "utf8")).toBe("workspace output\n");
++      expect(readFileSync(installedSkill(agentHome, HELPERS[1]), "utf8")).toBe("workspace root\n");
++    });
++  });
++
++  test("resolves each helper independently across workspace and packaged sources", () => {
++    withScratch(({ workspace, packaged, agentHome }) => {
++      writeHelper(join(workspace, "skills"), HELPERS[0], "workspace\n", "output");
++      writeHelper(packaged, HELPERS[1], "packaged\n", "output");
++
++      const result = prepareAgentHome("codex", workspace, "skills", { packagedSkillsDir: packaged });
++
++      expect(result.installedHelpers).toEqual([
++        { slug: HELPERS[0], source: "workspace" },
++        { slug: HELPERS[1], source: "packaged" },
++      ]);
++      expect(readFileSync(installedSkill(agentHome, HELPERS[0]), "utf8")).toBe("workspace\n");
++      expect(readFileSync(installedSkill(agentHome, HELPERS[1]), "utf8")).toBe("packaged\n");
++    });
++  });
++
++  test("leaves unresolved pre-existing helpers untouched", () => {
++    withScratch(({ workspace, agentHome }) => {
++      const destination = join(agentHome, "codex", "skills", HELPERS[0]);
++      mkdirSync(join(destination, "nested"), { recursive: true });
++      writeFileSync(join(destination, "SKILL.md"), "edited\n");
++      writeFileSync(join(destination, "nested", "keep.md"), "keep\n");
++
++      const result = prepareAgentHome("codex", workspace, "skills", { packagedSkillsDir: undefined });
++
++      expect(result.installedHelpers).toEqual([]);
++      expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toBe("edited\n");
++      expect(readFileSync(join(destination, "nested", "keep.md"), "utf8")).toBe("keep\n");
++    });
++  });
++
++  test("is idempotent and never nests an output directory", () => {
++    withScratch(({ workspace, packaged, agentHome }) => {
++      writeHelper(join(workspace, "skills"), HELPERS[0], "workspace\n", "output");
++      writeHelper(packaged, HELPERS[1], "packaged\n", "root");
++
++      const first = prepareAgentHome("codex", workspace, "skills", { packagedSkillsDir: packaged });
++      const second = prepareAgentHome("codex", workspace, "skills", { packagedSkillsDir: packaged });
++
++      expect(second).toEqual(first);
++      expect(existsSync(join(agentHome, "codex", "skills", HELPERS[0], "output"))).toBe(false);
++      expect(existsSync(join(agentHome, "codex", "skills", HELPERS[1], "output"))).toBe(false);
++    });
++  });
++
++  test("replaces a stale destination completely when a helper resolves", () => {
++    withScratch(({ workspace, packaged, agentHome }) => {
++      writeHelper(packaged, HELPERS[0], "new source\n", "output");
++      const destination = join(agentHome, "codex", "skills", HELPERS[0]);
++      mkdirSync(join(destination, "obsolete"), { recursive: true });
++      writeFileSync(join(destination, "SKILL.md"), "old source\n");
++      writeFileSync(join(destination, "obsolete", "old.md"), "old\n");
++
++      prepareAgentHome("codex", workspace, "skills", { packagedSkillsDir: packaged });
++
++      expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toBe("new source\n");
++      expect(existsSync(join(destination, "obsolete"))).toBe(false);
++    });
++  });
++});
+diff --git a/test/e2e/chat-sessions.e2e.test.ts b/test/e2e/chat-sessions.e2e.test.ts
+index 3a5fcba..899c846 100644
+--- a/test/e2e/chat-sessions.e2e.test.ts
++++ b/test/e2e/chat-sessions.e2e.test.ts
+@@ -22,6 +22,7 @@ const fakeChatAdapter = join(import.meta.dir, "fixtures", "fake-acp-chat.cjs");
+ let scratchDir: string;
+ let scratchHome: string;
+ let fakeStateDir: string;
++let fakeClaudeConfigDir: string;
+ let server: StartedE2eRegistryServer;
+ let baseUrl: string;
+ let projectUrl: string;
+@@ -119,6 +120,8 @@ beforeAll(async () => {
+   scratchDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-"));
+   scratchHome = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-home-"));
+   fakeStateDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-state-"));
++  fakeClaudeConfigDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-claude-config-"));
++  writeFileSync(join(fakeClaudeConfigDir, ".credentials.json"), "{}\n");
+   Bun.spawnSync(["git", "init", "-q"], { cwd: scratchDir });
+ 
+   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
+@@ -131,12 +134,6 @@ beforeAll(async () => {
+   const orientBundle = JSON.parse(readFileSync(orientBundlePath, "utf8")) as Record<string, unknown>;
+   writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: "orients the director" }, null, 2)}\n`);
+ 
+-  // A William helper bundle in the workspace, to observe agent-home injection.
+-  const williamDir = join(scratchDir, "skills", "william-draft-skill-md");
+-  mkdirSync(join(williamDir, "output"), { recursive: true });
+-  writeFileSync(join(williamDir, "bundle.json"), `${JSON.stringify({ slug: "william-draft-skill-md" })}\n`);
+-  writeFileSync(join(williamDir, "output", "SKILL.md"), "# William drafts\n");
+-
+   // Point the claude-code provider at the fake chat adapter.
+   const configPath = join(scratchDir, "skillmaker.config.json");
+   const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+@@ -154,6 +151,7 @@ beforeAll(async () => {
+     env: {
+       FAKE_CHAT_STATE_DIR: fakeStateDir,
+       SKILLMAKER_AGENT_HOME_DIR: join(scratchHome, ".skillmaker", "agent-home"),
++      CLAUDE_CONFIG_DIR: fakeClaudeConfigDir,
+     },
+   });
+   baseUrl = server.baseUrl;
+@@ -163,7 +161,7 @@ beforeAll(async () => {
+ afterAll(async () => {
+   server?.process.kill("SIGTERM");
+   await server?.process.exited;
+-  for (const dir of [scratchDir, scratchHome, fakeStateDir]) {
++  for (const dir of [scratchDir, scratchHome, fakeStateDir, fakeClaudeConfigDir]) {
+     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+   }
+ });
+@@ -218,7 +216,7 @@ describe("chat sessions (D9)", () => {
+       expect(text).toContain(`(slug: ${SKILL})`);
+       expect(text).toContain("The current step is: clarify intent and research.");
+       expect(text).toContain("william-draft-skill-md");
+-      expect(text).not.toContain("william-research-a-skill");
++      expect(text).toContain("william-research-a-skill");
+       expect(text).toContain("\n\n---\n\nhello agent");
+       expect(text).toContain("turn 2: and again");
+       // The preamble names the skillmaker CLI as the studio-state door (D6)
+@@ -245,12 +243,17 @@ describe("chat sessions (D9)", () => {
+     }
+   }, 30_000);
+ 
+-  test("agent home injection: helper skill installed under the scratch HOME, never the project", async () => {
+-    const injected = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-draft-skill-md", "SKILL.md");
+-    expect(existsSync(injected)).toBe(true);
+-    expect(
+-      existsSync(join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-research-a-skill")),
+-    ).toBe(false);
++  test("agent home injection uses packaged helpers, never writes them into the project", async () => {
++    for (const slug of ["william-research-a-skill", "william-draft-skill-md"]) {
++      expect(
++        existsSync(join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", slug, "SKILL.md")),
++      ).toBe(true);
++      expect(existsSync(join(scratchDir, "skills", slug))).toBe(false);
++    }
++    const bundles = await getJson("/bundles");
++    expect((bundles.body.bundles as ReadonlyArray<{ slug: string }>).map(({ slug }) => slug).sort()).toEqual(
++      [SKILL, ORIENT_SKILL].sort(),
++    );
+     // Chat runs DIRECT in the project -- no project-level skill install.
+     expect(existsSync(join(scratchDir, ".claude", "skills"))).toBe(false);
+   });
+@@ -412,7 +415,7 @@ describe("chat sessions (D9)", () => {
+       expect(text).toContain("turn 1: You're inside Skillmaker Studio.");
+       expect(text).toContain("orients the director"); // the bundle's one-liner
+       expect(text).toContain("william-draft-skill-md");
+-      expect(text).not.toContain("william-research-a-skill");
++      expect(text).toContain("william-research-a-skill");
+       expect(text).toContain("Orient the director");
+       // Preamble ALONE: machine context only, no separator, no user words.
+       expect(text).not.toContain("\n\n---\n\n");
+diff --git a/test/e2e/dist.e2e.test.ts b/test/e2e/dist.e2e.test.ts
+index b13cda7..fd9fbac 100644
+--- a/test/e2e/dist.e2e.test.ts
++++ b/test/e2e/dist.e2e.test.ts
+@@ -38,6 +38,7 @@ import { startE2eRegistryServer } from "./support/server.ts";
+ const repoRoot = join(import.meta.dir, "..", "..");
+ const distBinary = join(repoRoot, "dist", "skillmaker");
+ const distViewer = join(repoRoot, "dist", "viewer-dist");
++const distPackagedSkills = join(repoRoot, "dist", "packaged-skills");
+ 
+ const distArtifactsPresent = existsSync(distBinary) && existsSync(distViewer);
+ 
+@@ -71,12 +72,17 @@ describe.skipIf(!distArtifactsPresent)(
+   "skillmaker distributed binary: golden path (Phase 12a)",
+   () => {
+     beforeAll(async () => {
+-      // "Install": copy the two distributable pieces into a directory that
++      // "Install": copy the three distributable pieces into a directory that
+       // shares nothing with the repo checkout, exactly as a real install
+       // would (docs/dist.md).
+       installDir = mkdtempSync(join(tmpdir(), "skillmaker-dist-install-"));
++      // The skip guard intentionally covers the binary and viewer only. Once
++      // those prove this is a built distribution, missing helper payloads
++      // must fail loudly instead of becoming a misleading skip.
++      expect(existsSync(distPackagedSkills)).toBe(true);
+       cpSync(distBinary, join(installDir, "skillmaker"));
+       cpSync(distViewer, join(installDir, "viewer-dist"), { recursive: true });
++      cpSync(distPackagedSkills, join(installDir, "packaged-skills"), { recursive: true });
+       binaryPath = join(installDir, "skillmaker");
+       Bun.spawnSync(["chmod", "+x", binaryPath]);
+ 
+@@ -171,6 +177,12 @@ describe.skipIf(!distArtifactsPresent)(
+       expect(html).toContain("Skillmaker Studio");
+     });
+ 
++    test("installed layout includes both packaged William helper payloads", () => {
++      for (const slug of ["william-research-a-skill", "william-draft-skill-md"]) {
++        expect(existsSync(join(installDir, "packaged-skills", slug, "output", "SKILL.md"))).toBe(true);
++      }
++    });
++
+     test("claim file exists at the started port", () => {
+       expect(existsSync(claimPath())).toBe(true);
+       const claim = JSON.parse(readFileSync(claimPath(), "utf8")) as {
