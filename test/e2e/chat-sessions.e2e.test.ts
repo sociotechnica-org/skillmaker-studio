@@ -212,12 +212,13 @@ describe("chat sessions (D9)", () => {
       const text = agentTextOf(stream.events);
       // Multi-prompt over one session: the fake counts turns. Turn 1
       // carries the production-context preamble (Blocker #5): mission,
-      // slug, stage-appropriate step, William pointer -- then the user's
+      // slug, stage-appropriate step, installed helper -- then the user's
       // own words after the separator.
       expect(text).toContain("turn 1: You're inside Skillmaker Studio.");
       expect(text).toContain(`(slug: ${SKILL})`);
       expect(text).toContain("The current step is: clarify intent and research.");
-      expect(text).toContain("william-");
+      expect(text).toContain("william-draft-skill-md");
+      expect(text).not.toContain("william-research-a-skill");
       expect(text).toContain("\n\n---\n\nhello agent");
       expect(text).toContain("turn 2: and again");
       // The preamble names the skillmaker CLI as the studio-state door (D6)
@@ -247,6 +248,9 @@ describe("chat sessions (D9)", () => {
   test("agent home injection: helper skill installed under the scratch HOME, never the project", async () => {
     const injected = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-draft-skill-md", "SKILL.md");
     expect(existsSync(injected)).toBe(true);
+    expect(
+      existsSync(join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-research-a-skill")),
+    ).toBe(false);
     // Chat runs DIRECT in the project -- no project-level skill install.
     expect(existsSync(join(scratchDir, ".claude", "skills"))).toBe(false);
   });
@@ -407,6 +411,8 @@ describe("chat sessions (D9)", () => {
       const text = agentTextOf(stream.events);
       expect(text).toContain("turn 1: You're inside Skillmaker Studio.");
       expect(text).toContain("orients the director"); // the bundle's one-liner
+      expect(text).toContain("william-draft-skill-md");
+      expect(text).not.toContain("william-research-a-skill");
       expect(text).toContain("Orient the director");
       // Preamble ALONE: machine context only, no separator, no user words.
       expect(text).not.toContain("\n\n---\n\n");

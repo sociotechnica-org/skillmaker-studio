@@ -220,6 +220,8 @@ export interface PreambleContext {
   readonly stage: PreambleStage;
   /** The stage DERIVED from artifact existence (deriveArtifactStage) -- what "The current step is:" is phrased from. Live-test ruling: the journal said "idea" while notes+design+draft+evals all existed. */
   readonly derivedStage: PreambleStage;
+  /** Helper skills that prepareAgentHome installed for this live session. */
+  readonly installedHelpers: ReadonlyArray<string>;
 }
 
 /**
@@ -279,7 +281,12 @@ export const deriveArtifactStage = (bundleDir: string): PreambleStage => {
  * probed from which artifacts exist on disk (deriveArtifactStage). Anything
  * missing or malformed degrades to the default, never throws.
  */
-export const readPreambleContext = (root: string, skillsDir: string, slug: string): PreambleContext => {
+export const readPreambleContext = (
+  root: string,
+  skillsDir: string,
+  slug: string,
+  installedHelpers: ReadonlyArray<string>,
+): PreambleContext => {
   let oneLiner = "";
   try {
     const identity: unknown = JSON.parse(readFileSync(join(root, skillsDir, slug, "bundle.json"), "utf8"));
@@ -308,7 +315,7 @@ export const readPreambleContext = (root: string, skillsDir: string, slug: strin
   } catch {
     // No journal yet: a brand-new bundle is honestly at "idea".
   }
-  return { oneLiner, stage, derivedStage: deriveArtifactStage(join(root, skillsDir, slug)) };
+  return { oneLiner, stage, derivedStage: deriveArtifactStage(join(root, skillsDir, slug)), installedHelpers };
 };
 
 export const buildChatPreamble = (skill: string, skillsDir: string, context: PreambleContext): string => {
@@ -321,7 +328,11 @@ export const buildChatPreamble = (skill: string, skillsDir: string, context: Pre
     ``,
     `- The bundle lives at ${skillsDir}/${skill}/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).`,
     `- The pipeline is research/notes.md -> design.md (co-authored in this conversation) -> output/SKILL.md -> evals -> publish; stage moves are human-gated.`,
-    `- Your guidance skills are installed in your agent home -- read the relevant william-* skill before acting.`,
+    ...(context.installedHelpers.length > 0
+      ? [
+          `- Your guidance skills (${context.installedHelpers.join(", ")}) are installed in your agent home -- read the relevant one before acting.`,
+        ]
+      : []),
     `- Studio state -- todos, fixtures, runs, stages -- is read and changed through the \`skillmaker\` CLI (run \`skillmaker --help\` to see commands). Prefer the CLI over editing .skillmaker/ files by hand.`,
     `- You are working DIRECTLY in the project; edits are real, not sandboxed.`,
     ``,
@@ -427,6 +438,8 @@ interface LiveChat {
   modelId: string | undefined;
   /** Effort level in effect (codex only). */
   effort: string | undefined;
+  /** Helper skills that session startup actually installed into the agent home. */
+  installedHelpers: ReadonlyArray<string>;
   /** Everything streamed since this session spawned; replayed to each new SSE subscriber. */
   readonly events: ChatStreamEvent[];
   readonly subscribers: Set<(event: ChatStreamEvent) => void>;
@@ -772,6 +785,7 @@ export class ChatSessionManager {
       handle: undefined,
       modelId: chosenModel,
       effort: chosenEffort,
+      installedHelpers: [],
       events: [],
       subscribers: new Set(),
       pendingPermissions: new Map(),
@@ -783,7 +797,8 @@ export class ChatSessionManager {
     this.broadcastState(chat);
 
     const providerProfile = resolveProviderProfile(provider);
-    const { home } = prepareAgentHome(provider, this.root, this.config.skillsDir);
+    const { home, installedHelpers } = prepareAgentHome(provider, this.root, this.config.skillsDir);
+    chat.installedHelpers = installedHelpers;
 
     const outcome = await Effect.runPromise(
       Effect.result(
@@ -856,7 +871,7 @@ export class ChatSessionManager {
   private sendOrientationOpening(skill: string, chat: LiveChat): void {
     const handle = chat.handle;
     if (handle === undefined || chat.status !== "ready") return;
-    const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill);
+    const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill, chat.installedHelpers);
     const context = `${buildChatPreamble(skill, this.config.skillsDir, bundleContext)}\n\n${ORIENTATION_INSTRUCTION}`;
     this.broadcast(chat, { type: "user_message", text: "", context, t: new Date().toISOString() });
     this.dispatchTurn(skill, chat, handle, context, []);
@@ -894,7 +909,7 @@ export class ChatSessionManager {
     const isFirstPrompt = !chat.events.some((event) => event.type === "user_message");
     let context: string | undefined;
     if (isFirstPrompt) {
-      const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill);
+      const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill, chat.installedHelpers);
       context = chat.handle.resumed
         ? buildChatReorientation(skill, bundleContext)
         : buildChatPreamble(skill, this.config.skillsDir, bundleContext);

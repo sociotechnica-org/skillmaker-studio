@@ -24,7 +24,12 @@ import {
 const STAGES: ReadonlyArray<PreambleStage> = ["idea", "researching", "drafting", "evaluating", "published"];
 
 describe("buildChatPreamble", () => {
-  const context = { oneLiner: "turn READMEs into onboarding docs", stage: "idea" as const, derivedStage: "idea" as const };
+  const context = {
+    oneLiner: "turn READMEs into onboarding docs",
+    stage: "idea" as const,
+    derivedStage: "idea" as const,
+    installedHelpers: ["william-research-a-skill", "william-draft-skill-md"],
+  };
 
   test("carries the director's template facts: studio, mission, one-liner, slug", () => {
     const preamble = buildChatPreamble("readme-onboarding", "skills", context);
@@ -35,14 +40,60 @@ describe("buildChatPreamble", () => {
     expect(preamble).toContain("ship its SKILL.md");
   });
 
-  test("points at the agent-home William guidance and the skillmaker CLI, and states direct-edit reality", () => {
+  test("names the installed guidance helpers, the skillmaker CLI, and direct-edit reality", () => {
     const preamble = buildChatPreamble("readme-onboarding", "skills", context);
-    expect(preamble).toContain("william-");
+    expect(preamble).toContain(
+      "Your guidance skills (william-research-a-skill, william-draft-skill-md) are installed in your agent home",
+    );
     expect(preamble).toContain("agent home");
     expect(preamble).toContain("skillmaker");
     expect(preamble).toContain("DIRECTLY in the project");
     // The bundle path uses the workspace's configured skillsDir.
     expect(preamble).toContain("skills/readme-onboarding/");
+  });
+
+  test("omits the guidance line when no helpers installed", () => {
+    const preamble = buildChatPreamble("readme-onboarding", "skills", { ...context, installedHelpers: [] });
+    expect(preamble).not.toContain("guidance skills");
+    expect(preamble).not.toContain("agent home");
+    expect(preamble).not.toContain("william-");
+  });
+
+  test("names only the helper that installed", () => {
+    const preamble = buildChatPreamble("readme-onboarding", "skills", {
+      ...context,
+      installedHelpers: ["william-draft-skill-md"],
+    });
+    expect(preamble).toContain("Your guidance skills (william-draft-skill-md) are installed");
+    expect(preamble).not.toContain("william-research-a-skill");
+  });
+
+  test("leaves every non-helper line and blank-line boundary unchanged", () => {
+    const expected = [
+      "You're inside Skillmaker Studio. Your job is to help me create a reusable SKILL -- turn READMEs into onboarding docs -- as a skillmaker bundle (slug: readme-onboarding) that will eventually ship its SKILL.md.",
+      "",
+      "- The bundle lives at skills/readme-onboarding/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).",
+      "- The pipeline is research/notes.md -> design.md (co-authored in this conversation) -> output/SKILL.md -> evals -> publish; stage moves are human-gated.",
+      "- Studio state -- todos, fixtures, runs, stages -- is read and changed through the `skillmaker` CLI (run `skillmaker --help` to see commands). Prefer the CLI over editing .skillmaker/ files by hand.",
+      "- You are working DIRECTLY in the project; edits are real, not sandboxed.",
+      "",
+      `The current step is: ${NEXT_STEP_BY_STAGE.idea}. That's read from the artifacts that actually exist in the bundle (the declared stage is "idea" -- stages move at human gates and may lag the artifacts). Do the STEP, not the skill's task itself.`,
+    ].join("\n");
+    const withoutGuidanceLine = (preamble: string): string =>
+      preamble
+        .split("\n")
+        .filter((line) => !line.startsWith("- Your guidance skills "))
+        .join("\n");
+
+    const present = buildChatPreamble("readme-onboarding", "skills", context);
+    const absent = buildChatPreamble("readme-onboarding", "skills", { ...context, installedHelpers: [] });
+    const partial = buildChatPreamble("readme-onboarding", "skills", {
+      ...context,
+      installedHelpers: ["william-draft-skill-md"],
+    });
+    expect(withoutGuidanceLine(present)).toBe(expected);
+    expect(absent).toBe(expected);
+    expect(withoutGuidanceLine(partial)).toBe(expected);
   });
 
   test("encodes the real pipeline, including design.md co-authored in conversation", () => {
@@ -53,7 +104,7 @@ describe("buildChatPreamble", () => {
 
   test("the current step is phrased from the DERIVED stage; the declared stage is secondary honesty", () => {
     for (const derivedStage of STAGES) {
-      const preamble = buildChatPreamble("s", "skills", { oneLiner: "x", stage: "idea", derivedStage });
+      const preamble = buildChatPreamble("s", "skills", { oneLiner: "x", stage: "idea", derivedStage, installedHelpers: [] });
       expect(preamble).toContain(`The current step is: ${NEXT_STEP_BY_STAGE[derivedStage]}.`);
       expect(preamble).toContain("Do the STEP, not the skill's task itself.");
     }
@@ -66,7 +117,12 @@ describe("buildChatPreamble", () => {
 
   test("never asserts the declared stage as truth: it appears only in the may-lag honesty clause", () => {
     // The live-tested lie: journal says "idea", artifacts say everything exists.
-    const preamble = buildChatPreamble("s", "skills", { oneLiner: "x", stage: "idea", derivedStage: "published" });
+    const preamble = buildChatPreamble("s", "skills", {
+      oneLiner: "x",
+      stage: "idea",
+      derivedStage: "published",
+      installedHelpers: [],
+    });
     expect(preamble).not.toContain("at stage idea");
     expect(preamble).toContain(`The current step is: ${NEXT_STEP_BY_STAGE.published}.`);
     expect(preamble).toContain('the declared stage is "idea"');
@@ -75,7 +131,12 @@ describe("buildChatPreamble", () => {
   });
 
   test("an empty one-liner drops the clause instead of rendering an empty dash", () => {
-    const preamble = buildChatPreamble("s", "skills", { oneLiner: "  ", stage: "idea", derivedStage: "idea" });
+    const preamble = buildChatPreamble("s", "skills", {
+      oneLiner: "  ",
+      stage: "idea",
+      derivedStage: "idea",
+      installedHelpers: [],
+    });
     expect(preamble).toContain("create a reusable SKILL as a skillmaker bundle");
     expect(preamble).not.toContain("-- --");
   });
@@ -83,7 +144,12 @@ describe("buildChatPreamble", () => {
 
 describe("buildChatReorientation", () => {
   test("one line: slug, artifact-derived current step, declared stage as honesty, do-the-step", () => {
-    const line = buildChatReorientation("readme-onboarding", { oneLiner: "", stage: "researching", derivedStage: "drafting" });
+    const line = buildChatReorientation("readme-onboarding", {
+      oneLiner: "",
+      stage: "researching",
+      derivedStage: "drafting",
+      installedHelpers: [],
+    });
     expect(line).toStartWith("Re-orientation:");
     expect(line).toContain('"readme-onboarding"');
     expect(line).toContain(`current step, from the artifacts: ${NEXT_STEP_BY_STAGE.drafting}`);
@@ -121,17 +187,23 @@ describe("readPreambleContext", () => {
         join(root, ".skillmaker", "events.jsonl"),
         `${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
       );
-      expect(readPreambleContext(root, "skills", "my-skill")).toEqual({
+      expect(readPreambleContext(root, "skills", "my-skill", ["installed-helper"])).toEqual({
         oneLiner: "does the thing",
         stage: "drafting",
         derivedStage: "idea",
+        installedHelpers: ["installed-helper"],
       });
     });
   });
 
   test("degrades honestly: no bundle.json, no journal, no artifacts -> empty one-liner, everything idea", () => {
     withScratch((root) => {
-      expect(readPreambleContext(root, "skills", "ghost")).toEqual({ oneLiner: "", stage: "idea", derivedStage: "idea" });
+      expect(readPreambleContext(root, "skills", "ghost", [])).toEqual({
+        oneLiner: "",
+        stage: "idea",
+        derivedStage: "idea",
+        installedHelpers: [],
+      });
     });
   });
 
@@ -141,10 +213,11 @@ describe("readPreambleContext", () => {
       mkdirSync(join(bundleDir, "research"), { recursive: true });
       writeFileSync(join(bundleDir, "research", "notes.md"), "# Notes\n\nFindings.\n");
       // No journal at all: declared stage degrades to idea, derived stage does not.
-      expect(readPreambleContext(root, "skills", "my-skill")).toEqual({
+      expect(readPreambleContext(root, "skills", "my-skill", [])).toEqual({
         oneLiner: "",
         stage: "idea",
         derivedStage: "researching",
+        installedHelpers: [],
       });
     });
   });
@@ -161,7 +234,7 @@ describe("readPreambleContext", () => {
           "",
         ].join("\n"),
       );
-      expect(readPreambleContext(root, "skills", "s").stage).toBe("evaluating");
+      expect(readPreambleContext(root, "skills", "s", []).stage).toBe("evaluating");
     });
   });
 });
@@ -250,7 +323,7 @@ describe("deriveArtifactStage (the current step comes from what exists, not what
       writeFileSync(join(bundleDir, "output", "SKILL.md"), "skill\n");
       mkdirSync(join(bundleDir, "evals", "fixtures", "case-1"), { recursive: true });
       const root = join(bundleDir, "..", "..");
-      const context = readPreambleContext(root, "skills", "s");
+      const context = readPreambleContext(root, "skills", "s", []);
       expect(context.stage).toBe("idea");
       expect(context.derivedStage).toBe("published");
       const preamble = buildChatPreamble("s", "skills", context);
@@ -277,7 +350,12 @@ describe("ORIENTATION_INSTRUCTION (agent speaks first)", () => {
 describe("wire composition constants", () => {
   test("the separator isolates the user's words from the machine context (the viewer splits on it)", () => {
     expect(PREAMBLE_SEPARATOR).toBe("\n\n---\n\n");
-    const preamble = buildChatPreamble("s", "skills", { oneLiner: "", stage: "idea", derivedStage: "idea" });
+    const preamble = buildChatPreamble("s", "skills", {
+      oneLiner: "",
+      stage: "idea",
+      derivedStage: "idea",
+      installedHelpers: [],
+    });
     // The preamble itself must never contain the separator, or the
     // viewer's split lands mid-context.
     expect(preamble).not.toContain(PREAMBLE_SEPARATOR);
