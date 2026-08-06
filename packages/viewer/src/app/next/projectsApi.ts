@@ -39,6 +39,7 @@ const decodeSkill = (value: unknown): Skill | null => {
     readonly stage?: unknown;
     readonly substate?: unknown;
     readonly oneLiner?: unknown;
+    readonly tags?: unknown;
   };
   if (typeof raw.slug !== "string" || raw.slug.length === 0) return null;
   return {
@@ -48,6 +49,9 @@ const decodeSkill = (value: unknown): Skill | null => {
     // The attention dot: only an explicit awaiting-review earns one -- an
     // absent/unknown substate (older server) stays dotless, never invented.
     awaitingReview: raw.substate === "awaiting-review",
+    ...(Array.isArray(raw.tags)
+      ? { tags: raw.tags.filter((t): t is string => typeof t === "string") }
+      : {}),
   };
 };
 
