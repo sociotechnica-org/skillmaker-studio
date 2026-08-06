@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "william-write-a-dossier",
+  "name": "William Write A Dossier",
+  "oneLiner": "",
+  "tags": [],
+  "created": "2026-08-06",
+  "targets": [
+    "claude-code"
+  ]
+}
