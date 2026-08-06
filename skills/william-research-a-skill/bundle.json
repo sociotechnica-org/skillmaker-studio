@@ -3,7 +3,10 @@
   "slug": "william-research-a-skill",
   "name": "William Research A Skill",
   "oneLiner": "Researches a skill's topic and writes research/notes.md before anyone drafts design.md or SKILL.md.",
-  "tags": [],
+  "tags": [
+    "william",
+    "method"
+  ],
   "created": "2026-07-11",
   "targets": [
     "claude-code"

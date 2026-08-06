@@ -2,8 +2,11 @@
   "schemaVersion": 1,
   "slug": "william-write-a-dossier",
   "name": "William Write A Dossier",
-  "oneLiner": "",
-  "tags": [],
+  "oneLiner": "Writes or tightens a bundle's dossier.md so a newcomer gets it in twenty seconds.",
+  "tags": [
+    "william",
+    "job"
+  ],
   "created": "2026-08-06",
   "targets": [
     "claude-code"
