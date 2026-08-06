@@ -1,0 +1,519 @@
+{
+  "title": "GitHub Issue #190: Chat agent home seeds William helpers from the workspace only — no packaged fa...",
+  "spec": {
+    "run_id": "01KZBRE9Q06N5BWK2W5A71X25P",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": {
+          "type": "inline",
+          "value": "GitHub Issue #190: Chat agent home seeds William helpers from the workspace only — no packaged fallback, so fresh projects trigger a permission storm\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/190\n\n## Summary\n\nChat sessions seed Skillmaker's own helper skills (the William bundles) into the\nagent home from the **user's workspace `skills/` directory only**, with no\nproduct-packaged fallback. Every project that doesn't hand-carry the William\nbundles — i.e. every real user project — starts its chat agent with no helpers,\nso the agent goes hunting the operator's filesystem for them, and each\nout-of-project path it touches raises a permission card. D6's \"William ships\ninside the product\" was delivered for station runs (`resolveStationSkillDir`);\nthe chat path never got it. Give `prepareAgentHome` the same fallback.\n\n## Motivation / Problem\n\nThis is the first-run experience for new users, and it is the opposite of what\nthe getting-started tour promises. The chat permission policy is deliberately\nquiet — anything touching paths inside the project auto-approves silently — so a\nwell-provisioned agent should raise close to zero cards while it researches and\ndrafts inside the bundle. Instead the very first session becomes a permission\nstorm, and the cause is entirely self-inflicted: the agent is searching for\nproduct machinery that should have been handed to it at spawn.\n\nCost is concentrated on exactly the population we can least afford to burn\n(outside testers on a fresh project, per the \"Your first skill\" tour), and the\nfailure is silent — `prepareAgentHome` skips a missing helper without a warning,\nso nothing in the UI, logs, or journal says the agent is running unequipped.\n\n## Observed behavior\n\nFresh project on v0.6.2 via `npx skillmaker-studio@latest start`, project root\n`/Users/danvers/skills`, provider `claude-code`, one chat session on a new\nbundle.\n\nThe agent home has no `skills/` directory at all:\n\n```\n$ ls ~/.skillmaker/agent-home/claude-code/\n.claude.json  .credentials.json  .last-cleanup  backups\nprojects  session-env  sessions  shell-snapshots\n```\n\nThe session's transcript contains **24 tool calls, 23 of which reference paths\noutside the project root** — every one of them a permission card the human had\nto clear. The first call and several after it are the agent looking for its own\nmissing helpers, then falling back to searching the operator's machine:\n\n```\nls /Users/danvers/.skillmaker/agent-home/claude-code/skills/\nfind / -maxdepth 8 -type d -iname \"william-*\"\nfind ~/.claude -maxdepth 4 -iname \"*william*\"\nls ~/.claude/skills/\nls ~/conductor/repos/\n```\n\nExactly one of the 24 calls stayed inside the project.\n\nSeeding the two bundles into `~/.skillmaker/agent-home/claude-code/skills/` by\nhand removes the hunt — confirming the diagnosis and giving users a stopgap.\n\n## Current shape\n\nThe station path already resolves this correctly, and the fix is \"make chat\nmatch station.\"\n\n**Station runs (correct).** `Server.ts:2278` calls `locatePackagedSkillsDir()`\nand threads it into `runStation`, which resolves per slug in\n`resolveStationSkillDir` (`packages/core/src/StationEngine.ts:423`): the\nworkspace's own `<skillsDir>/<slug>/` wins when it has a `bundle.json`, else the\nproduct-packaged copy. `StationRun.ts:84` does the same for the CLI. That\nfunction's doc comment already states the fence this issue depends on —\npackaged skills are visible to *station resolution only*; they never appear on\nthe Board, in bundle listings, or in the index.\n\n**Chat (broken).** `prepareAgentHome` (`packages/cli/src/server/ChatSessions.ts:156-182`)\nlooks in one place and gives up:\n\n```ts\nconst bundleDir = join(workspaceRoot, skillsDir, slug);\nconst sourceDir = existsSync(join(bundleDir, \"output\", \"SKILL.md\"))\n  ? join(bundleDir, \"output\")\n  : existsSync(join(bundleDir, \"SKILL.md\"))\n    ? bundleDir\n    : undefined;\nif (sourceDir === undefined) continue;   // silent\n```\n\n`ChatSessions.ts` does not import `locatePackagedSkillsDir` at all — the only\nconsumers are `Server.ts` and `commands/StationRun.ts`. The declaring comment at\n`ChatSessions.ts:58` records the gap as intended behavior (\"silently skipped\nwhen absent … still chats fine, just without the helpers\"), which is what needs\nrevising: it does not chat fine, it chats loudly.\n\nThe trap worth naming: this is the same defect as friction-log entry #1\n(\"William isn't distributed — every workspace must hand-carry his bundles\"),\nwhich PR #171 was believed to have closed. #171 fixed *station skill resolution*\nand left *agent-home seeding* on the old assumption, so the repo's own\nself-hosted `skills/` workspace — which does carry the William bundles — masks\nit for every maintainer.\n\n## Proposed contract\n\nPer helper slug in `HELPER_SKILL_SLUGS`, resolution order:\n\n| # | Source | Condition | `source` |\n|---|---|---|---|\n| 1 | `<workspaceRoot>/<skillsDir>/<slug>/output/SKILL.md` → seed `output/` | file exists | `workspace` |\n| 2 | `<workspaceRoot>/<skillsDir>/<slug>/SKILL.md` → seed the bundle dir | file exists | `workspace` |\n| 3 | `<packagedSkillsDir>/<slug>/output/SKILL.md` → seed `output/` | `locatePackagedSkillsDir()` returned a dir and the file exists | `packaged` |\n| 4 | `<packagedSkillsDir>/<slug>/SKILL.md` → seed the bundle dir | as above | `packaged` |\n| — | none | skip this slug, no throw | — |\n\nDestination is unchanged: `<agentHome>/skills/<slug>/`, holding `SKILL.md` at\nits root.\n\n`installedHelpers` grows a source so callers and tests can assert *which* copy\nwon:\n\n```ts\n{ home: string, installedHelpers: ReadonlyArray<{ slug: string, source: \"workspace\" | \"packaged\" }> }\n```\n\n**Decisions:**\n\n- Workspace copies always win, matching `resolveStationSkillDir` — hacking on\n  William in this repo's self-hosted workspace keeps working, and any workspace\n  can override a packaged helper by drafting its own.\n- Resolution is **per slug**, not all-or-nothing: a workspace carrying one\n  helper and not the other gets one of each source.\n- The workspace probe keeps its existing two-layout shape (`output/SKILL.md`\n  first, then a root `SKILL.md`), and the packaged probe uses the same shape.\n- A slug that resolves to a source **replaces** the destination (existing\n  `rmSync` + copy), so a stale helper from an older version cannot survive an\n  upgrade. This clobbers hand-seeded workarounds, which is intended.\n- A slug that resolves **nowhere** leaves any pre-existing destination\n  untouched (today's behavior, unchanged) — the seeding step must not delete\n  material it cannot replace.\n- `locatePackagedSkillsDir()` returning `undefined` is not an error: a source\n  checkout without the packaged dir behaves exactly as today.\n- Packaged helpers remain invisible as workspace bundles. They are copied into\n  the agent home and nowhere else — no Board row, no bundle listing, no index\n  entry, no write into the user's `skills/` directory or personal config dir.\n- No new UI and no new config knob. The permission policy itself is not touched.\n\n## Acceptance criteria\n\n- [ ] On a project whose `skills/` directory contains neither William bundle,\n      starting a chat session leaves both `william-research-a-skill/SKILL.md`\n      and `william-draft-skill-md/SKILL.md` present under\n      `<agentHome>/<provider>/skills/`, sourced from the packaged copies.\n- [ ] On a workspace that carries its own copy of a helper, that copy is what\n      lands in the agent home, and `installedHelpers` reports it as\n      `source: \"workspace\"` — the packaged copy does not override it.\n- [ ] With one helper in the workspace and one only packaged, both land, each\n      reporting its own source.\n- [ ] Negative: when a slug resolves in neither location, `prepareAgentHome`\n      returns without throwing, omits that slug from `installedHelpers`, the\n      chat session still starts, and any pre-existing directory at that\n      destination is left byte-identical.\n- [ ] Negative: no packaged helper is written into the user's project — after a\n      chat session on a fresh project, `<workspaceRoot>/<skillsDir>/` contains\n      only the user's own bundles, and neither William slug appears in a bundle\n      listing or on the Board.\n- [ ] Idempotency: calling `prepareAgentHome` twice for the same provider yields\n      the same tree — no nested `skills/<slug>/output/`, no accumulation, no\n      duplicate entries in `installedHelpers`.\n- [ ] Upgrade: a destination holding an older/edited copy of a helper is\n      replaced by the resolved source rather than merged with it.\n- [ ] Regression: station skill resolution is unchanged — the existing\n      workspace-wins / packaged-fallback behavior and its precondition error\n      message still hold for `skillmaker station run` and server-triggered\n      station runs.\n- [ ] Regression: the packaged-skills drift and location tests in\n      `packages/cli/test/PackagedSkills.test.ts` still pass unmodified, and the\n      compiled-binary layout still ships `packaged-skills` alongside the\n      executable (`test/e2e/dist.e2e.test.ts`).\n- [ ] Tests cover: packaged-only, workspace-only, mixed, neither, repeat-call\n      idempotency, stale-destination replacement, and the no-write-into-project\n      assertion. `prepareAgentHome` has no unit test today, so this is new\n      coverage, not an amendment.\n\n## Implementation notes\n\n`locatePackagedSkillsDir` lives in the same package as `ChatSessions.ts`\n(`packages/cli/src/PackagedSkills.ts`), so this needs no cross-package\nplumbing — unlike the station path, where `StationEngine` sits in `core` and\ntakes the directory as an option. Prefer calling it inside `prepareAgentHome`\nover threading a new parameter through every call site, unless a test seam makes\nthe parameter clearly better.\n\nScope fences, aimed at the plausible over-reaches here:\n\n- **Do not touch the permission policy.** `makeChatPermissionPolicy` and the\n  path-scoping in `AcpClient.ts` are correct as written; this issue removes the\n  *reason* the agent leaves the project, not the guard that reports it. In\n  particular, do not add an allowlist, an \"always allow\" affordance, or a\n  config knob for auto-approval — those are separate product decisions.\n- **Do not widen `HELPER_SKILL_SLUGS`.** Which helpers ship is a product\n  ruling, not part of this fix.\n- **Do not make a missing packaged directory fatal.** Source checkouts that\n  haven't built `dist` must keep working.\n- **Do not surface seeding in the UI.** If a signal is wanted for the silent-skip\n  case, a server-side log line is the ceiling for this issue.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `HELPER_SKILL_SLUGS` (:58),\n  `prepareAgentHome` (:156), its two call sites (:598 capability probe, :793\n  session start)\n- `packages/cli/src/PackagedSkills.ts` — `locatePackagedSkillsDir`\n- `packages/core/src/StationEngine.ts` — `resolveStationSkillDir` (:423), the\n  behavior to mirror\n- `packages/cli/test/PackagedSkills.test.ts` — existing drift/location coverage\n\n## Not in scope\n\nOne adjacent defect found while diagnosing this, deliberately **not** bundled\nhere — file separately if wanted: `permissionPathsOutside`\n(`packages/core/src/AcpClient.ts:431`) classifies every `~`-anchored path as\noutside the root unconditionally, so a home-anchored reference to the project\ndirectory itself (`~/skills/...` when the project *is* `~/skills`) raises a\npermission card it shouldn't. Latent — it did not contribute to the transcript\nabove.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. The fix should mirror the workspace-wins-then-packaged-fallback resolution StationEngine uses (packages/core/src/StationEngine.ts resolveStationSkillDir, packages/cli/src/PackagedSkills.ts). Stay minimal: fix with tests, nothing adjacent.\n"
+        },
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {
+          "agent_backend": "api"
+        },
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5.6-terra",
+          "fallbacks": {},
+          "controls": {
+            "reasoning_effort": "medium",
+            "speed": null
+          }
+        },
+        "git": {
+          "author": {
+            "name": "Fabro",
+            "email": "285810526+fabro-of-alexandria[bot]@users.noreply.github.com"
+          }
+        },
+        "prepare": {
+          "steps": [
+            {
+              "type": "command",
+              "command": [
+                "./.fabro/scripts/fabro-setup-env"
+              ]
+            }
+          ],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt"
+        },
+        "checkpoint": {
+          "exclude_globs": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ],
+          "skip_git_hooks": false,
+          "commit_timeout_ms": 30000
+        },
+        "clone": {
+          "enabled": true
+        },
+        "run_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "meta_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "environment": {
+          "id": "daytona",
+          "provider": "daytona",
+          "image": {
+            "docker": null,
+            "dockerfile": null
+          },
+          "resources": {
+            "cpu": null,
+            "memory": null,
+            "disk": null
+          },
+          "network": {
+            "mode": "allow_all",
+            "allow": []
+          },
+          "lifecycle": {
+            "preserve": false,
+            "stop_on_terminal": true,
+            "auto_stop": "1h"
+          },
+          "labels": {
+            "project": "skillmaker-studio",
+            "host": "railway",
+            "workflow": "sms-feature"
+          },
+          "env": {}
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null
+        },
+        "agent": {
+          "fabro_tools": false,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": {
+          "enabled": true,
+          "draft": true,
+          "auto_merge": false,
+          "merge_strategy": "squash"
+        },
+        "artifacts": {
+          "include": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ]
+        },
+        "integrations": {
+          "github": {
+            "permissions": {
+              "contents": "write",
+              "pull_requests": "write"
+            }
+          }
+        }
+      }
+    },
+    "graph": {
+      "name": "SmsFeature",
+      "nodes": {
+        "start": {
+          "id": "start",
+          "attrs": {
+            "shape": {
+              "String": "Mdiamond"
+            },
+            "label": {
+              "String": "Start"
+            }
+          }
+        },
+        "review_judge": {
+          "id": "review_judge",
+          "attrs": {
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "label": {
+              "String": "ReviewJudge"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "prompt": {
+              "String": "# ReviewJudge\n\nYou are the single review-and-verdict gate before the PR. Review the\nimplementation diff against the scope plan (under `docs/proposals/`, named\nby the scope stage) and the house rules, read the gates output from the\nprevious stage, and deliver ONE verdict. Do not edit any files.\n\nCheck:\n\n- The diff stays within the plan's scope and package boundaries: domain\n  logic and schemas in `packages/core`, deterministic CLI/server behavior\n  in `packages/cli`, browser UI in `packages/viewer`.\n- Comments are plain English prose explaining WHY, citing issues, dated\n  proposals, and rulings (`packages/core/src/Todo.ts` is the standard).\n- Behavior changes have tests (black-box CLI tests for CLI behavior,\n  `test/e2e` for server-surface changes).\n- No files under `docs/library` were freehand-edited outside an approved\n  library migration.\n- The deterministic gates output shows the repo gates passed on the final\n  diff.\n\nGrading bar — this line is load-bearing: a mergeable change with noted\nimperfections is a PASSING grade — perfectionism is the expensive failure\nmode; note imperfections in the PR body instead of bouncing. Only route\nFix for real defects: broken or untested behavior, scope/plan mismatch,\nboundary violations, failing gates. Style nits, minor gaps, and \"could be\nbetter\" observations go in a short \"Imperfections to note in the PR body\"\nlist in your response, which the Prepare PR stage will include.\n\nVerdicts (exactly one):\n\n- **ready** — the change is mergeable. List any imperfections for the PR\n  body, then route to Prepare PR.\n- **fix** — a real defect blocks merge. Allowed AT MOST ONCE per run (the\n  graph enforces this: this node runs at most twice, so on your second\n  run Fix is off the table — choose ready or surface). Give concrete,\n  actionable fix items so the implement stage can act without guessing.\n- **surface** — you and the implementation cannot converge (e.g. the fix\n  round did not resolve the defect, or the plan itself is wrong). Stop\n  the run with a clear summary of the disagreement for a human.\n\nEnd with exactly one routing JSON object:\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"verdict\":\"ready\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"verdict\":\"fix\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Surface\",\"outcome\":\"failed\",\"failure_reason\":\"<one-line summary of the disagreement>\",\"context_updates\":{\"verdict\":\"surface\"}}\n```\n"
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "max_visits": {
+              "Integer": 3
+            },
+            "goal_gate": {
+              "Boolean": true
+            }
+          }
+        },
+        "validate_gates": {
+          "id": "validate_gates",
+          "attrs": {
+            "shape": {
+              "String": "parallelogram"
+            },
+            "max_visits": {
+              "Integer": 5
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "label": {
+              "String": "Run repo gates"
+            },
+            "script": {
+              "String": "./.fabro/scripts/fabro-validate"
+            }
+          }
+        },
+        "handoff": {
+          "id": "handoff",
+          "attrs": {
+            "provider": {
+              "String": "openai"
+            },
+            "shape": {
+              "String": "tab"
+            },
+            "label": {
+              "String": "Prepare PR"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "max_visits": {
+              "Integer": 2
+            },
+            "prompt": {
+              "String": "# Prepare PR\n\nPrepare the final pull request context.\n\nFabro's configured `[run.pull_request]` finalization creates the pull\nrequest after this node. Write the PR title and body to these files:\n\n- `/tmp/fabro-pr-title.txt`\n- `/tmp/fabro-pr-body.md`\n\nThe body must be honest reviewer context, not a sales pitch. Include:\n\n- Suggested PR title.\n- What changed and why, tied to the plan in `docs/proposals/`.\n- Validation: which gates ran (typecheck core/cli, `bun test packages`,\n  `bun test test/e2e`, `bun run build:viewer` if the viewer changed) and\n  their actual results.\n- The ReviewJudge's \"imperfections to note in the PR body\" list, carried\n  over verbatim from that stage's output. Noted imperfections are the\n  deal — the judge passes mergeable-with-notes changes on the promise\n  that the notes reach the reviewer.\n- Any remaining risks, known gaps, skipped checks, or manual follow-up —\n  stated plainly. If something was not verified, say so; do not imply\n  coverage that does not exist.\n\nKeep the summary concise and specific to Skillmaker Studio. Do not\ndescribe this as a handoff to a human; write it as PR-ready reviewer\ncontext.\n\nThe title file must contain exactly one line. The body file must contain\nMarkdown suitable for a draft pull request body.\n"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "shape": {
+              "String": "Msquare"
+            },
+            "label": {
+              "String": "Exit"
+            }
+          }
+        },
+        "scope": {
+          "id": "scope",
+          "attrs": {
+            "prompt": {
+              "String": "# Scope\n\nWrite a durable technical implementation plan for the requested\nSkillmaker Studio feature to\n`docs/proposals/<yyyy-mm-dd>-<stable-feature-slug>.md` (refine an\nexisting relevant plan instead of duplicating it). Do not edit\nimplementation files in this stage.\n\n## The repository\n\nSkillmaker Studio is a bun + Effect TypeScript monorepo (bun workspaces):\n\n- `packages/core` — the domain engine: skills, evals, journal, todos,\n  triage. Effect-first; schemas live here and everything else consumes\n  them.\n- `packages/cli` — the `skillmaker` CLI and the local server the Studio\n  UI rides on. Command data on stdout, diagnostics on stderr, stable\n  exit codes.\n- `packages/viewer` — the Studio browser UI (Astro + React).\n- `packages/desktop`, `packages/docs-site`, `packages/marketing-site`,\n  `packages/skill` — touch these only when the goal names them.\n- `test/e2e` — black-box end-to-end tests over the CLI and server\n  surfaces.\n- `docs/proposals/` — dated proposal/plan documents. Do not\n  freehand-edit `docs/library` (the live product context library)\n  unless the plan explicitly owns a library migration.\n\nRepository gates (mirrors `.github/workflows/ci.yml`): typecheck core\nand cli, `bun test packages`, `bun test test/e2e`, and\n`bun run build:viewer` when the viewer changes. A script node runs these\nafter implementation; plan work that passes them.\n\nHouse comment style — plan for it now so implementation inherits it:\ncomments are plain English prose that explains WHY the code is shaped\nthis way, not what it does, and cites sources — issue numbers, dated\nproposals, rulings — the way `packages/core/src/Todo.ts` does.\n\n## Plan expectations\n\n- Keep work scoped to the packages and surfaces named by the goal, with\n  domain logic in core, deterministic CLI/server behavior in cli,\n  browser UI state in viewer.\n- Include tests for changed behavior, and risks, acceptance criteria,\n  and deferred follow-ups.\n\nEnd your response with `Plan ready for implementation: <plan-path>` and\na brief summary; the implement stage reads the plan file from disk.\n"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "label": {
+              "String": "Scope"
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "max_visits": {
+              "Integer": 2
+            },
+            "backend": {
+              "String": "api"
+            }
+          }
+        },
+        "implement": {
+          "id": "implement",
+          "attrs": {
+            "label": {
+              "String": "Implement"
+            },
+            "max_visits": {
+              "Integer": 5
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "prompt": {
+              "String": "# Implement\n\nImplement the plan under `docs/proposals/` named by the scope stage.\nPackage-local README/guidance files own workflow and testing for the\npackages you touch.\n\nRules:\n\n- Stay scoped to the plan and its package boundaries: domain logic and\n  schemas in `packages/core`, deterministic CLI/server behavior in\n  `packages/cli` (data on stdout, diagnostics on stderr, stable exit\n  codes, black-box tests for behavior), browser UI state in\n  `packages/viewer`. If the plan cannot be implemented coherently\n  without expanding scope, implement the smallest coherent slice and\n  leave a clear blocking note in your final response.\n- Do not freehand-edit `docs/library` (the live product context\n  library) unless the plan explicitly owns a library migration.\n- Comments in the house style: plain English prose explaining WHY,\n  citing issues, dated proposals, and rulings, the way\n  `packages/core/src/Todo.ts` does.\n- If you are here after a gate failure or a ReviewJudge fix verdict,\n  read that stage's output from context and fix exactly what it names.\n  Retries are capped in the graph, so make the fix count.\n\nGates. Before finishing, run and pass ALL of:\n\n```bash\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun test test/e2e --timeout 30000\n```\n\nAND, whenever the diff touches `packages/viewer`:\n\n```bash\nbun run build:viewer\n```\n\nA script node reruns the same gates right after this stage; a failure\nroutes straight back here. Summarize the implemented changes at the end.\n"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "backend": {
+              "String": "api"
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "scope",
+          "attrs": {}
+        },
+        {
+          "from": "scope",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "scope",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "implement",
+          "to": "validate_gates",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "implement",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "validate_gates",
+          "to": "implement",
+          "attrs": {
+            "label": {
+              "String": "Fix validation"
+            },
+            "condition": {
+              "String": "outcome=failed"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "review_judge",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            },
+            "label": {
+              "String": "Validation OK"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "review_judge",
+          "to": "handoff",
+          "attrs": {
+            "label": {
+              "String": "Ready"
+            },
+            "condition": {
+              "String": "verdict=ready"
+            }
+          }
+        },
+        {
+          "from": "review_judge",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "verdict=fix"
+            },
+            "label": {
+              "String": "Fix"
+            }
+          }
+        },
+        {
+          "from": "review_judge",
+          "to": "exit",
+          "attrs": {
+            "label": {
+              "String": "Surface"
+            }
+          }
+        },
+        {
+          "from": "handoff",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "goal": {
+          "String": "GitHub Issue #190: Chat agent home seeds William helpers from the workspace only — no packaged fallback, so fresh projects trigger a permission storm\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/190\n\n## Summary\n\nChat sessions seed Skillmaker's own helper skills (the William bundles) into the\nagent home from the **user's workspace `skills/` directory only**, with no\nproduct-packaged fallback. Every project that doesn't hand-carry the William\nbundles — i.e. every real user project — starts its chat agent with no helpers,\nso the agent goes hunting the operator's filesystem for them, and each\nout-of-project path it touches raises a permission card. D6's \"William ships\ninside the product\" was delivered for station runs (`resolveStationSkillDir`);\nthe chat path never got it. Give `prepareAgentHome` the same fallback.\n\n## Motivation / Problem\n\nThis is the first-run experience for new users, and it is the opposite of what\nthe getting-started tour promises. The chat permission policy is deliberately\nquiet — anything touching paths inside the project auto-approves silently — so a\nwell-provisioned agent should raise close to zero cards while it researches and\ndrafts inside the bundle. Instead the very first session becomes a permission\nstorm, and the cause is entirely self-inflicted: the agent is searching for\nproduct machinery that should have been handed to it at spawn.\n\nCost is concentrated on exactly the population we can least afford to burn\n(outside testers on a fresh project, per the \"Your first skill\" tour), and the\nfailure is silent — `prepareAgentHome` skips a missing helper without a warning,\nso nothing in the UI, logs, or journal says the agent is running unequipped.\n\n## Observed behavior\n\nFresh project on v0.6.2 via `npx skillmaker-studio@latest start`, project root\n`/Users/danvers/skills`, provider `claude-code`, one chat session on a new\nbundle.\n\nThe agent home has no `skills/` directory at all:\n\n```\n$ ls ~/.skillmaker/agent-home/claude-code/\n.claude.json  .credentials.json  .last-cleanup  backups\nprojects  session-env  sessions  shell-snapshots\n```\n\nThe session's transcript contains **24 tool calls, 23 of which reference paths\noutside the project root** — every one of them a permission card the human had\nto clear. The first call and several after it are the agent looking for its own\nmissing helpers, then falling back to searching the operator's machine:\n\n```\nls /Users/danvers/.skillmaker/agent-home/claude-code/skills/\nfind / -maxdepth 8 -type d -iname \"william-*\"\nfind ~/.claude -maxdepth 4 -iname \"*william*\"\nls ~/.claude/skills/\nls ~/conductor/repos/\n```\n\nExactly one of the 24 calls stayed inside the project.\n\nSeeding the two bundles into `~/.skillmaker/agent-home/claude-code/skills/` by\nhand removes the hunt — confirming the diagnosis and giving users a stopgap.\n\n## Current shape\n\nThe station path already resolves this correctly, and the fix is \"make chat\nmatch station.\"\n\n**Station runs (correct).** `Server.ts:2278` calls `locatePackagedSkillsDir()`\nand threads it into `runStation`, which resolves per slug in\n`resolveStationSkillDir` (`packages/core/src/StationEngine.ts:423`): the\nworkspace's own `<skillsDir>/<slug>/` wins when it has a `bundle.json`, else the\nproduct-packaged copy. `StationRun.ts:84` does the same for the CLI. That\nfunction's doc comment already states the fence this issue depends on —\npackaged skills are visible to *station resolution only*; they never appear on\nthe Board, in bundle listings, or in the index.\n\n**Chat (broken).** `prepareAgentHome` (`packages/cli/src/server/ChatSessions.ts:156-182`)\nlooks in one place and gives up:\n\n```ts\nconst bundleDir = join(workspaceRoot, skillsDir, slug);\nconst sourceDir = existsSync(join(bundleDir, \"output\", \"SKILL.md\"))\n  ? join(bundleDir, \"output\")\n  : existsSync(join(bundleDir, \"SKILL.md\"))\n    ? bundleDir\n    : undefined;\nif (sourceDir === undefined) continue;   // silent\n```\n\n`ChatSessions.ts` does not import `locatePackagedSkillsDir` at all — the only\nconsumers are `Server.ts` and `commands/StationRun.ts`. The declaring comment at\n`ChatSessions.ts:58` records the gap as intended behavior (\"silently skipped\nwhen absent … still chats fine, just without the helpers\"), which is what needs\nrevising: it does not chat fine, it chats loudly.\n\nThe trap worth naming: this is the same defect as friction-log entry #1\n(\"William isn't distributed — every workspace must hand-carry his bundles\"),\nwhich PR #171 was believed to have closed. #171 fixed *station skill resolution*\nand left *agent-home seeding* on the old assumption, so the repo's own\nself-hosted `skills/` workspace — which does carry the William bundles — masks\nit for every maintainer.\n\n## Proposed contract\n\nPer helper slug in `HELPER_SKILL_SLUGS`, resolution order:\n\n| # | Source | Condition | `source` |\n|---|---|---|---|\n| 1 | `<workspaceRoot>/<skillsDir>/<slug>/output/SKILL.md` → seed `output/` | file exists | `workspace` |\n| 2 | `<workspaceRoot>/<skillsDir>/<slug>/SKILL.md` → seed the bundle dir | file exists | `workspace` |\n| 3 | `<packagedSkillsDir>/<slug>/output/SKILL.md` → seed `output/` | `locatePackagedSkillsDir()` returned a dir and the file exists | `packaged` |\n| 4 | `<packagedSkillsDir>/<slug>/SKILL.md` → seed the bundle dir | as above | `packaged` |\n| — | none | skip this slug, no throw | — |\n\nDestination is unchanged: `<agentHome>/skills/<slug>/`, holding `SKILL.md` at\nits root.\n\n`installedHelpers` grows a source so callers and tests can assert *which* copy\nwon:\n\n```ts\n{ home: string, installedHelpers: ReadonlyArray<{ slug: string, source: \"workspace\" | \"packaged\" }> }\n```\n\n**Decisions:**\n\n- Workspace copies always win, matching `resolveStationSkillDir` — hacking on\n  William in this repo's self-hosted workspace keeps working, and any workspace\n  can override a packaged helper by drafting its own.\n- Resolution is **per slug**, not all-or-nothing: a workspace carrying one\n  helper and not the other gets one of each source.\n- The workspace probe keeps its existing two-layout shape (`output/SKILL.md`\n  first, then a root `SKILL.md`), and the packaged probe uses the same shape.\n- A slug that resolves to a source **replaces** the destination (existing\n  `rmSync` + copy), so a stale helper from an older version cannot survive an\n  upgrade. This clobbers hand-seeded workarounds, which is intended.\n- A slug that resolves **nowhere** leaves any pre-existing destination\n  untouched (today's behavior, unchanged) — the seeding step must not delete\n  material it cannot replace.\n- `locatePackagedSkillsDir()` returning `undefined` is not an error: a source\n  checkout without the packaged dir behaves exactly as today.\n- Packaged helpers remain invisible as workspace bundles. They are copied into\n  the agent home and nowhere else — no Board row, no bundle listing, no index\n  entry, no write into the user's `skills/` directory or personal config dir.\n- No new UI and no new config knob. The permission policy itself is not touched.\n\n## Acceptance criteria\n\n- [ ] On a project whose `skills/` directory contains neither William bundle,\n      starting a chat session leaves both `william-research-a-skill/SKILL.md`\n      and `william-draft-skill-md/SKILL.md` present under\n      `<agentHome>/<provider>/skills/`, sourced from the packaged copies.\n- [ ] On a workspace that carries its own copy of a helper, that copy is what\n      lands in the agent home, and `installedHelpers` reports it as\n      `source: \"workspace\"` — the packaged copy does not override it.\n- [ ] With one helper in the workspace and one only packaged, both land, each\n      reporting its own source.\n- [ ] Negative: when a slug resolves in neither location, `prepareAgentHome`\n      returns without throwing, omits that slug from `installedHelpers`, the\n      chat session still starts, and any pre-existing directory at that\n      destination is left byte-identical.\n- [ ] Negative: no packaged helper is written into the user's project — after a\n      chat session on a fresh project, `<workspaceRoot>/<skillsDir>/` contains\n      only the user's own bundles, and neither William slug appears in a bundle\n      listing or on the Board.\n- [ ] Idempotency: calling `prepareAgentHome` twice for the same provider yields\n      the same tree — no nested `skills/<slug>/output/`, no accumulation, no\n      duplicate entries in `installedHelpers`.\n- [ ] Upgrade: a destination holding an older/edited copy of a helper is\n      replaced by the resolved source rather than merged with it.\n- [ ] Regression: station skill resolution is unchanged — the existing\n      workspace-wins / packaged-fallback behavior and its precondition error\n      message still hold for `skillmaker station run` and server-triggered\n      station runs.\n- [ ] Regression: the packaged-skills drift and location tests in\n      `packages/cli/test/PackagedSkills.test.ts` still pass unmodified, and the\n      compiled-binary layout still ships `packaged-skills` alongside the\n      executable (`test/e2e/dist.e2e.test.ts`).\n- [ ] Tests cover: packaged-only, workspace-only, mixed, neither, repeat-call\n      idempotency, stale-destination replacement, and the no-write-into-project\n      assertion. `prepareAgentHome` has no unit test today, so this is new\n      coverage, not an amendment.\n\n## Implementation notes\n\n`locatePackagedSkillsDir` lives in the same package as `ChatSessions.ts`\n(`packages/cli/src/PackagedSkills.ts`), so this needs no cross-package\nplumbing — unlike the station path, where `StationEngine` sits in `core` and\ntakes the directory as an option. Prefer calling it inside `prepareAgentHome`\nover threading a new parameter through every call site, unless a test seam makes\nthe parameter clearly better.\n\nScope fences, aimed at the plausible over-reaches here:\n\n- **Do not touch the permission policy.** `makeChatPermissionPolicy` and the\n  path-scoping in `AcpClient.ts` are correct as written; this issue removes the\n  *reason* the agent leaves the project, not the guard that reports it. In\n  particular, do not add an allowlist, an \"always allow\" affordance, or a\n  config knob for auto-approval — those are separate product decisions.\n- **Do not widen `HELPER_SKILL_SLUGS`.** Which helpers ship is a product\n  ruling, not part of this fix.\n- **Do not make a missing packaged directory fatal.** Source checkouts that\n  haven't built `dist` must keep working.\n- **Do not surface seeding in the UI.** If a signal is wanted for the silent-skip\n  case, a server-side log line is the ceiling for this issue.\n\nRelevant current files, as orientation only:\n\n- `packages/cli/src/server/ChatSessions.ts` — `HELPER_SKILL_SLUGS` (:58),\n  `prepareAgentHome` (:156), its two call sites (:598 capability probe, :793\n  session start)\n- `packages/cli/src/PackagedSkills.ts` — `locatePackagedSkillsDir`\n- `packages/core/src/StationEngine.ts` — `resolveStationSkillDir` (:423), the\n  behavior to mirror\n- `packages/cli/test/PackagedSkills.test.ts` — existing drift/location coverage\n\n## Not in scope\n\nOne adjacent defect found while diagnosing this, deliberately **not** bundled\nhere — file separately if wanted: `permissionPathsOutside`\n(`packages/core/src/AcpClient.ts:431`) classifies every `~`-anchored path as\noutside the root unconditionally, so a home-anchored reference to the project\ndirectory itself (`~/skills/...` when the project *is* `~/skills`) raises a\npermission card it shouldn't. Latent — it did not contribute to the transcript\nabove.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. The fix should mirror the workspace-wins-then-packaged-fallback resolution StationEngine uses (packages/core/src/StationEngine.ts resolveStationSkillDir, packages/cli/src/PackagedSkills.ts). Stay minimal: fix with tests, nothing adjacent.\n"
+        },
+        "max_node_visits": {
+          "Integer": 5
+        },
+        "default_fidelity": {
+          "String": "summary:high"
+        },
+        "stall_timeout": {
+          "Duration": {
+            "secs": 18000,
+            "nanos": 0
+          }
+        },
+        "rankdir": {
+          "String": "LR"
+        }
+      }
+    },
+    "graph_source": "digraph SmsFeature {\n    graph [\n        goal=\"Implement a Skillmaker Studio feature with one combined review-judge gate before the PR.\",\n        default_fidelity=\"summary:high\",\n        max_node_visits=5,\n        stall_timeout=\"5h\"\n    ]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    // Reshaped after the first real batch (2026-08-04): the old 9-node\n    // graph verified three times (deterministic gates + LLM verify +\n    // verification judge) with unbounded retry loops, and three runs were\n    // cancelled after heavy cycling (implement x5, verify x3 observed;\n    // ~$8/PR, ~$25 total). Director ruling: one combined ReviewJudge\n    // stage, and loop caps enforced in the graph via per-node max_visits\n    // (fabro terminates the run when a node exceeds its cap, so the caps\n    // are structural, not prompt suggestions).\n    //\n    // CAP SEMANTICS (learned the hard way, first run on the reshaped\n    // graph, 2026-08-04): fabro increments the visit counter on ENTRY\n    // and fails when `visits >= max_visits` -- BEFORE executing the node\n    // (fabro-core executor.rs, \"(>= semantics)\"). So max_visits=N allows\n    // only N-1 executions; a node meant to execute K times needs\n    // max_visits=K+1, and max_visits=1 fails on the very first entry.\n    // The graph-level max_node_visits has the same >= rule AND is\n    // checked in addition to per-node caps (both apply; the docs'\n    // \"per-node overrides graph-level\" is not what 0.315 executes), so\n    // it must be >= the largest per-node cap. Every cap below is\n    // therefore intended-executions + 1.\n    //\n    // Model split unchanged in spirit (director ruling, PR #188):\n    // sol-high where the graph makes judgment calls (scope, the judge);\n    // terra-medium for the in-loop worker stages.\n    scope [\n        label=\"Scope\",\n        prompt=\"@prompts/scope.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        max_visits=2,  // executes exactly once (K=1, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // Worst case 4 executions: 1 initial + at most 2 gate-failure\n    // bounces + at most 1 ReviewJudge fix bounce. A further bounce of\n    // either kind exceeds the cap and fails the run with the previous\n    // stage's (gates/judge) output as the last captured stage.\n    implement [\n        label=\"Implement\",\n        prompt=\"@prompts/implement.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        max_visits=5,  // <=4 executions (K=4, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // Deterministic gates; runs once after every implement execution, so\n    // its cap mirrors implement's.\n    validate_gates [\n        shape=parallelogram,\n        label=\"Run repo gates\",\n        script=\"./.fabro/scripts/fabro-validate\",\n        max_visits=5,  // <=4 executions (K=4, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // One combined stage replacing the old review + verify +\n    // verification-judge trio. max_visits=3 allows exactly 2 executions,\n    // which makes \"fix\" a once-per-run route structurally: execution 1\n    // may route Fix, execution 2 must land Ready or Surface (a second\n    // Fix would need a third execution, which the cap rejects).\n    // goal_gate=true makes a Surface verdict (outcome=failed)\n    // fail the run at exit, so [run.pull_request] never opens a PR for a\n    // surfaced run. `fabro validate` warns that this goal gate has no\n    // retry_target; that is deliberate -- a retry target would re-run the\n    // loop that Surface exists to stop, and with no target fabro fails\n    // the run, which is the intended surface-to-a-human behavior.\n    review_judge [\n        label=\"ReviewJudge\",\n        prompt=\"@prompts/review-judge.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        max_visits=3,  // <=2 executions (K=2, cap=K+1)\n        goal_gate=true,\n        timeout=\"90m\"\n    ]\n\n    handoff [\n        shape=tab,\n        label=\"Prepare PR\",\n        prompt=\"@prompts/handoff.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        max_visits=2,  // executes exactly once (K=1, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    start -> scope\n    scope -> implement [condition=\"outcome=succeeded\"]\n    scope -> exit\n    implement -> validate_gates [condition=\"outcome=succeeded\"]\n    implement -> exit\n    validate_gates -> implement    [label=\"Fix validation\", condition=\"outcome=failed\"]\n    validate_gates -> review_judge [label=\"Validation OK\", condition=\"outcome=succeeded\"]\n    validate_gates -> exit\n\n    review_judge -> handoff   [label=\"Ready\", condition=\"verdict=ready\"]\n    review_judge -> implement [label=\"Fix\", condition=\"verdict=fix\"]\n    // Surface (and any non-verdict failure) falls through to exit; the\n    // judge sets outcome=failed on Surface and goal_gate turns that into\n    // a failed run with the judge's summary as the last stage output.\n    review_judge -> exit [label=\"Surface\"]\n    handoff -> exit\n}\n",
+    "workflow_slug": "sms-feature",
+    "source_directory": "/Users/jessmartin/Documents/code/skillmaker-studio",
+    "provenance": {
+      "server": {
+        "version": "0.315.0-nightly.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.315.0-nightly.0",
+        "name": "fabro-cli",
+        "version": "0.315.0-nightly.0"
+      },
+      "subject": {
+        "kind": "user",
+        "identity": {
+          "issuer": "https://github.com",
+          "subject": "27258"
+        },
+        "login": "jessmartin",
+        "auth_method": "github"
+      }
+    },
+    "manifest_blob": "fd4fd03105cf92685fe6e4c1e823a3df9d88637c3878bb6be8dadf793acce6ab",
+    "definition_blob": "e812c2a7810852f5e0d1ee31917c5f1b2c7c9847adafafbcf90eb5ffcabb9758",
+    "git": {
+      "origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+      "branch": "main",
+      "sha": "43d0eca3ec324aebcb5f4a5f0c3c758de4303958",
+      "dirty": "clean",
+      "push_outcome": {
+        "type": "not_attempted"
+      }
+    }
+  },
+  "web_url": "https://fabro-st.up.railway.app/runs/01KZBRE9Q06N5BWK2W5A71X25P",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-08-06T14:43:06.759067077Z",
+  "last_event_at": "2026-08-06T14:43:38.195040645Z",
+  "pending_control": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "sandbox": {
+    "kind": "ready",
+    "plan": {
+      "provider": "daytona"
+    },
+    "instance": {
+      "provider": "daytona",
+      "snapshot": "daytona-medium",
+      "runtime": {
+        "id": "fabro-01KZBRE9Q06N5BWK2W5A71X25P",
+        "working_directory": "/home/daytona/workspace/skillmaker-studio",
+        "repo_cloned": true,
+        "clone_origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+        "clone_branch": "main",
+        "workspace_root": "/home/daytona/workspace",
+        "repos_root": "/home/daytona/repos",
+        "primary_repo_path": "/home/daytona/repos/sociotechnica-org/skillmaker-studio",
+        "primary_repo_link": "/home/daytona/workspace/skillmaker-studio"
+      }
+    }
+  },
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "stages": {}
+}
