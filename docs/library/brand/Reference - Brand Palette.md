@@ -21,6 +21,7 @@ they diverge and need a ruling ([[Concept - LifeBuild Brand]] › open decisions
 | Page ground (parchment) | `#f1e6d3` | ✓ |
 | Card surface / paper | `#fff9f0` | ✓ |
 | Raised paper | `#f4ece0` | ✓ (named `surface-raised` / `paper`) |
+| Tabbed-section ground (`well`) | `#f6eee0` light / `#1b150d` dark | app only — a shade lighter than canvas in both themes |
 | Primary ink (text, wordmark) | `#2c2416` | ✓ |
 | Dim ink (secondary text) | `#5b5143` | ✓ (named `ink-dim` / `ink-muted`) |
 | Hairline border | `#d9cbb2` **vs** `#e5d6bd` | ⚠ |
