@@ -368,6 +368,28 @@ function ResearchTab({
   }, [slug]);
   const files = useApiData(fetcher, null);
 
+  // Fold state persists per skill (localStorage): the director shouldn't
+  // have to re-fold notes/design on every visit. Absent key = the default
+  // (notes.md + design.md open).
+  const foldsKey = `sm-research-folds-${slug}`;
+  const [folds, setFolds] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(window.localStorage.getItem(foldsKey) ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const isOpen = (path: string): boolean =>
+    folds[path] ?? (path.endsWith("notes.md") || path === "design.md");
+  const setFold = (path: string, open: boolean) => {
+    const next = { ...folds, [path]: open };
+    setFolds(next);
+    try {
+      window.localStorage.setItem(foldsKey, JSON.stringify(next));
+    } catch {}
+  };
+
   return (
     <div className="text-sm">
       {files === null && <p className="text-ink-muted">Loading research…</p>}
@@ -376,7 +398,12 @@ function ResearchTab({
       )}
       {files !== null &&
         files.map((f) => (
-          <details key={f.path} open={f.path.endsWith("notes.md") || f.path === "design.md"} className="mb-3">
+          <details
+            key={f.path}
+            open={isOpen(f.path)}
+            onToggle={(e) => setFold(f.path, (e.currentTarget as HTMLDetailsElement).open)}
+            className="mb-3"
+          >
             <summary className="cursor-pointer font-display text-xs uppercase text-ink-muted hover:text-ink">
               {f.path.replace("research/", "")}
               <button
