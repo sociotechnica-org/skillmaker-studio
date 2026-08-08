@@ -493,7 +493,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-08T10:22:57.325322807Z",
-  "last_event_at": "2026-08-08T10:59:16.944026337Z",
+  "last_event_at": "2026-08-08T11:04:37.756385628Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -1219,9 +1219,9 @@
       }
     },
     {
-      "seq": 0,
+      "seq": 948,
       "checkpoint": {
-        "timestamp": "2026-08-08T10:59:16.976540231Z",
+        "timestamp": "2026-08-08T10:59:22.854443927Z",
         "current_node": "implement",
         "completed_nodes": [
           "start",
@@ -1234,14 +1234,172 @@
         ],
         "node_retries": {},
         "context_values": {
+          "thread.validate_gates.current_node": "implement",
+          "internal.retry_count.implement": 0,
+          "internal.retry_count.validate_gates": 0,
+          "failure_signature": "",
+          "command.output": "blob://sha256/8fcda020670ca8ba562b5a81445601d40f009e62e0b5efa937dca05d6f5ea8fa",
+          "graph.rankdir": "LR",
+          "graph.stall_timeout": "18000000ms",
+          "failure_class": "",
+          "internal.retry_count.scope": 0,
+          "internal.retry_count.start": 0,
+          "graph.goal": "GitHub Issue #195: SSE reconnect wipes the chat transcript and destroys the reader's scroll position\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/195\n\n## Summary\n\nOn every SSE reconnect the chat panel clears its transcript to zero items and\nlets the server replay the whole buffer. The intermediate empty render collapses\nthe scroll container, which destroys the reader's position and silently resets\nthe \"stick to bottom only if already at bottom\" guard — so a reader scrolled up\nmid-transcript is thrown to the bottom. Make reconnect non-destructive: resume\nfrom the last delivered event instead of wiping and replaying.\n\n## Motivation / Problem\n\nThe panel already has a correct guard against yanking a reader who has scrolled\nup (`RightPanel.tsx:769`, with a 100 px slop). This defect defeats it, so the\nguard's protection is illusory whenever the stream reconnects.\n\nToday the stream reconnects roughly every 30 seconds because it has no keepalive\n— filed as the companion issue, which removes that cadence. **This issue is\nstill worth building after that fix lands**, because reconnects will still\nhappen: laptop sleep, network blips, a server restart during development, a\npaused tab. Each one silently destroys the reader's place in a long transcript,\nand there is no signal that anything happened. Fixing only the cadence leaves a\nloaded gun.\n\nThere is a second, quieter cost: every reconnect re-sends the entire event\nbuffer, which grows without bound over a long session.\n\n## Observed behavior\n\nWith a chat panel open, scroll to the middle of a long transcript. When the\nstream reconnects (today: ~30 s of idle; or kill and restart the server to force\nit), the transcript position is lost — in practice the panel lands at the\nbottom.\n\nWhich end you land on is incidental: the reading position is destroyed either\nway. If the container's clamp fires a `scroll` event you land at the bottom (the\nobserved case); if it does not, you land at the top. Neither is where you were.\n\n## Current shape\n\nThe client treats every reconnect as a fresh mount.\n`packages/viewer/src/app/next/chatApi.ts:196-221`:\n\n```ts\n    const source = new EventSource(apiPath(`/api/chat/${encodeURIComponent(skill)}/stream`));\n    const onOpen = () => {\n      // The server replays the live session's whole buffer on connect:\n      // start from a clean slate so a reconnect never duplicates items.\n      setEvents([]);\n    };\n```\n```ts\n      setEvents((prev) => [...prev, parsed]);\n```\n\nThe server unconditionally replays the full buffer on connect,\n`packages/cli/src/server/ChatSessions.ts:702-707`:\n\n```ts\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n```\n\nThe scroll machinery it collides with, `packages/viewer/src/app/next/RightPanel.tsx:759-770`:\n\n```tsx\n  const pendingRestore = useRef<number | null>(recallScroll(skill));\n  const nearBottom = useRef(true);\n  useEffect(() => {\n    const el = scrollRef.current;\n    if (!el) return;\n    if (pendingRestore.current !== null && items.length > 0) {\n      el.scrollTop = pendingRestore.current;\n      pendingRestore.current = null;\n      return;\n    }\n    if (nearBottom.current) el.scrollTop = el.scrollHeight;\n  }, [items.length, active?.status]);\n```\n\nand its only writer besides `sendDraft`, `RightPanel.tsx:809-812`:\n\n```tsx\n        onScroll={(e) => {\n          const el = e.currentTarget;\n          nearBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;\n        }}\n```\n\nFailure sequence:\n\n1. Reconnect fires `open` → `setEvents([])` → `items.length` N → 0. The effect\n   runs with `nearBottom.current === false`, so it correctly does nothing.\n2. The DOM empties. The browser clamps `scrollTop` on the now-short container\n   and dispatches a `scroll` event.\n3. The handler computes `0 + clientHeight >= smallScrollHeight - 100` → **`nearBottom.current = true`**.\n   The guard has been reset by the wipe, not by the user.\n4. Replayed events arrive as separate messages; `items.length` climbs 0 → N; the\n   effect fires with the corrupted guard → `el.scrollTop = el.scrollHeight`.\n\n`pendingRestore` does not help: it is consumed on the first replay after mount\nand set to `null`, so every later reconnect falls through to line 769.\n\nThe trap worth naming: the `setEvents([])` comment says it exists \"so a\nreconnect never duplicates items\" — the wipe is a *deduplication* strategy, and\nit works. The bug is that dedup-by-wipe is indistinguishable from a fresh\ntranscript. SSE has a purpose-built mechanism for exactly this (`Last-Event-ID`)\nthat the stream does not use.\n\n## Proposed contract\n\nBuffered event frames become resumable, and the client stops wiping.\n\nServer, `/api/chat/:skill/stream`:\n\n```\n: connected\n\ndata: {\"type\":\"state\",\"state\":{...}}          <- no id (not part of the ordered buffer)\n\nid: 0\ndata: {\"type\":\"user_message\",...}\n\nid: 1\ndata: {\"type\":\"update\",...}\n```\n\nOn connect the server reads the `Last-Event-ID` request header:\n\n| `Last-Event-ID` | Server replays |\n|---|---|\n| absent | `{type:\"replay_reset\"}`, then the full buffer with ids |\n| parses to index `i`, `i < buffer.length`, same live session | `buffer.slice(i + 1)` — normally nothing |\n| stale, unparseable, or the session was replaced/restarted | `{type:\"replay_reset\"}`, then the full buffer with ids |\n\n**Decisions:**\n\n- Ids are the **0-based index into `chat.events`**. The buffer is already an\n  ordered append-only array, so no new identity needs inventing.\n- The connect-time `state` frame carries **no id** — it is not part of the\n  ordered buffer, and giving it one would corrupt the offset.\n- The keepalive comment frame carries no id (it is a comment; it cannot).\n- A new `{type:\"replay_reset\"}` frame is added to `ChatStreamEvent`. It is the\n  **only** thing that clears the client's transcript. The client's `open`\n  handler no longer clears anything.\n- `replay_reset` renders nothing — it is a control frame, not a transcript item,\n  and must not appear in `items`.\n- The common case — reconnect with a valid id against a live session — replays\n  **zero** frames, so `items.length` never changes and no scroll effect fires.\n- Scroll position and the `nearBottom` guard are untouched by a resumed\n  reconnect. After a `replay_reset` the transcript is legitimately rebuilt and\n  the existing mount behavior applies.\n- `streamResponse` gains access to the request headers to read `Last-Event-ID`;\n  its skill-only signature changes accordingly.\n\n## Acceptance criteria\n\n- [ ] With the reader scrolled to the middle of a transcript, forcing a\n      reconnect leaves `scrollTop` unchanged — the reader stays exactly where\n      they were.\n- [ ] A reconnect against a live session with a valid `Last-Event-ID` replays no\n      already-delivered events; `items.length` never transits through 0.\n- [ ] Events that occurred *during* the disconnected window are delivered on\n      reconnect, exactly once, in order.\n- [ ] Negative / no duplicates: after a reconnect the transcript contains each\n      event exactly once — the guarantee `setEvents([])` was protecting still\n      holds.\n- [ ] Negative: `replay_reset` produces no visible transcript item.\n- [ ] A first connection with no `Last-Event-ID` receives `replay_reset` then\n      the full buffer, and renders identically to today.\n- [ ] Degraded state: after a server restart (buffer gone / session replaced), a\n      client holding a stale `Last-Event-ID` receives `replay_reset` + full\n      buffer and renders correctly, with no duplicated or missing items.\n- [ ] The `nearBottom` guard is not reset by anything other than a real user\n      scroll or `sendDraft` — a reconnect cannot flip it.\n- [ ] Regression: live streaming during an active turn is unchanged — new events\n      still append and still auto-scroll for a reader who is at the bottom.\n- [ ] Regression: scroll retention across tab/view switches\n      (`recallScroll`/`rememberScroll`, `RightPanel.tsx:759,771`) still works.\n- [ ] Regression: `test/e2e/chat-sessions.e2e.test.ts` passes, updated only\n      where it asserts connect-replay framing.\n- [ ] Tests cover: resume-with-no-missed-events, resume-with-missed-events,\n      no-`Last-Event-ID` first connect, stale-id after restart, and the\n      scroll-position-preserved assertion.\n\n## Implementation notes\n\nThe scroll guard itself is correct and should not be rewritten — the fix is to\nstop corrupting it. If a belt-and-braces hardening is wanted, distinguishing\nuser-initiated scroll from a programmatic clamp is the direction, but it is not\nrequired once the transcript stops emptying, and it should not be bundled here.\n\nNote that `pendingRestore` (`RightPanel.tsx:759`) is consumed exactly once per\nmount. That is correct under this design and needs no change; it is called out\nonly so it is not mistaken for the reconnect path.\n\nScope fences:\n\n- **Do not solve this by preserving/restoring `scrollTop` around the wipe.**\n  Snapshot-and-restore around an async replay has no well-defined completion\n  point; the wipe itself is what must go.\n- **Do not add the keepalive here** — that is the companion issue. These two\n  touch the same function and must not collide.\n- **Do not change the transcript rendering or `chatModel.ts`'s event→item\n  transform** beyond ignoring the new control frame.\n- **Do not persist the event buffer** or change its lifetime; resumability here\n  is within a live session only.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/app/next/chatApi.ts` — `onOpen`/`onMessage` (:196-221)\n- `packages/viewer/src/app/next/RightPanel.tsx` — scroll effect (:761), guard\n  writer (:809), `sendDraft`'s reset (:798)\n- `packages/cli/src/server/ChatSessions.ts` — `ChatStreamEvent` (:389),\n  `streamResponse` (:688), the buffer `events` (:431)\n- `packages/viewer/src/app/next/chatModel.ts` — event→item transform\n\n---\n\n**Companion:** #194 — the chat SSE stream has no keepalive, which is why reconnects currently happen every ~30s. #194 removes the cadence; this issue makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. NOTE: PR #206 (SSE keepalive heartbeats) may or may not be merged to main when you read the code — check, and build against what main actually has; the fix here is reconnect NON-DESTRUCTIVENESS (preserve transcript items across reconnect, reconcile replayed buffer against existing items instead of clear-and-replay, preserve scroll position and the stick-to-bottom guard). Stay minimal: fix with tests, nothing adjacent.\n",
+          "internal.thread_id": "validate_gates",
+          "last_stage": "implement",
+          "outcome": "succeeded",
+          "response.scope": "Created the implementation plan at [2026-08-08-chat-sse-resumable-reconnect.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-chat-sse-resumable-reconnect.md).\n\nIt reflects the current codebase, including the merged SSE keepalive, and specifies indexed replay, `Last-Event-ID` handling, `replay_reset`, non-destructive viewer reconciliation, focused regression tests, repository gates, browser scroll acceptance, risks, and scope exclusions. No implementation files were changed.\n\nPlan ready for implementation: docs/proposals/2026-08-08-chat-sse-resumable-reconnect.md",
+          "thread.implement.current_node": "validate_gates",
+          "thread.scope.current_node": "implement",
+          "thread.start.current_node": "scope",
+          "graph.max_node_visits": "5",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "current_node": "implement",
+          "response.implement": "Implemented #195’s non-destructive SSE reconnect behavior.\n\n- Buffered chat frames now have sequential SSE IDs; the server reads `Last-Event-ID` and replays only missed events. Invalid, stale, absent, or post-restart cursors receive the non-rendering `replay_reset` control frame before a full replay. See [ChatSessions.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:717) and [Server.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/Server.ts:2826).\n- The viewer no longer clears transcript events when `EventSource` reopens. It clears only on `replay_reset`, so an ordinary reconnect cannot collapse the transcript or disturb the scroll/near-bottom state. See [chatApi.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/chatApi.ts:160).\n- Added focused reconciliation and resumable-SSE coverage, plus e2e assertions for zero-replay reconnects, missed suffixes, ordered IDs, and duplicate prevention.\n\nI removed an unrelated `JournalWatcher` polling change that had been added during the prior failed validation attempt, keeping the resulting diff scoped to this issue. The reported `IndexService` timeout was transient: it passed both in isolation and in the full package suite.\n\nValidation passed:\n\n- `bunx tsc --noEmit -p packages/core`\n- `bunx tsc --noEmit -p packages/cli`\n- `bun run build:viewer`\n- `bun test packages` — 1077 passed\n- `bun test test/e2e --timeout 30000` — 371 passed, 17 expected skips",
+          "internal.run_id": "01KZGEASY58GAX3XWS3CS1SHGA",
+          "internal.fidelity": "summary:high",
+          "last_response": "Implemented #195’s non-destructive SSE reconnect behavior.\n\n- Buffered chat frames now have sequential SSE IDs; the server reads `Last-Event-ID` and replays only missed events. Invalid, stale, absen",
+          "graph.default_fidelity": "summary:high",
+          "internal.node_visit_count": 3
+        },
+        "node_outcomes": {
+          "implement": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Implemented #195’s non-destructive SSE reconnect behavior.\n\n- Buffered chat frames now have sequential SSE IDs; the server reads `Last-Event-ID` and replays only missed events. Invalid, stale, absen",
+              "response.implement": "Implemented #195’s non-destructive SSE reconnect behavior.\n\n- Buffered chat frames now have sequential SSE IDs; the server reads `Last-Event-ID` and replays only missed events. Invalid, stale, absent, or post-restart cursors receive the non-rendering `replay_reset` control frame before a full replay. See [ChatSessions.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:717) and [Server.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/Server.ts:2826).\n- The viewer no longer clears transcript events when `EventSource` reopens. It clears only on `replay_reset`, so an ordinary reconnect cannot collapse the transcript or disturb the scroll/near-bottom state. See [chatApi.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/chatApi.ts:160).\n- Added focused reconciliation and resumable-SSE coverage, plus e2e assertions for zero-replay reconnects, missed suffixes, ordered IDs, and duplicate prevention.\n\nI removed an unrelated `JournalWatcher` polling change that had been added during the prior failed validation attempt, keeping the resulting diff scoped to this issue. The reported `IndexService` timeout was transient: it passed both in isolation and in the full package suite.\n\nValidation passed:\n\n- `bunx tsc --noEmit -p packages/core`\n- `bunx tsc --noEmit -p packages/cli`\n- `bun run build:viewer`\n- `bun test packages` — 1077 passed\n- `bun test test/e2e --timeout 30000` — 371 passed, 17 expected skips",
+              "last_stage": "implement"
+            },
+            "notes": "Stage completed: implement",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 52092,
+                    "output_tokens": 2922,
+                    "reasoning_tokens": 1258,
+                    "cache_read_tokens": 418181,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 297466
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 47240,
+              "tool_time_ms": 484429,
+              "active_time_ms": 531669
+            }
+          },
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          },
+          "validate_gates": {
+            "status": "failed",
+            "context_updates": {
+              "command.output": "blob://sha256/8fcda020670ca8ba562b5a81445601d40f009e62e0b5efa937dca05d6f5ea8fa"
+            },
+            "failure": {
+              "message": "Script failed with exit code: 1\n\n## output\ng) paths still parse to the same routes (bookmarks/deep links survive)\n(pass) parseRoute > the Lab's mode is a URL query, not a path segment (#83)\n(pass) parseRoute > slug segments are URI-decoded on both the canonical and alias paths\n(pass) parseRoute > unrelated multi-segment paths under the alias prefixes still miss [1.00ms]\n(pass) shipBundleHref > builds the canonical /ship/:slug URL, encoding the slug\n(pass) labHref > Bench has no query string at all -- it's the same bare /lab URL as always\n(pass) labHref > Queue adds ?view=queue\n(pass) labHref > a bundle filter round-trips through parseRoute\n(pass) labHref > Bench with a bundle filter still carries it, even though Bench itself ignores it\n(pass) bundleHref (unaffected by #72) > still builds /bundles/:slug\n(pass) trackHref (#109) > Catalog is the bare /track URL; Feed and the drawer are queries\n(pass) trackHref (#109) > the drawer flag round-trips through parseRoute\n(pass) bundleRunHref (#109: runs live under Models now) > points at the models tab\n\npackages/viewer/src/app/runtime/runTodoDraft.test.ts:\n(pass) buildRunTodoPayload > stamps origin {kind: 'run', runId} and defaults bundle from the run [2.00ms]\n(pass) buildRunTodoPayload > detail is the evidence line alone when no note is given, naming the fixture\n(pass) buildRunTodoPayload > a note comes first, evidence line last; a fixture-less run omits the fixture clause\n(pass) buildRunTodoPayload > title is trimmed; a blank title builds nothing\n(pass) buildRunTodoPayload > builds identically regardless of run status -- disposition never consults the verdict\n\npackages/viewer/src/app/runtime/todoQueue.test.ts:\n(pass) isDone > only \"done\" reads as done [1.00ms]\n(pass) filterTodosByBundle > no filter returns the list unchanged [1.00ms]\n(pass) filterTodosByBundle > filters to only the matching bundle\n(pass) filterTodosByBundle > a filter matching nothing returns an empty list, not a fallback to everything\n\npackages/viewer/src/app/runtime/trackSort.test.ts:\n(pass) orderCatalog > recent: newest activity first\n(pass) orderCatalog > name: alphabetical\n(pass) orderCatalog > stage: ladder order with recency tiebreak; input never mutated\n(pass) the Archive drawer fold > retired/active partition the Catalog; nothing is dropped\n\npackages/viewer/src/app/runtime/transcriptCoalesce.test.ts:\n(pass) coalesceBlocks: fragment merging > consecutive agent text chunks merge into one block [2.00ms]\n(pass) coalesceBlocks: fragment merging > paragraph breaks inside chunks are preserved verbatim\n(pass) coalesceBlocks: fragment merging > a single agent chunk passes through unchanged\n(pass) coalesceBlocks: fragment merging > empty input yields empty output\n(pass) coalesceBlocks: role boundaries > a prompt between agent runs keeps the runs separate\n(pass) coalesceBlocks: role boundaries > permission and protocol blocks never merge, even when adjacent to each other [1.00ms]\n(pass) coalesceBlocks: role boundaries > a non-text agent chunk (detail present) breaks the run and stays its own row\n(pass) coalesceBlocks: tool interleaving > tool rows break agent runs and are never merged; ordering is unchanged\n(pass) coalesceBlocks: empty chunks > empty chunks merge invisibly into the surrounding run\n(pass) coalesceBlocks: empty chunks > a run of only empty chunks collapses to one empty block, not zero (order and count of rows stay honest)\n(pass) renderTranscript > a streamed reply interleaved with tool calls renders as prose blocks around tool rows\n(pass) renderTranscript > permission requests break agent runs\n(pass) renderTranscript > non-text agent chunks keep their expander row between text runs\n(pass) renderTranscript > re-running the transform on the same input is identical (pure, render-time only)\n(pass) renderTranscript > classifyEntry degrades unknown lines to protocol/malformed without crashing\n\n1 tests failed:\n(fail) IndexService.rebuild > rebuild is atomic: a concurrent reader observes a complete old or new snapshot [5079.99ms]\n  ^ this test timed out after 5000ms.\n\n 1076 pass\n 1 fail\n 2563 expect() calls\nRan 1077 tests across 77 files. [86.35s]\n",
+              "category": "transient_infra"
+            },
+            "usage": null,
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 0,
+              "tool_time_ms": 94351,
+              "active_time_ms": 94351
+            }
+          },
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Created the implementation plan at [2026-08-08-chat-sse-resumable-reconnect.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-chat-sse-resumable-reconnect.md).\n\nIt reflects the c",
+              "response.scope": "Created the implementation plan at [2026-08-08-chat-sse-resumable-reconnect.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-chat-sse-resumable-reconnect.md).\n\nIt reflects the current codebase, including the merged SSE keepalive, and specifies indexed replay, `Last-Event-ID` handling, `replay_reset`, non-destructive viewer reconciliation, focused regression tests, repository gates, browser scroll acceptance, risks, and scope exclusions. No implementation files were changed.\n\nPlan ready for implementation: docs/proposals/2026-08-08-chat-sse-resumable-reconnect.md",
+              "last_stage": "scope"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 69659,
+                    "output_tokens": 8408,
+                    "reasoning_tokens": 8372,
+                    "cache_read_tokens": 450225,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 1076804
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 268093,
+              "tool_time_ms": 24101,
+              "active_time_ms": 292194
+            }
+          }
+        },
+        "next_node_id": "validate_gates",
+        "git_commit_sha": "0190325597f9c47816aa07029c288d2351febf56",
+        "node_visits": {
+          "start": 1,
+          "scope": 1,
+          "validate_gates": 2,
+          "implement": 3
+        }
+      },
+      "diff": {
+        "patch": "diff --git a/packages/cli/src/server/JournalWatcher.ts b/packages/cli/src/server/JournalWatcher.ts\nindex 334c62a..b2bd3a5 100644\n--- a/packages/cli/src/server/JournalWatcher.ts\n+++ b/packages/cli/src/server/JournalWatcher.ts\n@@ -12,14 +12,12 @@\n  * watcher falls back to the project root, waits for `.skillmaker/` to\n  * appear, then re-attaches to it (and fires once for whatever created it).\n  */\n-import { existsSync, statSync, watch, type FSWatcher } from \"node:fs\";\n+import { existsSync, watch, type FSWatcher } from \"node:fs\";\n import { basename, dirname } from \"node:path\";\n \n const DEBOUNCE_MS = 100;\n /** Existence-poll cadence while waiting for .skillmaker/ to be born (platform-independent backstop for lossy dir-creation events). */\n const DIR_POLL_MS = 250;\n-/** Append polling backstop: Bun can miss a write made immediately after fs.watch returns. */\n-const JOURNAL_POLL_MS = 250;\n \n export interface JournalWatcherHandle {\n   readonly close: () => void;\n@@ -44,36 +42,13 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal\n   };\n \n   let watcher: FSWatcher | undefined;\n-  let journalPoll: ReturnType<typeof setInterval> | undefined;\n-  const journalStamp = (): string | undefined => {\n-    try {\n-      const stat = statSync(journalPath);\n-      return `${stat.ino}:${stat.size}:${stat.mtimeMs}`;\n-    } catch {\n-      return undefined;\n-    }\n-  };\n \n   const watchJournalDir = (): void => {\n-    let stamp = journalStamp();\n     watcher = watch(dir, (_eventType, changedFilename) => {\n       if (changedFilename === null || changedFilename === filename) {\n-        stamp = journalStamp();\n         debounced();\n       }\n     });\n-    // The freshness-family watcher already polls for a just-created\n-    // `.skillmaker/` directory. This sibling backstop covers the other\n-    // lossy boundary: an append immediately after `fs.watch` subscribes can\n-    // arrive before Bun has registered the native watch. Keep the normal\n-    // event path fast; the stamp check only recovers that missed write.\n-    journalPoll = setInterval(() => {\n-      const next = journalStamp();\n-      if (next !== stamp) {\n-        stamp = next;\n-        debounced();\n-      }\n-    }, JOURNAL_POLL_MS);\n   };\n \n   // `.skillmaker/` not there yet: watch the project root until it appears,\n@@ -118,9 +93,6 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal\n       if (poll !== undefined) {\n         clearInterval(poll);\n       }\n-      if (journalPoll !== undefined) {\n-        clearInterval(journalPoll);\n-      }\n       watcher?.close();\n     },\n   };\n",
+        "summary": {
+          "files_changed": 9,
+          "additions": 718,
+          "deletions": 34
+        }
+      }
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-08T11:04:37.780653747Z",
+        "current_node": "validate_gates",
+        "completed_nodes": [
+          "start",
+          "scope",
+          "implement",
+          "validate_gates",
+          "implement",
+          "validate_gates",
+          "implement",
+          "validate_gates"
+        ],
+        "node_retries": {},
+        "context_values": {
           "last_stage": "implement",
           "internal.node_visit_count": 3,
           "last_response": "Implemented #195’s non-destructive SSE reconnect behavior.\n\n- Buffered chat frames now have sequential SSE IDs; the server reads `Last-Event-ID` and replays only missed events. Invalid, stale, absen",
           "internal.retry_count.scope": 0,
-          "current_node": "implement",
+          "current_node": "validate_gates",
           "thread.validate_gates.current_node": "implement",
           "internal.fidelity": "summary:high",
-          "internal.thread_id": "validate_gates",
+          "internal.thread_id": "implement",
           "graph.max_node_visits": "5",
           "internal.run_id": "01KZGEASY58GAX3XWS3CS1SHGA",
           "thread.start.current_node": "scope",
@@ -1256,7 +1414,7 @@
           "response.implement": "Implemented #195’s non-destructive SSE reconnect behavior.\n\n- Buffered chat frames now have sequential SSE IDs; the server reads `Last-Event-ID` and replays only missed events. Invalid, stale, absent, or post-restart cursors receive the non-rendering `replay_reset` control frame before a full replay. See [ChatSessions.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/ChatSessions.ts:717) and [Server.ts](/home/daytona/workspace/skillmaker-studio/packages/cli/src/server/Server.ts:2826).\n- The viewer no longer clears transcript events when `EventSource` reopens. It clears only on `replay_reset`, so an ordinary reconnect cannot collapse the transcript or disturb the scroll/near-bottom state. See [chatApi.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/chatApi.ts:160).\n- Added focused reconciliation and resumable-SSE coverage, plus e2e assertions for zero-replay reconnects, missed suffixes, ordered IDs, and duplicate prevention.\n\nI removed an unrelated `JournalWatcher` polling change that had been added during the prior failed validation attempt, keeping the resulting diff scoped to this issue. The reported `IndexService` timeout was transient: it passed both in isolation and in the full package suite.\n\nValidation passed:\n\n- `bunx tsc --noEmit -p packages/core`\n- `bunx tsc --noEmit -p packages/cli`\n- `bun run build:viewer`\n- `bun test packages` — 1077 passed\n- `bun test test/e2e --timeout 30000` — 371 passed, 17 expected skips",
           "internal.retry_count.validate_gates": 0,
           "thread.implement.current_node": "validate_gates",
-          "command.output": "blob://sha256/8fcda020670ca8ba562b5a81445601d40f009e62e0b5efa937dca05d6f5ea8fa",
+          "command.output": "blob://sha256/4126766a4450d7640b779bf01090f50457747c84d8faa3ccb7268e1f4e3868a7",
           "graph.goal": "GitHub Issue #195: SSE reconnect wipes the chat transcript and destroys the reader's scroll position\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/195\n\n## Summary\n\nOn every SSE reconnect the chat panel clears its transcript to zero items and\nlets the server replay the whole buffer. The intermediate empty render collapses\nthe scroll container, which destroys the reader's position and silently resets\nthe \"stick to bottom only if already at bottom\" guard — so a reader scrolled up\nmid-transcript is thrown to the bottom. Make reconnect non-destructive: resume\nfrom the last delivered event instead of wiping and replaying.\n\n## Motivation / Problem\n\nThe panel already has a correct guard against yanking a reader who has scrolled\nup (`RightPanel.tsx:769`, with a 100 px slop). This defect defeats it, so the\nguard's protection is illusory whenever the stream reconnects.\n\nToday the stream reconnects roughly every 30 seconds because it has no keepalive\n— filed as the companion issue, which removes that cadence. **This issue is\nstill worth building after that fix lands**, because reconnects will still\nhappen: laptop sleep, network blips, a server restart during development, a\npaused tab. Each one silently destroys the reader's place in a long transcript,\nand there is no signal that anything happened. Fixing only the cadence leaves a\nloaded gun.\n\nThere is a second, quieter cost: every reconnect re-sends the entire event\nbuffer, which grows without bound over a long session.\n\n## Observed behavior\n\nWith a chat panel open, scroll to the middle of a long transcript. When the\nstream reconnects (today: ~30 s of idle; or kill and restart the server to force\nit), the transcript position is lost — in practice the panel lands at the\nbottom.\n\nWhich end you land on is incidental: the reading position is destroyed either\nway. If the container's clamp fires a `scroll` event you land at the bottom (the\nobserved case); if it does not, you land at the top. Neither is where you were.\n\n## Current shape\n\nThe client treats every reconnect as a fresh mount.\n`packages/viewer/src/app/next/chatApi.ts:196-221`:\n\n```ts\n    const source = new EventSource(apiPath(`/api/chat/${encodeURIComponent(skill)}/stream`));\n    const onOpen = () => {\n      // The server replays the live session's whole buffer on connect:\n      // start from a clean slate so a reconnect never duplicates items.\n      setEvents([]);\n    };\n```\n```ts\n      setEvents((prev) => [...prev, parsed]);\n```\n\nThe server unconditionally replays the full buffer on connect,\n`packages/cli/src/server/ChatSessions.ts:702-707`:\n\n```ts\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n```\n\nThe scroll machinery it collides with, `packages/viewer/src/app/next/RightPanel.tsx:759-770`:\n\n```tsx\n  const pendingRestore = useRef<number | null>(recallScroll(skill));\n  const nearBottom = useRef(true);\n  useEffect(() => {\n    const el = scrollRef.current;\n    if (!el) return;\n    if (pendingRestore.current !== null && items.length > 0) {\n      el.scrollTop = pendingRestore.current;\n      pendingRestore.current = null;\n      return;\n    }\n    if (nearBottom.current) el.scrollTop = el.scrollHeight;\n  }, [items.length, active?.status]);\n```\n\nand its only writer besides `sendDraft`, `RightPanel.tsx:809-812`:\n\n```tsx\n        onScroll={(e) => {\n          const el = e.currentTarget;\n          nearBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;\n        }}\n```\n\nFailure sequence:\n\n1. Reconnect fires `open` → `setEvents([])` → `items.length` N → 0. The effect\n   runs with `nearBottom.current === false`, so it correctly does nothing.\n2. The DOM empties. The browser clamps `scrollTop` on the now-short container\n   and dispatches a `scroll` event.\n3. The handler computes `0 + clientHeight >= smallScrollHeight - 100` → **`nearBottom.current = true`**.\n   The guard has been reset by the wipe, not by the user.\n4. Replayed events arrive as separate messages; `items.length` climbs 0 → N; the\n   effect fires with the corrupted guard → `el.scrollTop = el.scrollHeight`.\n\n`pendingRestore` does not help: it is consumed on the first replay after mount\nand set to `null`, so every later reconnect falls through to line 769.\n\nThe trap worth naming: the `setEvents([])` comment says it exists \"so a\nreconnect never duplicates items\" — the wipe is a *deduplication* strategy, and\nit works. The bug is that dedup-by-wipe is indistinguishable from a fresh\ntranscript. SSE has a purpose-built mechanism for exactly this (`Last-Event-ID`)\nthat the stream does not use.\n\n## Proposed contract\n\nBuffered event frames become resumable, and the client stops wiping.\n\nServer, `/api/chat/:skill/stream`:\n\n```\n: connected\n\ndata: {\"type\":\"state\",\"state\":{...}}          <- no id (not part of the ordered buffer)\n\nid: 0\ndata: {\"type\":\"user_message\",...}\n\nid: 1\ndata: {\"type\":\"update\",...}\n```\n\nOn connect the server reads the `Last-Event-ID` request header:\n\n| `Last-Event-ID` | Server replays |\n|---|---|\n| absent | `{type:\"replay_reset\"}`, then the full buffer with ids |\n| parses to index `i`, `i < buffer.length`, same live session | `buffer.slice(i + 1)` — normally nothing |\n| stale, unparseable, or the session was replaced/restarted | `{type:\"replay_reset\"}`, then the full buffer with ids |\n\n**Decisions:**\n\n- Ids are the **0-based index into `chat.events`**. The buffer is already an\n  ordered append-only array, so no new identity needs inventing.\n- The connect-time `state` frame carries **no id** — it is not part of the\n  ordered buffer, and giving it one would corrupt the offset.\n- The keepalive comment frame carries no id (it is a comment; it cannot).\n- A new `{type:\"replay_reset\"}` frame is added to `ChatStreamEvent`. It is the\n  **only** thing that clears the client's transcript. The client's `open`\n  handler no longer clears anything.\n- `replay_reset` renders nothing — it is a control frame, not a transcript item,\n  and must not appear in `items`.\n- The common case — reconnect with a valid id against a live session — replays\n  **zero** frames, so `items.length` never changes and no scroll effect fires.\n- Scroll position and the `nearBottom` guard are untouched by a resumed\n  reconnect. After a `replay_reset` the transcript is legitimately rebuilt and\n  the existing mount behavior applies.\n- `streamResponse` gains access to the request headers to read `Last-Event-ID`;\n  its skill-only signature changes accordingly.\n\n## Acceptance criteria\n\n- [ ] With the reader scrolled to the middle of a transcript, forcing a\n      reconnect leaves `scrollTop` unchanged — the reader stays exactly where\n      they were.\n- [ ] A reconnect against a live session with a valid `Last-Event-ID` replays no\n      already-delivered events; `items.length` never transits through 0.\n- [ ] Events that occurred *during* the disconnected window are delivered on\n      reconnect, exactly once, in order.\n- [ ] Negative / no duplicates: after a reconnect the transcript contains each\n      event exactly once — the guarantee `setEvents([])` was protecting still\n      holds.\n- [ ] Negative: `replay_reset` produces no visible transcript item.\n- [ ] A first connection with no `Last-Event-ID` receives `replay_reset` then\n      the full buffer, and renders identically to today.\n- [ ] Degraded state: after a server restart (buffer gone / session replaced), a\n      client holding a stale `Last-Event-ID` receives `replay_reset` + full\n      buffer and renders correctly, with no duplicated or missing items.\n- [ ] The `nearBottom` guard is not reset by anything other than a real user\n      scroll or `sendDraft` — a reconnect cannot flip it.\n- [ ] Regression: live streaming during an active turn is unchanged — new events\n      still append and still auto-scroll for a reader who is at the bottom.\n- [ ] Regression: scroll retention across tab/view switches\n      (`recallScroll`/`rememberScroll`, `RightPanel.tsx:759,771`) still works.\n- [ ] Regression: `test/e2e/chat-sessions.e2e.test.ts` passes, updated only\n      where it asserts connect-replay framing.\n- [ ] Tests cover: resume-with-no-missed-events, resume-with-missed-events,\n      no-`Last-Event-ID` first connect, stale-id after restart, and the\n      scroll-position-preserved assertion.\n\n## Implementation notes\n\nThe scroll guard itself is correct and should not be rewritten — the fix is to\nstop corrupting it. If a belt-and-braces hardening is wanted, distinguishing\nuser-initiated scroll from a programmatic clamp is the direction, but it is not\nrequired once the transcript stops emptying, and it should not be bundled here.\n\nNote that `pendingRestore` (`RightPanel.tsx:759`) is consumed exactly once per\nmount. That is correct under this design and needs no change; it is called out\nonly so it is not mistaken for the reconnect path.\n\nScope fences:\n\n- **Do not solve this by preserving/restoring `scrollTop` around the wipe.**\n  Snapshot-and-restore around an async replay has no well-defined completion\n  point; the wipe itself is what must go.\n- **Do not add the keepalive here** — that is the companion issue. These two\n  touch the same function and must not collide.\n- **Do not change the transcript rendering or `chatModel.ts`'s event→item\n  transform** beyond ignoring the new control frame.\n- **Do not persist the event buffer** or change its lifetime; resumability here\n  is within a live session only.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/app/next/chatApi.ts` — `onOpen`/`onMessage` (:196-221)\n- `packages/viewer/src/app/next/RightPanel.tsx` — scroll effect (:761), guard\n  writer (:809), `sendDraft`'s reset (:798)\n- `packages/cli/src/server/ChatSessions.ts` — `ChatStreamEvent` (:389),\n  `streamResponse` (:688), the buffer `events` (:431)\n- `packages/viewer/src/app/next/chatModel.ts` — event→item transform\n\n---\n\n**Companion:** #194 — the chat SSE stream has no keepalive, which is why reconnects currently happen every ~30s. #194 removes the cadence; this issue makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. NOTE: PR #206 (SSE keepalive heartbeats) may or may not be merged to main when you read the code — check, and build against what main actually has; the fix here is reconnect NON-DESTRUCTIVENESS (preserve transcript items across reconnect, reconcile replayed buffer against existing items instead of clear-and-replay, preserve scroll position and the stick-to-bottom guard). Stay minimal: fix with tests, nothing adjacent.\n",
           "failure_class": "",
           "response.scope": "Created the implementation plan at [2026-08-08-chat-sse-resumable-reconnect.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-chat-sse-resumable-reconnect.md).\n\nIt reflects the current codebase, including the merged SSE keepalive, and specifies indexed replay, `Last-Event-ID` handling, `replay_reset`, non-destructive viewer reconciliation, focused regression tests, repository gates, browser scroll acceptance, risks, and scope exclusions. No implementation files were changed.\n\nPlan ready for implementation: docs/proposals/2026-08-08-chat-sse-resumable-reconnect.md",
@@ -1340,28 +1498,25 @@
             "usage": null
           },
           "validate_gates": {
-            "status": "failed",
+            "status": "succeeded",
             "context_updates": {
-              "command.output": "blob://sha256/8fcda020670ca8ba562b5a81445601d40f009e62e0b5efa937dca05d6f5ea8fa"
+              "command.output": "blob://sha256/4126766a4450d7640b779bf01090f50457747c84d8faa3ccb7268e1f4e3868a7"
             },
-            "failure": {
-              "message": "Script failed with exit code: 1\n\n## output\ng) paths still parse to the same routes (bookmarks/deep links survive)\n(pass) parseRoute > the Lab's mode is a URL query, not a path segment (#83)\n(pass) parseRoute > slug segments are URI-decoded on both the canonical and alias paths\n(pass) parseRoute > unrelated multi-segment paths under the alias prefixes still miss [1.00ms]\n(pass) shipBundleHref > builds the canonical /ship/:slug URL, encoding the slug\n(pass) labHref > Bench has no query string at all -- it's the same bare /lab URL as always\n(pass) labHref > Queue adds ?view=queue\n(pass) labHref > a bundle filter round-trips through parseRoute\n(pass) labHref > Bench with a bundle filter still carries it, even though Bench itself ignores it\n(pass) bundleHref (unaffected by #72) > still builds /bundles/:slug\n(pass) trackHref (#109) > Catalog is the bare /track URL; Feed and the drawer are queries\n(pass) trackHref (#109) > the drawer flag round-trips through parseRoute\n(pass) bundleRunHref (#109: runs live under Models now) > points at the models tab\n\npackages/viewer/src/app/runtime/runTodoDraft.test.ts:\n(pass) buildRunTodoPayload > stamps origin {kind: 'run', runId} and defaults bundle from the run [2.00ms]\n(pass) buildRunTodoPayload > detail is the evidence line alone when no note is given, naming the fixture\n(pass) buildRunTodoPayload > a note comes first, evidence line last; a fixture-less run omits the fixture clause\n(pass) buildRunTodoPayload > title is trimmed; a blank title builds nothing\n(pass) buildRunTodoPayload > builds identically regardless of run status -- disposition never consults the verdict\n\npackages/viewer/src/app/runtime/todoQueue.test.ts:\n(pass) isDone > only \"done\" reads as done [1.00ms]\n(pass) filterTodosByBundle > no filter returns the list unchanged [1.00ms]\n(pass) filterTodosByBundle > filters to only the matching bundle\n(pass) filterTodosByBundle > a filter matching nothing returns an empty list, not a fallback to everything\n\npackages/viewer/src/app/runtime/trackSort.test.ts:\n(pass) orderCatalog > recent: newest activity first\n(pass) orderCatalog > name: alphabetical\n(pass) orderCatalog > stage: ladder order with recency tiebreak; input never mutated\n(pass) the Archive drawer fold > retired/active partition the Catalog; nothing is dropped\n\npackages/viewer/src/app/runtime/transcriptCoalesce.test.ts:\n(pass) coalesceBlocks: fragment merging > consecutive agent text chunks merge into one block [2.00ms]\n(pass) coalesceBlocks: fragment merging > paragraph breaks inside chunks are preserved verbatim\n(pass) coalesceBlocks: fragment merging > a single agent chunk passes through unchanged\n(pass) coalesceBlocks: fragment merging > empty input yields empty output\n(pass) coalesceBlocks: role boundaries > a prompt between agent runs keeps the runs separate\n(pass) coalesceBlocks: role boundaries > permission and protocol blocks never merge, even when adjacent to each other [1.00ms]\n(pass) coalesceBlocks: role boundaries > a non-text agent chunk (detail present) breaks the run and stays its own row\n(pass) coalesceBlocks: tool interleaving > tool rows break agent runs and are never merged; ordering is unchanged\n(pass) coalesceBlocks: empty chunks > empty chunks merge invisibly into the surrounding run\n(pass) coalesceBlocks: empty chunks > a run of only empty chunks collapses to one empty block, not zero (order and count of rows stay honest)\n(pass) renderTranscript > a streamed reply interleaved with tool calls renders as prose blocks around tool rows\n(pass) renderTranscript > permission requests break agent runs\n(pass) renderTranscript > non-text agent chunks keep their expander row between text runs\n(pass) renderTranscript > re-running the transform on the same input is identical (pure, render-time only)\n(pass) renderTranscript > classifyEntry degrades unknown lines to protocol/malformed without crashing\n\n1 tests failed:\n(fail) IndexService.rebuild > rebuild is atomic: a concurrent reader observes a complete old or new snapshot [5079.99ms]\n  ^ this test timed out after 5000ms.\n\n 1076 pass\n 1 fail\n 2563 expect() calls\nRan 1077 tests across 77 files. [86.35s]\n",
-              "category": "transient_infra"
-            },
+            "notes": "Script completed: ./.fabro/scripts/fabro-validate",
             "usage": null,
             "timing": {
               "wall_time_ms": 0,
               "inference_time_ms": 0,
-              "tool_time_ms": 94351,
-              "active_time_ms": 94351
+              "tool_time_ms": 314226,
+              "active_time_ms": 314226
             }
           }
         },
-        "next_node_id": "validate_gates",
+        "next_node_id": "review_judge",
         "node_visits": {
           "start": 1,
           "scope": 1,
-          "validate_gates": 2,
+          "validate_gates": 3,
           "implement": 3
         }
       },
@@ -1444,200 +1599,6 @@
       },
       "agent_control": "running",
       "state": "failed"
-    },
-    "implement@3": {
-      "first_event_seq": 802,
-      "prompt": null,
-      "response": null,
-      "completion": {
-        "outcome": "succeeded",
-        "notes": "Stage completed: implement",
-        "failure_reason": null,
-        "timestamp": "2026-08-08T10:59:16.944026337Z"
-      },
-      "provider_used": {
-        "mode": "agent",
-        "provider": "openai",
-        "model": "gpt-5.6-terra",
-        "reasoning_effort": "medium"
-      },
-      "diff": null,
-      "script_invocation": null,
-      "script_timing": null,
-      "parallel_results": null,
-      "output": null,
-      "started_at": "2026-08-08T10:50:22.322860788Z",
-      "handler": "agent",
-      "graph_visit": 3,
-      "timing": {
-        "wall_time_ms": 534224,
-        "inference_time_ms": 47240,
-        "tool_time_ms": 484429,
-        "active_time_ms": 531669
-      },
-      "usage": {
-        "input_tokens": 52092,
-        "output_tokens": 2922,
-        "total_tokens": 474453,
-        "reasoning_tokens": 1258,
-        "cache_read_tokens": 418181,
-        "cache_write_tokens": 0,
-        "total_usd_micros": 297466
-      },
-      "model": {
-        "provider": "openai",
-        "model_id": "gpt-5.6-terra"
-      },
-      "todos": {
-        "kind": "openai_plan",
-        "list_id": "openai_plan:2fbdc0c5-4d59-40c7-879d-5b1d681634a6",
-        "items": [
-          {
-            "id": "dc4625093cf2997f",
-            "status": "completed",
-            "order": 0,
-            "subject": "Inspect repository guidance, worktree, and existing #195 changes"
-          },
-          {
-            "id": "5b2b90752cad90ae",
-            "status": "completed",
-            "order": 1,
-            "subject": "Verify implementation and address any scoped defect or flaky gate cause"
-          },
-          {
-            "id": "f26c6bc2568f685a",
-            "status": "completed",
-            "order": 2,
-            "subject": "Run required typecheck, package, e2e, and viewer build gates"
-          },
-          {
-            "id": "19c8e1ff917bbb11",
-            "status": "completed",
-            "order": 3,
-            "subject": "Summarize completed implementation and validation"
-          }
-        ]
-      },
-      "permission_level": "full",
-      "agent_tools": [
-        {
-          "name": "apply_patch",
-          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "write",
-          "invoked": true
-        },
-        {
-          "name": "close_agent",
-          "description": "Close a running or completed subagent that is no longer needed.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "request_user_input",
-          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "other",
-          "invoked": false
-        },
-        {
-          "name": "send_input",
-          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "shell_command",
-          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "shell",
-          "invoked": true
-        },
-        {
-          "name": "spawn_agent",
-          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "update_plan",
-          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "other",
-          "invoked": true
-        },
-        {
-          "name": "wait",
-          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "web_search",
-          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "other",
-          "invoked": false
-        }
-      ],
-      "context_window": {
-        "provider": "openai",
-        "model": "gpt-5.6-terra",
-        "context_window_tokens": 272000,
-        "input_tokens": 52047,
-        "usage_percent": 19.134926470588237,
-        "count_method": "response_usage_scaled_breakdown",
-        "staleness": "live",
-        "generated_at": "2026-08-08T10:59:16.268307425Z",
-        "event_seq": 941,
-        "breakdown": [
-          {
-            "category": "system_prompt",
-            "tokens": 2908,
-            "usage_percent": 1.0691176470588235
-          },
-          {
-            "category": "tools",
-            "tokens": 971,
-            "usage_percent": 0.35698529411764707
-          },
-          {
-            "category": "conversation",
-            "tokens": 48162,
-            "usage_percent": 17.706617647058824
-          },
-          {
-            "category": "other",
-            "tokens": 6,
-            "usage_percent": 0.0022058823529411764
-          }
-        ],
-        "warnings": []
-      },
-      "agent_control": "running",
-      "state": "succeeded"
     },
     "scope@1": {
       "first_event_seq": 24,
@@ -1826,6 +1787,394 @@
             "category": "other",
             "tokens": 5,
             "usage_percent": 0.001838235294117647
+          }
+        ],
+        "warnings": []
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "implement@2": {
+      "first_event_seq": 640,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: implement",
+        "failure_reason": null,
+        "timestamp": "2026-08-08T10:48:35.510661557Z"
+      },
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "medium"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-08T10:40:40.308992207Z",
+      "handler": "agent",
+      "graph_visit": 2,
+      "timing": {
+        "wall_time_ms": 474806,
+        "inference_time_ms": 52534,
+        "tool_time_ms": 419698,
+        "active_time_ms": 472232
+      },
+      "usage": {
+        "input_tokens": 58499,
+        "output_tokens": 2922,
+        "total_tokens": 562687,
+        "reasoning_tokens": 1935,
+        "cache_read_tokens": 499331,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 343924
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-terra"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:1bd6c336-8587-411f-82b2-3385ccb36ee2",
+        "items": [
+          {
+            "id": "d0e4f22166ae1695",
+            "status": "completed",
+            "order": 0,
+            "subject": "Inspect repository guidance, diff, and prior failure context"
+          },
+          {
+            "id": "7e16cd186b98c176",
+            "status": "completed",
+            "order": 1,
+            "subject": "Correct any issue-specific implementation or test defect"
+          },
+          {
+            "id": "9ab7fd12c9c20add",
+            "status": "completed",
+            "order": 2,
+            "subject": "Run all required typecheck, package, e2e, and viewer build gates"
+          },
+          {
+            "id": "622ae9e25d8d9ffd",
+            "status": "completed",
+            "order": 3,
+            "subject": "Summarize implementation and validation"
+          }
+        ]
+      },
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": true
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "context_window_tokens": 272000,
+        "input_tokens": 58454,
+        "usage_percent": 21.49044117647059,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-08T10:48:34.842091982Z",
+        "event_seq": 782,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 2956,
+            "usage_percent": 1.0867647058823529
+          },
+          {
+            "category": "tools",
+            "tokens": 988,
+            "usage_percent": 0.36323529411764705
+          },
+          {
+            "category": "conversation",
+            "tokens": 54503,
+            "usage_percent": 20.037867647058825
+          },
+          {
+            "category": "other",
+            "tokens": 7,
+            "usage_percent": 0.002573529411764706
+          }
+        ],
+        "warnings": []
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "implement@3": {
+      "first_event_seq": 802,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: implement",
+        "failure_reason": null,
+        "timestamp": "2026-08-08T10:59:16.944026337Z"
+      },
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "medium"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-08T10:50:22.322860788Z",
+      "handler": "agent",
+      "graph_visit": 3,
+      "timing": {
+        "wall_time_ms": 534224,
+        "inference_time_ms": 47240,
+        "tool_time_ms": 484429,
+        "active_time_ms": 531669
+      },
+      "usage": {
+        "input_tokens": 52092,
+        "output_tokens": 2922,
+        "total_tokens": 474453,
+        "reasoning_tokens": 1258,
+        "cache_read_tokens": 418181,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 297466
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-terra"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:2fbdc0c5-4d59-40c7-879d-5b1d681634a6",
+        "items": [
+          {
+            "id": "dc4625093cf2997f",
+            "status": "completed",
+            "order": 0,
+            "subject": "Inspect repository guidance, worktree, and existing #195 changes"
+          },
+          {
+            "id": "5b2b90752cad90ae",
+            "status": "completed",
+            "order": 1,
+            "subject": "Verify implementation and address any scoped defect or flaky gate cause"
+          },
+          {
+            "id": "f26c6bc2568f685a",
+            "status": "completed",
+            "order": 2,
+            "subject": "Run required typecheck, package, e2e, and viewer build gates"
+          },
+          {
+            "id": "19c8e1ff917bbb11",
+            "status": "completed",
+            "order": 3,
+            "subject": "Summarize completed implementation and validation"
+          }
+        ]
+      },
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": true
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "context_window_tokens": 272000,
+        "input_tokens": 52047,
+        "usage_percent": 19.134926470588237,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-08T10:59:16.268307425Z",
+        "event_seq": 941,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 2908,
+            "usage_percent": 1.0691176470588235
+          },
+          {
+            "category": "tools",
+            "tokens": 971,
+            "usage_percent": 0.35698529411764707
+          },
+          {
+            "category": "conversation",
+            "tokens": 48162,
+            "usage_percent": 17.706617647058824
+          },
+          {
+            "category": "other",
+            "tokens": 6,
+            "usage_percent": 0.0022058823529411764
           }
         ],
         "warnings": []
@@ -2132,196 +2481,53 @@
       "agent_control": "running",
       "state": "succeeded"
     },
-    "implement@2": {
-      "first_event_seq": 640,
+    "validate_gates@3": {
+      "first_event_seq": 951,
       "prompt": null,
       "response": null,
       "completion": {
         "outcome": "succeeded",
-        "notes": "Stage completed: implement",
+        "notes": "Script completed: ./.fabro/scripts/fabro-validate",
         "failure_reason": null,
-        "timestamp": "2026-08-08T10:48:35.510661557Z"
+        "timestamp": "2026-08-08T11:04:37.756385628Z"
       },
-      "provider_used": {
-        "mode": "agent",
-        "provider": "openai",
-        "model": "gpt-5.6-terra",
-        "reasoning_effort": "medium"
-      },
+      "provider_used": null,
       "diff": null,
-      "script_invocation": null,
-      "script_timing": null,
+      "script_invocation": {
+        "script": "./.fabro/scripts/fabro-validate",
+        "command": "exec 2>&1\n./.fabro/scripts/fabro-validate",
+        "language": "shell",
+        "timeout_ms": 5400000
+      },
+      "script_timing": {
+        "output": "blob://sha256/4126766a4450d7640b779bf01090f50457747c84d8faa3ccb7268e1f4e3868a7",
+        "exit_code": 0,
+        "duration_ms": 314226,
+        "termination": "exited",
+        "output_bytes": 179188,
+        "live_streaming": true
+      },
       "parallel_results": null,
       "output": null,
-      "started_at": "2026-08-08T10:40:40.308992207Z",
-      "handler": "agent",
-      "graph_visit": 2,
+      "output_bytes": 179188,
+      "live_streaming": true,
+      "termination": "exited",
+      "started_at": "2026-08-08T10:59:22.930120546Z",
+      "handler": "command",
+      "graph_visit": 3,
       "timing": {
-        "wall_time_ms": 474806,
-        "inference_time_ms": 52534,
-        "tool_time_ms": 419698,
-        "active_time_ms": 472232
+        "wall_time_ms": 314443,
+        "inference_time_ms": 0,
+        "tool_time_ms": 314226,
+        "active_time_ms": 314226
       },
       "usage": {
-        "input_tokens": 58499,
-        "output_tokens": 2922,
-        "total_tokens": 562687,
-        "reasoning_tokens": 1935,
-        "cache_read_tokens": 499331,
-        "cache_write_tokens": 0,
-        "total_usd_micros": 343924
-      },
-      "model": {
-        "provider": "openai",
-        "model_id": "gpt-5.6-terra"
-      },
-      "todos": {
-        "kind": "openai_plan",
-        "list_id": "openai_plan:1bd6c336-8587-411f-82b2-3385ccb36ee2",
-        "items": [
-          {
-            "id": "d0e4f22166ae1695",
-            "status": "completed",
-            "order": 0,
-            "subject": "Inspect repository guidance, diff, and prior failure context"
-          },
-          {
-            "id": "7e16cd186b98c176",
-            "status": "completed",
-            "order": 1,
-            "subject": "Correct any issue-specific implementation or test defect"
-          },
-          {
-            "id": "9ab7fd12c9c20add",
-            "status": "completed",
-            "order": 2,
-            "subject": "Run all required typecheck, package, e2e, and viewer build gates"
-          },
-          {
-            "id": "622ae9e25d8d9ffd",
-            "status": "completed",
-            "order": 3,
-            "subject": "Summarize implementation and validation"
-          }
-        ]
-      },
-      "permission_level": "full",
-      "agent_tools": [
-        {
-          "name": "apply_patch",
-          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "write",
-          "invoked": true
-        },
-        {
-          "name": "close_agent",
-          "description": "Close a running or completed subagent that is no longer needed.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "request_user_input",
-          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "other",
-          "invoked": false
-        },
-        {
-          "name": "send_input",
-          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "shell_command",
-          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "shell",
-          "invoked": true
-        },
-        {
-          "name": "spawn_agent",
-          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "update_plan",
-          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "other",
-          "invoked": true
-        },
-        {
-          "name": "wait",
-          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "subagent",
-          "invoked": false
-        },
-        {
-          "name": "web_search",
-          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
-          "source": {
-            "kind": "native"
-          },
-          "category": "other",
-          "invoked": false
-        }
-      ],
-      "context_window": {
-        "provider": "openai",
-        "model": "gpt-5.6-terra",
-        "context_window_tokens": 272000,
-        "input_tokens": 58454,
-        "usage_percent": 21.49044117647059,
-        "count_method": "response_usage_scaled_breakdown",
-        "staleness": "live",
-        "generated_at": "2026-08-08T10:48:34.842091982Z",
-        "event_seq": 782,
-        "breakdown": [
-          {
-            "category": "system_prompt",
-            "tokens": 2956,
-            "usage_percent": 1.0867647058823529
-          },
-          {
-            "category": "tools",
-            "tokens": 988,
-            "usage_percent": 0.36323529411764705
-          },
-          {
-            "category": "conversation",
-            "tokens": 54503,
-            "usage_percent": 20.037867647058825
-          },
-          {
-            "category": "other",
-            "tokens": 7,
-            "usage_percent": 0.002573529411764706
-          }
-        ],
-        "warnings": []
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
       },
       "agent_control": "running",
       "state": "succeeded"

@@ -1,0 +1,67 @@
+diff --git a/packages/cli/src/server/JournalWatcher.ts b/packages/cli/src/server/JournalWatcher.ts
+index 334c62a..b2bd3a5 100644
+--- a/packages/cli/src/server/JournalWatcher.ts
++++ b/packages/cli/src/server/JournalWatcher.ts
+@@ -12,14 +12,12 @@
+  * watcher falls back to the project root, waits for `.skillmaker/` to
+  * appear, then re-attaches to it (and fires once for whatever created it).
+  */
+-import { existsSync, statSync, watch, type FSWatcher } from "node:fs";
++import { existsSync, watch, type FSWatcher } from "node:fs";
+ import { basename, dirname } from "node:path";
+ 
+ const DEBOUNCE_MS = 100;
+ /** Existence-poll cadence while waiting for .skillmaker/ to be born (platform-independent backstop for lossy dir-creation events). */
+ const DIR_POLL_MS = 250;
+-/** Append polling backstop: Bun can miss a write made immediately after fs.watch returns. */
+-const JOURNAL_POLL_MS = 250;
+ 
+ export interface JournalWatcherHandle {
+   readonly close: () => void;
+@@ -44,36 +42,13 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal
+   };
+ 
+   let watcher: FSWatcher | undefined;
+-  let journalPoll: ReturnType<typeof setInterval> | undefined;
+-  const journalStamp = (): string | undefined => {
+-    try {
+-      const stat = statSync(journalPath);
+-      return `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+-    } catch {
+-      return undefined;
+-    }
+-  };
+ 
+   const watchJournalDir = (): void => {
+-    let stamp = journalStamp();
+     watcher = watch(dir, (_eventType, changedFilename) => {
+       if (changedFilename === null || changedFilename === filename) {
+-        stamp = journalStamp();
+         debounced();
+       }
+     });
+-    // The freshness-family watcher already polls for a just-created
+-    // `.skillmaker/` directory. This sibling backstop covers the other
+-    // lossy boundary: an append immediately after `fs.watch` subscribes can
+-    // arrive before Bun has registered the native watch. Keep the normal
+-    // event path fast; the stamp check only recovers that missed write.
+-    journalPoll = setInterval(() => {
+-      const next = journalStamp();
+-      if (next !== stamp) {
+-        stamp = next;
+-        debounced();
+-      }
+-    }, JOURNAL_POLL_MS);
+   };
+ 
+   // `.skillmaker/` not there yet: watch the project root until it appears,
+@@ -118,9 +93,6 @@ export const watchJournal = (journalPath: string, onChange: () => void): Journal
+       if (poll !== undefined) {
+         clearInterval(poll);
+       }
+-      if (journalPoll !== undefined) {
+-        clearInterval(journalPoll);
+-      }
+       watcher?.close();
+     },
+   };
