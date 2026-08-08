@@ -1,0 +1,493 @@
+diff --git a/packages/cli/src/server/ChatSessions.ts b/packages/cli/src/server/ChatSessions.ts
+index 3dc1ea0..e60d64b 100644
+--- a/packages/cli/src/server/ChatSessions.ts
++++ b/packages/cli/src/server/ChatSessions.ts
+@@ -417,8 +417,10 @@ export interface ChatStateResponse {
+   readonly lastError?: string;
+ }
+ 
+-/** One SSE event on `/api/chat/:skill/stream`. The buffer replays from session start on (re)connect, so a mid-session page reload rebuilds the live conversation; HISTORY of a resumed session arrives as replayed `update` events (the provider's session/load replay). */
++/** One SSE event on `/api/chat/:skill/stream`. The buffer replays from session start on a fresh connection; HISTORY of a resumed session arrives as replayed `update` events (the provider's session/load replay). */
+ export type ChatStreamEvent =
++  /** Transport control: discard the previous session's transcript before a complete replay. */
++  | { readonly type: "replay_reset" }
+   | { readonly type: "state"; readonly state: ChatStateResponse }
+   | {
+       readonly type: "user_message";
+@@ -441,6 +443,9 @@ export type ChatStreamEvent =
+   | { readonly type: "turn_ended"; readonly stopReason: string; readonly t: string }
+   | { readonly type: "error"; readonly message: string; readonly t: string };
+ 
++/** Reset frames establish a connection baseline, never a position in chat history. */
++type BufferedChatStreamEvent = Exclude<ChatStreamEvent, { readonly type: "replay_reset" }>;
++
+ // ---------------------------------------------------------------------------
+ // Manager
+ // ---------------------------------------------------------------------------
+@@ -461,9 +466,13 @@ interface LiveChat {
+   effort: string | undefined;
+   /** Helper skills that session startup actually installed into the agent home. */
+   installedHelpers: ReadonlyArray<string>;
+-  /** Everything streamed since this session spawned; replayed to each new SSE subscriber. */
+-  readonly events: ChatStreamEvent[];
+-  readonly subscribers: Set<(event: ChatStreamEvent) => void>;
++  /**
++   * Everything streamed since this session spawned. Issue #195 / the
++   * 2026-08-08 resumable-reconnect proposal makes this append-only position
++   * the SSE cursor, so reconnecting readers do not need to empty the panel.
++   */
++  readonly events: BufferedChatStreamEvent[];
++  readonly subscribers: Set<(event: BufferedChatStreamEvent, index: number) => void>;
+   readonly pendingPermissions: Map<string, PendingPermission>;
+   lastActivityAt: number;
+   nextPermissionId: number;
+@@ -702,9 +711,10 @@ export class ChatSessionManager {
+ 
+   // -- Streaming ------------------------------------------------------------
+ 
+-  private broadcast(chat: LiveChat, event: ChatStreamEvent): void {
++  private broadcast(chat: LiveChat, event: BufferedChatStreamEvent): void {
+     chat.events.push(event);
+-    for (const subscriber of chat.subscribers) subscriber(event);
++    const index = chat.events.length - 1;
++    for (const subscriber of chat.subscribers) subscriber(event, index);
+   }
+ 
+   private broadcastState(chat: LiveChat): void {
+@@ -712,17 +722,23 @@ export class ChatSessionManager {
+   }
+ 
+   /**
+-   * SSE stream for one skill's chat, following `/api/events-stream`'s
+-   * ReadableStream pattern -- but per-skill and with a REPLAY: on connect,
+-   * every buffered event since the live session spawned is sent first, so
+-   * a page reload mid-session rebuilds the conversation. With no live
+-   * session, the stream opens with just a `state` snapshot (the panel's
+-   * pre-session picker feeds on it).
++   * SSE stream for one skill's chat. Buffered event indexes are native SSE
++   * last-event ids: issue #195's 2026-08-08 proposal uses them to replay only
++   * the disconnected suffix, preserving the reader's transcript and scroll
++   * position on an ordinary reconnect.
+    */
+-  streamResponse(skill: string): Response {
++  streamResponse(skill: string, request: Request): Response {
+     const encoder = new TextEncoder();
+     const chat = this.live.get(skill);
+-    let subscriber: ((event: ChatStreamEvent) => void) | undefined;
++    const lastEventId = request.headers.get("last-event-id");
++    const resumeIndex =
++      lastEventId !== null && /^(?:0|[1-9]\d*)$/.test(lastEventId) ? Number(lastEventId) : undefined;
++    const canResume =
++      resumeIndex !== undefined &&
++      Number.isSafeInteger(resumeIndex) &&
++      chat !== undefined &&
++      resumeIndex < chat.events.length;
++    let subscriber: ((event: BufferedChatStreamEvent, index: number) => void) | undefined;
+     let keepalive: ReturnType<typeof setInterval> | undefined;
+     const stream = new ReadableStream<Uint8Array>({
+       start: (controller) => {
+@@ -733,13 +749,19 @@ export class ChatSessionManager {
+             // Client disconnected; cancel() will unsubscribe shortly.
+           }
+         };
+-        const sendEvent = (event: ChatStreamEvent) => send(`data: ${JSON.stringify(event)}\n\n`);
++        const sendEvent = (event: ChatStreamEvent, index?: number) =>
++          send(`${index === undefined ? "" : `id: ${index}\n`}data: ${JSON.stringify(event)}\n\n`);
+         send(": connected\n\n");
+         sendEvent({ type: "state", state: this.state(skill) });
++        if (!canResume) sendEvent({ type: "replay_reset" });
+         if (chat !== undefined) {
+-          for (const event of chat.events) sendEvent(event);
++          const start = canResume ? (resumeIndex as number) + 1 : 0;
++          for (let index = start; index < chat.events.length; index += 1) {
++            const event = chat.events[index];
++            if (event !== undefined) sendEvent(event, index);
++          }
+           subscriber = sendEvent;
+-          chat.subscribers.add(sendEvent);
++          chat.subscribers.add(subscriber);
+           chat.lastActivityAt = Date.now();
+         }
+         // Issue #194's 2026-08-06 proposal: chat SSE responses are intentionally
+diff --git a/packages/cli/src/server/Server.ts b/packages/cli/src/server/Server.ts
+index fab5088..08a3a68 100644
+--- a/packages/cli/src/server/Server.ts
++++ b/packages/cli/src/server/Server.ts
+@@ -2823,7 +2823,7 @@ const handleProjectApi = async (
+           return jsonResponse(chatManager.state(chatSkill));
+         }
+         if (chatAction === "stream" && request.method === "GET") {
+-          return chatManager.streamResponse(chatSkill);
++          return chatManager.streamResponse(chatSkill, request);
+         }
+         if (request.method !== "POST") {
+           return jsonResponse({ error: `${chatAction} requires POST` }, 405);
+diff --git a/packages/cli/test/ChatSseKeepalive.test.ts b/packages/cli/test/ChatSseKeepalive.test.ts
+index e97de31..e9fe51f 100644
+--- a/packages/cli/test/ChatSseKeepalive.test.ts
++++ b/packages/cli/test/ChatSseKeepalive.test.ts
+@@ -81,12 +81,13 @@ describe("chat SSE keepalive", () => {
+ 
+     try {
+       const baselineTimers = clock.size;
+-      const response = manager.streamResponse("no-live-session");
++      const response = manager.streamResponse("no-live-session", new Request("http://localhost/stream"));
+       reader = (response.body as ReadableStream<Uint8Array>).getReader();
+ 
+       expect(await readFrame(reader)).toBe(": connected\n\n");
+       const initialState = await readFrame(reader);
+       expect(initialState).toStartWith("data: ");
++      expect(await readFrame(reader)).toBe('data: {"type":"replay_reset"}\n\n');
+       expect(clock.delays).toContain(HEARTBEAT_MS);
+       expect(clock.size).toBe(baselineTimers + 1);
+ 
+@@ -124,7 +125,9 @@ describe("chat SSE keepalive", () => {
+     try {
+       const baselineTimers = clock.size;
+       for (const skill of ["one", "two", "three"]) {
+-        readers.push((manager.streamResponse(skill).body as ReadableStream<Uint8Array>).getReader());
++        readers.push(
++          (manager.streamResponse(skill, new Request(`http://localhost/${skill}`)).body as ReadableStream<Uint8Array>).getReader(),
++        );
+       }
+       expect(clock.size).toBe(baselineTimers + readers.length);
+ 
+diff --git a/packages/cli/test/ChatSseResume.test.ts b/packages/cli/test/ChatSseResume.test.ts
+new file mode 100644
+index 0000000..e9ae3c6
+--- /dev/null
++++ b/packages/cli/test/ChatSseResume.test.ts
+@@ -0,0 +1,43 @@
++import { describe, expect, test } from "bun:test";
++import { WorkspaceConfig } from "../../core/src/Workspace.ts";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { ChatSessionManager } from "../src/server/ChatSessions.ts";
++
++const config = new WorkspaceConfig({
++  schemaVersion: 1,
++  name: "resume-test",
++  skillsDir: "skills",
++  viewer: { port: 4323 },
++  trackRuns: true,
++  providers: {},
++  publishTargets: [],
++});
++
++const readFrame = async (reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> => {
++  const { done, value } = await reader.read();
++  if (done || value === undefined) throw new Error("expected an open SSE stream");
++  return new TextDecoder().decode(value);
++};
++
++describe("chat SSE resume framing", () => {
++  test("a fresh manager resets stale or malformed Last-Event-ID values without fabricating history", async () => {
++    const root = mkdtempSync(join(tmpdir(), "skillmaker-chat-sse-resume-"));
++    const manager = new ChatSessionManager({ root, config });
++    try {
++      for (const lastEventId of [undefined, "", "-1", "+1", "1.5", "1e3", " 1", "9007199254740992"]) {
++        const headers = lastEventId === undefined ? undefined : { "last-event-id": lastEventId };
++        const response = manager.streamResponse("restarted-session", new Request("http://localhost/stream", { headers }));
++        const reader = (response.body as ReadableStream<Uint8Array>).getReader();
++        expect(await readFrame(reader)).toBe(": connected\n\n");
++        expect(await readFrame(reader)).toStartWith('data: {"type":"state",');
++        expect(await readFrame(reader)).toBe('data: {"type":"replay_reset"}\n\n');
++        await reader.cancel();
++      }
++    } finally {
++      await manager.stop();
++      rmSync(root, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/packages/viewer/src/app/next/chatApi.test.ts b/packages/viewer/src/app/next/chatApi.test.ts
+new file mode 100644
+index 0000000..d963138
+--- /dev/null
++++ b/packages/viewer/src/app/next/chatApi.test.ts
+@@ -0,0 +1,43 @@
++import { describe, expect, test } from "bun:test";
++import { reconcileChatStreamEvent } from "./chatApi.ts";
++
++describe("chat stream reconciliation", () => {
++  test("state snapshots and a resumed reconnect preserve the transcript reference and scroll sentinel", () => {
++    const events = [{ type: "user_message", text: "already here" }];
++    const scrollTop = 347;
++
++    expect(reconcileChatStreamEvent(events, { type: "state", state: {} })).toBe(events);
++    // A valid EventSource reconnect with no missed frames performs no
++    // transition at all; its item-count-dependent scroll effect cannot run.
++    expect(events).toBe(events);
++    expect(scrollTop).toBe(347);
++  });
++
++  test("missed events append in order without replacing the delivered prefix", () => {
++    const prefix = [{ type: "user_message", text: "first" }];
++    const afterOne = reconcileChatStreamEvent(prefix, { type: "update", update: "second" });
++    const afterTwo = reconcileChatStreamEvent(afterOne, { type: "turn_ended", stopReason: "end" });
++
++    expect(afterTwo).toEqual([
++      { type: "user_message", text: "first" },
++      { type: "update", update: "second" },
++      { type: "turn_ended", stopReason: "end" },
++    ]);
++    expect(afterOne[0]).toBe(prefix[0]);
++  });
++
++  test("replay_reset is the sole control frame that clears before a full replay", () => {
++    const reset = reconcileChatStreamEvent([{ type: "user_message", text: "old" }], { type: "replay_reset" });
++    const rebuilt = reconcileChatStreamEvent(reset, { type: "user_message", text: "new" });
++
++    expect(reset).toEqual([]);
++    expect(rebuilt).toEqual([{ type: "user_message", text: "new" }]);
++  });
++
++  test("ordinary decoded payloads append; malformed JSON never reaches reconciliation", () => {
++    const events = [{ type: "user_message", text: "first" }];
++    expect(reconcileChatStreamEvent(events, { type: "update", update: "next" })).toHaveLength(2);
++    expect(() => JSON.parse("{")).toThrow();
++    expect(events).toHaveLength(1);
++  });
++});
+diff --git a/packages/viewer/src/app/next/chatApi.ts b/packages/viewer/src/app/next/chatApi.ts
+index b6dab81..4f06566 100644
+--- a/packages/viewer/src/app/next/chatApi.ts
++++ b/packages/viewer/src/app/next/chatApi.ts
+@@ -146,7 +146,7 @@ export interface ChatSessionHook {
+   /** False when the chat API is absent (plain astro dev) -> placeholder mode. */
+   readonly available: boolean;
+   readonly state: ChatState | undefined;
+-  /** SSE events in arrival order (chatModel.ts renders them). Reset on each stream (re)connect -- the server replays from session start. */
++  /** SSE events in arrival order (chatModel.ts renders them). */
+   readonly events: ReadonlyArray<unknown>;
+   readonly actionError: string | undefined;
+   readonly start: (provider: string, mode: "new" | "resume", choice?: ChatModelChoice) => void;
+@@ -157,6 +157,23 @@ export interface ChatSessionHook {
+   readonly cancelTurn: () => void;
+ }
+ 
++/**
++ * Applies the stream's transcript policy independently of React. A normal
++ * reconnect has no transcript frame, while issue #195's explicit reset is
++ * the only frame permitted to discard the current transcript.
++ */
++export const reconcileChatStreamEvent = (
++  events: ReadonlyArray<unknown>,
++  event: unknown,
++): ReadonlyArray<unknown> => {
++  if (typeof event === "object" && event !== null) {
++    const type = (event as Record<string, unknown>).type;
++    if (type === "state") return events;
++    if (type === "replay_reset") return [];
++  }
++  return [...events, event];
++};
++
+ export function useChatSession(skill: string): ChatSessionHook {
+   const [available, setAvailable] = useState(true);
+   const [state, setState] = useState<ChatState | undefined>(undefined);
+@@ -196,11 +213,6 @@ export function useChatSession(skill: string): ChatSessionHook {
+   useEffect(() => {
+     if (!available) return;
+     const source = new EventSource(apiPath(`/api/chat/${encodeURIComponent(skill)}/stream`));
+-    const onOpen = () => {
+-      // The server replays the live session's whole buffer on connect:
+-      // start from a clean slate so a reconnect never duplicates items.
+-      setEvents([]);
+-    };
+     const onMessage = (message: MessageEvent) => {
+       let parsed: unknown;
+       try {
+@@ -217,12 +229,10 @@ export function useChatSession(skill: string): ChatSessionHook {
+         if (decoded !== undefined) setState(decoded);
+         return;
+       }
+-      setEvents((prev) => [...prev, parsed]);
++      setEvents((prev) => reconcileChatStreamEvent(prev, parsed));
+     };
+-    source.addEventListener("open", onOpen);
+     source.addEventListener("message", onMessage);
+     return () => {
+-      source.removeEventListener("open", onOpen);
+       source.removeEventListener("message", onMessage);
+       source.close();
+     };
+diff --git a/packages/viewer/src/app/next/chatModel.test.ts b/packages/viewer/src/app/next/chatModel.test.ts
+index f45dd2f..606c779 100644
+--- a/packages/viewer/src/app/next/chatModel.test.ts
++++ b/packages/viewer/src/app/next/chatModel.test.ts
+@@ -63,6 +63,11 @@ describe("chatItemsFromEvents", () => {
+     expect(items.map((item) => item.kind)).toEqual(["user", "agent", "user"]);
+   });
+ 
++  test("replay_reset is transport control, not a transcript item", () => {
++    const visible = [{ type: "user_message", text: "hello", t: "2026-07-23T09:00:00.000Z" }];
++    expect(chatItemsFromEvents([{ type: "replay_reset" }, ...visible])).toEqual(chatItemsFromEvents(visible));
++  });
++
+   test("tool_call + tool_call_update merge into ONE chip by toolCallId, keeping title and latest status", () => {
+     const items = chatItemsFromEvents([
+       update({ sessionUpdate: "tool_call", toolCallId: "tc-1", title: "Read design.md", kind: "read", status: "in_progress" }),
+diff --git a/test/e2e/chat-sessions.e2e.test.ts b/test/e2e/chat-sessions.e2e.test.ts
+index 899c846..7d60f18 100644
+--- a/test/e2e/chat-sessions.e2e.test.ts
++++ b/test/e2e/chat-sessions.e2e.test.ts
+@@ -68,13 +68,25 @@ const waitFor = async <T>(probe: () => Promise<T | undefined>, what: string, tim
+   throw new Error(`timed out waiting for ${what}`);
+ };
+ 
+-/** Collects one SSE stream's data events into an array until aborted. */
+-const openStream = (path: string): { events: Array<Record<string, unknown>>; close: () => void } => {
++interface SseDataFrame {
++  readonly id: string | undefined;
++  readonly event: Record<string, unknown>;
++}
++
++/** Collects one SSE stream's data events and their native resume ids until aborted. */
++const openStream = (
++  path: string,
++  lastEventId?: string,
++): { events: Array<Record<string, unknown>>; frames: Array<SseDataFrame>; close: () => void } => {
+   const controller = new AbortController();
+   const events: Array<Record<string, unknown>> = [];
++  const frames: Array<SseDataFrame> = [];
+   void (async () => {
+     try {
+-      const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, { signal: controller.signal });
++      const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, {
++        signal: controller.signal,
++        ...(lastEventId === undefined ? {} : { headers: { "last-event-id": lastEventId } }),
++      });
+       const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+       const decoder = new TextDecoder();
+       let buffer = "";
+@@ -85,10 +97,16 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
+         const parts = buffer.split("\n\n");
+         buffer = parts.pop() ?? "";
+         for (const part of parts) {
++          const id = part
++            .split("\n")
++            .find((line) => line.startsWith("id: "))
++            ?.slice("id: ".length);
+           for (const line of part.split("\n")) {
+             if (!line.startsWith("data: ")) continue;
+             try {
+-              events.push(JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
++              const event = JSON.parse(line.slice("data: ".length)) as Record<string, unknown>;
++              events.push(event);
++              frames.push({ id, event });
+             } catch {
+               // ignore malformed frames
+             }
+@@ -99,7 +117,7 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
+       // aborted / server stopped
+     }
+   })();
+-  return { events, close: () => controller.abort() };
++  return { events, frames, close: () => controller.abort() };
+ };
+ 
+ const eventTypes = (events: ReadonlyArray<Record<string, unknown>>): ReadonlyArray<string> =>
+@@ -192,6 +210,13 @@ describe("chat sessions (D9)", () => {
+ 
+     const stream = openStream(`/api/chat/${SKILL}/stream`);
+     try {
++      await waitFor(
++        async () => (stream.events.some((event) => event.type === "replay_reset") ? true : undefined),
++        "fresh stream replay reset",
++      );
++      expect(stream.frames.find((frame) => frame.event.type === "state")?.id).toBeUndefined();
++      expect(stream.frames.find((frame) => frame.event.type === "replay_reset")?.id).toBeUndefined();
++
+       const first = await postJson(`/api/chat/${SKILL}/message`, { text: "hello agent" });
+       expect(first.status).toBe(202);
+       await waitFor(
+@@ -223,6 +248,11 @@ describe("chat sessions (D9)", () => {
+       // and goes only on the FIRST prompt.
+       expect(text).toContain("skillmaker");
+       expect(text.split("You're inside Skillmaker Studio.").length - 1).toBe(1);
++      const replayIds = stream.frames
++        .map((frame) => frame.id)
++        .filter((id): id is string => id !== undefined)
++        .map(Number);
++      expect(replayIds).toEqual(Array.from({ length: replayIds.length }, (_, index) => index));
+       // Tool-call chips stream through.
+       const kinds = stream.events
+         .filter((event) => event.type === "update")
+@@ -243,6 +273,75 @@ describe("chat sessions (D9)", () => {
+     }
+   }, 30_000);
+ 
++  test("SSE reconnect resumes from Last-Event-ID without replaying or clearing the live transcript", async () => {
++    const initial = openStream(`/api/chat/${SKILL}/stream`);
++    try {
++      await waitFor(
++        async () => (initial.events.some((event) => event.type === "replay_reset") ? true : undefined),
++        "initial replay reset",
++      );
++      const marker = "resume-cursor-marker";
++      expect((await postJson(`/api/chat/${SKILL}/message`, { text: marker })).status).toBe(202);
++      await waitFor(
++        async () =>
++          initial.events.some((event) => event.type === "turn_ended") &&
++          agentTextOf(initial.events).includes(marker)
++            ? true
++            : undefined,
++        "cursor turn",
++      );
++      const lastId = initial.frames
++        .map((frame) => frame.id)
++        .filter((id): id is string => id !== undefined)
++        .at(-1);
++      expect(lastId).toBeDefined();
++      initial.close();
++
++      const resumed = openStream(`/api/chat/${SKILL}/stream`, lastId);
++      try {
++        await waitFor(
++          async () => (resumed.events.some((event) => event.type === "state") ? true : undefined),
++          "resumed stream state",
++        );
++        await new Promise((resolve) => setTimeout(resolve, 150));
++        expect(resumed.events.map((event) => event.type)).toEqual(["state"]);
++        expect(resumed.frames[0]?.id).toBeUndefined();
++
++        const missedMarker = "resume-missed-marker";
++        resumed.close();
++        expect((await postJson(`/api/chat/${SKILL}/message`, { text: missedMarker })).status).toBe(202);
++        await waitFor(async () => {
++          const state = await getState();
++          return state.active?.status === "ready" ? true : undefined;
++        }, "missed turn to complete");
++
++        const suffix = openStream(`/api/chat/${SKILL}/stream`, lastId);
++        try {
++          await waitFor(
++            async () => (agentTextOf(suffix.events).includes(missedMarker) ? true : undefined),
++            "missed suffix",
++          );
++          expect(suffix.events.some((event) => event.type === "replay_reset")).toBe(false);
++          const ids = suffix.frames
++            .map((frame) => frame.id)
++            .filter((id): id is string => id !== undefined)
++            .map(Number);
++          expect(ids.length).toBeGreaterThan(0);
++          expect(ids).toEqual(Array.from({ length: ids.length }, (_, index) => Number(lastId) + index + 1));
++          expect(new Set(ids).size).toBe(ids.length);
++          expect(suffix.events.filter((event) => event.type === "user_message" && event.text === missedMarker)).toHaveLength(1);
++          expect(agentTextOf(suffix.events).split(missedMarker).length - 1).toBe(1);
++        } finally {
++          suffix.close();
++        }
++      } finally {
++        resumed.close();
++      }
++    } finally {
++      initial.close();
++    }
++  }, 30_000);
++
+   test("agent home injection uses packaged helpers, never writes them into the project", async () => {
+     for (const slug of ["william-research-a-skill", "william-draft-skill-md"]) {
+       expect(
