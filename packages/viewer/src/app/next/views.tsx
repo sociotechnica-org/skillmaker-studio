@@ -144,7 +144,7 @@ export function SkillView({
         <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} rightInset={overviewOpen} tabRequest={tabRequest} />
       </div>
       {overviewOpen && (
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[244px]">
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-30 w-[244px]">
           <div className="pointer-events-auto sticky top-[10px] mr-[10px] mt-[10px]">
             <OverviewCard slug={slug} />
           </div>

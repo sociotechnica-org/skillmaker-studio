@@ -171,7 +171,7 @@ export class ProjectRegistryManager {
           root: path,
           name,
           config,
-          chat: new ChatSessionManager({ root: path, config }),
+          chat: new ChatSessionManager({ root: path, config, onWorkChanged: () => this.onJournalChange(slug) }),
           runDispatch: createRunDispatchHandlers({ root: path, config }),
         },
       });

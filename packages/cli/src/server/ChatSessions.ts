@@ -519,6 +519,8 @@ interface LiveChat {
 export interface ChatManagerOptions {
   readonly root: string;
   readonly config: WorkspaceConfig;
+  /** Called after every completed agent turn: a live chat agent works via raw file writes that emit NO journal events, so this is the server's honest "something may have changed -- re-look" hint (broadcast as the project's SSE tick; 2026-08-08 walk: a freshly drafted SKILL.md was invisible until reload). Not a journal event -- nothing is declared, surfaces just refetch. */
+  readonly onWorkChanged?: () => void;
 }
 
 export class ChatSessionManager {
@@ -530,12 +532,14 @@ export class ChatSessionManager {
   /** Per-process cache of the provider capability probe (see providersCatalog). */
   private catalogPromise: Promise<ReadonlyArray<ChatProviderCatalogEntry>> | undefined;
   private readonly live = new Map<string, LiveChat>();
+  private readonly onWorkChanged: (() => void) | undefined;
   private readonly lastErrors = new Map<string, string>();
   private readonly reapTimer: ReturnType<typeof setInterval>;
 
   constructor(options: ChatManagerOptions) {
     this.root = options.root;
     this.config = options.config;
+    this.onWorkChanged = options.onWorkChanged;
     const stateDir = join(this.root, ".skillmaker");
     this.sessionsPath = join(stateDir, "chat-sessions.json");
     this.livePath = join(stateDir, "chat-live.json");
@@ -1121,6 +1125,9 @@ export class ChatSessionManager {
       (result) => {
         chat.lastActivityAt = Date.now();
         this.broadcast(chat, { type: "turn_ended", stopReason: result.stopReason, t: new Date().toISOString() });
+        // The turn may have written bundle files directly -- nudge every
+        // tick-subscribed surface to re-look (see onWorkChanged doc).
+        this.onWorkChanged?.();
         this.recordSession(skill, chat.provider, handle.sessionId, chat.modelId, chat.effort);
         if (counted) this.finishTurn(skill, chat);
         // Uncounted (codex-style) steers usually never resolve; when one
