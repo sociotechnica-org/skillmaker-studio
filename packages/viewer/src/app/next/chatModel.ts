@@ -46,6 +46,8 @@ export type ChatItem =
       /** Machine-authored production context (the first-prompt preamble / resume re-orientation) prepended server-side; rendered as a collapsed chip, never as message text. */
       readonly context?: string;
       readonly images?: ReadonlyArray<ChatItemImage>;
+      /** True while this message is held server-side awaiting the turn boundary (issue #191): rendered as a visually distinct pending bubble until the matching `queue_delivered` event flips it. */
+      readonly pending?: boolean;
     }
   | { readonly kind: "agent"; readonly text: string; readonly t: string }
   | {
@@ -177,6 +179,11 @@ export const chatItemsFromEvents = (events: ReadonlyArray<unknown>): ReadonlyArr
   const items: ChatItem[] = [];
   const toolByCallId = new Map<string, MutableToolItem>();
   const permissionIndexById = new Map<string, number>();
+  // Queued (server-held) user messages, matched to their later
+  // `queue_delivered` by queueId. Replay-safe: a reconnect replays BOTH
+  // events in order, so the bubble resolves identically and never
+  // duplicates (the message item exists once, at its send position).
+  const userIndexByQueueId = new Map<string, number>();
 
   for (const raw of events) {
     if (!isRecord(raw) || typeof raw.type !== "string") continue;
@@ -184,13 +191,24 @@ export const chatItemsFromEvents = (events: ReadonlyArray<unknown>): ReadonlyArr
 
     if (raw.type === "user_message" && typeof raw.text === "string") {
       const images = decodeItemImages(raw.images);
+      if (typeof raw.queueId === "string") userIndexByQueueId.set(raw.queueId, items.length);
       items.push({
         kind: "user",
         text: raw.text,
         t,
         ...(typeof raw.context === "string" && raw.context.length > 0 ? { context: raw.context } : {}),
         ...(images.length > 0 ? { images } : {}),
+        ...(raw.queued === true ? { pending: true } : {}),
       });
+      continue;
+    }
+
+    if (raw.type === "queue_delivered" && typeof raw.queueId === "string") {
+      const index = userIndexByQueueId.get(raw.queueId);
+      const item = index !== undefined ? items[index] : undefined;
+      if (index !== undefined && item !== undefined && item.kind === "user") {
+        items[index] = { ...item, pending: false };
+      }
       continue;
     }
 

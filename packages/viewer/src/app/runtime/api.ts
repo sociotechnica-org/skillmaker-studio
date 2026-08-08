@@ -225,8 +225,8 @@ export type CreateBundleResult =
   | { readonly ok: false; readonly error: string };
 
 /** `POST /api/bundles` -- scaffold a new bundle in the idea stage (same as `skillmaker new`). */
-export const createBundle = async (slug: string, name: string | undefined): Promise<CreateBundleResult> => {
-  const raw = await postJson("/api/bundles", { slug, ...(name !== undefined ? { name } : {}) });
+export const createBundle = async (slug: string, name: string | undefined, oneLiner?: string): Promise<CreateBundleResult> => {
+  const raw = await postJson("/api/bundles", { slug, ...(name !== undefined ? { name } : {}), ...(oneLiner !== undefined ? { oneLiner } : {}) });
 
   if (raw.ok) {
     const decoded = await Schema.decodeUnknownPromise(CreateBundleResponse)(raw.body);

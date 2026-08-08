@@ -21,8 +21,20 @@
  *   not raw wire frames).
  * - **Serialized prompts**: one turn at a time. A `prompt()` while another
  *   is in flight fails immediately with `ChatBusyError` -- queueing is the
- *   caller's decision to make visibly (the server rejects with 409), never
- *   something this driver does silently.
+ *   caller's decision to make visibly, never something this driver does
+ *   silently.
+ * - **Mid-turn steering** (issue #191, director ruling 2026-08-08): the
+ *   separate `steer()` door sends a `session/prompt` WHILE a turn is in
+ *   flight, deliberately bypassing the busy guard. Verified live 2026-08-08
+ *   against both shipped adapters:
+ *   `@agentclientprotocol/claude-agent-acp` advertises
+ *   `agentCapabilities._meta.claudeCode.promptQueueing: true` and answers
+ *   BOTH requests in order (the second prompt runs as its own queued turn
+ *   after the first completes); `@agentclientprotocol/codex-acp@1.1.14`
+ *   accepts the mid-turn prompt and folds it into the RUNNING turn's
+ *   context (genuine steering) but NEVER answers the second JSON-RPC
+ *   request -- so `steer()` returns a Promise that may never settle, and
+ *   callers must observe it without awaiting it on any hot path.
  * - **Interactive permissions**: `makeChatPermissionPolicy` auto-approves
  *   any request whose referenced paths all stay inside the project
  *   directory (the "comfortable Claude Code session" ruling -- the chat
@@ -183,11 +195,37 @@ export interface ChatSessionHandle {
   readonly modelFallback: string | undefined;
   /** Adapter subprocess pid, for best-effort orphan cleanup bookkeeping. */
   readonly pid: number | undefined;
+  /**
+   * True when `initialize` advertised adapter-side mid-turn prompt queueing
+   * (`agentCapabilities._meta.claudeCode.promptQueueing` -- the
+   * claude-agent-acp door). When true, a `steer()`ed prompt reliably gets
+   * its OWN JSON-RPC response (its own turn, after the running one), so the
+   * caller may treat it as a full turn. When false the adapter may still
+   * accept mid-turn prompts (codex-acp folds them into the running turn)
+   * but the steer request may never be answered.
+   */
+  readonly promptQueueing: boolean;
   /** Sends one prompt turn (optionally with image attachments as ACP image content blocks); resolves with the turn's stop reason. Fails with `ChatBusyError` if a turn is in flight, `ChatClosedError` after close/adapter death. */
   readonly prompt: (
     text: string,
     images?: ReadonlyArray<ChatImageAttachment>,
   ) => Effect.Effect<{ readonly stopReason: string }, ChatSessionError>;
+  /**
+   * Mid-turn steering (issue #191): sends a `session/prompt` immediately,
+   * even while a turn is in flight -- the busy guard is deliberately
+   * bypassed; only closed/dead sessions reject (synchronously, via a
+   * rejected Promise). The wire write happens before this returns. The
+   * returned Promise settles if and when the adapter answers the request --
+   * with `promptQueueing` adapters that is the steered turn's completion;
+   * codex-acp empirically never answers (the content lands inside the
+   * running turn instead), so NEVER await this on a path that must
+   * progress. Rejection means the adapter refused the mid-turn prompt (the
+   * caller should fall back to boundary queueing).
+   */
+  readonly steer: (
+    text: string,
+    images?: ReadonlyArray<ChatImageAttachment>,
+  ) => Promise<{ readonly stopReason: string }>;
   /** Mid-session model switch via `AcpClient.setModel` (`session/set_model`, or `session/set_config_option` for adapters that removed it; codex takes the bracketed `model[effort]` form). Rejects while a turn is in flight. */
   readonly setModel: (modelId: string) => Effect.Effect<void, ChatSessionError>;
   /** ACP `session/cancel` for the in-flight turn (no-op when idle): the running `prompt` then resolves with `stopReason: "cancelled"`. */
@@ -237,6 +275,7 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
 
       const init = await client.initialize();
       const loadSessionSupported = readLoadSessionCapability(init);
+      const promptQueueing = readPromptQueueingCapability(init);
 
       let sessionId: string;
       let resumed = false;
@@ -307,7 +346,7 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
         model = model ?? opts.modelId;
       }
 
-      return { sessionId, resumed, resumeFallback, loadSessionSupported, model, currentModelId, modelFallback };
+      return { sessionId, resumed, resumeFallback, loadSessionSupported, promptQueueing, model, currentModelId, modelFallback };
     },
     catch: (err) => classifyAcpFailure(err, client.getStderr(), providerProfile),
   }).pipe(
@@ -350,6 +389,27 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
     })));
   });
 
+  const steer = (
+    text: string,
+    images: ReadonlyArray<ChatImageAttachment> = [],
+  ): Promise<{ readonly stopReason: string }> => {
+    if (closed || adapterDied) {
+      return Promise.reject(
+        ChatClosedError.make({
+          message: adapterDied ? "the adapter process exited" : "the chat session is closed",
+          adapterExited: adapterDied,
+        }),
+      );
+    }
+    // No inFlight toggle: this is the mid-turn door. The wire write happens
+    // synchronously inside client.prompt before its Promise is returned.
+    return client
+      .prompt(established.sessionId, images.length === 0 ? text : buildPromptBlocks(text, images))
+      .catch((err) => {
+        throw classifyAcpFailure(err, client.getStderr(), providerProfile);
+      });
+  };
+
   const setModel = Effect.fn("ChatSession.setModel")(function* (modelId: string) {
     const unavailable = failIfUnavailable();
     if (unavailable !== undefined) return yield* Effect.fail(unavailable);
@@ -371,6 +431,7 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
     resumed: established.resumed,
     resumeFallback: established.resumeFallback,
     loadSessionSupported: established.loadSessionSupported,
+    promptQueueing: established.promptQueueing,
     model: established.model,
     get modelId() {
       return liveModelId;
@@ -378,6 +439,7 @@ export const startChatSession = Effect.fn("ChatSession.start")(function* (
     modelFallback: established.modelFallback,
     pid: client.getPid(),
     prompt,
+    steer,
     setModel,
     cancel: () => {
       if (!closed && !adapterDied) client.cancel(established.sessionId);
@@ -393,4 +455,23 @@ const readLoadSessionCapability = (init: unknown): boolean => {
   const caps = (init as { readonly agentCapabilities?: unknown }).agentCapabilities;
   if (typeof caps !== "object" || caps === null) return false;
   return (caps as { readonly loadSession?: unknown }).loadSession === true;
+};
+
+/**
+ * Reads `agentCapabilities._meta.claudeCode.promptQueueing` tolerantly --
+ * claude-agent-acp's advertisement (verified live 2026-08-08) that a
+ * `session/prompt` sent mid-turn is queued adapter-side and answered as its
+ * own turn. Absent/malformed -> false (the honest default: an adapter that
+ * doesn't advertise it may still accept mid-turn prompts, but the steer
+ * request cannot be relied on to resolve).
+ */
+const readPromptQueueingCapability = (init: unknown): boolean => {
+  if (typeof init !== "object" || init === null) return false;
+  const caps = (init as { readonly agentCapabilities?: unknown }).agentCapabilities;
+  if (typeof caps !== "object" || caps === null) return false;
+  const meta = (caps as { readonly _meta?: unknown })._meta;
+  if (typeof meta !== "object" || meta === null) return false;
+  const claudeCode = (meta as { readonly claudeCode?: unknown }).claudeCode;
+  if (typeof claudeCode !== "object" || claudeCode === null) return false;
+  return (claudeCode as { readonly promptQueueing?: unknown }).promptQueueing === true;
 };

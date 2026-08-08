@@ -63,6 +63,11 @@ describe("chatItemsFromEvents", () => {
     expect(items.map((item) => item.kind)).toEqual(["user", "agent", "user"]);
   });
 
+  test("replay_reset is transport control, not a transcript item", () => {
+    const visible = [{ type: "user_message", text: "hello", t: "2026-07-23T09:00:00.000Z" }];
+    expect(chatItemsFromEvents([{ type: "replay_reset" }, ...visible])).toEqual(chatItemsFromEvents(visible));
+  });
+
   test("tool_call + tool_call_update merge into ONE chip by toolCallId, keeping title and latest status", () => {
     const items = chatItemsFromEvents([
       update({ sessionUpdate: "tool_call", toolCallId: "tc-1", title: "Read design.md", kind: "read", status: "in_progress" }),
@@ -130,6 +135,55 @@ describe("chatItemsFromEvents", () => {
       null,
     ]);
     expect(items).toEqual([{ kind: "error", message: "agent exited", t: "2026-07-23T10:10:00.000Z" }]);
+  });
+});
+
+describe("queued messages (issue #191 steering)", () => {
+  test("a queued user_message renders pending; queue_delivered flips it to a normal bubble in place", () => {
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "banked", t: "t1", queued: true, queueId: "msg-1" },
+      { type: "queue_delivered", queueId: "msg-1", t: "t2" },
+      agentChunk("On it."),
+    ]);
+    expect(items).toEqual([
+      { kind: "user", text: "banked", t: "t1", pending: false },
+      { kind: "agent", text: "On it.", t: "2026-07-23T10:00:00.000Z" },
+    ]);
+  });
+
+  test("still-queued messages stay pending, at their send position", () => {
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "first", t: "t1" },
+      { type: "user_message", text: "waiting", t: "t2", queued: true, queueId: "msg-2" },
+    ]);
+    expect(items).toEqual([
+      { kind: "user", text: "first", t: "t1" },
+      { kind: "user", text: "waiting", t: "t2", pending: true },
+    ]);
+  });
+
+  test("a reconnect's replay (same events again from a clean slate) resolves identically -- no duplicates", () => {
+    const events = [
+      { type: "user_message", text: "banked", t: "t1", queued: true, queueId: "msg-1" },
+      { type: "queue_delivered", queueId: "msg-1", t: "t2" },
+    ];
+    // The client resets its event list on reconnect and the server replays
+    // the full buffer: the transform is pure, so the result is identical.
+    expect(chatItemsFromEvents(events)).toEqual(chatItemsFromEvents(events));
+    expect(chatItemsFromEvents(events).length).toBe(1);
+  });
+
+  test("a live-steered message (queueId, no queued flag) is a normal delivered bubble; queue_delivered for it stays a no-op flip", () => {
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "redirect", t: "t1", queueId: "msg-3" },
+      { type: "queue_delivered", queueId: "msg-3", t: "t2" },
+    ]);
+    expect(items).toEqual([{ kind: "user", text: "redirect", t: "t1", pending: false }]);
+    expect(items[0]?.kind === "user" && items[0].pending).toBeFalsy();
+  });
+
+  test("queue_delivered for an unknown id degrades silently", () => {
+    expect(chatItemsFromEvents([{ type: "queue_delivered", queueId: "ghost", t: "t" }])).toEqual([]);
   });
 });
 

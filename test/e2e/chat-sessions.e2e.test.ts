@@ -3,11 +3,13 @@
  * `/api/chat/:skill/*` against `fixtures/fake-acp-chat.cjs` (a
  * deterministic long-lived adapter with provider-side session persistence).
  * Covers: explicit-start flow (no implicit spawn), multi-turn prompting
- * over one session, SSE streaming + replay, the reject-concurrent-prompts
- * 409, cancel, inline permission forwarding (auto-approve inside the
- * project, human answer outside), provider-side resume across a REAL
- * session end, session-id persistence in .skillmaker/chat-sessions.json,
- * and helper-skill injection into the agent home. No real LLM -- CI-safe.
+ * over one session, SSE streaming + replay, mid-turn steering + the
+ * boundary queue (issue #191: a message during a running turn delivers
+ * live or queues -- never 409), cancel, inline permission forwarding
+ * (auto-approve inside the project, human answer outside), provider-side
+ * resume across a REAL session end, session-id persistence in
+ * .skillmaker/chat-sessions.json, and helper-skill injection into the
+ * agent home. No real LLM -- CI-safe.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -22,6 +24,7 @@ const fakeChatAdapter = join(import.meta.dir, "fixtures", "fake-acp-chat.cjs");
 let scratchDir: string;
 let scratchHome: string;
 let fakeStateDir: string;
+let fakeClaudeConfigDir: string;
 let server: StartedE2eRegistryServer;
 let baseUrl: string;
 let projectUrl: string;
@@ -67,13 +70,25 @@ const waitFor = async <T>(probe: () => Promise<T | undefined>, what: string, tim
   throw new Error(`timed out waiting for ${what}`);
 };
 
-/** Collects one SSE stream's data events into an array until aborted. */
-const openStream = (path: string): { events: Array<Record<string, unknown>>; close: () => void } => {
+interface SseDataFrame {
+  readonly id: string | undefined;
+  readonly event: Record<string, unknown>;
+}
+
+/** Collects one SSE stream's data events and their native resume ids until aborted. */
+const openStream = (
+  path: string,
+  lastEventId?: string,
+): { events: Array<Record<string, unknown>>; frames: Array<SseDataFrame>; close: () => void } => {
   const controller = new AbortController();
   const events: Array<Record<string, unknown>> = [];
+  const frames: Array<SseDataFrame> = [];
   void (async () => {
     try {
-      const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, { signal: controller.signal });
+      const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, {
+        signal: controller.signal,
+        ...(lastEventId === undefined ? {} : { headers: { "last-event-id": lastEventId } }),
+      });
       const reader = (response.body as ReadableStream<Uint8Array>).getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -84,10 +99,16 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
         const parts = buffer.split("\n\n");
         buffer = parts.pop() ?? "";
         for (const part of parts) {
+          const id = part
+            .split("\n")
+            .find((line) => line.startsWith("id: "))
+            ?.slice("id: ".length);
           for (const line of part.split("\n")) {
             if (!line.startsWith("data: ")) continue;
             try {
-              events.push(JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
+              const event = JSON.parse(line.slice("data: ".length)) as Record<string, unknown>;
+              events.push(event);
+              frames.push({ id, event });
             } catch {
               // ignore malformed frames
             }
@@ -98,7 +119,7 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
       // aborted / server stopped
     }
   })();
-  return { events, close: () => controller.abort() };
+  return { events, frames, close: () => controller.abort() };
 };
 
 const eventTypes = (events: ReadonlyArray<Record<string, unknown>>): ReadonlyArray<string> =>
@@ -119,6 +140,8 @@ beforeAll(async () => {
   scratchDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-"));
   scratchHome = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-home-"));
   fakeStateDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-state-"));
+  fakeClaudeConfigDir = mkdtempSync(join(tmpdir(), "skillmaker-e2e-chat-claude-config-"));
+  writeFileSync(join(fakeClaudeConfigDir, ".credentials.json"), "{}\n");
   Bun.spawnSync(["git", "init", "-q"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
@@ -130,12 +153,6 @@ beforeAll(async () => {
   const orientBundlePath = join(scratchDir, "skills", ORIENT_SKILL, "bundle.json");
   const orientBundle = JSON.parse(readFileSync(orientBundlePath, "utf8")) as Record<string, unknown>;
   writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: "orients the director" }, null, 2)}\n`);
-
-  // A William helper bundle in the workspace, to observe agent-home injection.
-  const williamDir = join(scratchDir, "skills", "william-draft-skill-md");
-  mkdirSync(join(williamDir, "output"), { recursive: true });
-  writeFileSync(join(williamDir, "bundle.json"), `${JSON.stringify({ slug: "william-draft-skill-md" })}\n`);
-  writeFileSync(join(williamDir, "output", "SKILL.md"), "# William drafts\n");
 
   // Point the claude-code provider at the fake chat adapter.
   const configPath = join(scratchDir, "skillmaker.config.json");
@@ -154,6 +171,7 @@ beforeAll(async () => {
     env: {
       FAKE_CHAT_STATE_DIR: fakeStateDir,
       SKILLMAKER_AGENT_HOME_DIR: join(scratchHome, ".skillmaker", "agent-home"),
+      CLAUDE_CONFIG_DIR: fakeClaudeConfigDir,
     },
   });
   baseUrl = server.baseUrl;
@@ -163,7 +181,7 @@ beforeAll(async () => {
 afterAll(async () => {
   server?.process.kill("SIGTERM");
   await server?.process.exited;
-  for (const dir of [scratchDir, scratchHome, fakeStateDir]) {
+  for (const dir of [scratchDir, scratchHome, fakeStateDir, fakeClaudeConfigDir]) {
     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -194,6 +212,13 @@ describe("chat sessions (D9)", () => {
 
     const stream = openStream(`/api/chat/${SKILL}/stream`);
     try {
+      await waitFor(
+        async () => (stream.events.some((event) => event.type === "replay_reset") ? true : undefined),
+        "fresh stream replay reset",
+      );
+      expect(stream.frames.find((frame) => frame.event.type === "state")?.id).toBeUndefined();
+      expect(stream.frames.find((frame) => frame.event.type === "replay_reset")?.id).toBeUndefined();
+
       const first = await postJson(`/api/chat/${SKILL}/message`, { text: "hello agent" });
       expect(first.status).toBe(202);
       await waitFor(
@@ -218,13 +243,18 @@ describe("chat sessions (D9)", () => {
       expect(text).toContain(`(slug: ${SKILL})`);
       expect(text).toContain("The current step is: clarify intent and research.");
       expect(text).toContain("william-draft-skill-md");
-      expect(text).not.toContain("william-research-a-skill");
+      expect(text).toContain("william-research-a-skill");
       expect(text).toContain("\n\n---\n\nhello agent");
       expect(text).toContain("turn 2: and again");
       // The preamble names the skillmaker CLI as the studio-state door (D6)
       // and goes only on the FIRST prompt.
       expect(text).toContain("skillmaker");
       expect(text.split("You're inside Skillmaker Studio.").length - 1).toBe(1);
+      const replayIds = stream.frames
+        .map((frame) => frame.id)
+        .filter((id): id is string => id !== undefined)
+        .map(Number);
+      expect(replayIds).toEqual(Array.from({ length: replayIds.length }, (_, index) => index));
       // Tool-call chips stream through.
       const kinds = stream.events
         .filter((event) => event.type === "update")
@@ -245,17 +275,91 @@ describe("chat sessions (D9)", () => {
     }
   }, 30_000);
 
-  test("agent home injection: helper skill installed under the scratch HOME, never the project", async () => {
-    const injected = join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-draft-skill-md", "SKILL.md");
-    expect(existsSync(injected)).toBe(true);
-    expect(
-      existsSync(join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", "william-research-a-skill")),
-    ).toBe(false);
+  test("SSE reconnect resumes from Last-Event-ID without replaying or clearing the live transcript", async () => {
+    const initial = openStream(`/api/chat/${SKILL}/stream`);
+    try {
+      await waitFor(
+        async () => (initial.events.some((event) => event.type === "replay_reset") ? true : undefined),
+        "initial replay reset",
+      );
+      const marker = "resume-cursor-marker";
+      expect((await postJson(`/api/chat/${SKILL}/message`, { text: marker })).status).toBe(202);
+      await waitFor(
+        async () =>
+          initial.events.some((event) => event.type === "turn_ended") &&
+          agentTextOf(initial.events).includes(marker)
+            ? true
+            : undefined,
+        "cursor turn",
+      );
+      const lastId = initial.frames
+        .map((frame) => frame.id)
+        .filter((id): id is string => id !== undefined)
+        .at(-1);
+      expect(lastId).toBeDefined();
+      initial.close();
+
+      const resumed = openStream(`/api/chat/${SKILL}/stream`, lastId);
+      try {
+        await waitFor(
+          async () => (resumed.events.some((event) => event.type === "state") ? true : undefined),
+          "resumed stream state",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(resumed.events.map((event) => event.type)).toEqual(["state"]);
+        expect(resumed.frames[0]?.id).toBeUndefined();
+
+        const missedMarker = "resume-missed-marker";
+        resumed.close();
+        expect((await postJson(`/api/chat/${SKILL}/message`, { text: missedMarker })).status).toBe(202);
+        await waitFor(async () => {
+          const state = await getState();
+          return state.active?.status === "ready" ? true : undefined;
+        }, "missed turn to complete");
+
+        const suffix = openStream(`/api/chat/${SKILL}/stream`, lastId);
+        try {
+          await waitFor(
+            async () => (agentTextOf(suffix.events).includes(missedMarker) ? true : undefined),
+            "missed suffix",
+          );
+          expect(suffix.events.some((event) => event.type === "replay_reset")).toBe(false);
+          const ids = suffix.frames
+            .map((frame) => frame.id)
+            .filter((id): id is string => id !== undefined)
+            .map(Number);
+          expect(ids.length).toBeGreaterThan(0);
+          expect(ids).toEqual(Array.from({ length: ids.length }, (_, index) => Number(lastId) + index + 1));
+          expect(new Set(ids).size).toBe(ids.length);
+          expect(suffix.events.filter((event) => event.type === "user_message" && event.text === missedMarker)).toHaveLength(1);
+          expect(agentTextOf(suffix.events).split(missedMarker).length - 1).toBe(1);
+        } finally {
+          suffix.close();
+        }
+      } finally {
+        resumed.close();
+      }
+    } finally {
+      initial.close();
+    }
+  }, 30_000);
+
+  test("agent home injection uses packaged helpers, never writes them into the project", async () => {
+    for (const slug of ["william-research-a-skill", "william-draft-skill-md"]) {
+      expect(
+        existsSync(join(scratchHome, ".skillmaker", "agent-home", "claude-code", "skills", slug, "SKILL.md")),
+      ).toBe(true);
+      expect(existsSync(join(scratchDir, "skills", slug))).toBe(false);
+    }
+    const bundles = await getJson("/bundles");
+    expect((bundles.body.bundles as ReadonlyArray<{ slug: string }>).map(({ slug }) => slug).sort()).toEqual(
+      [SKILL, ORIENT_SKILL].sort(),
+    );
     // Chat runs DIRECT in the project -- no project-level skill install.
     expect(existsSync(join(scratchDir, ".claude", "skills"))).toBe(false);
   });
 
-  test("concurrent prompts are REJECTED (409) while a turn runs; cancel ends the turn with stopReason cancelled", async () => {
+  test("a message sent mid-turn is STEERING (issue #191): delivered live, never 409; a refused mid-turn prompt queues and flushes at the boundary in order; Stop still cancels", async () => {
     const stream = openStream(`/api/chat/${SKILL}/stream`);
     try {
       const hang = await postJson(`/api/chat/${SKILL}/message`, { text: "please HANG here" });
@@ -265,9 +369,26 @@ describe("chat sessions (D9)", () => {
         return state.active?.status === "running" ? true : undefined;
       }, "turn to start running");
 
-      const rejected = await postJson(`/api/chat/${SKILL}/message`, { text: "impatient" });
-      expect(rejected.status).toBe(409);
-      expect(String(rejected.body.error)).toContain("already running");
+      // Live delivery: the composer never blocks, the message goes straight
+      // into the running session (the fake answers it as its own turn).
+      const steered = await postJson(`/api/chat/${SKILL}/message`, { text: "impatient redirect" });
+      expect(steered.status).toBe(202);
+      expect(steered.body.delivery).toBe("steered");
+      await waitFor(
+        async () => (agentTextOf(stream.events).includes("impatient redirect") ? true : undefined),
+        "live-steered message to cross the wire",
+      );
+
+      // An adapter refusing the mid-turn prompt -> the server-side boundary
+      // queue, visible as a pending bubble + in state.
+      const refused = await postJson(`/api/chat/${SKILL}/message`, { text: "REJECT-MIDTURN hold me" });
+      expect(refused.status).toBe(202);
+      await waitFor(async () => {
+        const state = (await getJson(`/api/chat/${SKILL}/state`)).body as {
+          active?: { queued?: ReadonlyArray<{ text: string }> };
+        };
+        return state.active?.queued?.length === 1 ? true : undefined;
+      }, "refused steer to enter the queue");
 
       const cancelled = await postJson(`/api/chat/${SKILL}/cancel`, {});
       expect(cancelled.status).toBe(200);
@@ -276,8 +397,19 @@ describe("chat sessions (D9)", () => {
         return ended !== undefined ? true : undefined;
       }, "cancelled turn to end");
 
-      const state = await getState();
-      expect(state.active?.status).toBe("ready");
+      // The cancel boundary flushes the queue: the held message becomes its
+      // own turn, exactly once, and the session comes back to ready.
+      await waitFor(
+        async () => (agentTextOf(stream.events).includes("REJECT-MIDTURN hold me") ? true : undefined),
+        "queued message to flush at the boundary",
+      );
+      await waitFor(async () => {
+        const state = await getState();
+        return state.active?.status === "ready" ? true : undefined;
+      }, "ready after the flush");
+      expect(
+        stream.events.filter((event) => event.type === "user_message" && event.text === "REJECT-MIDTURN hold me").length,
+      ).toBe(1);
     } finally {
       stream.close();
     }
@@ -412,7 +544,7 @@ describe("chat sessions (D9)", () => {
       expect(text).toContain("turn 1: You're inside Skillmaker Studio.");
       expect(text).toContain("orients the director"); // the bundle's one-liner
       expect(text).toContain("william-draft-skill-md");
-      expect(text).not.toContain("william-research-a-skill");
+      expect(text).toContain("william-research-a-skill");
       expect(text).toContain("Orient the director");
       // Preamble ALONE: machine context only, no separator, no user words.
       expect(text).not.toContain("\n\n---\n\n");

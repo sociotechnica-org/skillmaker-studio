@@ -73,7 +73,7 @@ describe("buildChatPreamble", () => {
       "You're inside Skillmaker Studio. Your job is to help me create a reusable SKILL -- turn READMEs into onboarding docs -- as a skillmaker bundle (slug: readme-onboarding) that will eventually ship its SKILL.md.",
       "",
       "- The bundle lives at skills/readme-onboarding/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).",
-      "- The pipeline is research/notes.md -> design.md (co-authored in this conversation) -> output/SKILL.md -> evals -> publish; stage moves are human-gated.",
+      `- The pipeline: RESEARCHING covers both research/notes.md and co-authoring design.md in this conversation (the stage ends when the design is done); DRAFTING renders output/SKILL.md from the approved design; then evals; then publish. Stage moves happen only at explicit human gates via the skillmaker CLI -- "design" is not a stage, so never attempt or offer a stage transition for it.`,
       "- Studio state -- todos, fixtures, runs, stages -- is read and changed through the `skillmaker` CLI (run `skillmaker --help` to see commands). Prefer the CLI over editing .skillmaker/ files by hand.",
       "- You are working DIRECTLY in the project; edits are real, not sandboxed.",
       "",
@@ -98,8 +98,8 @@ describe("buildChatPreamble", () => {
 
   test("encodes the real pipeline, including design.md co-authored in conversation", () => {
     const preamble = buildChatPreamble("readme-onboarding", "skills", context);
-    expect(preamble).toContain("design.md (co-authored in this conversation)");
-    expect(preamble).toContain("human-gated");
+    expect(preamble).toContain("co-authoring design.md in this conversation");
+    expect(preamble).toContain("human gates");
   });
 
   test("the current step is phrased from the DERIVED stage; the declared stage is secondary honesty", () => {
@@ -109,7 +109,7 @@ describe("buildChatPreamble", () => {
       expect(preamble).toContain("Do the STEP, not the skill's task itself.");
     }
     expect(NEXT_STEP_BY_STAGE.idea).toBe("clarify intent and research");
-    expect(NEXT_STEP_BY_STAGE.researching).toBe("research, then surface open questions");
+    expect(NEXT_STEP_BY_STAGE.researching).toBe("research into notes.md, surface open questions one at a time, then co-author design.md -- researching ends when the design is done");
     expect(NEXT_STEP_BY_STAGE.drafting).toBe("draft from design.md");
     expect(NEXT_STEP_BY_STAGE.evaluating).toBe("author/run evals");
     expect(NEXT_STEP_BY_STAGE.published).toBe("maintain and improve");
@@ -283,7 +283,7 @@ describe("deriveArtifactStage (the current step comes from what exists, not what
     });
   });
 
-  test("design.md with real prose under a heading -> drafting", () => {
+  test("design.md with real prose under a heading -> researching (ruling 2026-08-08: design is researching's second movement)", () => {
     withBundle((bundleDir) => {
       writeFileSync(
         join(bundleDir, "design.md"),
@@ -292,7 +292,7 @@ describe("deriveArtifactStage (the current step comes from what exists, not what
           "Turns a repo's README into an onboarding doc.",
         )}`,
       );
-      expect(deriveArtifactStage(bundleDir)).toBe("drafting");
+      expect(deriveArtifactStage(bundleDir)).toBe("researching");
     });
   });
 

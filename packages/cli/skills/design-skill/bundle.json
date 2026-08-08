@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "design-skill",
+  "name": "Design Skill",
+  "oneLiner": "",
+  "tags": [],
+  "created": "2026-07-30",
+  "targets": [
+    "claude-code"
+  ]
+}

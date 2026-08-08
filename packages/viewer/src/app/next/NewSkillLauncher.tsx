@@ -19,7 +19,7 @@
 import { useEffect, useState } from "react";
 import { getCatalog } from "../runtime/api.ts";
 import { fetchProvidersCatalog, type ChatProviderCatalog } from "./chatApi.ts";
-import { deriveSlug, fetchAdoptCandidates, fetchProviders, type AdoptCandidate } from "./launcher.ts";
+import { deriveOneLiner, deriveSlug, fetchAdoptCandidates, fetchProviders, type AdoptCandidate } from "./launcher.ts";
 import { adoptSkill, createSkill } from "./loopApi.ts";
 import { defaultSelection, ModelPicker, type ModelSelection } from "./ModelPicker.tsx";
 import { FADE_R } from "./ui.tsx";
@@ -89,7 +89,10 @@ export function NewSkillLauncher({
     setBusy(true);
     setError(null);
     const slug = deriveSlug(text, takenSlugs);
-    const result = await createSkill(slug, undefined);
+    // The brief IS the birth intent: its first sentence becomes the bundle's
+    // oneLiner so William's refusal-on-empty-intent never fires against a
+    // topic the director just stated (2026-08-08 walk finding).
+    const result = await createSkill(slug, undefined, deriveOneLiner(text));
     if (!result.ok) {
       setBusy(false);
       setError(result.error);

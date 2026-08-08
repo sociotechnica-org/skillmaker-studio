@@ -1322,12 +1322,14 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     lineage,
     files: listReviewableBundleFiles(bundleDir, layout),
     instructionsPath,
-    // The Eval tab's read-only gate (director ruling 2026-08-08: Method-stage
-    // evals are a reading surface): evals are RUNNABLE only once a draft
-    // exists to run against -- the same artifact probe as `instructionsPath`
-    // (`output/SKILL.md`, or `SKILL.md` for an in-place bundle). Server-
-    // informed so the viewer never infers the mode from missing data.
-    evalsRunnable: instructionsPath !== null,
+    // The Eval tab's read-only gate (director rulings 2026-08-08, refined
+    // same day): evals are RUNNABLE once there is BOTH a draft to run
+    // against (`instructionsPath`) AND at least one built fixture --
+    // during drafting the claims are still design-born intentions, so
+    // Run-all/mint/"gap" affordances would be premature theater; the
+    // first fixture's arrival is the honest signal that evaluating work
+    // has begun. Server-informed so the viewer never infers the mode.
+    evalsRunnable: instructionsPath !== null && detail.fixtures.length > 0,
   });
 };
 
@@ -1408,6 +1410,7 @@ const handleRecordVersion = async (
 interface CreateBundleRequestBody {
   readonly slug?: unknown;
   readonly name?: unknown;
+  readonly oneLiner?: unknown;
 }
 
 /**
@@ -1435,14 +1438,22 @@ const handleCreateBundle = async (root: string, request: Request): Promise<Respo
   if (body.name !== undefined && typeof body.name !== "string") {
     return jsonResponse({ error: "name must be a string" }, 400);
   }
+  if (body.oneLiner !== undefined && typeof body.oneLiner !== "string") {
+    return jsonResponse({ error: "oneLiner must be a string" }, 400);
+  }
   const slug = body.slug;
   const name = body.name;
+  const oneLiner = body.oneLiner;
 
   try {
     const created = await Effect.runPromise(
       Effect.gen(function* () {
         const workspace = yield* Workspace;
-        return yield* workspace.createBundle(root, name !== undefined ? { slug, name } : { slug });
+        return yield* workspace.createBundle(root, {
+          slug,
+          ...(name !== undefined ? { name } : {}),
+          ...(oneLiner !== undefined ? { oneLiner } : {}),
+        });
       }).pipe(
         Effect.catchTag("InvalidSlugError", () => Effect.succeed({ status: "invalid_slug" as const })),
         Effect.provide(Layer.provide(WorkspaceLayer, BunServices.layer)),
@@ -2789,7 +2800,7 @@ const handleProjectApi = async (
       // Chat surface (D9): per-skill agent sessions. Explicit-start flow:
       //   GET  /api/chat/:skill/state       session + provider + resumable snapshot
       //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume", model?, effort? } -> spawn/resume
-      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn (409 while running)
+      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn; mid-turn sends steer the live session or queue for the boundary (issue #191)
       //   POST /api/chat/:skill/model       { model, effort? } -> mid-session model change (between turns)
       //   POST /api/chat/:skill/permission  { requestId, optionId, decision } -> answer a pending ask
       //   POST /api/chat/:skill/cancel      cancel the in-flight turn
@@ -2810,7 +2821,7 @@ const handleProjectApi = async (
           return jsonResponse(chatManager.state(chatSkill));
         }
         if (chatAction === "stream" && request.method === "GET") {
-          return chatManager.streamResponse(chatSkill);
+          return chatManager.streamResponse(chatSkill, request);
         }
         if (request.method !== "POST") {
           return jsonResponse({ error: `${chatAction} requires POST` }, 405);
@@ -2852,7 +2863,9 @@ const handleProjectApi = async (
             return jsonResponse({ error: "message requires non-empty text or at least one image" }, 400);
           }
           const sent = await chatManager.sendMessage(chatSkill, text, images);
-          return sent.ok ? jsonResponse({ accepted: true }, 202) : jsonResponse({ error: sent.error }, sent.status);
+          return sent.ok
+            ? jsonResponse({ accepted: true, delivery: sent.delivery }, 202)
+            : jsonResponse({ error: sent.error }, sent.status);
         }
         if (chatAction === "model") {
           const model = typeof body.model === "string" ? body.model.trim() : "";
