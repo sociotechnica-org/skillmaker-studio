@@ -796,7 +796,11 @@ function ChatTab({
     setPendingImages([]);
     setImageError(null);
     nearBottom.current = true;
-    if (composerRef.current !== null) composerRef.current.style.height = "auto";
+    if (composerRef.current !== null) {
+      composerRef.current.style.height = "auto";
+      // Keep the pen in hand: sending should never cost a click to keep typing.
+      composerRef.current.focus();
+    }
   };
 
   return (
