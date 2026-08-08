@@ -58,7 +58,7 @@ const REAP_CHECK_MS = 60 * 1000;
 const PROBE_TIMEOUT_MS = 45_000;
 
 /** Skillmaker's own helper skills (William material), injected via the agent home. Issue #190 and docs/proposals/2026-08-06-chat-agent-home-packaged-helper-fallback.md: a workspace may override a helper while fresh projects receive the product-packaged copy. */
-const HELPER_SKILL_SLUGS = ["william-research-a-skill", "william-draft-skill-md"] as const;
+const HELPER_SKILL_SLUGS = ["william-research-a-skill", "design-skill", "william-draft-skill-md"] as const;
 
 // ---------------------------------------------------------------------------
 // Persistence: .skillmaker/chat-sessions.json + chat-live.json
