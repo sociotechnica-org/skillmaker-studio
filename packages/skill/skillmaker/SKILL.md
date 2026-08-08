@@ -80,7 +80,7 @@ next steps) this skill would otherwise have to reconstruct.
 - **Publish to a configured target** (`/skillmaker publish`):
   `skillmaker publish <slug> [--target <id>]`
 
-- **Everything else** -- `list`, `status <slug>`, `dossier <slug>`,
+- **Everything else** -- `list`, `status <slug>`,
   `measurements <slug>`, `review request|resolve`, `advance`,
   `version record`, `book build`, `todo add|list|done|start|drop|reopen`,
   `receive`, `route` -- maps 1:1 the same way. Run `skillmaker --help` for

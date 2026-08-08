@@ -31,7 +31,6 @@ Usage: skillmaker <command> [options]
 | [`reindex`](/cli/reindex/) | Rebuild `.skillmaker/studio.db` from files + the journal |
 | [`fixture add <slug> <case>`](/cli/fixture-add/) | Scaffold `evals/fixtures/<case>/` for a bundle |
 | `fixture harvest <slug> <case>` | Turn a `skill.field_report` or intake into a Lab fixture (`--from-report` / `--from-intake`) |
-| `dossier <slug>` | Print a bundle's dossier: job, contexts, out-of-scope, basis, evidence — honest gaps shown as "unrecorded" |
 | [`run <slug>`](/cli/run/) | Run a fixture case through an ACP provider |
 | [`run repair <slug> [runId]`](/cli/run-repair/) | Terminal-state stuck "running" run(s) so their transcripts become gradeable |
 | `station run <slug>` | Run an agent station for a bundle (`--state`, `--provider`) |

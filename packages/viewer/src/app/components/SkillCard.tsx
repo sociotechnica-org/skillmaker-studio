@@ -14,8 +14,8 @@
  * (Proven on / Coverage / Version). Then file-folder tabs over a bordered
  * "page", and BELOW the page an always-visible "Next, from what we already
  * know" chip strip (derivable-today gaps only, `runtime/cardGlance.ts`):
- *  - **Overview**: a plain-language status line, the Facts mini-table +
- *    Pipeline (neighborhood) block, and -- grouped under one "Actions"
+ *  - **Overview**: a plain-language status line, the Facts mini-table,
+ *    and -- grouped under one "Actions"
  *    area so they stop dominating -- every action affordance the old panel
  *    had (review pair, publish gate, stage advance/back, station run,
  *    publish-to-targets, recent events). The card replaces the panel's
@@ -35,8 +35,6 @@
  *  - **Coverage**: the risk map in its authored words (covered / partial /
  *    gap) -- authored judgment kept visually separate from pass rates,
  *    which live in Models. Never blended.
- *  - **Research**: the dossier, honest gaps shown explicitly ("Job:
- *    unrecorded", "Contexts: none named") -- never hidden.
  *  - **Lineage**: chain of custody replayed from the journal (server-derived
  *    `lineage.custody`) + fork family (marker-derived `forkOf`/`forks`/
  *    `upstream`) + version records (drift, "Record version", history --
@@ -77,7 +75,6 @@ import {
   UNVERIFIED_BADGE_CLASS,
   type BundleStage,
   type CoverageValue,
-  type DossierRecord,
   type Drift,
   type EventView,
   type FixtureRecord,
@@ -221,7 +218,6 @@ const TABS: ReadonlyArray<{ readonly key: BundleTab; readonly label: string }> =
   { key: "instructions", label: "Instructions" },
   { key: "models", label: "Models" },
   { key: "coverage", label: "Coverage" },
-  { key: "research", label: "Research" },
   { key: "lineage", label: "Lineage" },
   { key: "files", label: "Files" },
 ];
@@ -412,7 +408,6 @@ export const SkillCard: FC<{
             {tab === "coverage" && (
               <CoverageTab slug={slug} from={from} riskCoverage={detail.riskCoverage} warnings={detail.warnings} />
             )}
-            {tab === "research" && <DossierSection dossier={detail.dossier} />}
             {tab === "lineage" && (
               <LineageTab
                 slug={slug}
@@ -453,7 +448,7 @@ const GlanceCell: FC<{ label: string; value: string; sub: string; title?: string
  * one-liner · tag pills on the left; the badge stack (stage · short
  * version, drift, Unverified, Retired) on the right. Below it the 3-cell
  * GLANCE STRIP -- Proven on / Coverage / Version -- the readability core.
- * Every empty state is an honest gap, dossier-style.
+ * Every empty state is an honest gap.
  */
 const CardHeader: FC<{
   detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
@@ -569,73 +564,6 @@ interface OverviewTabProps {
 }
 
 /**
- * `dossier.md`'s sections, rendered as recorded content or an honest gap
- * (issue #94, `Mechanism - Receiving Dock.md`'s "unanswered fields display
- * as honest gaps ... never block anything") -- the card's Research tab
- * (issue #109: the dossier IS the card's authored core). Handoff CLAIMS
- * (issue #108) render per context when present; absent = unclaimed =
- * honest gap, no placeholder row.
- */
-const DossierSection: FC<{ dossier: DossierRecord }> = ({ dossier }) => {
-  const fields: ReadonlyArray<readonly [string, string | undefined]> = [
-    ["Job", dossier.job],
-    ["Out-of-scope", dossier.outOfScope],
-    ["Basis", dossier.basis],
-    ["Evidence", dossier.evidence],
-    ["Fit criterion", dossier.fitCriterion],
-  ];
-  return (
-    <section className="flex flex-col gap-2">
-      <h4 className="font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-        Context of use
-      </h4>
-      <dl className="flex flex-col text-[13px]">
-        {fields.map(([label, value]) => (
-          <div key={label} className="flex gap-3 border-t border-border py-1.5 first:border-t-0">
-            <dt className="w-28 shrink-0 text-neutral-500 dark:text-neutral-400">{label}</dt>
-            <dd className="text-neutral-700 dark:text-neutral-300">{value ?? <Unrecorded />}</dd>
-          </div>
-        ))}
-        <div className="flex gap-3 border-t border-border py-1.5">
-          <dt className="w-28 shrink-0 text-neutral-500 dark:text-neutral-400">Contexts</dt>
-          <dd className="text-neutral-700 dark:text-neutral-300">
-            {dossier.contexts.length === 0 ? (
-              <Unrecorded word="none named" />
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {dossier.contexts.map((context) => {
-                  // Handoff CLAIMS (issue #108): rendered only when present
-                  // (absent = unclaimed = honest gap, no placeholder row) --
-                  // free text, never a link, never resolved to a bundle.
-                  const claims: ReadonlyArray<readonly [string, string | undefined]> = [
-                    ["Upstream", context.upstream],
-                    ["Downstream", context.downstream],
-                    ["Hands", context.hands],
-                  ];
-                  return (
-                    <li key={context.name}>
-                      <span className="font-medium text-neutral-800 dark:text-neutral-100">{context.name}</span>
-                      {context.body.length > 0 ? `: ${context.body}` : ""}
-                      {claims
-                        .filter((claim): claim is readonly [string, string] => claim[1] !== undefined)
-                        .map(([label, value]) => (
-                          <div key={label} className="text-neutral-500 dark:text-neutral-400">
-                            {label}: <span className="text-neutral-700 dark:text-neutral-300">{value}</span>
-                          </div>
-                        ))}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </dd>
-        </div>
-      </dl>
-    </section>
-  );
-};
-
-/**
  * "Next, from what we already know" (issue #109; prototype `.chips`):
  * derivable-today gaps only -- uncovered risks, fixtures below the smoke
  * threshold, unmeasured providers. No speculative plays, no scoring, no
@@ -676,7 +604,7 @@ const NextChips: FC<{ detail: NonNullable<ReturnType<typeof useBundleDetail>["de
   );
 };
 
-/** The one italic warning-toned honest-gap rendering (prototype `.unrec`) -- shared by Facts, Pipeline, and the Research table. */
+/** The one italic warning-toned honest-gap rendering (prototype `.unrec`) -- shared by Facts. */
 const Unrecorded: FC<{ word?: string }> = ({ word = "unrecorded" }) => (
   <span className="italic text-red-600 dark:text-red-400">{word}</span>
 );
@@ -687,25 +615,18 @@ const Footnote: FC<{ children: ReactNode }> = ({ children }) => (
 );
 
 /**
- * Overview's two-column core (prototype `.two`): the "Facts" mini-table
- * (Runtime / Stage / Fixtures / Created / Drift) and the "Pipeline
- * (neighborhood)" block -- the dossier's handoff CLAIMS per context when
- * present (issue #108: free text, never a link, never resolved to a
- * bundle), else the honest italic gap instead of an inferred graph.
- * "Created" is the first custody event's day (the journal's first sighting
- * -- the payload carries no created-at field), an honest gap when the
- * journal is empty.
+ * Overview's "Facts" mini-table (prototype `.two`): Runtime / Stage /
+ * Fixtures / Created / Drift. "Created" is the first custody event's day
+ * (the journal's first sighting -- the payload carries no created-at
+ * field), an honest gap when the journal is empty.
  */
-const FactsAndPipeline: FC<{
+const FactsTable: FC<{
   detail: NonNullable<ReturnType<typeof useBundleDetail>["detail"]>;
   /** Proven-on provider ids, derived once in `SkillCard` (shared with the header's glance strip). */
   proven: ReadonlyArray<string>;
 }> = ({ detail, proven }) => {
   const { bundle } = detail;
   const firstCustody = detail.lineage.custody[0];
-  const contextsWithClaims = detail.dossier.contexts.filter(
-    (context) => context.upstream !== undefined || context.downstream !== undefined || context.hands !== undefined,
-  );
   const facts: ReadonlyArray<readonly [string, ReactNode]> = [
     ["Runtime", proven.length > 0 ? proven.join(", ") : <Unrecorded word="none proven yet" />],
     ["Stage", STAGE_LABEL[bundle.stage]],
@@ -730,38 +651,6 @@ const FactsAndPipeline: FC<{
             ))}
           </tbody>
         </table>
-      </div>
-      <div>
-        <h4 className="mb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
-          Pipeline
-        </h4>
-        {contextsWithClaims.length === 0 ? (
-          <p className="text-[13px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-            No upstream or downstream skills recorded.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2 text-[13px]">
-            {contextsWithClaims.map((context) => {
-              const claims: ReadonlyArray<readonly [string, string | undefined]> = [
-                ["Upstream", context.upstream],
-                ["Downstream", context.downstream],
-                ["Hands", context.hands],
-              ];
-              return (
-                <li key={context.name}>
-                  <span className="font-medium text-neutral-800 dark:text-neutral-100">{context.name}</span>
-                  {claims
-                    .filter((claim): claim is readonly [string, string] => claim[1] !== undefined)
-                    .map(([label, value]) => (
-                      <div key={label} className="text-neutral-500 dark:text-neutral-400">
-                        {label}: <span className="text-neutral-700 dark:text-neutral-300">{value}</span>
-                      </div>
-                    ))}
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </div>
     </div>
   );
@@ -867,7 +756,7 @@ const OverviewTab: FC<OverviewTabProps> = ({
         </details>
       </div>
 
-      <FactsAndPipeline detail={detail} proven={proven} />
+      <FactsTable detail={detail} proven={proven} />
 
       {/* Every action affordance the old panel had, grouped under ONE
           labeled area (card-fidelity round) so the workflow controls stop
@@ -1712,12 +1601,8 @@ const LineageTab: FC<{
             </>
           )}
         </span>
-        {/* "Provenance", not "Upstream" (seam pass over #108/#109): the
-            Research tab's dossier contexts already render "Upstream" for the
-            handoff CLAIM (what hands work TO this skill); this line is the
-            adopt marker's import provenance (where the files came from) --
-            two different facts, so two different words, "Upstream" kept
-            exclusively for the dossier's claim. */}
+        {/* "Provenance" (seam pass over #108/#109): the adopt marker's
+            import provenance -- where the files came from. */}
         <span>
           {lineage.upstream === null ? (
             <span className="text-neutral-400">Provenance: unrecorded.</span>
@@ -2024,11 +1909,6 @@ const FixtureTestBody: FC<{ slug: string; caseName: string }> = ({ slug, caseNam
         )}
       </div>
 
-      {detail.context !== null && (
-        <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-          Context: <span className="font-mono">{detail.context}</span>
-        </p>
-      )}
     </div>
   );
 };

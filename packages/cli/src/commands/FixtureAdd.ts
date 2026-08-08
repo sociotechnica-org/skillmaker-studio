@@ -1,16 +1,13 @@
 /**
- * `skillmaker fixture add <slug> <case> [--class ...] [--risks IN-1,RE-2]
- * [--context <name>]` — scaffolds `evals/fixtures/<case>/` for an existing
+ * `skillmaker fixture add <slug> <case> [--class ...] [--risks IN-1,RE-2]`
+ * — scaffolds `evals/fixtures/<case>/` for an existing
  * bundle: `case.json`, `prompt.md` (the PROMPT.MD CHANGE — the task prompt
  * lives here, not in `case.json`, data-model.md §2.5), `files/.gitkeep`, and
  * `expected/answer-key.md` skeleton, via the shared `writeFixtureScaffold`
  * (`@skillmaker/core`, `Fixtures.ts`) -- `fixture harvest` (`FixtureHarvest.ts`,
  * issue #68) writes the same shape from a field report, through the same
  * function. Fixtures are files, not journal events — nothing is appended to
- * the journal here (plan.md Phase 7). `--context` (issue #94) is a plain,
- * unvalidated string tag naming which of the bundle's `dossier.md`
- * `## Contexts` entries this case exercises -- not cross-checked against the
- * dossier (free prose, no closed vocabulary to check against).
+ * the journal here (plan.md Phase 7).
  */
 import {
   FIXTURE_CLASSES,
@@ -30,7 +27,6 @@ export interface FixtureAddOptions {
   readonly json: boolean;
   readonly klass?: string;
   readonly risks?: string;
-  readonly context?: string;
 }
 
 export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
@@ -93,13 +89,11 @@ export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
     );
   }
 
-  const context = options.context?.trim();
   yield* writeFixtureScaffold({
     caseDir,
     caseName,
     class: klass,
     risks,
-    ...(context !== undefined && context.length > 0 ? { context } : {}),
   });
 
   return summarize(slug, caseName, klass, risks, options.json);

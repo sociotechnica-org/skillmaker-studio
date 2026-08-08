@@ -80,9 +80,10 @@ parses / frontmatter complete / has evals — the OS&D clipboard) and
 registry evidence. Human columns default per the ruling — deferral, never
 a false fact: `decision` (keep), `whose` (`mine` for a bare candidate;
 `receive` for an evidence-bearing one — the tripwire applied to defaults
-too), `rights`/`stakes`/`hurts`/`priority` blank, and the card fields
-`Job`/`Out-of-scope`/`Basis` blank (free text; blank = not asked = an
-honest gap in the dossier these answers seed). There is no Maturity
+too), `rights`/`stakes`/`hurts`/`priority` blank. The `Job`/`Out-of-scope`/
+`Basis` card columns were expunged with the dossier (2026-08-08, see
+`../authoring/Entity - Dossier.md`); an old manifest carrying them still
+parses (warned once, cells never read). There is no Maturity
 column and no entry-stage question anywhere in the table. The maker edits
 the human columns by hand, in their own editor, on purpose (no agentic
 pre-fill).
@@ -100,8 +101,7 @@ parses with a complete identity → `evaluating`; parses but incomplete →
 `drafting`; otherwise `idea`), recorded when past idea via
 `bundle.stage_changed` with reason `"triage: entry stage derived from
 runnable output"` and NO `override` — the system's own placement at
-birth, not a human overriding the guard; the row's `Job`/`Out-of-scope`/
-`Basis` answers seed the freshly scaffolded dossier;
+birth, not a human overriding the guard;
 `keep` + anything else (`outside`/`came-back`/`unknown`/`receive`) routes
 through `skillmaker receive`'s exact engine for that one directory
 (`receiveCrate`); `archive` adopts then appends `bundle.archived`

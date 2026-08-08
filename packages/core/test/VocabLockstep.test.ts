@@ -31,8 +31,7 @@ import {
   RunVerdict,
 } from "../src/Journal.ts";
 import { SMOKE_K } from "../src/Measurements.ts";
-import { DOSSIER_SECTIONS } from "../src/Dossier.ts";
-import { CARD_FIELDS, TRIAGE_STAKES_VALUES } from "../src/Triage.ts";
+import { TRIAGE_STAKES_VALUES } from "../src/Triage.ts";
 import { STAGES } from "../src/Machine.ts";
 import { VERDICT_DISPOSITIONS } from "../src/Receive.ts";
 import { DISPOSITIONS } from "../src/Route.ts";
@@ -116,16 +115,4 @@ describe("ruled policy invariants", () => {
     );
   });
 
-  test("card-field triad (issue #108, seam pass): every CARD_FIELDS label is a dossier section, keys are distinct", () => {
-    // Labels are `DossierSectionName` at the type level already; this holds
-    // the runtime values in lockstep too, so a rename that dodges the type
-    // (e.g. a widened cast) still fails loudly here.
-    for (const [label] of CARD_FIELDS) {
-      expect(DOSSIER_SECTIONS as ReadonlyArray<string>).toContain(label);
-    }
-    const keys = CARD_FIELDS.map(([, key]) => key);
-    expect(new Set(keys).size).toBe(keys.length);
-    const labels = CARD_FIELDS.map(([label]) => label);
-    expect(new Set(labels).size).toBe(labels.length);
-  });
 });

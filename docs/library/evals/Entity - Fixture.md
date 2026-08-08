@@ -53,17 +53,12 @@ harvest` pulled from a `skill.field_report` event -- absent on every
 hand-scaffolded (`fixture add`) case, so every `case.json` written before
 harvest existed keeps validating unchanged.
 
-`context` is an optional sixth top-level field (issue #94, the Receiving
-Dock's "jobs singular, contexts plural" ruling): a plain string naming
-which of the bundle's `../authoring/Entity - Dossier.md` `## Contexts`
-entries this case exercises, e.g. `"PR review comment"`. Tolerant like
-`source` -- present-but-not-a-string is a reindex warning and the field is
-dropped, absent is silently fine (every `case.json` written before this
-field existed). Deliberately not cross-checked against the dossier's own
-context names (free prose, no closed vocabulary to validate against) and
-deliberately not surfaced as a per-context coverage rollup yet -- this
-issue adds only the field and the scanner's tolerance of it; a coverage
-lens that reads it lands later.
+`context` was an optional sixth top-level field (issue #94, the dossier's
+"jobs singular, contexts plural" ruling) naming a dossier `## Contexts`
+entry this case exercised. Expunged with the dossier (2026-08-08, see
+`../authoring/Entity - Dossier.md`): the scanner no longer reads or writes
+it, and a leftover `context` on an old `case.json` is silently ignored --
+never a warning, never a failure.
 
 Deviation from data-model.md §2.5 as written: the task prompt does **not**
 live in `case.json`'s `prompt` field — it lives in a sibling `prompt.md`
