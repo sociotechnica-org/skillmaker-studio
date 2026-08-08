@@ -482,14 +482,140 @@
     }
   },
   "web_url": "https://fabro-st.up.railway.app/runs/01KZGEY5FAPKGK8R4MRQKG9NSV",
-  "start": null,
-  "status": {
-    "kind": "starting"
+  "start": {
+    "start_time": "2026-08-08T10:33:40.270225454Z",
+    "run_branch": "fabro/run/01KZGEY5FAPKGK8R4MRQKG9NSV",
+    "base_sha": "2db5c3cbfcb0f501b941dbf39514cf9cb289b728"
   },
-  "status_updated_at": "2026-08-08T10:33:13.078472005Z",
-  "last_event_at": "2026-08-08T10:33:40.256377930Z",
+  "status": {
+    "kind": "running"
+  },
+  "status_updated_at": "2026-08-08T10:33:40.270256084Z",
+  "last_event_at": "2026-08-08T11:00:25.053395964Z",
   "pending_control": null,
-  "checkpoints": [],
+  "checkpoints": [
+    {
+      "seq": 23,
+      "checkpoint": {
+        "timestamp": "2026-08-08T10:33:42.554425182Z",
+        "current_node": "start",
+        "completed_nodes": [
+          "start"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "graph.stall_timeout": "18000000ms",
+          "graph.rankdir": "LR",
+          "failure_class": "",
+          "graph.max_node_visits": "5",
+          "internal.fidelity": "summary:high",
+          "current_node": "start",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "failure_signature": "",
+          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
+          "internal.run_id": "01KZGEY5FAPKGK8R4MRQKG9NSV",
+          "internal.node_visit_count": 1,
+          "graph.default_fidelity": "summary:high",
+          "outcome": "succeeded",
+          "internal.retry_count.start": 0,
+          "internal.thread_id": null
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          }
+        },
+        "next_node_id": "scope",
+        "node_visits": {
+          "start": 1
+        }
+      },
+      "diff": {}
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-08T11:00:25.719739278Z",
+        "current_node": "scope",
+        "completed_nodes": [
+          "start",
+          "scope"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.retry_count.start": 0,
+          "internal.fidelity": "summary:high",
+          "failure_class": "",
+          "graph.rankdir": "LR",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "internal.run_id": "01KZGEY5FAPKGK8R4MRQKG9NSV",
+          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
+          "internal.node_visit_count": 1,
+          "current_node": "scope",
+          "last_response": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative ",
+          "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md",
+          "thread.start.current_node": "scope",
+          "internal.retry_count.scope": 0,
+          "graph.max_node_visits": "5",
+          "graph.default_fidelity": "summary:high",
+          "last_stage": "scope",
+          "graph.stall_timeout": "18000000ms",
+          "outcome": "succeeded",
+          "internal.thread_id": "start",
+          "failure_signature": ""
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          },
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative ",
+              "last_stage": "scope",
+              "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 160891,
+                    "output_tokens": 21402,
+                    "reasoning_tokens": 17012,
+                    "cache_read_tokens": 5312913,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 4613319
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 711030,
+              "tool_time_ms": 889129,
+              "active_time_ms": 1600159
+            }
+          }
+        },
+        "next_node_id": "implement",
+        "node_visits": {
+          "start": 1,
+          "scope": 1
+        }
+      },
+      "diff": {}
+    }
+  ],
   "conclusion": null,
   "sandbox": {
     "kind": "ready",
@@ -515,5 +641,267 @@
   "pull_request": null,
   "superseded_by": null,
   "pending_interviews": {},
-  "stages": {}
+  "stages": {
+    "scope@1": {
+      "first_event_seq": 24,
+      "prompt": null,
+      "response": null,
+      "completion": null,
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "high"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-08T10:33:42.630358912Z",
+      "handler": "agent",
+      "graph_visit": 1,
+      "live_inference_ms": 711011,
+      "live_tool_ms": 889102,
+      "usage": {
+        "input_tokens": 160891,
+        "output_tokens": 21402,
+        "total_tokens": 5512218,
+        "reasoning_tokens": 17012,
+        "cache_read_tokens": 5312913,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 4613319
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-sol"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:17dac4a3-05e5-4414-bfbb-d874b9401192",
+        "items": [
+          {
+            "id": "eb7444696968e8d1",
+            "status": "completed",
+            "order": 0,
+            "subject": "Inspect repository guidance and existing proposals for applicable conventions"
+          },
+          {
+            "id": "6ffb708fbbffc037",
+            "status": "completed",
+            "order": 1,
+            "subject": "Trace viewer navigation state and launcher/live-refresh interactions"
+          },
+          {
+            "id": "e669863bcf7a0eec",
+            "status": "completed",
+            "order": 2,
+            "subject": "Verify dev, built, and CLI server SPA fallback behavior plus e2e capabilities"
+          },
+          {
+            "id": "b72333c9c3817494",
+            "status": "completed",
+            "order": 3,
+            "subject": "Define route model, state synchronization, tests, risks, and deferrals"
+          },
+          {
+            "id": "51cf497c6dd1e96b",
+            "status": "completed",
+            "order": 4,
+            "subject": "Write and review the dated proposal document"
+          }
+        ]
+      },
+      "subagents": [
+        {
+          "agent_id": "a4ce6660",
+          "depth": 1,
+          "task": "Read-only scope investigation for GitHub Issue #208 in /home/daytona/workspace/skillmaker-studio. Trace packages/viewer navigation/state architecture, especially NextShell.tsx center/pinned, projectScope.ts localStorage slug, SkillPage tab state, all navigation entry points (sidebar, board, tasks, tabs), launcher new-skill handoff, live refresh/chat/right-panel state. Identify exact files/symbols, current behavior, proposed coherent route integration, edge cases, and relevant tests. Do not edit files. Return concise evidence with paths/line numbers.",
+          "status": {
+            "kind": "closed"
+          }
+        },
+        {
+          "agent_id": "71a3fff3",
+          "depth": 1,
+          "task": "Read-only scope investigation for GitHub Issue #208 in /home/daytona/workspace/skillmaker-studio. Verify Astro dev/build SPA fallback, built dist behavior, and packages/cli Server.ts static serving for arbitrary deep routes. Inspect configs, server code, tests, build outputs if useful without writing repo files. Map e2e/browser test harness capabilities, existing viewer navigation tests, commands/gates. Identify exact files/symbols and likely changes/tests. Do not edit files. Return evidence with paths/line numbers.",
+          "status": {
+            "kind": "closed"
+          }
+        },
+        {
+          "agent_id": "5fc59300",
+          "depth": 1,
+          "task": "Read-only plan-convention investigation in /home/daytona/workspace/skillmaker-studio. Inspect AGENTS.md and relevant docs/proposals, especially recent viewer/UI plans and any routing proposal. Report whether an existing relevant plan should be refined, expected durable plan structure/style, house comment/testing conventions, and likely stable filename/date. Do not edit files. Return paths and line evidence.",
+          "status": {
+            "kind": "closed"
+          }
+        },
+        {
+          "agent_id": "9e84c8a9",
+          "depth": 1,
+          "task": "Review only the new plan /home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md against GitHub Issue #208 goals in the user prompt and current repository architecture. Look for contradictions, missing acceptance coverage, technically invalid assumptions, scope sprawl, or implementation ambiguity. In particular assess route/project synchronization, tasks/project route scheme, stale handling, Astro client-only/fallback claims, Playwright scope, launcher/chat continuity, and validation commands. Do not edit files. Return prioritized findings with proposed corrections.",
+          "status": {
+            "kind": "closed"
+          }
+        }
+      ],
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": true
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "context_window_tokens": 272000,
+        "input_tokens": 160756,
+        "usage_percent": 59.101470588235294,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-08T11:00:25.050930286Z",
+        "event_seq": 1330,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 2577,
+            "usage_percent": 0.9474264705882353
+          },
+          {
+            "category": "tools",
+            "tokens": 861,
+            "usage_percent": 0.3165441176470588
+          },
+          {
+            "category": "conversation",
+            "tokens": 157313,
+            "usage_percent": 57.83566176470588
+          },
+          {
+            "category": "other",
+            "tokens": 5,
+            "usage_percent": 0.001838235294117647
+          }
+        ],
+        "warnings": []
+      },
+      "agent_control": "running",
+      "state": "running"
+    },
+    "start@1": {
+      "first_event_seq": 20,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-08-08T10:33:42.554226485Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-08T10:33:42.192616084Z",
+      "handler": "start",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 0,
+        "inference_time_ms": 0,
+        "tool_time_ms": 0,
+        "active_time_ms": 0
+      },
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    }
+  }
 }
