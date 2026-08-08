@@ -1,0 +1,761 @@
+diff --git a/packages/viewer/astro.config.mjs b/packages/viewer/astro.config.mjs
+index 807ea59..8e71cbb 100644
+--- a/packages/viewer/astro.config.mjs
++++ b/packages/viewer/astro.config.mjs
+@@ -5,17 +5,15 @@ import { defineConfig } from "astro/config";
+ // Phase 3 has exactly one route ("/"), rendered by a client-routed React
+ // app. In production, `packages/cli`'s static server does the SPA fallback
+ // (any non-/api GET -> index.html). This Vite plugin gives `astro dev` the
+-// same behavior, so dev and prod routing match (per the phase-3 build
+-// brief): any GET that isn't for a real file, an Astro-internal path, or
+-// /api/* is rewritten to "/" before Astro's own router sees it.
++// same behavior: any GET that isn't for a real file, an Astro-internal
++// path, or /api/* is rewritten to "/" before Astro's own router sees it.
++// The package's `preview` script serves the built dist with that same
++// fallback because Astro's own static preview is intentionally MPA-only.
+ const spaFallback = () => ({
+   name: "skillmaker-dev-spa-fallback",
+   configureServer(server) {
+     installFallback(server);
+   },
+-  configurePreviewServer(server) {
+-    installFallback(server);
+-  },
+ });
+ 
+ const installFallback = (server) => {
+diff --git a/packages/viewer/package.json b/packages/viewer/package.json
+index d4062c6..23b173f 100644
+--- a/packages/viewer/package.json
++++ b/packages/viewer/package.json
+@@ -7,7 +7,7 @@
+     "sync:brand": "bun ../../scripts/sync-brand-assets.ts",
+     "dev": "bun run sync:brand && astro dev",
+     "build": "bun run sync:brand && astro build",
+-    "preview": "astro preview",
++    "preview": "bun scripts/preview.ts",
+     "check": "astro check"
+   },
+   "dependencies": {
+diff --git a/packages/viewer/scripts/preview.ts b/packages/viewer/scripts/preview.ts
+new file mode 100644
+index 0000000..d42bd4f
+--- /dev/null
++++ b/packages/viewer/scripts/preview.ts
+@@ -0,0 +1,35 @@
++/**
++ * Astro's static preview server is MPA-only and cannot run the History API
++ * fallback from astro.config.mjs. Keep this tiny built-dist server beside the
++ * viewer so `bun run preview` tests the same SPA contract as deployment
++ * without changing the CLI's production static server (#208).
++ */
++import { extname, resolve } from "node:path";
++
++const portFlag = process.argv.indexOf("--port");
++const requestedPort = portFlag === -1 ? undefined : Number(process.argv[portFlag + 1]);
++const port = Number.isInteger(requestedPort) && requestedPort! > 0 ? requestedPort! : 4321;
++const dist = resolve(import.meta.dirname, "..", "dist");
++
++const fileFor = (pathname: string): string | undefined => {
++  try {
++    const decoded = decodeURIComponent(pathname);
++    const candidate = resolve(dist, `.${decoded}`);
++    return candidate === dist || candidate.startsWith(`${dist}/`) ? candidate : undefined;
++  } catch {
++    return undefined;
++  }
++};
++
++const server = Bun.serve({
++  port,
++  async fetch(request) {
++    const url = new URL(request.url);
++    const path = fileFor(url.pathname);
++    if (path !== undefined && (await Bun.file(path).exists())) return new Response(Bun.file(path));
++    if (url.pathname.startsWith("/api/") || extname(url.pathname) !== "") return new Response("Not found", { status: 404 });
++    return new Response(Bun.file(resolve(dist, "index.html")), { headers: { "content-type": "text/html; charset=utf-8" } });
++  },
++});
++
++console.log(`Viewer preview: http://localhost:${server.port}`);
+diff --git a/packages/viewer/src/app/next/NextShell.tsx b/packages/viewer/src/app/next/NextShell.tsx
+index 61b5969..6de10fd 100644
+--- a/packages/viewer/src/app/next/NextShell.tsx
++++ b/packages/viewer/src/app/next/NextShell.tsx
+@@ -15,6 +15,7 @@
+  * - The right panel exists on skill pages only.
+  */
+ import { useEffect, useState } from "react";
++import { useActiveProject } from "../runtime/projectScope.ts";
+ import { useProjectBootstrap } from "../runtime/useProjectBootstrap.ts";
+ import { usePanelResize } from "./hooks.ts";
+ import { CollapseIcon, ExpandIcon, OverviewIcon, PanelLeftIcon, PanelRightIcon } from "./icons.tsx";
+@@ -25,7 +26,7 @@ import { IconButton } from "./ui.tsx";
+ import { BoardView, OverviewCard, SkillView, TasksView, useSkillPage } from "./views.tsx";
+ import { TopBarSkillControls } from "./SkillPage.tsx";
+ import { CURRENT_DRAFT } from "./SkillPage.tsx";
+-import { boardHref, skillHref, tasksHref, useStudioRouter } from "./router.tsx";
++import { boardHref, canonicalStudioHref, skillHref, tasksHref, useStudioRouter, versionPin } from "./router.tsx";
+ 
+ /** Top-bar bridge: owns nothing, fetches the shared skill page for the controls. */
+ function TopBarControls({ slug, pinned, onPin }: { readonly slug: string; readonly pinned: string; readonly onPin: (v: string) => void }) {
+@@ -37,7 +38,8 @@ export default function NextShell() {
+   // Machine registry (2026-07-27 rulings): resolve the ACTIVE project up
+   // front -- stored selection if still registered, else the first healthy
+   // project. Hooks re-fetch when the selection lands/changes.
+-  useProjectBootstrap();
++  const bootstrapStatus = useProjectBootstrap();
++  const activeProject = useActiveProject();
+   const [sidebarOpen, setSidebarOpen] = useState(true);
+   const [rightOpen, setRightOpen] = useState(() => {
+     try {
+@@ -80,19 +82,15 @@ export default function NextShell() {
+     if (route.name === "invalid") replace(boardHref());
+     else if (window.location.pathname === "/") replace(boardHref());
+     else if (route.name === "tasks" && route.projectSlug === undefined) {
+-      const stored = localStorage.getItem("sm-active-project");
+-      if (stored !== null) replace(tasksHref(stored));
++      // Wait for the registry to validate the persisted selection. A stale
++      // localStorage value must not manufacture a project-scoped Tasks URL.
++      if (bootstrapStatus === "ready" && activeProject !== null) replace(tasksHref(activeProject));
+     }
+     else {
+-      const canonical =
+-        route.name === "board" ? boardHref(route.projectSlug) :
+-        route.name === "tasks" ? tasksHref(route.projectSlug) :
+-        route.name === "new-skill" ? `/p/${encodeURIComponent(route.projectSlug)}/new` :
+-        route.name === "skill" ? skillHref(route.projectSlug, route.skillSlug, route.tab, route.version) :
+-        boardHref();
++      const canonical = canonicalStudioHref(route);
+       if (`${window.location.pathname}${window.location.search}` !== canonical) replace(canonical);
+     }
+-  }, [replace, route]);
++  }, [activeProject, bootstrapStatus, replace, route]);
+   useEffect(() => {
+     if (route.name !== "board" && route.name !== "tasks" && route.name !== "new-skill" && route.name !== "skill") return;
+     const projectSlug = route.name === "new-skill" || route.name === "skill" ? route.projectSlug : route.projectSlug;
+@@ -103,7 +101,7 @@ export default function NextShell() {
+       const body = (await response.json()) as { projects?: unknown };
+       if (!Array.isArray(body.projects) || cancelled) return;
+       const project = body.projects.find((row): row is { slug: string; skills?: unknown } =>
+-        typeof row === "object" && row !== null && (row as { slug?: unknown }).slug === projectSlug,
++        typeof row === "object" && row !== null && (row as { slug?: unknown }).slug === projectSlug && (row as { ok?: unknown }).ok !== false,
+       );
+       if (project === undefined) replace(boardHref());
+       else if (route.name === "skill" && Array.isArray(project.skills) && !project.skills.some((skill) =>
+@@ -212,7 +210,7 @@ export default function NextShell() {
+             {onSkillPage && <span className="text-ink-muted">···</span>}
+           </div>
+           {route.name === "skill" && <TopBarControls slug={route.skillSlug} pinned={route.version ?? CURRENT_DRAFT} onPin={(hash) => {
+-            const version = hash === CURRENT_DRAFT ? undefined : hash.slice(0, 8);
++            const version = hash === CURRENT_DRAFT ? undefined : versionPin(hash);
+             navigate(skillHref(route.projectSlug, route.skillSlug, route.tab, version));
+           }} />}
+           {onSkillPage && (
+@@ -243,6 +241,8 @@ export default function NextShell() {
+               pinned={route.version ?? CURRENT_DRAFT}
+               tab={route.tab}
+               onTabChange={(tab) => navigate(skillHref(route.projectSlug, route.skillSlug, tab, route.version))}
++              tabHref={(tab) => skillHref(route.projectSlug, route.skillSlug, tab, route.version)}
++              onStaleVersion={() => replace(skillHref(route.projectSlug, route.skillSlug, route.tab))}
+               overviewOpen={overviewShown}
+               onOpenFile={(path) => {
+                 setRightOpen(true);
+@@ -252,6 +252,7 @@ export default function NextShell() {
+           )}
+           {route.name === "new-skill" && (
+             <NewSkillLauncher
++              key={route.projectSlug}
+               project={route.projectSlug}
+               onCreated={(slug, provider, message, model, effort) => {
+                 // The launcher disappears; the conversation continues in the
+diff --git a/packages/viewer/src/app/next/Sidebar.tsx b/packages/viewer/src/app/next/Sidebar.tsx
+index 763c6d8..e03fd5d 100644
+--- a/packages/viewer/src/app/next/Sidebar.tsx
++++ b/packages/viewer/src/app/next/Sidebar.tsx
+@@ -6,7 +6,7 @@ import { PROJECTS, TASKS } from "./data.ts";
+ import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, MoonIcon, PlusIcon, SunIcon, TasksIcon } from "./icons.tsx";
+ import { NewProjectDialog } from "./NewProjectDialog.tsx";
+ import { useJournalTick } from "./liveRefresh.ts";
+-import { usePresence } from "./presence.ts";
++import { presenceKey, usePresence } from "./presence.ts";
+ import { fetchProjects } from "./projectsApi.ts";
+ import { applyTheme, currentTheme, type Theme } from "./theme.ts";
+ import { FADE_R, IconButton, StageBadge } from "./ui.tsx";
+@@ -40,14 +40,14 @@ export function Sidebar({
+ 
+   // Presence sweep, bounded to the rows actually on screen: open projects'
+   // visible skills only (presence.ts documents the cost discipline).
+-  const visibleSlugs = projects.flatMap((project) =>
++  const visibleSkills = projects.flatMap((project) =>
+     (openProjects[project.name] ?? false)
+       ? ((showAll[project.name] ?? false) ? project.skills : project.skills.slice(0, VISIBLE_SKILLS)).map(
+-          (skill) => skill.slug,
++          (skill) => ({ project: project.slug, slug: skill.slug }),
+         )
+       : [],
+   );
+-  const runningSlugs = usePresence(visibleSlugs);
++  const runningSkills = usePresence(visibleSkills);
+ 
+   const loadProjects = useCallback(() => {
+     let cancelled = false;
+@@ -87,14 +87,16 @@ export function Sidebar({
+           label="Board"
+           icon={<BoardIcon />}
+           active={route.name === "board" && route.projectSlug === undefined}
+-          onClick={() => navigate(boardHref())}
++          href={boardHref()}
++          navigate={navigate}
+         />
+         <NavItem
+           label="Tasks"
+           icon={<TasksIcon />}
+           active={route.name === "tasks"}
+           badge={openTaskCount}
+-          onClick={() => navigate(tasksHref(route.name === "tasks" ? route.projectSlug : activeProject ?? undefined))}
++          href={tasksHref(route.name === "tasks" ? route.projectSlug : activeProject ?? undefined)}
++          navigate={navigate}
+         />
+       </nav>
+ 
+@@ -118,7 +120,7 @@ export function Sidebar({
+             open={openProjects[project.name] ?? false}
+             expanded={showAll[project.name] ?? false}
+             route={route}
+-            running={runningSlugs}
++            running={runningSkills}
+             onToggle={() => {
+               navigate(boardHref(project.slug));
+               setOpenProjects({ ...openProjects, [project.name]: !(openProjects[project.name] ?? false) });
+@@ -195,18 +197,24 @@ function NavItem({
+   icon,
+   active,
+   badge,
+-  onClick,
++  href,
++  navigate,
+ }: {
+   readonly label: string;
+   readonly icon: React.ReactNode;
+   readonly active: boolean;
+   readonly badge?: number;
+-  readonly onClick: () => void;
++  readonly href: string;
++  readonly navigate: (href: string) => void;
+ }) {
+   return (
+-    <button
+-      type="button"
+-      onClick={onClick}
++    <a
++      href={href}
++      onClick={(event) => {
++        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
++        event.preventDefault();
++        navigate(href);
++      }}
+       className={`flex w-full items-center gap-2 rounded px-3 py-1.5 text-left font-display text-sm ${
+         active ? "bg-surface shadow-sm" : "text-ink-muted hover:bg-surface/60"
+       }`}
+@@ -214,7 +222,7 @@ function NavItem({
+       <span className="text-ink-muted">{icon}</span>
+       <span className="flex-1">{label}</span>
+       {badge ? <span className="rounded-full bg-amber-200 px-2 text-xs">{badge}</span> : null}
+-    </button>
++    </a>
+   );
+ }
+ 
+@@ -236,7 +244,7 @@ function ProjectSection({
+   readonly open: boolean;
+   readonly expanded: boolean;
+   readonly route: StudioRoute;
+-  /** Slugs with something running right now (presence sweep). */
++  /** Project-qualified skills with something running right now (presence sweep). */
+   readonly running: ReadonlySet<string>;
+   readonly onToggle: () => void;
+   readonly onToggleExpanded: () => void;
+@@ -249,9 +257,13 @@ function ProjectSection({
+   return (
+     <div className="mb-1">
+       <div className={`group flex items-center rounded pr-1 hover:bg-surface/60 ${active ? "bg-surface shadow-sm" : ""}`}>
+-        <button
+-          type="button"
+-          onClick={onToggle}
++        <a
++          href={boardHref(project.slug)}
++          onClick={(event) => {
++            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
++            event.preventDefault();
++            onToggle();
++          }}
+           className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-1 text-left font-display text-sm"
+           title={project.error !== undefined ? `${project.path} — ${project.error}` : project.path}
+         >
+@@ -267,7 +279,7 @@ function ProjectSection({
+               broken
+             </span>
+           )}
+-        </button>
++        </a>
+         <button
+           type="button"
+           className="shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
+@@ -286,10 +298,14 @@ function ProjectSection({
+           {visible.map((skill) => {
+             const active = route.name === "skill" && route.projectSlug === project.slug && route.skillSlug === skill.slug;
+             return (
+-              <button
++              <a
+                 key={skill.slug}
+-                type="button"
+-                onClick={() => onOpenSkill(skill.slug)}
++                href={skillHref(project.slug, skill.slug)}
++                onClick={(event) => {
++                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
++                  event.preventDefault();
++                  onOpenSkill(skill.slug);
++                }}
+                 className={`flex w-full items-center gap-2 rounded py-1 pl-8 pr-2 text-left text-sm ${
+                   active ? "bg-surface shadow-sm" : "text-ink-muted hover:bg-surface/60"
+                 }`}
+@@ -301,13 +317,13 @@ function ProjectSection({
+                 )}
+                 <StageBadge stage={skill.stage} />
+                 {/* row-right spinner: an active run or a chat turn in flight */}
+-                {running.has(skill.slug) && (
++                {running.has(presenceKey({ project: project.slug, slug: skill.slug })) && (
+                   <span
+                     className="h-3 w-3 shrink-0 animate-spin rounded-full border border-amber-500 border-t-transparent"
+                     title="Running"
+                   />
+                 )}
+-              </button>
++              </a>
+             );
+           })}
+           {hidden > 0 && (
+diff --git a/packages/viewer/src/app/next/SkillPage.tsx b/packages/viewer/src/app/next/SkillPage.tsx
+index 3226f85..5bdc19c 100644
+--- a/packages/viewer/src/app/next/SkillPage.tsx
++++ b/packages/viewer/src/app/next/SkillPage.tsx
+@@ -35,6 +35,7 @@ export function SkillPageView({
+   pinned,
+   tab,
+   onTabChange,
++  tabHref,
+   onOpenFile,
+   rightInset = false,
+ }: {
+@@ -43,6 +44,7 @@ export function SkillPageView({
+   readonly pinned: string;
+   readonly tab: CenterTab;
+   readonly onTabChange: (tab: CenterTab) => void;
++  readonly tabHref: (tab: CenterTab) => string;
+   readonly onOpenFile: (path: string) => void;
+   /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */
+   readonly rightInset?: boolean;
+@@ -97,10 +99,20 @@ export function SkillPageView({
+                 { id: "publish", label: "Publish", onClick: () => onTabChange("publish"), dot: false },
+               ] as const
+             ).map((t) => (
+-              <button key={t.id} type="button" onClick={t.onClick} aria-current={tab === t.id ? "page" : undefined} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>
++              <a
++                key={t.id}
++                href={tabHref(t.id)}
++                onClick={(event) => {
++                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
++                  event.preventDefault();
++                  t.onClick();
++                }}
++                aria-current={tab === t.id ? "page" : undefined}
++                className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}
++              >
+                 {t.label}
+                 {t.dot && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" />}
+-              </button>
++              </a>
+             ))}
+           </div>
+         </div>
+diff --git a/packages/viewer/src/app/next/api.ts b/packages/viewer/src/app/next/api.ts
+index d3e8c54..a934405 100644
+--- a/packages/viewer/src/app/next/api.ts
++++ b/packages/viewer/src/app/next/api.ts
+@@ -421,11 +421,16 @@ export function useApiData<T>(fetcher: () => Promise<T>, fallback: T, options: {
+   const project = useActiveProject();
+   const [state, setState] = useState<{ readonly data?: T; readonly project: string | null }>({ project });
+   const lastProject = useRef(project);
++  const lastFetcher = useRef<(() => Promise<T>) | undefined>(undefined);
+ 
+   useEffect(() => {
+     let cancelled = false;
+-    if (lastProject.current !== project) {
++    // Slug-specific fetchers change inside one project too. Tagging only the
++    // project let a failed request for skill B keep skill A on screen (#208).
++    const resourceChanged = lastFetcher.current !== fetcher;
++    if (lastProject.current !== project || resourceChanged) {
+       lastProject.current = project;
++      lastFetcher.current = fetcher;
+       setState({ project });
+     }
+     fetcher().then(
+diff --git a/packages/viewer/src/app/next/presence.test.ts b/packages/viewer/src/app/next/presence.test.ts
+index c0fc914..a760892 100644
+--- a/packages/viewer/src/app/next/presence.test.ts
++++ b/packages/viewer/src/app/next/presence.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "bun:test";
+-import { isRunning } from "./presence.ts";
++import { isRunning, presenceKey } from "./presence.ts";
+ 
+ describe("isRunning", () => {
+   test("an active dispatched run means running", () => {
+@@ -33,3 +33,11 @@ describe("isRunning", () => {
+     expect(isRunning({ active: [] }, { active: { status: "running" } })).toBe(true);
+   });
+ });
++
++describe("presenceKey", () => {
++  test("qualifies duplicate skill slugs by their project", () => {
++    expect(presenceKey({ project: "alpha", slug: "release-notes" })).not.toBe(
++      presenceKey({ project: "beta", slug: "release-notes" }),
++    );
++  });
++});
+diff --git a/packages/viewer/src/app/next/presence.ts b/packages/viewer/src/app/next/presence.ts
+index 59f804b..9c47cc6 100644
+--- a/packages/viewer/src/app/next/presence.ts
++++ b/packages/viewer/src/app/next/presence.ts
+@@ -27,6 +27,15 @@ import { subscribeJournalTicks } from "./liveRefresh.ts";
+ export const MAX_SWEEP = 20;
+ export const HEARTBEAT_MS = 6000;
+ 
++/** A sidebar row's fully qualified identity. Skill slugs only identify a skill within one project. */
++export type PresenceTarget = {
++  readonly project: string;
++  readonly slug: string;
++};
++
++/** Stable identity for a project-scoped skill row; NUL cannot occur in a URL path segment. */
++export const presenceKey = ({ project, slug }: PresenceTarget): string => `${project}\0${slug}`;
++
+ /** The `runs-active` fields presence reads (decoded defensively). */
+ export type RunsActiveGlance = { readonly active?: ReadonlyArray<unknown> } | null;
+ /** The chat-state fields presence reads (decoded defensively). */
+@@ -59,17 +68,17 @@ const fetchGlance = async (path: string): Promise<unknown | null> => {
+ };
+ 
+ /** One aggregate sweep: both signals for every slug (bounded), in parallel. */
+-const sweepPresence = async (slugs: ReadonlyArray<string>): Promise<ReadonlySet<string>> => {
+-  const bounded = slugs.slice(0, MAX_SWEEP);
++const sweepPresence = async (targets: ReadonlyArray<PresenceTarget>): Promise<ReadonlySet<string>> => {
++  const bounded = targets.slice(0, MAX_SWEEP);
+   const verdicts = await Promise.all(
+-    bounded.map(async (slug) => {
++    bounded.map(async (target) => {
+       const [runs, chat] = await Promise.all([
+-        fetchGlance(apiPath(`/api/bundles/${encodeURIComponent(slug)}/runs-active`)),
+-        fetchGlance(apiPath(`/api/chat/${encodeURIComponent(slug)}/state`)),
++        fetchGlance(apiPath(`/api/bundles/${encodeURIComponent(target.slug)}/runs-active`, target.project)),
++        fetchGlance(apiPath(`/api/chat/${encodeURIComponent(target.slug)}/state`, target.project)),
+       ]);
+-      if (runs === null && chat === null) return { slug, running: false, reachable: false };
++      if (runs === null && chat === null) return { target, running: false, reachable: false };
+       return {
+-        slug,
++        target,
+         running: isRunning(runs as RunsActiveGlance, chat as ChatStateGlance),
+         reachable: true,
+       };
+@@ -80,7 +89,7 @@ const sweepPresence = async (slugs: ReadonlyArray<string>): Promise<ReadonlySet<
+   if (verdicts.length > 0 && verdicts.every((verdict) => !verdict.reachable)) {
+     throw new Error("presence: server absent");
+   }
+-  return new Set(verdicts.filter((verdict) => verdict.running).map((verdict) => verdict.slug));
++  return new Set(verdicts.filter((verdict) => verdict.running).map((verdict) => presenceKey(verdict.target)));
+ };
+ 
+ /**
+@@ -90,16 +99,16 @@ const sweepPresence = async (slugs: ReadonlyArray<string>): Promise<ReadonlySet<
+  * inert after the first all-endpoints-unreachable sweep (serverless astro
+  * dev) and when `slugs` is empty.
+  */
+-export function usePresence(slugs: ReadonlyArray<string>): ReadonlySet<string> {
++export function usePresence(targets: ReadonlyArray<PresenceTarget>): ReadonlySet<string> {
+   const [running, setRunning] = useState<ReadonlySet<string>>(new Set());
+   const disabled = useRef(false);
+   const inFlight = useRef(false);
+   // Identity-stable key so effects don't loop on a fresh array each render.
+-  const key = slugs.join("\n");
++  const key = targets.map(presenceKey).join("\n");
+ 
+   useEffect(() => {
+     let cancelled = false;
+-    const list = key.length === 0 ? [] : key.split("\n");
++    const list = targets;
+ 
+     const sweep = () => {
+       if (disabled.current || inFlight.current || list.length === 0) return;
+@@ -130,7 +139,7 @@ export function usePresence(slugs: ReadonlyArray<string>): ReadonlySet<string> {
+   const anyRunning = running.size > 0;
+   useEffect(() => {
+     if (!anyRunning || disabled.current) return;
+-    const list = key.length === 0 ? [] : key.split("\n");
++    const list = targets;
+     const timer = setInterval(() => {
+       if (disabled.current || inFlight.current || list.length === 0) return;
+       inFlight.current = true;
+diff --git a/packages/viewer/src/app/next/router.test.ts b/packages/viewer/src/app/next/router.test.ts
+index ce52648..f3323c8 100644
+--- a/packages/viewer/src/app/next/router.test.ts
++++ b/packages/viewer/src/app/next/router.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "bun:test";
+-import { boardHref, parseStudioRoute, skillHref, tasksHref } from "./router.tsx";
++import { boardHref, canonicalStudioHref, parseStudioRoute, skillHref, tasksHref, versionPin } from "./router.tsx";
+ 
+ describe("next shell routes (#208)", () => {
+   test("parses canonical skill places, tabs, and a version lens", () => {
+@@ -17,9 +17,24 @@ describe("next shell routes (#208)", () => {
+     expect(parseStudioRoute("/p/team/s/alpha/extra/path")).toEqual({ name: "invalid" });
+   });
+ 
++  test("accepts exactly one lowercase eight-character version lens and rejects malformed or duplicate pins", () => {
++    expect(parseStudioRoute("/p/team/s/alpha", "?v=deadbeef")).toMatchObject({ name: "skill", version: "deadbeef" });
++    expect(parseStudioRoute("/p/team/s/alpha", "?v=sha256%3Adeadbeef")).toEqual({ name: "invalid" });
++    expect(parseStudioRoute("/p/team/s/alpha", "?v=DEADBEEF")).toEqual({ name: "invalid" });
++    expect(parseStudioRoute("/p/team/s/alpha", "?v=deadbeef&v=cafebabe")).toEqual({ name: "invalid" });
++  });
++
+   test("href builders encode identity and omit the overview suffix", () => {
+     expect(boardHref("a b")).toBe("/p/a%20b");
+     expect(tasksHref("team")).toBe("/p/team/tasks");
+     expect(skillHref("a/b", "new skill", "overview", "deadbeef")).toBe("/p/a%2Fb/s/new%20skill?v=deadbeef");
++    expect(versionPin(`sha256:${"a".repeat(64)}`)).toBe("aaaaaaaa");
++    expect(skillHref("team", "alpha", "eval", `sha256:${"b".repeat(64)}`)).toBe("/p/team/s/alpha/eval?v=bbbbbbbb");
++  });
++
++  test("canonical hrefs reconcile redundant path/query spelling without changing route identity", () => {
++    const route = parseStudioRoute("//p//team//s//alpha//eval/", "?v=deadbeef&unused=1");
++    expect(route).toEqual({ name: "skill", projectSlug: "team", skillSlug: "alpha", tab: "eval", version: "deadbeef" });
++    expect(canonicalStudioHref(route)).toBe("/p/team/s/alpha/eval?v=deadbeef");
+   });
+ });
+diff --git a/packages/viewer/src/app/next/router.tsx b/packages/viewer/src/app/next/router.tsx
+index 3f24df4..f9aa5e8 100644
+--- a/packages/viewer/src/app/next/router.tsx
++++ b/packages/viewer/src/app/next/router.tsx
+@@ -25,11 +25,24 @@ const decode = (part: string): string | undefined => {
+   }
+ };
+ 
++const isVersionPin = (value: string): boolean => /^[0-9a-f]{8}$/.test(value);
++
++/**
++ * The URL carries an eight-character, lowercase lens. UI callers hold either
++ * that lens or the wire's complete `sha256:<hash>` value, so normalize both
++ * at the router boundary instead of letting a `sha256:` prefix leak into a
++ * shareable URL.
++ */
++export const versionPin = (hash: string): string | undefined => {
++  const bare = hash.replace(/^sha256:/, "");
++  return /^[0-9a-f]{64}$/.test(bare) ? bare.slice(0, 8) : isVersionPin(bare) ? bare : undefined;
++};
++
+ export const parseStudioRoute = (pathname: string, search = ""): StudioRoute => {
+   const parts = pathname.split("/").filter(Boolean);
+   const params = new URLSearchParams(search);
+   const versions = params.getAll("v");
+-  const version = versions.length === 1 && /^[0-9a-f]{8}$/.test(versions[0] ?? "") ? versions[0] : undefined;
++  const version = versions.length === 0 ? undefined : versions.length === 1 && isVersionPin(versions[0] ?? "") ? versions[0] : null;
+   if (parts.length === 0 || (parts.length === 1 && parts[0] === "board")) return versions.length === 0 ? { name: "board" } : { name: "invalid" };
+   if (parts.length === 1 && parts[0] === "tasks") return versions.length === 0 ? { name: "tasks" } : { name: "invalid" };
+   if (parts[0] !== "p") return { name: "invalid" };
+@@ -42,7 +55,7 @@ export const parseStudioRoute = (pathname: string, search = ""): StudioRoute =>
+   const skillSlug = decode(parts[3] ?? "");
+   if (skillSlug === undefined || parts.length > 5) return { name: "invalid" };
+   const tab = parts.length === 5 ? parts[4] : "overview";
+-  if (!SKILL_TABS.includes(tab as SkillTab)) return { name: "invalid" };
++  if (!SKILL_TABS.includes(tab as SkillTab) || version === null) return { name: "invalid" };
+   return { name: "skill", projectSlug, skillSlug, tab: tab as SkillTab, ...(version === undefined ? {} : { version }) };
+ };
+ 
+@@ -51,12 +64,20 @@ export const tasksHref = (projectSlug?: string): string => projectSlug === undef
+ export const newSkillHref = (projectSlug: string): string => `/p/${encodeURIComponent(projectSlug)}/new`;
+ export const skillHref = (projectSlug: string, skillSlug: string, tab: SkillTab = "overview", version?: string): string => {
+   const path = `/p/${encodeURIComponent(projectSlug)}/s/${encodeURIComponent(skillSlug)}${tab === "overview" ? "" : `/${tab}`}`;
+-  return version === undefined ? path : `${path}?${new URLSearchParams({ v: version })}`;
++  const pin = version === undefined ? undefined : versionPin(version);
++  return pin === undefined ? path : `${path}?${new URLSearchParams({ v: pin })}`;
+ };
+ 
+ const routeProject = (route: StudioRoute): string | undefined =>
+   route.name === "board" || route.name === "tasks" ? route.projectSlug : route.name === "new-skill" || route.name === "skill" ? route.projectSlug : undefined;
+ 
++/** The one byte-stable spelling for a parsed, valid Studio route. */
++export const canonicalStudioHref = (route: Exclude<StudioRoute, { readonly name: "invalid" }>): string =>
++  route.name === "board" ? boardHref(route.projectSlug) :
++  route.name === "tasks" ? tasksHref(route.projectSlug) :
++  route.name === "new-skill" ? newSkillHref(route.projectSlug) :
++  skillHref(route.projectSlug, route.skillSlug, route.tab, route.version);
++
+ const readLocation = (): StudioRoute => parseStudioRoute(window.location.pathname, window.location.search);
+ 
+ export type StudioRouter = {
+@@ -68,10 +89,13 @@ export type StudioRouter = {
+ export const useStudioRouter = (): StudioRouter => {
+   const [route, setRoute] = useState<StudioRoute>(() => (typeof window === "undefined" ? { name: "board" } : readLocation()));
+   const publish = useCallback((href: string, replace: boolean) => {
+-    const next = parseStudioRoute(new URL(href, window.location.origin).pathname, new URL(href, window.location.origin).search);
++    const location = new URL(href, window.location.origin);
++    const next = parseStudioRoute(location.pathname, location.search);
++    const target = next.name === "invalid" ? href : canonicalStudioHref(next);
++    if (!replace && `${window.location.pathname}${window.location.search}` === target) return;
+     const project = routeProject(next);
+     if (project !== undefined) setActiveProject(project);
+-    window.history[replace ? "replaceState" : "pushState"]({}, "", href);
++    window.history[replace ? "replaceState" : "pushState"]({}, "", target);
+     setRoute(next);
+   }, []);
+   const navigate = useCallback((href: string) => publish(href, false), [publish]);
+diff --git a/packages/viewer/src/app/next/views.tsx b/packages/viewer/src/app/next/views.tsx
+index 63fcbba..81ac324 100644
+--- a/packages/viewer/src/app/next/views.tsx
++++ b/packages/viewer/src/app/next/views.tsx
+@@ -1,10 +1,10 @@
+ /** Center-column views: Board, Tasks, and the Skill page. */
+-import { useCallback } from "react";
++import { useCallback, useEffect } from "react";
+ import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from "./api.ts";
+ import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
+ import { SkillPageView } from "./SkillPage.tsx";
+ import { CURRENT_DRAFT } from "./SkillPage.tsx";
+-import type { SkillTab } from "./router.tsx";
++import { skillHref, type SkillTab } from "./router.tsx";
+ import { STAGES } from "./types.ts";
+ import { Button, FADE_R, STAGE_TINT } from "./ui.tsx";
+ import type { Project, SkillPage } from "./types.ts";
+@@ -15,6 +15,12 @@ export function useSkillPage(slug: string): SkillPage {
+   return useApiData(fetcher, SKILL_PAGE);
+ }
+ 
++/** A route lens must wait for live version data before it can be declared stale. */
++export function useSkillPageStatus(slug: string) {
++  const fetcher = useCallback(() => fetchSkillPage(slug), [slug]);
++  return useApiStatus(fetcher);
++}
++
+ export function BoardView({
+   onOpenSkill,
+   onCreateProject,
+@@ -64,15 +70,19 @@ export function BoardView({
+               p.skills
+                 .filter((s) => s.stage === stage)
+                 .map((s) => (
+-                  <button
++                  <a
+                     key={`${p.name}/${s.slug}`}
+-                    type="button"
+-                    onClick={() => onOpenSkill(p, s.slug)}
++                    href={skillHref(p.slug, s.slug)}
++                    onClick={(event) => {
++                      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
++                      event.preventDefault();
++                      onOpenSkill(p, s.slug);
++                    }}
+                     className="mb-2 block w-full rounded bg-surface p-2 text-left shadow-sm hover:shadow"
+                   >
+                     <div className={`font-display text-sm ${FADE_R}`}>{s.slug}</div>
+                     <div className={`text-xs text-ink-muted ${FADE_R}`}>{p.name}</div>
+-                  </button>
++                  </a>
+                 )),
+             )}
+           </div>
+@@ -129,6 +139,8 @@ export function SkillView({
+   pinned,
+   tab,
+   onTabChange,
++  tabHref,
++  onStaleVersion,
+   overviewOpen,
+   onOpenFile,
+ }: {
+@@ -136,11 +148,21 @@ export function SkillView({
+   readonly pinned: string;
+   readonly tab: SkillTab;
+   readonly onTabChange: (tab: SkillTab) => void;
++  readonly tabHref: (tab: SkillTab) => string;
++  readonly onStaleVersion: () => void;
+   readonly overviewOpen: boolean;
+   readonly onOpenFile: (path: string) => void;
+ }) {
+-  const page = useSkillPage(slug);
+-  const resolvedPin = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : page.versions.find((version) => version.shortHash === pinned)?.hash ?? CURRENT_DRAFT;
++  const { data, status } = useSkillPageStatus(slug);
++  const page = data ?? SKILL_PAGE;
++  const matches = pinned === CURRENT_DRAFT ? [] : page.versions.filter((version) => version.shortHash === pinned);
++  const resolvedPin = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : matches.length === 1 ? matches[0]?.hash ?? CURRENT_DRAFT : CURRENT_DRAFT;
++  useEffect(() => {
++    // Fallback content is intentionally plausible during serverless dev, but
++    // it cannot prove a shared URL lens stale. Only live project data may
++    // remove a missing or ambiguous pin (#208).
++    if (pinned !== CURRENT_DRAFT && status === "live" && matches.length !== 1) onStaleVersion();
++  }, [matches.length, onStaleVersion, pinned, status]);
+   // The overview card FLOATS OVER the page (z-10) so the full-bleed tab
+   // surface and its separator run beneath it uninterrupted; the content
+   // makes room via right padding, not a layout column that would notch
+@@ -148,7 +170,7 @@ export function SkillView({
+   return (
+     <div className="relative flex min-h-full">
+       <div className="min-w-0 flex-1">
+-        <SkillPageView slug={slug} page={page} pinned={resolvedPin} tab={tab} onTabChange={onTabChange} onOpenFile={onOpenFile} rightInset={overviewOpen} />
++        <SkillPageView slug={slug} page={page} pinned={resolvedPin} tab={tab} onTabChange={onTabChange} tabHref={tabHref} onOpenFile={onOpenFile} rightInset={overviewOpen} />
+       </div>
+       {overviewOpen && (
+         <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[244px]">
+diff --git a/packages/viewer/src/app/runtime/projectScope.ts b/packages/viewer/src/app/runtime/projectScope.ts
+index e5d6317..106c154 100644
+--- a/packages/viewer/src/app/runtime/projectScope.ts
++++ b/packages/viewer/src/app/runtime/projectScope.ts
+@@ -69,9 +69,8 @@ const isMachinePath = (path: string): boolean =>
+  * the path is returned unscoped -- the request 404s quietly and the
+  * hooks' placeholder/error fallbacks hold until selection lands.
+  */
+-export const apiPath = (path: string): string => {
++export const apiPath = (path: string, project: string | null = activeProject): string => {
+   if (!path.startsWith("/api/") || isMachinePath(path)) return path;
+-  const slug = activeProject;
+-  if (slug === null) return path;
+-  return `/api/projects/${encodeURIComponent(slug)}${path.slice("/api".length)}`;
++  if (project === null) return path;
++  return `/api/projects/${encodeURIComponent(project)}${path.slice("/api".length)}`;
+ };
+diff --git a/packages/viewer/src/app/runtime/useProjectBootstrap.ts b/packages/viewer/src/app/runtime/useProjectBootstrap.ts
+index e3ed39d..5bc10e3 100644
+--- a/packages/viewer/src/app/runtime/useProjectBootstrap.ts
++++ b/packages/viewer/src/app/runtime/useProjectBootstrap.ts
+@@ -23,12 +23,17 @@ export const useProjectBootstrap = (): ProjectBootstrapStatus => {
+           readonly projects?: ReadonlyArray<{ readonly slug?: unknown; readonly ok?: unknown }>;
+         };
+         const rows = Array.isArray(body.projects) ? body.projects : [];
+-        const slugs = rows.map((row) => (typeof row.slug === "string" ? row.slug : null)).filter((s): s is string => s !== null);
++        const healthySlugs = rows
++          .map((row) => (typeof row.slug === "string" && row.slug.length > 0 && row.ok !== false ? row.slug : null))
++          .filter((slug): slug is string => slug !== null);
+         if (cancelled) return;
+         const stored = getActiveProject();
+-        if (stored === null || !slugs.includes(stored)) {
+-          const firstOk = rows.find((row) => typeof row.slug === "string" && row.ok !== false);
+-          setActiveProject(typeof firstOk?.slug === "string" ? firstOk.slug : (slugs[0] ?? null));
++        if (stored === null || !healthySlugs.includes(stored)) {
++          const firstOk = rows.find((row) => typeof row.slug === "string" && row.slug.length > 0 && row.ok !== false);
++          // A live-but-unhealthy registry is distinct from the server being
++          // absent. Do not scope requests to a broken project merely because
++          // it is the only registry row.
++          setActiveProject(typeof firstOk?.slug === "string" && firstOk.slug.length > 0 ? firstOk.slug : null);
+         }
+         setStatus("ready");
+       } catch {
