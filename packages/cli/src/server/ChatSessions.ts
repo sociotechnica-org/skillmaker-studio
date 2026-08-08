@@ -43,6 +43,7 @@ import { Effect } from "effect";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { HEARTBEAT_MS } from "./Sse.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -702,16 +703,18 @@ export class ChatSessionManager {
     const encoder = new TextEncoder();
     const chat = this.live.get(skill);
     let subscriber: ((event: ChatStreamEvent) => void) | undefined;
+    let keepalive: ReturnType<typeof setInterval> | undefined;
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
-        const sendEvent = (event: ChatStreamEvent) => {
+        const send = (frame: string) => {
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            controller.enqueue(encoder.encode(frame));
           } catch {
             // Client disconnected; cancel() will unsubscribe shortly.
           }
         };
-        controller.enqueue(encoder.encode(": connected\n\n"));
+        const sendEvent = (event: ChatStreamEvent) => send(`data: ${JSON.stringify(event)}\n\n`);
+        send(": connected\n\n");
         sendEvent({ type: "state", state: this.state(skill) });
         if (chat !== undefined) {
           for (const event of chat.events) sendEvent(event);
@@ -719,8 +722,14 @@ export class ChatSessionManager {
           chat.subscribers.add(sendEvent);
           chat.lastActivityAt = Date.now();
         }
+        // Issue #194's 2026-08-06 proposal: chat SSE responses are intentionally
+        // byte-idle between events, but Bun's 30-second safety timeout still
+        // applies. A comment keeps this one connection alive without creating
+        // a chat event.
+        keepalive = setInterval(() => send(": keepalive\n\n"), HEARTBEAT_MS);
       },
       cancel: () => {
+        if (keepalive !== undefined) clearInterval(keepalive);
         if (chat !== undefined && subscriber !== undefined) chat.subscribers.delete(subscriber);
       },
     });
