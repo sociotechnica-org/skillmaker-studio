@@ -9,6 +9,8 @@ export type Skill = {
   readonly oneLiner: string;
   /** True when the bundle sits in the awaiting-review substate -- the sidebar's attention dot. Absent on placeholder data and pre-substate servers. */
   readonly awaitingReview?: boolean;
+  /** The bundle's flat taxonomy (`bundle.json.tags`). Absent on placeholder data and pre-tags servers -- never invented. */
+  readonly tags?: ReadonlyArray<string>;
 };
 
 /** A project is a directory that contains skills (IA §A), registered in the machine registry (2026-07-27 rulings). */

@@ -294,6 +294,17 @@ main h1::after {
   --color-paper: #1d1610;       /* sidebar / panel ground, a shade above canvas */
   --color-well: #1b150d;        /* tabbed-section ground at night, a shade lighter than canvas */
   --color-paper-dark: #0b0805;  /* offset-shadow colour reads as depth on dark */
+  /* The tabbed-section ground. This was MISSING at night, and it was the
+     app's worst legibility bug: `--color-well` had a dark value authored in
+     the @theme block (#1b150d) that was immediately dead-overwritten by the
+     light one on the very next line, and never made it here. So every
+     bg-well surface stayed parchment after dark, while the ink on it
+     flipped to parchment too — measured at 1.11:1, against a 4.5:1 floor.
+     That surface is the whole skill-page content ground (next/SkillPage.tsx
+     and the prototype's Overview), so the page was unreadable at night.
+     Same relationship as in daylight: a shade off canvas, distinct from
+     paper and surface. */
+  --color-well: #1b150d;
 
   /* Amber tints: lamplit browns for bubbles, chips, and the permission
    * card; -300 stays a visible accent border (focus rings, review card). */
