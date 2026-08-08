@@ -401,6 +401,19 @@ Everything else is a papercut: logged, parked, not fixed this week.
   valid, references resolve. First organic demand signal for it; keep
   frozen but the thaw case is building.
 
+- QA 2026-08-08 (fixtures-before-skill session): (1) read-only Eval
+  mode hides fixture BODIES — director drafted fixtures pre-draft and
+  couldn't inspect them ("I might have feedback on fixture
+  structure!") → read-only mode should allow expanding claims/fixtures
+  to READ prompt/purpose, just without run/grade affordances. (2) No
+  per-fixture "Running" indicator — a run started and he couldn't tell
+  which case was executing without unfolding → spinner on the running
+  fixture row. (3) Idea: top-level "Runs" view in the sidebar next to
+  Board/Tasks. (4) Idea: fixed bottom-aligned "Active Runs" strip in
+  the Chat panel above the composer — runs started from chat show
+  status where the user is already looking. (1)+(2) = next batch;
+  (3)+(4) = design-table candidates.
+
 ## Session log
 
 **PAUSED mid-walk** at the design station: director answering the

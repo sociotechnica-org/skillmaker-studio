@@ -98,8 +98,8 @@ describe("buildChatPreamble", () => {
 
   test("encodes the real pipeline, including design.md co-authored in conversation", () => {
     const preamble = buildChatPreamble("readme-onboarding", "skills", context);
-    expect(preamble).toContain("design.md (co-authored in this conversation)");
-    expect(preamble).toContain("human-gated");
+    expect(preamble).toContain("co-authoring design.md in this conversation");
+    expect(preamble).toContain("human gates");
   });
 
   test("the current step is phrased from the DERIVED stage; the declared stage is secondary honesty", () => {

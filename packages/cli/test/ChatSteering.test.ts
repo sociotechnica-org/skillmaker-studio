@@ -95,7 +95,7 @@ const waitFor = async <T>(probe: () => T | undefined, what: string, timeoutMs = 
 
 /** Reads one snapshot of the skill's stream buffer: connect, drain the replay for `readMs`, disconnect. */
 const snapshotEvents = async (m: ChatSessionManager, readMs = 400): Promise<Array<Record<string, unknown>>> => {
-  const response = m.streamResponse(SKILL);
+  const response = m.streamResponse(SKILL, new Request("http://localhost/api/chat/stream"));
   const reader = (response.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   const events: Array<Record<string, unknown>> = [];
