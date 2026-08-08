@@ -351,9 +351,15 @@ Everything else is a papercut: logged, parked, not fixed this week.
   terms (eval/case/run/score/…) before naming anything new.
 
 - QA walk 2026-08-08 (director, note only — not for build yet):
-  (1) RULED: chat-transcript file links should open the doc in the
-  Files panel (upgrade of the parked 404-links papercut — intercept
-  bundle-relative links → onOpenFile).
+  (1) RULED then immediately REVISED by (4): chat-transcript file
+  links must open the doc SOMEWHERE — but see the invariant below;
+  the Files panel would displace the chat.
+  (4) THE INVARIANT (director, same walk): "I basically want to see
+  notes.md AND the chat at the same time" — reading a document must
+  never displace the conversation. This is the design anchor under
+  (1)-(3): doc-in-center + chat-in-panel, or split panel, or
+  chat-as-permanent-column with docs-as-tabs in center. Decide the
+  layout ONCE from this invariant, then the link ruling falls out.
   (2) Musing: the Files tab may want to become TABS — multiple open
   documents, ChatGPT-desktop style.
   (3) Musing: "chat on the left may actually be stronger" — chat is
