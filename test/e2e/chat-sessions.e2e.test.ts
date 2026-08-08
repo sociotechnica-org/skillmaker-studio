@@ -3,11 +3,13 @@
  * `/api/chat/:skill/*` against `fixtures/fake-acp-chat.cjs` (a
  * deterministic long-lived adapter with provider-side session persistence).
  * Covers: explicit-start flow (no implicit spawn), multi-turn prompting
- * over one session, SSE streaming + replay, the reject-concurrent-prompts
- * 409, cancel, inline permission forwarding (auto-approve inside the
- * project, human answer outside), provider-side resume across a REAL
- * session end, session-id persistence in .skillmaker/chat-sessions.json,
- * and helper-skill injection into the agent home. No real LLM -- CI-safe.
+ * over one session, SSE streaming + replay, mid-turn steering + the
+ * boundary queue (issue #191: a message during a running turn delivers
+ * live or queues -- never 409), cancel, inline permission forwarding
+ * (auto-approve inside the project, human answer outside), provider-side
+ * resume across a REAL session end, session-id persistence in
+ * .skillmaker/chat-sessions.json, and helper-skill injection into the
+ * agent home. No real LLM -- CI-safe.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -258,7 +260,7 @@ describe("chat sessions (D9)", () => {
     expect(existsSync(join(scratchDir, ".claude", "skills"))).toBe(false);
   });
 
-  test("concurrent prompts are REJECTED (409) while a turn runs; cancel ends the turn with stopReason cancelled", async () => {
+  test("a message sent mid-turn is STEERING (issue #191): delivered live, never 409; a refused mid-turn prompt queues and flushes at the boundary in order; Stop still cancels", async () => {
     const stream = openStream(`/api/chat/${SKILL}/stream`);
     try {
       const hang = await postJson(`/api/chat/${SKILL}/message`, { text: "please HANG here" });
@@ -268,9 +270,26 @@ describe("chat sessions (D9)", () => {
         return state.active?.status === "running" ? true : undefined;
       }, "turn to start running");
 
-      const rejected = await postJson(`/api/chat/${SKILL}/message`, { text: "impatient" });
-      expect(rejected.status).toBe(409);
-      expect(String(rejected.body.error)).toContain("already running");
+      // Live delivery: the composer never blocks, the message goes straight
+      // into the running session (the fake answers it as its own turn).
+      const steered = await postJson(`/api/chat/${SKILL}/message`, { text: "impatient redirect" });
+      expect(steered.status).toBe(202);
+      expect(steered.body.delivery).toBe("steered");
+      await waitFor(
+        async () => (agentTextOf(stream.events).includes("impatient redirect") ? true : undefined),
+        "live-steered message to cross the wire",
+      );
+
+      // An adapter refusing the mid-turn prompt -> the server-side boundary
+      // queue, visible as a pending bubble + in state.
+      const refused = await postJson(`/api/chat/${SKILL}/message`, { text: "REJECT-MIDTURN hold me" });
+      expect(refused.status).toBe(202);
+      await waitFor(async () => {
+        const state = (await getJson(`/api/chat/${SKILL}/state`)).body as {
+          active?: { queued?: ReadonlyArray<{ text: string }> };
+        };
+        return state.active?.queued?.length === 1 ? true : undefined;
+      }, "refused steer to enter the queue");
 
       const cancelled = await postJson(`/api/chat/${SKILL}/cancel`, {});
       expect(cancelled.status).toBe(200);
@@ -279,8 +298,19 @@ describe("chat sessions (D9)", () => {
         return ended !== undefined ? true : undefined;
       }, "cancelled turn to end");
 
-      const state = await getState();
-      expect(state.active?.status).toBe("ready");
+      // The cancel boundary flushes the queue: the held message becomes its
+      // own turn, exactly once, and the session comes back to ready.
+      await waitFor(
+        async () => (agentTextOf(stream.events).includes("REJECT-MIDTURN hold me") ? true : undefined),
+        "queued message to flush at the boundary",
+      );
+      await waitFor(async () => {
+        const state = await getState();
+        return state.active?.status === "ready" ? true : undefined;
+      }, "ready after the flush");
+      expect(
+        stream.events.filter((event) => event.type === "user_message" && event.text === "REJECT-MIDTURN hold me").length,
+      ).toBe(1);
     } finally {
       stream.close();
     }

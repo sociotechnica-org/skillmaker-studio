@@ -8,11 +8,21 @@
  * so reopening a chat resumes via ACP `session/load` and the provider
  * replays the history itself.
  *
- * Concurrency ruling (documented choice): concurrent prompts are REJECTED
- * (HTTP 409), not queued. The panel disables its input while a turn runs,
- * so a 409 only ever surfaces to racing clients -- and an honest "busy"
- * beats a silent queue whose entries fire into a conversation state the
- * user no longer sees.
+ * Concurrency ruling (issue #191, director 2026-08-08 -- REVERSES the
+ * earlier reject-with-409 choice): typing is never blocked, and a message
+ * sent mid-turn is STEERING input. Delivery is live-first: while a turn
+ * runs the message is sent straight into the live session as a mid-turn
+ * `session/prompt` (both shipped adapters accept it -- verified
+ * empirically 2026-08-08: claude-agent-acp advertises
+ * `promptQueueing` and answers the steered prompt as its own queued turn;
+ * codex-acp folds it into the RUNNING turn's context but never answers
+ * the second request). When live delivery isn't possible -- session still
+ * `starting`, an adapter that rejects the mid-turn prompt, or earlier
+ * messages still waiting -- the message is QUEUED server-side (visible in
+ * state and on the stream as a pending `user_message`) and flushed at the
+ * turn boundary, in send order, even when the turn errors. The old 409
+ * remains only for "no session at all"; core's `ChatBusyError` still
+ * guards the primary `prompt()` path against accidental interleaving.
  *
  * Isolation ruling: the chat agent runs DIRECT in the project directory
  * (cwd = project root; no sandbox, no copyback), with the run-engines'
@@ -390,6 +400,13 @@ export const buildChatReorientation = (skill: string, context: PreambleContext):
 
 export type ChatStatus = "starting" | "ready" | "running";
 
+/** One server-queued (not yet delivered) message, as surfaced in state -- text only; the full payload (images included) lives in the manager's queue. */
+export interface QueuedMessageState {
+  readonly id: string;
+  readonly text: string;
+  readonly t: string;
+}
+
 export interface ChatActiveState {
   readonly provider: string;
   readonly status: ChatStatus;
@@ -403,6 +420,8 @@ export interface ChatActiveState {
   readonly effort?: string;
   /** Set when a requested model could not be applied -- the session runs on the adapter's default. */
   readonly modelFallback?: string;
+  /** Messages held server-side awaiting the turn boundary (issue #191), in delivery order. Absent when nothing is queued. */
+  readonly queued?: ReadonlyArray<QueuedMessageState>;
 }
 
 export interface ChatStateResponse {
@@ -431,7 +450,12 @@ export type ChatStreamEvent =
       readonly context?: string;
       /** Image attachments (base64 + mimeType) sent with the message; the panel renders thumbnails from these on live delivery AND buffer replay. */
       readonly images?: ReadonlyArray<ChatImageAttachment>;
+      /** True when this message is held server-side awaiting the turn boundary (issue #191): the panel renders a pending bubble until the matching `queue_delivered` arrives. */
+      readonly queued?: true;
+      /** Correlates this message with its later `queue_delivered` event. Present on queued messages and on live-steered ones (which are delivered at broadcast time). */
+      readonly queueId?: string;
     }
+  | { readonly type: "queue_delivered"; readonly queueId: string; readonly t: string }
   | { readonly type: "update"; readonly update: unknown; readonly t: string }
   | { readonly type: "permission_request"; readonly id: string; readonly params: unknown; readonly t: string }
   | {
@@ -453,6 +477,18 @@ interface PendingPermission {
   readonly resolve: (answer: ChatPermissionAnswer | "cancelled") => void;
 }
 
+/** A message accepted while it could not be delivered immediately (session starting, adapter refused the mid-turn prompt, or earlier messages still queued), held for the turn boundary. */
+interface QueuedMessage {
+  readonly id: string;
+  /** Send-order sequence: the queue is kept sorted by it, so a failed live steer re-queues into its ORIGINAL position, never ahead of earlier messages. */
+  readonly seq: number;
+  readonly text: string;
+  readonly images: ReadonlyArray<ChatImageAttachment>;
+  readonly t: string;
+  /** True when this message's `user_message` stream event was already broadcast (a failed live steer re-queued it); delivery must not broadcast a duplicate bubble. */
+  readonly alreadyBroadcast: boolean;
+}
+
 interface LiveChat {
   readonly skill: string;
   readonly provider: string;
@@ -470,6 +506,14 @@ interface LiveChat {
   readonly pendingPermissions: Map<string, PendingPermission>;
   lastActivityAt: number;
   nextPermissionId: number;
+  /** Server-side boundary queue (issue #191), kept sorted by `seq`. In-memory only: a server restart loses it (the adapter dies with the server anyway). */
+  readonly queue: QueuedMessage[];
+  /** Prompt turns whose JSON-RPC response is still outstanding AND counted toward status: the primary turn plus promptQueueing-advertised steers. `status` is "running" iff > 0 (once past starting). */
+  turnsInFlight: number;
+  /** Wire prompts actually sent this session (orientation included). 0 -> the next prompt is the FIRST and carries the preamble/re-orientation. Replaces scanning `events` (queued messages broadcast user_message before delivery, which would miscount). */
+  promptsSent: number;
+  nextQueueId: number;
+  nextMessageSeq: number;
 }
 
 export interface ChatManagerOptions {
@@ -697,6 +741,9 @@ export class ChatSessionManager {
               ...(chat.handle?.modelFallback !== undefined
                 ? { modelFallback: chat.handle.modelFallback }
                 : {}),
+              ...(chat.queue.length > 0
+                ? { queued: chat.queue.map(({ id, text, t }) => ({ id, text, t })) }
+                : {}),
             },
       resumable,
       ...(lastError !== undefined ? { lastError } : {}),
@@ -823,6 +870,11 @@ export class ChatSessionManager {
       pendingPermissions: new Map(),
       lastActivityAt: Date.now(),
       nextPermissionId: 1,
+      queue: [],
+      turnsInFlight: 0,
+      promptsSent: 0,
+      nextQueueId: 1,
+      nextMessageSeq: 1,
     };
     this.live.set(skill, chat);
     this.lastErrors.delete(skill);
@@ -896,6 +948,9 @@ export class ChatSessionManager {
     if (choice.orient === true && !outcome.success.resumed) {
       this.sendOrientationOpening(skill, chat);
     }
+    // Messages typed while the session was `starting` (issue #191) flush
+    // now: directly when idle, or at the orientation turn's boundary.
+    this.pumpQueue(skill, chat);
     return { ok: true, state: this.state(skill) };
   }
 
@@ -910,56 +965,188 @@ export class ChatSessionManager {
   }
 
   /**
-   * One prompt turn. Concurrent prompts are REJECTED with 409 (see module
-   * doc). The first prompt of a FRESH session carries the full production
-   * preamble (mission, slug, one-liner, stage, next step, william pointer,
-   * the `skillmaker` CLI as the studio-state door -- D6 + Blocker #5); the
-   * first prompt of a RESUMED session carries a one-line re-orientation.
+   * The first WIRE prompt of the live session gets minute-zero production
+   * context (Blocker #5): a fresh session (resume-fallback included -- it
+   * has no history to replay) gets the full preamble; a genuinely resumed
+   * one gets the one-line re-orientation (session/load already replayed
+   * the original preamble, but the stage may have moved since). Counted by
+   * `promptsSent`, NOT by scanning events -- a queued message broadcasts
+   * its user_message before delivery, so events would miscount. Queued and
+   * steered messages therefore ride the same preamble-less path as any
+   * other non-first message (issue #191 ruling), while a message queued
+   * during `starting` that really IS the first prompt still gets the
+   * preamble at flush time.
+   */
+  private firstPromptContext(skill: string, chat: LiveChat): string | undefined {
+    if (chat.promptsSent > 0 || chat.handle === undefined) return undefined;
+    const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill, chat.installedHelpers);
+    return chat.handle.resumed
+      ? buildChatReorientation(skill, bundleContext)
+      : buildChatPreamble(skill, this.config.skillsDir, bundleContext);
+  }
+
+  /**
+   * One user message (issue #191: STEERING input -- never rejected for
+   * timing). Delivery, in preference order:
+   *
+   * - `ready` with nothing queued: an ordinary prompt turn, immediately.
+   * - `running` with nothing queued: LIVE mid-turn delivery -- the message
+   *   is sent straight into the running session as a second
+   *   `session/prompt` (what Claude Code itself does with mid-turn user
+   *   messages). If the adapter refuses it, the message falls back to the
+   *   boundary queue; it is never lost.
+   * - `starting`, or earlier messages still queued (order!): queued
+   *   server-side and flushed at the next turn boundary, FIFO.
+   *
+   * The only 409 left is "no session at all".
    */
   async sendMessage(
     skill: string,
     text: string,
     images: ReadonlyArray<ChatImageAttachment> = [],
-  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly status: number; readonly error: string }> {
+  ): Promise<
+    | { readonly ok: true; readonly delivery: "sent" | "steered" | "queued" }
+    | { readonly ok: false; readonly status: number; readonly error: string }
+  > {
     const chat = this.live.get(skill);
-    if (chat === undefined || chat.handle === undefined) {
+    if (chat === undefined) {
       return { ok: false, status: 409, error: `no active chat session for "${skill}" -- start one first (POST /api/chat/${skill}/session)` };
-    }
-    if (chat.status === "running") {
-      return { ok: false, status: 409, error: "a turn is already running for this session" };
     }
     for (const image of images) {
       const problem = validateChatImage(image);
       if (problem !== undefined) return { ok: false, status: 413, error: problem };
     }
 
-    // First prompt of the LIVE session gets minute-zero production context
-    // (Blocker #5): a fresh session (resume-fallback included -- it has no
-    // history to replay) gets the full preamble; a genuinely resumed one
-    // gets the one-line re-orientation (session/load already replayed the
-    // original preamble, but the stage may have moved since).
-    const isFirstPrompt = !chat.events.some((event) => event.type === "user_message");
-    let context: string | undefined;
-    if (isFirstPrompt) {
-      const bundleContext = readPreambleContext(this.root, this.config.skillsDir, skill, chat.installedHelpers);
-      context = chat.handle.resumed
-        ? buildChatReorientation(skill, bundleContext)
-        : buildChatPreamble(skill, this.config.skillsDir, bundleContext);
-    }
-    const promptText = context !== undefined ? `${context}${PREAMBLE_SEPARATOR}${text}` : text;
-
-    this.broadcast(chat, {
-      type: "user_message",
+    const entry: QueuedMessage = {
+      id: `msg-${chat.nextQueueId++}`,
+      seq: chat.nextMessageSeq++,
       text,
+      images,
       t: new Date().toISOString(),
-      ...(context !== undefined ? { context } : {}),
-      ...(images.length > 0 ? { images } : {}),
-    });
-    this.dispatchTurn(skill, chat, chat.handle, promptText, images);
-    return { ok: true };
+      alreadyBroadcast: false,
+    };
+
+    // Order guard: while anything is queued, later messages queue behind it
+    // -- a live steer must never leapfrog a waiting message.
+    if (chat.handle !== undefined && chat.queue.length === 0) {
+      if (chat.status === "ready") {
+        this.deliverAsTurn(skill, chat, chat.handle, entry);
+        return { ok: true, delivery: "sent" };
+      }
+      if (chat.status === "running") {
+        this.steerLive(skill, chat, chat.handle, entry);
+        return { ok: true, delivery: "steered" };
+      }
+    }
+
+    this.enqueue(chat, entry);
+    // A boundary may already be here (a message queued behind others while
+    // the session is ready); the pump is the single flusher.
+    this.pumpQueue(skill, chat);
+    return { ok: true, delivery: "queued" };
   }
 
-  /** Runs one prompt turn detached: the caller returns immediately; the turn streams over SSE (same detached-run shape as handleTriggerRun). Shared by user sends and the orientation opening. */
+  /** Queues one message for the turn boundary (kept in send order) and broadcasts its pending bubble (unless a failed steer already broadcast it as delivered). Delivery then resolves the bubble via `queue_delivered`, never a second user_message. */
+  private enqueue(chat: LiveChat, entry: QueuedMessage): void {
+    if (!entry.alreadyBroadcast) {
+      this.broadcast(chat, {
+        type: "user_message",
+        text: entry.text,
+        t: entry.t,
+        queued: true,
+        queueId: entry.id,
+        ...(entry.images.length > 0 ? { images: entry.images } : {}),
+      });
+    }
+    chat.queue.push({ ...entry, alreadyBroadcast: true });
+    chat.queue.sort((a, b) => a.seq - b.seq);
+    chat.lastActivityAt = Date.now();
+    this.broadcastState(chat);
+  }
+
+  /** Delivers one message as an ordinary prompt turn (the `ready` path): broadcasts its user_message (or the `queue_delivered` resolution for a queued one), then dispatches. */
+  private deliverAsTurn(skill: string, chat: LiveChat, handle: ChatSessionHandle, entry: QueuedMessage): void {
+    const context = this.firstPromptContext(skill, chat);
+    const promptText = context !== undefined ? `${context}${PREAMBLE_SEPARATOR}${entry.text}` : entry.text;
+    if (entry.alreadyBroadcast) {
+      this.broadcast(chat, { type: "queue_delivered", queueId: entry.id, t: new Date().toISOString() });
+    } else {
+      this.broadcast(chat, {
+        type: "user_message",
+        text: entry.text,
+        t: new Date().toISOString(),
+        queueId: entry.id,
+        ...(context !== undefined ? { context } : {}),
+        ...(entry.images.length > 0 ? { images: entry.images } : {}),
+      });
+    }
+    this.dispatchTurn(skill, chat, handle, promptText, entry.images);
+  }
+
+  /**
+   * LIVE mid-turn delivery (issue #191 ruling, verified against both
+   * shipped adapters 2026-08-08): the message goes onto the wire NOW as a
+   * second `session/prompt`.
+   *
+   * - claude-agent-acp (advertises `promptQueueing`): the steered prompt is
+   *   answered as its OWN turn after the running one, so it is counted in
+   *   `turnsInFlight` -- status stays `running` and its completion
+   *   broadcasts a normal `turn_ended`.
+   * - codex-acp: the prompt's content is folded into the RUNNING turn
+   *   (genuine steering) and the request is never answered -- so it is NOT
+   *   counted (that would wedge status forever); the running turn's own
+   *   completion closes the boundary. If the request ever does resolve
+   *   (e.g. it raced the boundary and became its own turn), the observer
+   *   still reports it honestly.
+   * - Any adapter that REFUSES the mid-turn prompt: the message re-queues
+   *   into its original order position and flushes at the boundary --
+   *   never lost, order preserved.
+   */
+  private steerLive(skill: string, chat: LiveChat, handle: ChatSessionHandle, entry: QueuedMessage): void {
+    chat.promptsSent += 1;
+    chat.lastActivityAt = Date.now();
+    this.broadcast(chat, {
+      type: "user_message",
+      text: entry.text,
+      t: entry.t,
+      queueId: entry.id,
+      ...(entry.images.length > 0 ? { images: entry.images } : {}),
+    });
+    const counted = handle.promptQueueing;
+    if (counted) {
+      chat.turnsInFlight += 1;
+      this.broadcastState(chat);
+    }
+    handle.steer(entry.text, entry.images).then(
+      (result) => {
+        chat.lastActivityAt = Date.now();
+        this.broadcast(chat, { type: "turn_ended", stopReason: result.stopReason, t: new Date().toISOString() });
+        this.recordSession(skill, chat.provider, handle.sessionId, chat.modelId, chat.effort);
+        if (counted) this.finishTurn(skill, chat);
+        // Uncounted (codex-style) steers usually never resolve; when one
+        // does (it raced the boundary and became its own turn), a boundary
+        // may be sitting idle with messages still queued.
+        else this.pumpQueue(skill, chat);
+      },
+      (err: unknown) => {
+        chat.lastActivityAt = Date.now();
+        if (counted) chat.turnsInFlight = Math.max(0, chat.turnsInFlight - 1);
+        if (this.live.get(skill) !== chat) return; // session gone: the panel restores the text as a draft
+        // The adapter refused the mid-turn prompt: fall back to the
+        // boundary queue, in the message's ORIGINAL order slot. The bubble
+        // is already on the stream, so re-queue without re-broadcasting.
+        this.broadcast(chat, {
+          type: "error",
+          message: `mid-turn delivery failed (${err instanceof Error ? err.message : String(err)}); the message is queued for the next turn`,
+          t: new Date().toISOString(),
+        });
+        this.enqueue(chat, { ...entry, alreadyBroadcast: true });
+        this.pumpQueue(skill, chat);
+      },
+    );
+  }
+
+  /** Runs one prompt turn detached: the caller returns immediately; the turn streams over SSE (same detached-run shape as handleTriggerRun). Shared by user sends, queued flushes, and the orientation opening. */
   private dispatchTurn(
     skill: string,
     chat: LiveChat,
@@ -968,6 +1155,8 @@ export class ChatSessionManager {
     images: ReadonlyArray<ChatImageAttachment>,
   ): void {
     chat.status = "running";
+    chat.turnsInFlight += 1;
+    chat.promptsSent += 1;
     chat.lastActivityAt = Date.now();
     this.broadcastState(chat);
     void Effect.runPromise(Effect.result(handle.prompt(promptText, images))).then((outcome) => {
@@ -986,11 +1175,37 @@ export class ChatSessionManager {
           t: new Date().toISOString(),
         });
       }
-      if (this.live.get(skill) === chat && chat.status === "running") {
-        chat.status = "ready";
-        this.broadcastState(chat);
-      }
+      this.finishTurn(skill, chat);
     });
+  }
+
+  /**
+   * One counted turn settled (success OR error). When it was the last one
+   * in flight, this IS the turn boundary: flush the next queued message
+   * (which starts a fresh turn and keeps status `running`), or go `ready`.
+   * Errors flush too -- a queued message outlives a failed turn (issue
+   * #191: "deliver on next turn start"), it is only lost with the session
+   * itself (and then the panel restores it as a draft).
+   */
+  private finishTurn(skill: string, chat: LiveChat): void {
+    chat.turnsInFlight = Math.max(0, chat.turnsInFlight - 1);
+    if (this.live.get(skill) !== chat || chat.status !== "running") return;
+    if (chat.turnsInFlight > 0) return; // a steered turn is still outstanding
+    const next = chat.queue.shift();
+    if (next !== undefined && chat.handle !== undefined) {
+      this.deliverAsTurn(skill, chat, chat.handle, next);
+      return;
+    }
+    chat.status = "ready";
+    this.broadcastState(chat);
+  }
+
+  /** Boundary flush when the session is idle: delivers the oldest queued message as a turn. No-op while `starting` (flushes on ready) or `running` (flushes via finishTurn). */
+  private pumpQueue(skill: string, chat: LiveChat): void {
+    if (this.live.get(skill) !== chat || chat.status !== "ready" || chat.handle === undefined) return;
+    const next = chat.queue.shift();
+    if (next === undefined) return;
+    this.deliverAsTurn(skill, chat, chat.handle, next);
   }
 
   /**

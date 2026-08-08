@@ -2811,7 +2811,7 @@ const handleProjectApi = async (
       // Chat surface (D9): per-skill agent sessions. Explicit-start flow:
       //   GET  /api/chat/:skill/state       session + provider + resumable snapshot
       //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume", model?, effort? } -> spawn/resume
-      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn (409 while running)
+      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn; mid-turn sends steer the live session or queue for the boundary (issue #191)
       //   POST /api/chat/:skill/model       { model, effort? } -> mid-session model change (between turns)
       //   POST /api/chat/:skill/permission  { requestId, optionId, decision } -> answer a pending ask
       //   POST /api/chat/:skill/cancel      cancel the in-flight turn
@@ -2874,7 +2874,9 @@ const handleProjectApi = async (
             return jsonResponse({ error: "message requires non-empty text or at least one image" }, 400);
           }
           const sent = await chatManager.sendMessage(chatSkill, text, images);
-          return sent.ok ? jsonResponse({ accepted: true }, 202) : jsonResponse({ error: sent.error }, sent.status);
+          return sent.ok
+            ? jsonResponse({ accepted: true, delivery: sent.delivery }, 202)
+            : jsonResponse({ error: sent.error }, sent.status);
         }
         if (chatAction === "model") {
           const model = typeof body.model === "string" ? body.model.trim() : "";
