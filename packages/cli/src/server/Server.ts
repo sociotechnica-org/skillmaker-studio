@@ -1420,6 +1420,7 @@ const handleRecordVersion = async (
 interface CreateBundleRequestBody {
   readonly slug?: unknown;
   readonly name?: unknown;
+  readonly oneLiner?: unknown;
 }
 
 /**
@@ -1447,14 +1448,22 @@ const handleCreateBundle = async (root: string, request: Request): Promise<Respo
   if (body.name !== undefined && typeof body.name !== "string") {
     return jsonResponse({ error: "name must be a string" }, 400);
   }
+  if (body.oneLiner !== undefined && typeof body.oneLiner !== "string") {
+    return jsonResponse({ error: "oneLiner must be a string" }, 400);
+  }
   const slug = body.slug;
   const name = body.name;
+  const oneLiner = body.oneLiner;
 
   try {
     const created = await Effect.runPromise(
       Effect.gen(function* () {
         const workspace = yield* Workspace;
-        return yield* workspace.createBundle(root, name !== undefined ? { slug, name } : { slug });
+        return yield* workspace.createBundle(root, {
+          slug,
+          ...(name !== undefined ? { name } : {}),
+          ...(oneLiner !== undefined ? { oneLiner } : {}),
+        });
       }).pipe(
         Effect.catchTag("InvalidSlugError", () => Effect.succeed({ status: "invalid_slug" as const })),
         Effect.provide(Layer.provide(WorkspaceLayer, BunServices.layer)),

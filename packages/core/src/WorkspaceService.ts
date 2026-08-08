@@ -76,6 +76,8 @@ bundle: ${slug}
 export interface CreateBundleInput {
   readonly slug: string;
   readonly name?: string;
+  /** Birth intent: the launcher's brief (or `skillmaker new --one-liner`) lands here so the bundle is never topic-less at minute zero (2026-08-08 walk finding: William's refusal rule fired on an "empty" bundle while the intent sat in the chat). */
+  readonly oneLiner?: string;
 }
 
 export class Workspace extends Context.Service<
@@ -207,7 +209,7 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
         schemaVersion: 1,
         slug: input.slug,
         name: input.name ?? titleCaseFromSlug(input.slug),
-        oneLiner: "",
+        oneLiner: input.oneLiner ?? "",
         tags: [],
         created: todayIsoDate(),
         targets: ["claude-code"],

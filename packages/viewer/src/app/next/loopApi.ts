@@ -168,15 +168,17 @@ export type CreateSkillResult =
  * `skillmaker new`). `already_exists` is a 200 on the wire but an error to a
  * create form -- reported honestly, nothing scaffolded twice.
  */
-export const createSkill = async (slug: string, name: string | undefined): Promise<CreateSkillResult> => {
+export const createSkill = async (slug: string, name: string | undefined, oneLiner?: string): Promise<CreateSkillResult> => {
   const trimmedSlug = slug.trim();
   if (trimmedSlug.length === 0) {
     return { ok: false, error: "A slug is required." };
   }
   const trimmedName = name?.trim();
+  const trimmedOneLiner = oneLiner?.trim();
   const result = await createBundle(
     trimmedSlug,
     trimmedName !== undefined && trimmedName.length > 0 ? trimmedName : undefined,
+    trimmedOneLiner !== undefined && trimmedOneLiner.length > 0 ? trimmedOneLiner : undefined,
   );
   if (!result.ok) {
     return { ok: false, error: result.error };

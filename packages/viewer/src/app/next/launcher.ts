@@ -138,3 +138,21 @@ export const fetchProviders = async (): Promise<ReadonlyArray<string> | null> =>
     return null;
   }
 };
+
+/**
+ * The launcher brief's first sentence, trimmed to a one-liner: the bundle's
+ * birth intent. Cut at the first sentence break (or newline), cap at 140
+ * chars on a word boundary — enough to be honest, short enough to be a
+ * one-liner. Never empty for a non-empty brief.
+ */
+export const deriveOneLiner = (brief: string): string => {
+  const flat = brief.trim().replace(/\s+/g, " ");
+  const sentenceEnd = flat.search(/[.!?](\s|$)/);
+  let line = sentenceEnd === -1 ? flat : flat.slice(0, sentenceEnd + 1);
+  if (line.length > 140) {
+    const cut = line.slice(0, 139);
+    const lastSpace = cut.lastIndexOf(" ");
+    line = `${cut.slice(0, lastSpace > 60 ? lastSpace : 139).trimEnd()}…`;
+  }
+  return line;
+};
