@@ -1,0 +1,6 @@
+{
+  "outcome": "failed",
+  "notes": null,
+  "failure_reason": "The fix round still leaves broken route reconciliation and version recovery, cross-project state leakage, and no browser-level proof of cold-load or Back/Forward behavior.",
+  "timestamp": "2026-08-08T11:39:12.177125281Z"
+}
