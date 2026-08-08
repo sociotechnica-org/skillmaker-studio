@@ -258,8 +258,8 @@ export interface PreambleContext {
 
 /**
  * `design.md` "has non-scaffold content": strip frontmatter, HTML comments
- * (the scaffold's section hints -- same heuristic as Dossier.ts's
- * stripComments), and heading/title lines; any prose left means a human or
+ * (the scaffold's section hints), and heading/title lines; any prose left
+ * means a human or
  * agent actually wrote design content. A pristine `skillmaker new` skeleton
  * strips to nothing.
  */

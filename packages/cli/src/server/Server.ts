@@ -32,7 +32,6 @@ import {
   JournalLayer,
   JournalEvent,
   listUndisposedCrates,
-  parseDossier,
   publishBundle,
   publishToInstallTargets,
   readMachineConfig,
@@ -55,7 +54,6 @@ import {
   type BundleLocation,
   type BundleStage,
   type BundleRecord,
-  type DossierSections,
   type InstallTargetKind,
   type InstalledDrift,
   type IntakeStakes,
@@ -1190,27 +1188,6 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
     }),
   );
 
-/**
- * Reads `dossier.md`'s CONTENT directly (issue #94), the same "don't pay for
- * a full `rebuild()` for a single-bundle read" split `handleFieldReports`'
- * own direct `scanFixtures` call already uses -- `loadBundleIndexDetail`'s
- * `rebuild()` above already ran the dossier scanner too, but only for its
- * WARNINGS (joined into `warnings` alongside fixtures/risk-map, same as
- * `IndexService.rebuild`); the sections+gaps the detail page actually
- * renders are a second, cheap, targeted read, never persisted. Takes the
- * bundle's ACTUAL directory (seam pass over #108/#109): an in-place bundle's
- * `dossier.md` -- including the one the triage manifest's card answers
- * seeded (issue #108) -- lives wherever the bundle was discovered, not at
- * `<skillsDir>/<slug>`.
- */
-const loadDossierSections = (bundleDir: string): Promise<DossierSections> =>
-  Effect.runPromise(
-    parseDossier(join(bundleDir, "dossier.md")).pipe(
-      Effect.provide(BunServices.layer),
-      Effect.map((result) => result.sections),
-    ),
-  );
-
 const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
   const detail = await loadBundleIndexDetail(root, slug);
   if (detail.kind === "not_found") {
@@ -1229,13 +1206,12 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   // in-place bundle -- brownfield adopt via triage, `route`'s `new`/`fork`
   // doors -- lives wherever it was discovered, and hardcoding
   // `<skillsDir>/<slug>` + the `design.md`/`output/` layout here silently
-  // returned an empty dossier, a null station, and zero files for exactly
-  // the imports the #108→#109 seam (seeded Job/Basis on the card) targets.
+  // returned a null station and zero files for exactly the imports the
+  // #108→#109 seam targets.
   const bundleDir = detail.location?.dir ?? join(root, config.skillsDir, slug);
   const layout: BundleLayout = detail.location?.layout ?? "output-dir";
 
   const station = readCurrentStageStation(bundleDir, bundle.stage);
-  const dossier = await loadDossierSections(bundleDir);
 
   // Lineage (issue #109): chain of custody replayed from the journal (the
   // SAME full `events` read above -- uncapped, unlike `recentEvents`) plus
@@ -1343,7 +1319,6 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     // `measurements.length` (already fetched above, unfiltered/any-version).
     unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
-    dossier,
     lineage,
     files: listReviewableBundleFiles(bundleDir, layout),
     instructionsPath,
@@ -1710,10 +1685,10 @@ const REVIEWABLE_SUBDIRS = ["research", "output", "evals"] as const;
  * file-read allowlist below -- the same in-sync-by-construction treatment
  * `REVIEWABLE_SUBDIRS` already has.
  */
-const IN_PLACE_REVIEWABLE_FILES = ["SKILL.md", "design.md", "dossier.md"] as const;
+const IN_PLACE_REVIEWABLE_FILES = ["SKILL.md", "design.md"] as const;
 
 /**
- * Only `design.md`, an in-place bundle's top-level `SKILL.md`/`dossier.md`,
+ * Only `design.md`, an in-place bundle's top-level `SKILL.md`,
  * a non-empty path under `research/` or `output/`, a run's `artifacts/`
  * contents, or a run's `response.md` may be read back over HTTP
  * (data-model.md §2.12 -- artifacts listed/viewable on the run-detail
@@ -1739,7 +1714,7 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
 /**
  * `GET /api/bundles/:slug/file?path=design.md|research/...|output/...` -- the
  * viewer's read-only Files tab. A strict allowlist (design.md, an in-place
- * bundle's top-level SKILL.md/dossier.md, or under research/ or output/) plus
+ * bundle's top-level SKILL.md, or under research/ or output/) plus
  * a resolved-path containment check guards against traversal (`../..`,
  * absolute paths, symlink escapes); anything outside the allowlist or off
  * the bundle directory 404s rather than erroring, so it never leaks whether
@@ -1908,7 +1883,7 @@ const handleVersionSnapshotFile = async (
  * human can read: the task prompt (`prompt.md` content when present, the
  * legacy `case.json` `prompt` field otherwise), what passing means
  * (`grading.answerKey` + `grading.checks`, the authored words), class,
- * risks, and context. Derived per request from the bundle's ACTUAL
+ * and risks. Derived per request from the bundle's ACTUAL
  * directory (`resolveBundleDir` -- an in-place bundle's `evals/` lives
  * under its own dir), never stored. Tolerant like `Fixtures.scanFixtures`:
  * malformed `case.json` fields become honest nulls + a warning line, never
@@ -1967,7 +1942,6 @@ const handleFixtureDetail = async (
     caseName,
     class: stringOrNull(parsed["class"]),
     risks: stringArray(parsed["risks"]),
-    context: stringOrNull(parsed["context"]),
     promptMd,
     // The scaffold-era `prompt` string field (Fixtures.ts: tolerated, never
     // required) -- shown only when no prompt.md exists.
@@ -2002,9 +1976,9 @@ const listFilesRecursive = (dir: string, relPrefix = ""): ReadonlyArray<string> 
  * → output so the dropdown reads like the production pipeline); an
  * `"in-place"` bundle has no `output/` subtree -- its skill payload IS the
  * bundle directory (`Versions.ts`'s `BundleLayout`), so its reviewable set
- * is the top-level `SKILL.md` plus the `design.md`/`dossier.md` siblings
- * when present (Adopt scaffolds `dossier.md`; `design.md` only exists if it
- * traveled with the directory). Scaffolding dotfiles (`.gitkeep`) are
+ * is the top-level `SKILL.md` plus the `design.md` sibling when present
+ * (`design.md` only exists if it traveled with the directory).
+ * Scaffolding dotfiles (`.gitkeep`) are
  * dropped; run transcripts/artifacts are deliberately excluded (those belong
  * to the run-detail panel).
  */

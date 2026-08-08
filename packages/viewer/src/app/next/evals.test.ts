@@ -196,21 +196,20 @@ describe("promptSummary", () => {
     );
   });
 
-  test("falls back to legacy prompt, then context; null when nothing is authored", () => {
-    expect(promptSummary({ promptMd: null, legacyPrompt: "Legacy ask.", context: "ctx" })).toBe("Legacy ask.");
-    expect(promptSummary({ promptMd: null, legacyPrompt: null, context: "Some context." })).toBe("Some context.");
-    expect(promptSummary({ promptMd: null, legacyPrompt: null, context: null })).toBeNull();
+  test("falls back to legacy prompt; null when nothing is authored", () => {
+    expect(promptSummary({ promptMd: null, legacyPrompt: "Legacy ask." })).toBe("Legacy ask.");
+    expect(promptSummary({ promptMd: null, legacyPrompt: null })).toBeNull();
   });
 
   test("long lines are capped at 160 characters with an ellipsis", () => {
-    const summary = promptSummary({ promptMd: "y".repeat(300), legacyPrompt: null, context: null });
+    const summary = promptSummary({ promptMd: "y".repeat(300), legacyPrompt: null });
     expect(summary?.length).toBe(160);
     expect(summary?.endsWith("…")).toBe(true);
   });
 
   test("authoring comments never leak into the summary — the task prose shows", () => {
     const promptMd = "<!-- trigger-basic: does NOT name the skill by slug.\n     Covers risk IN-2. -->\n\nI've got a design.md file sitting here.";
-    expect(promptSummary({ promptMd, legacyPrompt: null, context: null })).toBe("I've got a design.md file sitting here.");
+    expect(promptSummary({ promptMd, legacyPrompt: null })).toBe("I've got a design.md file sitting here.");
   });
 });
 

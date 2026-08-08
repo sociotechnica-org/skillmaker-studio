@@ -5,7 +5,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
 import { layer as JournalLayer } from "../src/JournalService.ts";
-import { parseDossier } from "../src/Dossier.ts";
 import { isUnverified } from "../src/Verification.ts";
 import {
   deriveEntryStage,
@@ -65,9 +64,6 @@ describe("renderManifest / parseManifest: round trip", () => {
       stakes: "load-bearing",
       hurts: "fails on empty input | needs a retry",
       priority: 7,
-      job: "Turns a vague ask into a structured problem statement",
-      outOfScope: "Not for open-ended brainstorming",
-      basis: "Volere requirements process -- ask Dana",
     });
 
     const rendered = renderManifest([row]);
@@ -94,9 +90,6 @@ describe("renderManifest / parseManifest: round trip", () => {
     expect(rows[0]?.stakes).toBeUndefined();
     expect(rows[0]?.hurts).toBeUndefined();
     expect(rows[0]?.priority).toBeUndefined();
-    expect(rows[0]?.job).toBeUndefined();
-    expect(rows[0]?.outOfScope).toBeUndefined();
-    expect(rows[0]?.basis).toBeUndefined();
   });
 
   test("name-collision and foreign-marker evidence round-trip", () => {
@@ -127,7 +120,7 @@ describe("renderManifest / parseManifest: round trip", () => {
 
 describe("parseManifest: deferral defaults, never a false fact", () => {
   const HEADER =
-    "| Name | Path | Mechanical Condition | Registry Evidence | Decision | Whose | Rights | Stakes | Hurts | Priority | Job | Out-of-scope | Basis |";
+    "| Name | Path | Mechanical Condition | Registry Evidence | Decision | Whose | Rights | Stakes | Hurts | Priority |";
   const SEPARATOR = `|${HEADER.split("|").slice(1, -1).map(() => " --- ").join("|")}|`;
 
   const manifestWithRow = (cells: ReadonlyArray<string>): string =>
@@ -160,25 +153,12 @@ describe("parseManifest: deferral defaults, never a false fact", () => {
     expect(warnings.some((w) => w.includes("Decision"))).toBe(true);
   });
 
-  test("blank Rights/Stakes/Hurts/Priority/Job/Out-of-scope/Basis stay undefined -- blank is a legitimate answer, not a defect", () => {
+  test("blank Rights/Stakes/Hurts/Priority stay undefined -- blank is a legitimate answer, not a defect", () => {
     const { rows, warnings } = parseManifest(manifestWithRow(blankRow()));
     expect(rows[0]?.rights).toBeUndefined();
     expect(rows[0]?.stakes).toBeUndefined();
     expect(rows[0]?.hurts).toBeUndefined();
     expect(rows[0]?.priority).toBeUndefined();
-    expect(rows[0]?.job).toBeUndefined();
-    expect(rows[0]?.outOfScope).toBeUndefined();
-    expect(rows[0]?.basis).toBeUndefined();
-    expect(warnings).toEqual([]);
-  });
-
-  test("card-field cells parse as free text", () => {
-    const { rows, warnings } = parseManifest(
-      manifestWithRow(blankRow({ 10: "does the thing", 11: "not for x", 12: "Dana's way" })),
-    );
-    expect(rows[0]?.job).toBe("does the thing");
-    expect(rows[0]?.outOfScope).toBe("not for x");
-    expect(rows[0]?.basis).toBe("Dana's way");
     expect(warnings).toEqual([]);
   });
 
@@ -223,14 +203,27 @@ describe("parseManifest: old manifests with the retired Maturity column (issue #
     expect(Object.values(rows[0] ?? {})).not.toContain("working");
   });
 
-  test("the missing Job/Out-of-scope/Basis columns read as not-asked -- honest gaps, no warning about them", () => {
-    const { rows, warnings } = parseManifest(
-      oldManifest(["x", "some/path", "bare", "bare", "keep", "mine", "", "", "", "", "idea"]),
-    );
-    expect(rows[0]?.job).toBeUndefined();
-    expect(rows[0]?.outOfScope).toBeUndefined();
-    expect(rows[0]?.basis).toBeUndefined();
-    expect(warnings.filter((w) => !w.includes('column "Maturity"'))).toEqual([]);
+  test("the expunged Job/Out-of-scope/Basis card columns are ignored the same way -- one warning each, cells never read (2026-08-08)", () => {
+    const CARD_HEADER =
+      "| Name | Path | Mechanical Condition | Registry Evidence | Decision | Whose | Rights | Stakes | Hurts | Priority | Job | Out-of-scope | Basis |";
+    const CARD_SEPARATOR = `|${CARD_HEADER.split("|").slice(1, -1).map(() => " --- ").join("|")}|`;
+    const manifest = [
+      "# Adopt Triage Manifest",
+      "",
+      CARD_HEADER,
+      CARD_SEPARATOR,
+      "| x | some/path | bare | bare | keep | mine |  |  |  |  | does a thing | not for x | Dana's way |",
+      "",
+    ].join("\n");
+    const { rows, warnings } = parseManifest(manifest);
+    expect(rows).toHaveLength(1);
+    expect(warnings).toEqual([
+      'adopt-manifest.md: ignoring unrecognized column "Job" (its cells are not read)',
+      'adopt-manifest.md: ignoring unrecognized column "Out-of-scope" (its cells are not read)',
+      'adopt-manifest.md: ignoring unrecognized column "Basis" (its cells are not read)',
+    ]);
+    // The retired card answers are not preserved into execution in ANY form.
+    expect(Object.values(rows[0] ?? {})).not.toContain("does a thing");
   });
 });
 
@@ -528,75 +521,6 @@ describe("executeManifest: per-row execution mapping", () => {
         expect(summary.todosMinted).toBe(0);
         const events = readEvents(journalPath);
         expect(events.some((e) => e.type === "todo.opened")).toBe(false);
-      }),
-    );
-  });
-
-  test("adopt path seeds the freshly created dossier's Job/Out-of-scope/Basis from the row's card answers (issue #108)", async () => {
-    await withTempDir((dir) =>
-      Effect.gen(function* () {
-        yield* write(dir, "browse/SKILL.md", skillMd("browse", "browse the web"));
-        const journalPath = journalFor(dir);
-        const row = baseRow({
-          path: "browse",
-          decision: "keep",
-          whose: "mine",
-          job: "Browses the web for a given query",
-          outOfScope: "Not for authenticated sites",
-          basis: "Dana's crawling checklist",
-        });
-        const summary = yield* executeManifest(dir, [row], actor).pipe(Effect.provide(JournalLayer(journalPath)));
-        expect(summary.adopted).toBe(1);
-        expect(summary.warnings).toEqual([]);
-
-        const { sections, warnings } = yield* parseDossier(join(dir, "browse", "dossier.md"));
-        expect(warnings).toEqual([]);
-        expect(sections.job).toBe("Browses the web for a given query");
-        expect(sections.outOfScope).toBe("Not for authenticated sites");
-        expect(sections.basis).toBe("Dana's crawling checklist");
-        // Unanswered sections stay honest gaps.
-        expect(sections.evidence).toBeUndefined();
-        expect(sections.fitCriterion).toBeUndefined();
-      }),
-    );
-  });
-
-  test("adopt path NEVER clobbers a dossier that traveled with the directory -- the manifest's answers lose to the file", async () => {
-    await withTempDir((dir) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem;
-        yield* write(dir, "browse/SKILL.md", skillMd("browse"));
-        yield* write(dir, "browse/dossier.md", "## Job\nAlready hand-authored.\n");
-        const journalPath = journalFor(dir);
-        const row = baseRow({ path: "browse", decision: "keep", whose: "mine", job: "the manifest's late answer" });
-        yield* executeManifest(dir, [row], actor).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        const content = yield* fs.readFileString(join(dir, "browse", "dossier.md"));
-        expect(content).toBe("## Job\nAlready hand-authored.\n");
-      }),
-    );
-  });
-
-  test("card answers on a receive row warn -- a crate has no dossier -- and never fail the row (issue #108)", async () => {
-    await withTempDir((dir) =>
-      Effect.gen(function* () {
-        yield* write(dir, "arrival/SKILL.md", skillMd("arrival"));
-        const journalPath = journalFor(dir);
-        const row = baseRow({
-          path: "arrival",
-          name: "arrival",
-          decision: "keep",
-          whose: "outside",
-          job: "does a thing",
-          basis: "someone's way",
-        });
-        const summary = yield* executeManifest(dir, [row], actor).pipe(Effect.provide(JournalLayer(journalPath)));
-
-        expect(summary.received).toBe(1);
-        expect(summary.errored).toBe(0);
-        expect(summary.warnings).toHaveLength(1);
-        expect(summary.warnings[0]).toContain("Job/Basis");
-        expect(summary.warnings[0]).toContain("land nowhere until a door grants identity");
       }),
     );
   });

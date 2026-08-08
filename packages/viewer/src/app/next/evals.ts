@@ -188,15 +188,13 @@ export const buildGapTodoPayload = (input: {
 /**
  * A fixture's one-line prompt summary for the accordion: the first
  * non-heading line of `prompt.md`, falling back to the scaffold-era
- * `case.json` prompt, then `context`. `null` = no prompt authored yet, an
- * honest gap.
+ * `case.json` prompt. `null` = no prompt authored yet, an honest gap.
  */
 export const promptSummary = (detail: {
   readonly promptMd: string | null;
   readonly legacyPrompt: string | null;
-  readonly context: string | null;
 }): string | null => {
-  const raw = detail.promptMd ?? detail.legacyPrompt ?? detail.context;
+  const raw = detail.promptMd ?? detail.legacyPrompt;
   if (raw === null) return null;
   // Authoring comments are the fixture's PURPOSE (fixturePurpose renders
   // them as their own line) -- the summary is the task prose the agent sees.

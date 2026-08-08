@@ -84,9 +84,6 @@ const MANIFEST_COLUMNS = [
   "stakes",
   "hurts",
   "priority",
-  "job",
-  "outOfScope",
-  "basis",
 ] as const;
 
 /**
@@ -217,33 +214,28 @@ describe("skillmaker adopt --triage / --from-manifest: the bulk elicitation tree
       "",
       "",
       "",
-      "",
-      "",
-      "",
     ]);
 
     const copyRow = rowFor(copyRowPath);
     expect(copyRow[3]).toBe("hash matches recorded version demo-skill");
-    expect(copyRow.slice(4)).toEqual(["keep", "receive", "", "", "", "", "", "", ""]);
+    expect(copyRow.slice(4)).toEqual(["keep", "receive", "", "", "", ""]);
 
     const collisionRow = rowFor(collisionRowPath);
     expect(collisionRow[0]).toBe("demo-skill"); // claimed name, from its own frontmatter
     expect(collisionRow[3]).toBe("name collides with bundle demo-skill");
-    expect(collisionRow.slice(4)).toEqual(["keep", "receive", "", "", "", "", "", "", ""]);
+    expect(collisionRow.slice(4)).toEqual(["keep", "receive", "", "", "", ""]);
   });
 
   test("--from-manifest executes the hand-edited rows as individual acts", () => {
     let content = readFileSync(manifestPath, "utf8");
 
-    // bare-skill-triage: fill the card -- stakes/hurts testimony plus the
-    // Job/Basis card answers (issue #108). Entry stage is never asked: its
-    // complete, runnable SKILL.md derives `evaluating` on its own.
+    // bare-skill-triage: fill in the stakes/hurts testimony. Entry stage is
+    // never asked: its complete, runnable SKILL.md derives `evaluating` on
+    // its own.
     content = editManifestRow(content, bareRowPath, {
       stakes: "load-bearing",
       hurts: "needs a rename before shipping",
       priority: "8",
-      job: "Do the new thing",
-      basis: "the colleague's own runbook",
     });
     // copy-of-recorded-triage: leave the "receive" default -- it's ours coming home.
     // name-collision-triage: an explicit human call to archive it instead of docking it.
@@ -306,13 +298,8 @@ describe("skillmaker adopt --triage / --from-manifest: the bulk elicitation tree
     });
     expect(stageChange?.payload).not.toHaveProperty("override");
 
-    // The card answers seeded the freshly created dossier (issue #108).
-    const dossier = readFileSync(
-      join(scratchDir, "mixed-triage", "bare-skill-triage", "dossier.md"),
-      "utf8",
-    );
-    expect(dossier).toContain("## Job\nDo the new thing");
-    expect(dossier).toContain("## Basis\nthe colleague's own runbook");
+    // The dossier is expunged (2026-08-08): adopt scaffolds no dossier.md.
+    expect(existsSync(join(scratchDir, "mixed-triage", "bare-skill-triage", "dossier.md"))).toBe(false);
 
     // The received row's stakes landed as STRUCTURED testimony on the event
     // (issue #108) -- not flattened into notes.

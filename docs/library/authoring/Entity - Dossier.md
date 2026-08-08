@@ -2,7 +2,7 @@
 type: Entity
 prefLabel: Dossier
 context: authoring
-status: adopted
+status: superseded
 links:
   related_to:
     - "./Entity - Design Doc"
@@ -11,6 +11,9 @@ links:
     - "../evals/Mechanism - Reindex Validation"
     - "../board/Surface - Lab"
 ---
+
+## WHY SUPERSEDED
+Expunged 2026-08-08 (Director ruling) — receiving-dock machinery that outlived its loop and confused makers; see the dock card (`../outputs/Mechanism - Receiving Dock.md`).
 
 ## WHAT
 `dossier.md` — a Skill Bundle's progressive context-of-use record (issue

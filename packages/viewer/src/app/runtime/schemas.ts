@@ -280,38 +280,6 @@ export class StationAvailability extends Schema.Class<StationAvailability>("Stat
 }) {}
 
 /**
- * One named `## Contexts` entry from `dossier.md` (issue #94): "jobs
- * singular, contexts plural" -- any number of named contracts on the one
- * job, each a free-prose block (handoff-in, what downstream reads,
- * environment notes, stakes), not further structured.
- */
-export class DossierContext extends Schema.Class<DossierContext>("DossierContext")({
-  name: Schema.String,
-  body: Schema.String,
-  /** Handoff CLAIM (issue #108): what hands work to this skill -- a bundle slug when local, honest free text otherwise. Never resolved, never a graph edge; absent = unclaimed = honest gap. */
-  upstream: Schema.optionalKey(Schema.String),
-  /** Handoff CLAIM (issue #108): what reads this skill's output. Same rules as `upstream`. */
-  downstream: Schema.optionalKey(Schema.String),
-  /** Handoff CLAIM (issue #108): who/what runs it. Same rules as `upstream`. */
-  hands: Schema.optionalKey(Schema.String),
-}) {}
-
-/**
- * `skills/<slug>/dossier.md`'s parsed sections (issue #94, `Mechanism -
- * Receiving Dock.md` §HOW's "the dossier"): every field optional -- an
- * absent one is an honest gap ("fit criterion: unrecorded" on the detail
- * page), never a defect.
- */
-export class DossierRecord extends Schema.Class<DossierRecord>("DossierRecord")({
-  job: Schema.optionalKey(Schema.String),
-  contexts: Schema.Array(DossierContext),
-  outOfScope: Schema.optionalKey(Schema.String),
-  basis: Schema.optionalKey(Schema.String),
-  evidence: Schema.optionalKey(Schema.String),
-  fitCriterion: Schema.optionalKey(Schema.String),
-}) {}
-
-/**
  * Lineage (issue #109, the card's Lineage tab): chain of custody replayed
  * from the journal server-side (`handleBundleDetail` -- creation/receipt
  * origin, version records, ship/receive acts, retire/restore, uncapped and
@@ -376,7 +344,6 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   runs: Schema.Array(RunRecord),
   measurements: Schema.Array(MeasurementRecord),
   station: Schema.NullOr(StationAvailability),
-  dossier: DossierRecord,
   /** The card's Lineage tab data (issue #109) -- custody chain + fork family, derived server-side. */
   lineage: LineageRecord,
   /** The bundle's reviewable source files (design.md, research/*, output/*) for the Files tab, pipeline-ordered. */
@@ -422,7 +389,6 @@ export class FixtureDetailResponse extends Schema.Class<FixtureDetailResponse>("
   caseName: Schema.String,
   class: Schema.NullOr(Schema.String),
   risks: Schema.Array(Schema.String),
-  context: Schema.NullOr(Schema.String),
   promptMd: Schema.NullOr(Schema.String),
   legacyPrompt: Schema.NullOr(Schema.String),
   grading: Schema.NullOr(FixtureGradingView),
