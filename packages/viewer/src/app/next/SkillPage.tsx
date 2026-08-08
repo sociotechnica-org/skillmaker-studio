@@ -6,7 +6,7 @@
  * (TopBarSkillControls, rendered by NextShell). Every tab is a lens on
  * the selected draft ("Current draft" = the unversioned working state).
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
 import { fetchBundleFile, postPublish, useApiData } from "./api.ts";
 import { EvalsSection } from "./EvalsSection.tsx";
@@ -34,6 +34,7 @@ export function SkillPageView({
   pinned,
   onOpenFile,
   rightInset = false,
+  tabRequest = null,
 }: {
   readonly slug: string;
   readonly page: SkillPageData;
@@ -41,8 +42,19 @@ export function SkillPageView({
   readonly onOpenFile: (path: string) => void;
   /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */
   readonly rightInset?: boolean;
+  /** A chat-link navigation request: switch to this tab (nonce distinguishes repeats). */
+  readonly tabRequest?: { readonly tab: "overview" | "research" | "eval" | "publish"; readonly n: number } | null;
 }) {
   const [tab, setTab] = useState<CenterTab>("overview");
+  // Chat-transcript links navigate the CENTER to the artifact's home tab —
+  // the conversation never gets displaced (2026-08-08 invariant + ruling).
+  const lastTabRequest = useRef(0);
+  useEffect(() => {
+    if (tabRequest != null && tabRequest.n !== lastTabRequest.current) {
+      lastTabRequest.current = tabRequest.n;
+      setTab(tabRequest.tab);
+    }
+  }, [tabRequest]);
 
   // Unread dots: the newest event of each family, compared to a per-skill
   // "last seen" stamp (localStorage). Eval listens to run traffic; Research
@@ -83,7 +95,18 @@ export function SkillPageView({
       <div className="w-full px-6 pt-4 transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 268 : 24 }}>
         <div className="mx-auto max-w-3xl">
           {page.loop !== null && <ReviewSurface loop={page.loop} />}
+        </div>
+      </div>
 
+      {/* STICKY tab bar: pins to the top of the scroll context so long tab
+          content (uncapped research notes) never scrolls the tabs away. The
+          separator line is this bar's border-b (not the surface's border-t)
+          so the active tab's -mb-px notch keeps working while stuck. */}
+      <div
+        className="sticky top-0 z-20 w-full border-b border-neutral-900/50 bg-canvas px-6 pt-2 transition-[padding] duration-200 ease-out"
+        style={{ paddingRight: rightInset ? 268 : 24 }}
+      >
+        <div className="mx-auto max-w-3xl">
           {/* folder tabs, sitting on the full-width separator below */}
           <div className="flex items-end gap-1">
             {(
@@ -103,10 +126,10 @@ export function SkillPageView({
         </div>
       </div>
 
-      {/* full-bleed tab surface: separator line + tinted ground to the
-          bottom. The inset is padding INSIDE this layer so the well and its
-          separator keep painting under the floating overview card. */}
-      <div className="flex-1 border-t border-neutral-900/50 bg-well transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 244 : 0 }}>
+      {/* full-bleed tab surface: tinted ground to the bottom (the separator
+          line lives on the sticky tab bar above). The inset is padding INSIDE
+          this layer so the well keeps painting under the floating card. */}
+      <div className="flex-1 bg-well transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 244 : 0 }}>
         <div className="mx-auto max-w-3xl px-6 py-5">
           {tab === "overview" && <OverviewTab page={page} pinned={pinned} onOpenFile={onOpenFile} />}
           {tab === "research" && <ResearchTab slug={slug} onOpenFile={onOpenFile} />}
@@ -364,7 +387,10 @@ function ResearchTab({
                 open in Files
               </button>
             </summary>
-            <div className="max-h-96 overflow-y-auto pt-1">
+            {/* Full height — the page scrolls. A 384px scroll-box made long
+                research notes read as "truncated" (mystery from the 7/30
+                walk, solved 2026-08-08: it was this cap, not a fetch race). */}
+            <div className="pt-1">
               <MarkdownContent markdown={f.content} />
             </div>
           </details>

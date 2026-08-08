@@ -125,11 +125,13 @@ export function SkillView({
   pinned,
   overviewOpen,
   onOpenFile,
+  tabRequest = null,
 }: {
   readonly slug: string;
   readonly pinned: string;
   readonly overviewOpen: boolean;
   readonly onOpenFile: (path: string) => void;
+  readonly tabRequest?: { readonly tab: "overview" | "research" | "eval" | "publish"; readonly n: number } | null;
 }) {
   const page = useSkillPage(slug);
   // The overview card FLOATS OVER the page (z-10) so the full-bleed tab
@@ -139,7 +141,7 @@ export function SkillView({
   return (
     <div className="relative flex min-h-full">
       <div className="min-w-0 flex-1">
-        <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} rightInset={overviewOpen} />
+        <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} rightInset={overviewOpen} tabRequest={tabRequest} />
       </div>
       {overviewOpen && (
         <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[244px]">

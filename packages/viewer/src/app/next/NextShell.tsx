@@ -45,6 +45,24 @@ export default function NextShell() {
   const [overviewOpen, setOverviewOpen] = useState(true);
   // A center-panel "open in Files" request: RightPanel consumes + clears it.
   const [fileRequest, setFileRequest] = useState<string | null>(null);
+  // A chat-link "show me the artifact" request: the CENTER navigates to the
+  // artifact's home tab; the conversation never gets displaced (2026-08-08
+  // invariant). Files panel only as fallback for homeless paths.
+  const [tabRequest, setTabRequest] = useState<{ readonly tab: "overview" | "research" | "eval" | "publish"; readonly n: number } | null>(null);
+  const openArtifact = (path: string) => {
+    const p = path.replace(/^\.\//, "").replace(/^skills\/[^/]+\//, "");
+    const tab =
+      p.startsWith("research/") ? ("research" as const)
+      : p.startsWith("evals/") ? ("eval" as const)
+      : p === "output/SKILL.md" || p === "design.md" ? ("overview" as const)
+      : null;
+    if (tab !== null) {
+      setTabRequest((cur) => ({ tab, n: (cur?.n ?? 0) + 1 }));
+    } else {
+      setRightOpen(true);
+      setFileRequest(p);
+    }
+  };
   // Top-level version pivot: every skill tab is a lens on this draft.
   const [pinned, setPinned] = useState<string>("current");
   const [overviewOverlay, setOverviewOverlay] = useState(false);
@@ -193,6 +211,7 @@ export default function NextShell() {
               slug={center.slug}
               pinned={pinned}
               overviewOpen={overviewShown}
+              tabRequest={tabRequest}
               onOpenFile={(path) => {
                 setRightOpen(true);
                 setFileRequest(path);
@@ -242,6 +261,7 @@ export default function NextShell() {
               width={expanded ? 9999 : right.width}
               fileRequest={fileRequest}
               onFileRequestHandled={() => setFileRequest(null)}
+              onArtifactLink={openArtifact}
               intro={chatIntro !== null && chatIntro.slug === center.slug ? chatIntro : null}
               onIntroConsumed={() => setChatIntro(null)}
             />

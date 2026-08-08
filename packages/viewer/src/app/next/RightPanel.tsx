@@ -44,11 +44,14 @@ export function RightPanel({
   onIntroConsumed,
   fileRequest = null,
   onFileRequestHandled,
+  onArtifactLink,
 }: {
   readonly skill: string;
   readonly width: number;
   readonly fileRequest?: string | null;
   readonly onFileRequestHandled?: () => void;
+  /** Bundle-relative link clicked in a chat message: open the artifact's home tab in the center (2026-08-08 ruling). */
+  readonly onArtifactLink?: (path: string) => void;
   readonly intro?: ChatIntro | null;
   readonly onIntroConsumed?: () => void;
 }) {
@@ -112,7 +115,7 @@ export function RightPanel({
       ) : (
         // Keyed by skill: switching skills remounts the tab so drafts and
         // scroll memory re-read their per-skill stores cleanly.
-        <ChatTab key={skill} skill={skill} intro={intro} onIntroConsumed={onIntroConsumed} />
+        <ChatTab key={skill} skill={skill} intro={intro} onIntroConsumed={onIntroConsumed} onArtifactLink={onArtifactLink} />
       )}
     </div>
   );
@@ -448,9 +451,26 @@ function UserMessage({
 }
 
 /** Agent output is full-width prose — no bubble, no border, no name. */
-function AgentMessage({ text, sentAt, status }: { readonly text: string; readonly sentAt: string; readonly status?: string }) {
+/** True for hrefs that are bundle-relative paths, not real URLs. */
+const isArtifactHref = (href: string): boolean =>
+  href.length > 0 && !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("//") && !href.startsWith("#");
+
+function AgentMessage({ text, sentAt, status, onArtifactLink }: { readonly text: string; readonly sentAt: string; readonly status?: string; readonly onArtifactLink?: (path: string) => void }) {
   return (
-    <div className="group pt-3">
+    <div 
+      onClickCapture={(e) => {
+        if (onArtifactLink === undefined) return;
+        const a = (e.target as HTMLElement).closest("a");
+        if (a === null) return;
+        const href = a.getAttribute("href") ?? "";
+        // Bundle-relative links open inside the Studio (the artifact's home
+        // tab), never as dead browser URLs (2026-08-08 ruling).
+        if (isArtifactHref(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          onArtifactLink(href);
+        }
+      }} className="group pt-3">
       {status && <div className="pb-0.5 font-display text-xs text-ink-muted">{status}</div>}
       <div className={status ? "text-ink-muted" : ""}>
         <MarkdownContent markdown={text} />
@@ -621,10 +641,12 @@ function ChatTab({
   skill,
   intro = null,
   onIntroConsumed,
+  onArtifactLink,
 }: {
   readonly skill: string;
   readonly intro?: ChatIntro | null;
   readonly onIntroConsumed?: () => void;
+  readonly onArtifactLink?: (path: string) => void;
 }) {
   const chat = useChatSession(skill);
   // Draft persistence (e2e-readiness: "losing typed words is one of the
@@ -858,7 +880,7 @@ function ChatTab({
                   images={item.images}
                 />
               );
-            if (item.kind === "agent") return <AgentMessage key={i} text={item.text} sentAt={fmtTime(item.t)} />;
+            if (item.kind === "agent") return <AgentMessage key={i} text={item.text} sentAt={fmtTime(item.t)} onArtifactLink={onArtifactLink} />;
             if (item.kind === "tool") return <ToolChip key={item.toolCallId} title={item.title} status={item.status} />;
             if (item.kind === "permission")
               return <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />;
