@@ -29,6 +29,8 @@ import { BundleState } from "./Bundle.ts";
 import { IndexError, JournalReadError, WorkspaceIOError } from "./Errors.ts";
 import { checkCoverage, COVERAGE_VALUES, parseRiskMap } from "./RiskMap.ts";
 import type { CoverageValue } from "./RiskMap.ts";
+import { claimRowsFromEvals, parseEvalsJson } from "./EvalsJson.ts";
+import type { ClaimsSource } from "./EvalsJson.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
@@ -175,6 +177,15 @@ export interface RebuildResult {
    * `<skillsDir>/<slug>` convention.
    */
   readonly locations: ReadonlyMap<string, BundleLocation>;
+  /**
+   * Which source each bundle's claim rows came from (evals.json read-side
+   * bridge): the bundle-root `evals.json` when it exists and parses
+   * (design-skill's structured claims artifact), else the legacy
+   * `evals/risk-map.md` — one source wins, never merged. Same
+   * returned-not-persisted treatment as the whereabouts folds above; the
+   * bundle-detail payload notes it so the UI could badge it later.
+   */
+  readonly claimsSources: ReadonlyMap<string, ClaimsSource>;
 }
 
 /** One rebuild-discovered bundle's actual directory (absolute) and layout (`Versions.ts`'s `BundleLayout`). */
@@ -195,15 +206,22 @@ export interface FixtureRecord {
   readonly source?: FixtureSourceRecord;
 }
 
-/** A materialized `evals/risk-map.md` row (data-model.md §2.6, §2.11). No results column, ever. */
+/**
+ * A materialized claim/coverage row (data-model.md §2.6, §2.11). No results
+ * column, ever. Sourced from the bundle-root `evals.json` when one exists
+ * and parses (design-skill's structured claims artifact, `EvalsJson.ts`),
+ * else from the legacy `evals/risk-map.md` — one source wins, never merged.
+ */
 export interface RiskCoverageRecord {
   readonly bundle: string;
   readonly riskId: string;
   readonly family: string;
-  /** The authored claim sentence (risk-map.md's Description column); `""` when the author left the cell blank. */
+  /** The authored claim sentence (risk-map.md's Description column / evals.json's `failure`); `""` when the author left it blank. */
   readonly description: string;
   readonly coverage: CoverageValue;
   readonly fixtureCase?: string;
+  /** Proof-case intentions (evals.json's `proofSpecs[].name`) — present only for evals.json-sourced rows; names may not exist as fixtures yet. */
+  readonly proofCases?: ReadonlyArray<string>;
 }
 
 /**
@@ -298,6 +316,8 @@ interface RiskCoverageRow {
   readonly description: string | null;
   readonly coverage: string;
   readonly fixture_case: string | null;
+  /** `null` for risk-map-sourced rows and pre-evals.json databases. */
+  readonly proof_cases_json: string | null;
 }
 
 interface WarningRow {
@@ -563,6 +583,17 @@ const rowToRiskCoverageRecord = (row: RiskCoverageRow): Effect.Effect<RiskCovera
         }),
       );
     }
+    // Same guarded decode as `source_json` above: the column can be
+    // corrupted independently of the tolerant scan that wrote it.
+    const proofCases =
+      row.proof_cases_json !== null && row.proof_cases_json !== undefined
+        ? yield* Effect.try({
+            try: () => JSON.parse(row.proof_cases_json as string) as ReadonlyArray<string>,
+            catch: toIndexError(
+              `studio.db: risk_coverage "${row.bundle}/${row.risk_id}" has invalid proof_cases_json`,
+            ),
+          })
+        : undefined;
     return {
       bundle: row.bundle,
       riskId: row.risk_id,
@@ -570,6 +601,7 @@ const rowToRiskCoverageRecord = (row: RiskCoverageRow): Effect.Effect<RiskCovera
       description: row.description ?? "",
       coverage: row.coverage,
       ...(row.fixture_case !== null ? { fixtureCase: row.fixture_case } : {}),
+      ...(proofCases !== undefined ? { proofCases } : {}),
     };
   });
 
@@ -698,7 +730,8 @@ const createSchema = (db: Database): void => {
       family TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       coverage TEXT NOT NULL,
-      fixture_case TEXT
+      fixture_case TEXT,
+      proof_cases_json TEXT
     )
   `);
   db.run(`
@@ -1187,7 +1220,7 @@ export const layer = (
           }
 
           const insertRiskCoverage = db.query(
-            "INSERT INTO risk_coverage (bundle, risk_id, family, description, coverage, fixture_case) VALUES ($bundle, $riskId, $family, $description, $coverage, $fixtureCase)",
+            "INSERT INTO risk_coverage (bundle, risk_id, family, description, coverage, fixture_case, proof_cases_json) VALUES ($bundle, $riskId, $family, $description, $coverage, $fixtureCase, $proofCasesJson)",
           );
           for (const row of riskCoverageRecords) {
             insertRiskCoverage.run({
@@ -1197,6 +1230,7 @@ export const layer = (
               $description: row.description,
               $coverage: row.coverage,
               $fixtureCase: row.fixtureCase ?? null,
+              $proofCasesJson: row.proofCases !== undefined ? JSON.stringify(row.proofCases) : null,
             });
           }
 
@@ -1315,6 +1349,7 @@ export const layer = (
         const seenVersionTriples = new Set<string>();
         const fixtureRecords: FixtureRecord[] = [];
         const riskCoverageRecords: RiskCoverageRecord[] = [];
+        const claimsSources = new Map<string, ClaimsSource>();
         const runRecords: RunIndexRecord[] = [];
         for (const slug of slugs) {
           const located = identities.get(slug);
@@ -1385,18 +1420,42 @@ export const layer = (
             fixtureRecords.push({ bundle: slug, ...fixtureCase });
           }
 
-          const riskMapScan = yield* parseRiskMap(join(bundleDir, "evals", "risk-map.md")).pipe(
+          // Claims precedence (evals.json read-side bridge, director ruling
+          // in docs/friction/e2e-readiness.md): a bundle-root `evals.json`
+          // that exists and parses IS the claims source; `evals/risk-map.md`
+          // is the legacy fallback. Never merged — one source wins, and
+          // `claimsSources` records which so the payload can say.
+          const evalsScan = yield* parseEvalsJson(join(bundleDir, "evals.json")).pipe(
             Effect.provideService(FileSystem, fs),
-            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not parse risk-map for "${slug}"`)(cause)),
+            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not parse evals.json for "${slug}"`)(cause)),
           );
-          for (const warning of riskMapScan.warnings) {
-            warnings.push({ bundle: slug, source: "risk-map", message: warning });
+          for (const warning of evalsScan.warnings) {
+            warnings.push({ bundle: slug, source: "evals.json", message: warning });
           }
-          for (const row of riskMapScan.rows) {
-            riskCoverageRecords.push({ bundle: slug, ...row });
-          }
-          for (const warning of checkCoverage(riskMapScan.rows, fixtureScan.cases)) {
-            warnings.push({ bundle: slug, source: "risk-map", message: warning });
+          if (evalsScan.status === "parsed") {
+            claimsSources.set(slug, "evals.json");
+            const caseNames = fixtureScan.cases.map((fixtureCase) => fixtureCase.caseName);
+            for (const row of claimRowsFromEvals(evalsScan.hypotheses, caseNames)) {
+              riskCoverageRecords.push({ bundle: slug, ...row });
+            }
+            // No `checkCoverage` here: `claimRowsFromEvals` only links
+            // fixture cases that actually exist (unrealized proof specs
+            // stay intentions in `proofCases`, honestly `gap`/`partial`).
+          } else {
+            claimsSources.set(slug, "risk-map");
+            const riskMapScan = yield* parseRiskMap(join(bundleDir, "evals", "risk-map.md")).pipe(
+              Effect.provideService(FileSystem, fs),
+              Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not parse risk-map for "${slug}"`)(cause)),
+            );
+            for (const warning of riskMapScan.warnings) {
+              warnings.push({ bundle: slug, source: "risk-map", message: warning });
+            }
+            for (const row of riskMapScan.rows) {
+              riskCoverageRecords.push({ bundle: slug, ...row });
+            }
+            for (const warning of checkCoverage(riskMapScan.rows, fixtureScan.cases)) {
+              warnings.push({ bundle: slug, source: "risk-map", message: warning });
+            }
           }
 
           // Runs: scan `runs/<id>/run.json` files (data-model.md §2.8,
@@ -1605,6 +1664,7 @@ export const layer = (
           forkOf: forkOfBySlug,
           forkChildren,
           locations,
+          claimsSources,
         };
       });
 

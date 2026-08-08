@@ -43,6 +43,8 @@ export type Claim = {
   readonly fixtures: number;
   /** The fixture cases probing this claim (`case.json.risks` is the join, IA §C rule 2). */
   readonly fixtureCases: ReadonlyArray<string>;
+  /** Proof-case intentions authored at design time (evals.json's `proofSpecs[].name`) -- may not exist as fixtures yet. Absent on risk-map-sourced claims. */
+  readonly proofCases?: ReadonlyArray<string>;
 };
 
 export type RunVerdict = "pass" | "fail" | "partial";
@@ -171,6 +173,13 @@ export type SkillPage = {
   readonly evals: EvalsData | null;
   /** Install-door facts for the Publish tab; `null` on placeholders and pre-install-door servers (buttons stay inert). */
   readonly publish: SkillPublish | null;
+  /**
+   * The Eval tab's mode gate (director ruling 2026-08-08): `false` while no
+   * draft exists to run against -- the tab renders the authored axis as a
+   * read-only reading surface (no run/grade/mint affordances). Server-
+   * informed (wire `evalsRunnable`, falling back to `instructionsPath`).
+   */
+  readonly evalsRunnable: boolean;
   readonly events: ReadonlyArray<{ readonly type: string; readonly at: string }>;
 };
 

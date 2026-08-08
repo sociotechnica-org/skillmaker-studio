@@ -157,25 +157,20 @@ const FAMILY_NAMES: Record<string, string> = {
 };
 
 /**
- * `GET /api/bundles/:slug` (+ the instructions file) -> the Skill page.
- * Claim status is honest about the coverage-vs-validation split: an
- * authored "covered" row only shows `proven` when a measurement actually
- * passed for its fixture; otherwise it renders `unmeasured`.
+ * The claim rows off the bundle detail's `riskCoverage` -- whichever source
+ * won server-side (root `evals.json`, or the legacy risk-map fallback;
+ * `detail.claimsSource` says which). Claim status is honest about the
+ * coverage-vs-validation split: an authored "covered" row only shows
+ * `proven` when a measurement actually passed for its fixture; otherwise it
+ * renders `unmeasured`. Exported pure for unit tests.
  */
-export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
-  const detail = await getBundleDetail(slug);
-  const instructions =
-    detail.instructionsPath === null
-      ? null
-      : await getBundleFile(slug, detail.instructionsPath).then(
-          (f) => f.content,
-          () => null,
-        );
-
+export const toClaims = (
+  detail: Pick<BundleDetailResponse, "riskCoverage" | "fixtures" | "measurements">,
+): ReadonlyArray<Claim> => {
   const measuredPass = new Set(
     detail.measurements.filter((m) => m.passes > 0).map((m) => m.fixtureCase),
   );
-  const claims: ReadonlyArray<Claim> = detail.riskCoverage.map((r) => {
+  return detail.riskCoverage.map((r) => {
     // `case.json.risks` is the join (IA §C rule 2); the authored risk-map
     // column is a fallback while the dual-write still exists.
     const fixtureCases = claimFixtureCases(r.riskId, detail.fixtures, r.fixtureCase);
@@ -194,8 +189,35 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       status,
       fixtures: fixtureCases.length,
       fixtureCases,
+      // Proof-case intentions (evals.json-sourced claims only): shown by the
+      // read-only Eval tab even before any fixture exists.
+      ...(r.proofCases !== undefined ? { proofCases: r.proofCases } : {}),
     };
   });
+};
+
+/**
+ * The Eval tab's read-only gate: server-informed (`evalsRunnable`); a
+ * pre-bridge server omits it, so derive the same fact from the same
+ * artifact probe it uses (`instructionsPath` = the draft's existence).
+ * Exported pure for unit tests of the mode switch, both ways.
+ */
+export const evalsRunnableFromDetail = (
+  detail: Pick<BundleDetailResponse, "evalsRunnable" | "instructionsPath">,
+): boolean => detail.evalsRunnable ?? detail.instructionsPath !== null;
+
+/** `GET /api/bundles/:slug` (+ the instructions file) -> the Skill page. */
+export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
+  const detail = await getBundleDetail(slug);
+  const instructions =
+    detail.instructionsPath === null
+      ? null
+      : await getBundleFile(slug, detail.instructionsPath).then(
+          (f) => f.content,
+          () => null,
+        );
+
+  const claims = toClaims(detail);
 
   const latestVersion = detail.versions.at(-1);
   const provenModels = [
@@ -246,6 +268,7 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       unclaimed: unclaimedFixtureCases(detail.fixtures, detail.riskCoverage.map((r) => r.riskId)),
     },
     publish: detail.publish ?? null,
+    evalsRunnable: evalsRunnableFromDetail(detail),
     // `at` stays the raw ISO timestamp: the unread-dot stamps compare
     // `type-at` pairs, and a day-granular display date made two same-day
     // events indistinguishable (the dot never re-fired). Format at render

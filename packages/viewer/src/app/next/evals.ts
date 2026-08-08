@@ -223,6 +223,35 @@ export const fixturePurpose = (promptMd: string | null): string | null => {
   return text.length > 240 ? `${text.slice(0, 239).trimEnd()}…` : text;
 };
 
+/**
+ * The read-only Eval tab's one line of orientation (director ruling
+ * 2026-08-08: Method-stage evals are a reading surface -- claims + proof
+ * cases are born at design time; fixtures/runs belong to evaluating).
+ */
+export const READ_ONLY_ORIENTATION = "Authored during design — runnable once a draft exists.";
+
+/**
+ * The read-only mode's honest status word: an authored `gap` at design time
+ * is not a failure, it is a proof case that hasn't been built yet --
+ * `planned`. Every other status keeps its name.
+ */
+export const readOnlyStatusLabel = (status: ClaimStatus): string => (status === "gap" ? "planned" : status);
+
+/**
+ * The read-only claim row's proof-case line: the claim's proof-case
+ * intentions (evals.json's `proofSpecs[].name`, falling back to the fixture
+ * join for risk-map-sourced claims), each marked `(planned)` when no
+ * fixture realizes it yet. Empty when nothing is authored at all.
+ */
+export const readOnlyProofCaseLabels = (claim: {
+  readonly fixtureCases: ReadonlyArray<string>;
+  readonly proofCases?: ReadonlyArray<string>;
+}): ReadonlyArray<string> => {
+  const realized = new Set(claim.fixtureCases);
+  const intentions = claim.proofCases ?? claim.fixtureCases;
+  return intentions.map((name) => (realized.has(name) ? name : `${name} (planned)`));
+};
+
 /** Claims grouped by family in first-appearance order (rule 1: grouped by Input / Reasoning / Output / Adversarial / Chain). */
 export const groupClaimsByFamily = (
   claims: ReadonlyArray<Claim>,
