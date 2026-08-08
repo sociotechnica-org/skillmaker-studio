@@ -414,6 +414,21 @@ Everything else is a papercut: logged, parked, not fixed this week.
   status where the user is already looking. (1)+(2) = next batch;
   (3)+(4) = design-table candidates.
 
+- **Eval-writer skill — founding notes (director thinking aloud,
+  2026-08-08):** the evaluating-stage William. (1) Fixture design is
+  ITERATIVE with human judgment: propose -> "would this actually
+  happen?" -> refine (the research open-questions loop, applied to
+  fixtures — confidence is the residue of the loop). (2) HARVESTED
+  over synthetic: takes evidence sources (dirs/logs/real examples) and
+  extracts real fixture data; `skillmaker fixture harvest` already
+  exists; Vision card's "failures in real use become fixtures" +
+  receiving-dock session-log idea are the lineage. (3) Fixtures carry
+  PROVENANCE (harvested-from vs synthetic) so "do these represent real
+  use?" is readable, not remembered. Inputs: evals.json proof specs +
+  evidence sources; output: one-risk-per-fixture with provenance.
+  Build it THROUGH the product with design-skill facilitating.
+  Structure conversation w/ Danvers pending.
+
 ## Session log
 
 **PAUSED mid-walk** at the design station: director answering the
