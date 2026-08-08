@@ -1,0 +1,124 @@
+digraph SmsFeature {
+    graph [
+        goal="Implement a Skillmaker Studio feature with one combined review-judge gate before the PR.",
+        default_fidelity="summary:high",
+        max_node_visits=5,
+        stall_timeout="5h"
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // Reshaped after the first real batch (2026-08-04): the old 9-node
+    // graph verified three times (deterministic gates + LLM verify +
+    // verification judge) with unbounded retry loops, and three runs were
+    // cancelled after heavy cycling (implement x5, verify x3 observed;
+    // ~$8/PR, ~$25 total). Director ruling: one combined ReviewJudge
+    // stage, and loop caps enforced in the graph via per-node max_visits
+    // (fabro terminates the run when a node exceeds its cap, so the caps
+    // are structural, not prompt suggestions).
+    //
+    // CAP SEMANTICS (learned the hard way, first run on the reshaped
+    // graph, 2026-08-04): fabro increments the visit counter on ENTRY
+    // and fails when `visits >= max_visits` -- BEFORE executing the node
+    // (fabro-core executor.rs, "(>= semantics)"). So max_visits=N allows
+    // only N-1 executions; a node meant to execute K times needs
+    // max_visits=K+1, and max_visits=1 fails on the very first entry.
+    // The graph-level max_node_visits has the same >= rule AND is
+    // checked in addition to per-node caps (both apply; the docs'
+    // "per-node overrides graph-level" is not what 0.315 executes), so
+    // it must be >= the largest per-node cap. Every cap below is
+    // therefore intended-executions + 1.
+    //
+    // Model split unchanged in spirit (director ruling, PR #188):
+    // sol-high where the graph makes judgment calls (scope, the judge);
+    // terra-medium for the in-loop worker stages.
+    scope [
+        label="Scope",
+        prompt="@prompts/scope.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-sol",
+        reasoning_effort="high",
+        max_visits=2,  // executes exactly once (K=1, cap=K+1)
+        timeout="90m"
+    ]
+
+    // Worst case 4 executions: 1 initial + at most 2 gate-failure
+    // bounces + at most 1 ReviewJudge fix bounce. A further bounce of
+    // either kind exceeds the cap and fails the run with the previous
+    // stage's (gates/judge) output as the last captured stage.
+    implement [
+        label="Implement",
+        prompt="@prompts/implement.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-terra",
+        reasoning_effort="medium",
+        max_visits=5,  // <=4 executions (K=4, cap=K+1)
+        timeout="90m"
+    ]
+
+    // Deterministic gates; runs once after every implement execution, so
+    // its cap mirrors implement's.
+    validate_gates [
+        shape=parallelogram,
+        label="Run repo gates",
+        script="./.fabro/scripts/fabro-validate",
+        max_visits=5,  // <=4 executions (K=4, cap=K+1)
+        timeout="90m"
+    ]
+
+    // One combined stage replacing the old review + verify +
+    // verification-judge trio. max_visits=3 allows exactly 2 executions,
+    // which makes "fix" a once-per-run route structurally: execution 1
+    // may route Fix, execution 2 must land Ready or Surface (a second
+    // Fix would need a third execution, which the cap rejects).
+    // goal_gate=true makes a Surface verdict (outcome=failed)
+    // fail the run at exit, so [run.pull_request] never opens a PR for a
+    // surfaced run. `fabro validate` warns that this goal gate has no
+    // retry_target; that is deliberate -- a retry target would re-run the
+    // loop that Surface exists to stop, and with no target fabro fails
+    // the run, which is the intended surface-to-a-human behavior.
+    review_judge [
+        label="ReviewJudge",
+        prompt="@prompts/review-judge.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-sol",
+        reasoning_effort="high",
+        max_visits=3,  // <=2 executions (K=2, cap=K+1)
+        goal_gate=true,
+        timeout="90m"
+    ]
+
+    handoff [
+        shape=tab,
+        label="Prepare PR",
+        prompt="@prompts/handoff.md",
+        backend="api",
+        provider="openai",
+        model="gpt-5.6-terra",
+        reasoning_effort="medium",
+        max_visits=2,  // executes exactly once (K=1, cap=K+1)
+        timeout="90m"
+    ]
+
+    start -> scope
+    scope -> implement [condition="outcome=succeeded"]
+    scope -> exit
+    implement -> validate_gates [condition="outcome=succeeded"]
+    implement -> exit
+    validate_gates -> implement    [label="Fix validation", condition="outcome=failed"]
+    validate_gates -> review_judge [label="Validation OK", condition="outcome=succeeded"]
+    validate_gates -> exit
+
+    review_judge -> handoff   [label="Ready", condition="verdict=ready"]
+    review_judge -> implement [label="Fix", condition="verdict=fix"]
+    // Surface (and any non-verdict failure) falls through to exit; the
+    // judge sets outcome=failed on Surface and goal_gate turns that into
+    // a failed run with the judge's summary as the last stage output.
+    review_judge -> exit [label="Surface"]
+    handoff -> exit
+}
