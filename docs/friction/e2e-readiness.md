@@ -360,6 +360,12 @@ Everything else is a papercut: logged, parked, not fixed this week.
   (1)-(3): doc-in-center + chat-in-panel, or split panel, or
   chat-as-permanent-column with docs-as-tabs in center. Decide the
   layout ONCE from this invariant, then the link ruling falls out.
+  LEADING CANDIDATE (director, same minute): "that could also just be
+  showing the Research tab!" — transcript links navigate the CENTER
+  to the artifact's home tab (research/* → Research, SKILL.md →
+  Overview, evals/* → Eval, else Files panel as fallback); chat never
+  moves. Zero new layout, satisfies the invariant, and quietly
+  delivers the force-navigate idea from the first walk.
   (2) Musing: the Files tab may want to become TABS — multiple open
   documents, ChatGPT-desktop style.
   (3) Musing: "chat on the left may actually be stronger" — chat is
