@@ -63,6 +63,11 @@ describe("chatItemsFromEvents", () => {
     expect(items.map((item) => item.kind)).toEqual(["user", "agent", "user"]);
   });
 
+  test("replay_reset is transport control, not a transcript item", () => {
+    const visible = [{ type: "user_message", text: "hello", t: "2026-07-23T09:00:00.000Z" }];
+    expect(chatItemsFromEvents([{ type: "replay_reset" }, ...visible])).toEqual(chatItemsFromEvents(visible));
+  });
+
   test("tool_call + tool_call_update merge into ONE chip by toolCallId, keeping title and latest status", () => {
     const items = chatItemsFromEvents([
       update({ sessionUpdate: "tool_call", toolCallId: "tc-1", title: "Read design.md", kind: "read", status: "in_progress" }),

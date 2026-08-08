@@ -417,8 +417,10 @@ export interface ChatStateResponse {
   readonly lastError?: string;
 }
 
-/** One SSE event on `/api/chat/:skill/stream`. The buffer replays from session start on (re)connect, so a mid-session page reload rebuilds the live conversation; HISTORY of a resumed session arrives as replayed `update` events (the provider's session/load replay). */
+/** One SSE event on `/api/chat/:skill/stream`. The buffer replays from session start on a fresh connection; HISTORY of a resumed session arrives as replayed `update` events (the provider's session/load replay). */
 export type ChatStreamEvent =
+  /** Transport control: discard the previous session's transcript before a complete replay. */
+  | { readonly type: "replay_reset" }
   | { readonly type: "state"; readonly state: ChatStateResponse }
   | {
       readonly type: "user_message";
@@ -441,6 +443,9 @@ export type ChatStreamEvent =
   | { readonly type: "turn_ended"; readonly stopReason: string; readonly t: string }
   | { readonly type: "error"; readonly message: string; readonly t: string };
 
+/** Reset frames establish a connection baseline, never a position in chat history. */
+type BufferedChatStreamEvent = Exclude<ChatStreamEvent, { readonly type: "replay_reset" }>;
+
 // ---------------------------------------------------------------------------
 // Manager
 // ---------------------------------------------------------------------------
@@ -461,9 +466,13 @@ interface LiveChat {
   effort: string | undefined;
   /** Helper skills that session startup actually installed into the agent home. */
   installedHelpers: ReadonlyArray<string>;
-  /** Everything streamed since this session spawned; replayed to each new SSE subscriber. */
-  readonly events: ChatStreamEvent[];
-  readonly subscribers: Set<(event: ChatStreamEvent) => void>;
+  /**
+   * Everything streamed since this session spawned. Issue #195 / the
+   * 2026-08-08 resumable-reconnect proposal makes this append-only position
+   * the SSE cursor, so reconnecting readers do not need to empty the panel.
+   */
+  readonly events: BufferedChatStreamEvent[];
+  readonly subscribers: Set<(event: BufferedChatStreamEvent, index: number) => void>;
   readonly pendingPermissions: Map<string, PendingPermission>;
   lastActivityAt: number;
   nextPermissionId: number;
@@ -702,9 +711,10 @@ export class ChatSessionManager {
 
   // -- Streaming ------------------------------------------------------------
 
-  private broadcast(chat: LiveChat, event: ChatStreamEvent): void {
+  private broadcast(chat: LiveChat, event: BufferedChatStreamEvent): void {
     chat.events.push(event);
-    for (const subscriber of chat.subscribers) subscriber(event);
+    const index = chat.events.length - 1;
+    for (const subscriber of chat.subscribers) subscriber(event, index);
   }
 
   private broadcastState(chat: LiveChat): void {
@@ -712,17 +722,23 @@ export class ChatSessionManager {
   }
 
   /**
-   * SSE stream for one skill's chat, following `/api/events-stream`'s
-   * ReadableStream pattern -- but per-skill and with a REPLAY: on connect,
-   * every buffered event since the live session spawned is sent first, so
-   * a page reload mid-session rebuilds the conversation. With no live
-   * session, the stream opens with just a `state` snapshot (the panel's
-   * pre-session picker feeds on it).
+   * SSE stream for one skill's chat. Buffered event indexes are native SSE
+   * last-event ids: issue #195's 2026-08-08 proposal uses them to replay only
+   * the disconnected suffix, preserving the reader's transcript and scroll
+   * position on an ordinary reconnect.
    */
-  streamResponse(skill: string): Response {
+  streamResponse(skill: string, request: Request): Response {
     const encoder = new TextEncoder();
     const chat = this.live.get(skill);
-    let subscriber: ((event: ChatStreamEvent) => void) | undefined;
+    const lastEventId = request.headers.get("last-event-id");
+    const resumeIndex =
+      lastEventId !== null && /^(?:0|[1-9]\d*)$/.test(lastEventId) ? Number(lastEventId) : undefined;
+    const canResume =
+      resumeIndex !== undefined &&
+      Number.isSafeInteger(resumeIndex) &&
+      chat !== undefined &&
+      resumeIndex < chat.events.length;
+    let subscriber: ((event: BufferedChatStreamEvent, index: number) => void) | undefined;
     let keepalive: ReturnType<typeof setInterval> | undefined;
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
@@ -733,13 +749,19 @@ export class ChatSessionManager {
             // Client disconnected; cancel() will unsubscribe shortly.
           }
         };
-        const sendEvent = (event: ChatStreamEvent) => send(`data: ${JSON.stringify(event)}\n\n`);
+        const sendEvent = (event: ChatStreamEvent, index?: number) =>
+          send(`${index === undefined ? "" : `id: ${index}\n`}data: ${JSON.stringify(event)}\n\n`);
         send(": connected\n\n");
         sendEvent({ type: "state", state: this.state(skill) });
+        if (!canResume) sendEvent({ type: "replay_reset" });
         if (chat !== undefined) {
-          for (const event of chat.events) sendEvent(event);
+          const start = canResume ? (resumeIndex as number) + 1 : 0;
+          for (let index = start; index < chat.events.length; index += 1) {
+            const event = chat.events[index];
+            if (event !== undefined) sendEvent(event, index);
+          }
           subscriber = sendEvent;
-          chat.subscribers.add(sendEvent);
+          chat.subscribers.add(subscriber);
           chat.lastActivityAt = Date.now();
         }
         // Issue #194's 2026-08-06 proposal: chat SSE responses are intentionally

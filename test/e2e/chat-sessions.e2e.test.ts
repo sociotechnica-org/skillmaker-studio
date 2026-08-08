@@ -68,13 +68,25 @@ const waitFor = async <T>(probe: () => Promise<T | undefined>, what: string, tim
   throw new Error(`timed out waiting for ${what}`);
 };
 
-/** Collects one SSE stream's data events into an array until aborted. */
-const openStream = (path: string): { events: Array<Record<string, unknown>>; close: () => void } => {
+interface SseDataFrame {
+  readonly id: string | undefined;
+  readonly event: Record<string, unknown>;
+}
+
+/** Collects one SSE stream's data events and their native resume ids until aborted. */
+const openStream = (
+  path: string,
+  lastEventId?: string,
+): { events: Array<Record<string, unknown>>; frames: Array<SseDataFrame>; close: () => void } => {
   const controller = new AbortController();
   const events: Array<Record<string, unknown>> = [];
+  const frames: Array<SseDataFrame> = [];
   void (async () => {
     try {
-      const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, { signal: controller.signal });
+      const response = await fetch(`${projectUrl}${path.replace(/^\/api/, "")}`, {
+        signal: controller.signal,
+        ...(lastEventId === undefined ? {} : { headers: { "last-event-id": lastEventId } }),
+      });
       const reader = (response.body as ReadableStream<Uint8Array>).getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -85,10 +97,16 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
         const parts = buffer.split("\n\n");
         buffer = parts.pop() ?? "";
         for (const part of parts) {
+          const id = part
+            .split("\n")
+            .find((line) => line.startsWith("id: "))
+            ?.slice("id: ".length);
           for (const line of part.split("\n")) {
             if (!line.startsWith("data: ")) continue;
             try {
-              events.push(JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
+              const event = JSON.parse(line.slice("data: ".length)) as Record<string, unknown>;
+              events.push(event);
+              frames.push({ id, event });
             } catch {
               // ignore malformed frames
             }
@@ -99,7 +117,7 @@ const openStream = (path: string): { events: Array<Record<string, unknown>>; clo
       // aborted / server stopped
     }
   })();
-  return { events, close: () => controller.abort() };
+  return { events, frames, close: () => controller.abort() };
 };
 
 const eventTypes = (events: ReadonlyArray<Record<string, unknown>>): ReadonlyArray<string> =>
@@ -192,6 +210,13 @@ describe("chat sessions (D9)", () => {
 
     const stream = openStream(`/api/chat/${SKILL}/stream`);
     try {
+      await waitFor(
+        async () => (stream.events.some((event) => event.type === "replay_reset") ? true : undefined),
+        "fresh stream replay reset",
+      );
+      expect(stream.frames.find((frame) => frame.event.type === "state")?.id).toBeUndefined();
+      expect(stream.frames.find((frame) => frame.event.type === "replay_reset")?.id).toBeUndefined();
+
       const first = await postJson(`/api/chat/${SKILL}/message`, { text: "hello agent" });
       expect(first.status).toBe(202);
       await waitFor(
@@ -223,6 +248,11 @@ describe("chat sessions (D9)", () => {
       // and goes only on the FIRST prompt.
       expect(text).toContain("skillmaker");
       expect(text.split("You're inside Skillmaker Studio.").length - 1).toBe(1);
+      const replayIds = stream.frames
+        .map((frame) => frame.id)
+        .filter((id): id is string => id !== undefined)
+        .map(Number);
+      expect(replayIds).toEqual(Array.from({ length: replayIds.length }, (_, index) => index));
       // Tool-call chips stream through.
       const kinds = stream.events
         .filter((event) => event.type === "update")
@@ -240,6 +270,75 @@ describe("chat sessions (D9)", () => {
       expect(record?.providerSessionId).toBe(stateNow.active?.sessionId ?? "");
     } finally {
       stream.close();
+    }
+  }, 30_000);
+
+  test("SSE reconnect resumes from Last-Event-ID without replaying or clearing the live transcript", async () => {
+    const initial = openStream(`/api/chat/${SKILL}/stream`);
+    try {
+      await waitFor(
+        async () => (initial.events.some((event) => event.type === "replay_reset") ? true : undefined),
+        "initial replay reset",
+      );
+      const marker = "resume-cursor-marker";
+      expect((await postJson(`/api/chat/${SKILL}/message`, { text: marker })).status).toBe(202);
+      await waitFor(
+        async () =>
+          initial.events.some((event) => event.type === "turn_ended") &&
+          agentTextOf(initial.events).includes(marker)
+            ? true
+            : undefined,
+        "cursor turn",
+      );
+      const lastId = initial.frames
+        .map((frame) => frame.id)
+        .filter((id): id is string => id !== undefined)
+        .at(-1);
+      expect(lastId).toBeDefined();
+      initial.close();
+
+      const resumed = openStream(`/api/chat/${SKILL}/stream`, lastId);
+      try {
+        await waitFor(
+          async () => (resumed.events.some((event) => event.type === "state") ? true : undefined),
+          "resumed stream state",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(resumed.events.map((event) => event.type)).toEqual(["state"]);
+        expect(resumed.frames[0]?.id).toBeUndefined();
+
+        const missedMarker = "resume-missed-marker";
+        resumed.close();
+        expect((await postJson(`/api/chat/${SKILL}/message`, { text: missedMarker })).status).toBe(202);
+        await waitFor(async () => {
+          const state = await getState();
+          return state.active?.status === "ready" ? true : undefined;
+        }, "missed turn to complete");
+
+        const suffix = openStream(`/api/chat/${SKILL}/stream`, lastId);
+        try {
+          await waitFor(
+            async () => (agentTextOf(suffix.events).includes(missedMarker) ? true : undefined),
+            "missed suffix",
+          );
+          expect(suffix.events.some((event) => event.type === "replay_reset")).toBe(false);
+          const ids = suffix.frames
+            .map((frame) => frame.id)
+            .filter((id): id is string => id !== undefined)
+            .map(Number);
+          expect(ids.length).toBeGreaterThan(0);
+          expect(ids).toEqual(Array.from({ length: ids.length }, (_, index) => Number(lastId) + index + 1));
+          expect(new Set(ids).size).toBe(ids.length);
+          expect(suffix.events.filter((event) => event.type === "user_message" && event.text === missedMarker)).toHaveLength(1);
+          expect(agentTextOf(suffix.events).split(missedMarker).length - 1).toBe(1);
+        } finally {
+          suffix.close();
+        }
+      } finally {
+        resumed.close();
+      }
+    } finally {
+      initial.close();
     }
   }, 30_000);
 
