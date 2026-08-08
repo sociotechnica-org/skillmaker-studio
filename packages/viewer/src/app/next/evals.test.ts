@@ -9,6 +9,9 @@ import {
   groupClaimsByFamily,
   modelChipsForClaim,
   promptSummary,
+  READ_ONLY_ORIENTATION,
+  readOnlyProofCaseLabels,
+  readOnlyStatusLabel,
   RESPONSE_SETTLE_MS,
   runAllButtonLabel,
   runsForFixture,
@@ -291,5 +294,37 @@ describe("shouldSettleMissingResponse", () => {
   test("a terminal run with an unparseable startedAt settles -- nothing to wait on", () => {
     expect(shouldSettleMissingResponse({ status: "completed", startedAt: "not-a-date" }, now)).toBe(true);
     expect(shouldSettleMissingResponse({ status: "running", startedAt: "not-a-date" }, now)).toBe(false);
+  });
+});
+
+// The read-only Eval tab (director ruling 2026-08-08): Method-stage evals
+// render as a reading surface -- claims + proof-case intentions, honest
+// status words, no run/grade/mint affordances.
+describe("readOnlyStatusLabel", () => {
+  test("gap reads as planned; everything else keeps its name", () => {
+    expect(readOnlyStatusLabel("gap")).toBe("planned");
+    expect(readOnlyStatusLabel("partial")).toBe("partial");
+    expect(readOnlyStatusLabel("unmeasured")).toBe("unmeasured");
+    expect(readOnlyStatusLabel("proven")).toBe("proven");
+  });
+});
+
+describe("readOnlyProofCaseLabels", () => {
+  test("proof-case intentions render, unrealized ones marked (planned)", () => {
+    expect(
+      readOnlyProofCaseLabels({ fixtureCases: ["refusal-thin-input"], proofCases: ["refusal-thin-input", "adv-injection"] }),
+    ).toEqual(["refusal-thin-input", "adv-injection (planned)"]);
+  });
+
+  test("a risk-map-sourced claim (no proofCases) falls back to its fixture join", () => {
+    expect(readOnlyProofCaseLabels({ fixtureCases: ["golden-basic"] })).toEqual(["golden-basic"]);
+  });
+
+  test("nothing authored -> empty (the row says so instead)", () => {
+    expect(readOnlyProofCaseLabels({ fixtureCases: [], proofCases: [] })).toEqual([]);
+  });
+
+  test("the orientation line exists and stays quiet prose", () => {
+    expect(READ_ONLY_ORIENTATION).toBe("Authored during design — runnable once a draft exists.");
   });
 });

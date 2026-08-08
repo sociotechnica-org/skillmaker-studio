@@ -102,6 +102,8 @@ export class RiskCoverageRecord extends Schema.Class<RiskCoverageRecord>("RiskCo
   description: Schema.optionalKey(Schema.String),
   coverage: CoverageValue,
   fixtureCase: Schema.optionalKey(Schema.String),
+  /** Proof-case intentions (evals.json's `proofSpecs[].name`) -- present only on evals.json-sourced rows; names may not exist as fixtures yet. */
+  proofCases: Schema.optionalKey(Schema.Array(Schema.String)),
 }) {}
 
 /** A reindex-time warning (Part 3 ruling I: warnings, never hard fails). */
@@ -368,6 +370,8 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   versions: Schema.Array(VersionRecord),
   fixtures: Schema.Array(FixtureRecord),
   riskCoverage: Schema.Array(RiskCoverageRecord),
+  /** Which source `riskCoverage` came from (evals.json read-side bridge): root `evals.json` when it exists and parses, else the legacy risk-map. Optional: absent on pre-bridge servers. */
+  claimsSource: Schema.optionalKey(Schema.Literals(["evals.json", "risk-map"])),
   warnings: Schema.Array(WarningRecord),
   runs: Schema.Array(RunRecord),
   measurements: Schema.Array(MeasurementRecord),
@@ -388,6 +392,14 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   instructionsPath: Schema.NullOr(Schema.String),
   /** The Unverified badge (issue #93): same derivation as `CatalogEntry.unverified`, computed from this same response's `measurements`. */
   unverified: Schema.Boolean,
+  /**
+   * The Eval tab's mode gate (director ruling 2026-08-08): `false` while no
+   * draft exists to run against (no `output/SKILL.md` / in-place `SKILL.md`)
+   * -- the tab renders the authored axis read-only. Optional: a pre-bridge
+   * server omits it and the viewer derives the same fact from
+   * `instructionsPath`.
+   */
+  evalsRunnable: Schema.optionalKey(Schema.Boolean),
 }) {}
 
 /**

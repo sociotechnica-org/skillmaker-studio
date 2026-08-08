@@ -62,6 +62,7 @@ import {
   type FixtureCaseRecord,
   type FixtureRecord,
   type MeasurementRecord,
+  type ClaimsSource,
   type RiskCoverageRecord,
   type RunIndexRecord,
   type SkillRoutedEvent,
@@ -1152,6 +1153,8 @@ type BundleIndexDetail =
       readonly forks: ReadonlyArray<string>;
       /** Where the bundle actually lives + its layout (seam pass over #108/#109), off the SAME rebuild's identity scan: an in-place bundle (brownfield adopt, `route`'s `new`/`fork` doors) does not live at `<skillsDir>/<slug>` and has no `output/` subtree. `null` for a journal-only bundle (no `bundle.json` found); callers fall back to the skillsDir convention. */
       readonly location: BundleLocation | null;
+      /** Which source `riskCoverage` came from (evals.json read-side bridge): root `evals.json` when it exists and parses, else the legacy risk-map. One source wins, never merged. */
+      readonly claimsSource: ClaimsSource;
     };
 
 const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexDetail> =>
@@ -1182,6 +1185,7 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
         forkOf: rebuildResult.forkOf.get(slug) ?? null,
         forks: rebuildResult.forkChildren.get(slug) ?? [],
         location: rebuildResult.locations.get(slug) ?? null,
+        claimsSource: rebuildResult.claimsSources.get(slug) ?? "risk-map",
       };
     }),
   );
@@ -1328,6 +1332,9 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     })),
     fixtures,
     riskCoverage,
+    // Which source `riskCoverage` came from (evals.json read-side bridge):
+    // noted so the UI could badge it later; never a merge of both.
+    claimsSource: detail.claimsSource,
     warnings,
     runs,
     measurements,
@@ -1340,6 +1347,12 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     lineage,
     files: listReviewableBundleFiles(bundleDir, layout),
     instructionsPath,
+    // The Eval tab's read-only gate (director ruling 2026-08-08: Method-stage
+    // evals are a reading surface): evals are RUNNABLE only once a draft
+    // exists to run against -- the same artifact probe as `instructionsPath`
+    // (`output/SKILL.md`, or `SKILL.md` for an in-place bundle). Server-
+    // informed so the viewer never infers the mode from missing data.
+    evalsRunnable: instructionsPath !== null,
   });
 };
 

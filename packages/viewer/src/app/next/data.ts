@@ -32,5 +32,7 @@ export const SKILL_PAGE: SkillPage = {
   evals: null,
   // No install-door facts: the Publish tab's buttons stay inert.
   publish: null,
+  // Placeholder pages keep the interactive layout (already inert without a server).
+  evalsRunnable: true,
   events: [],
 };
