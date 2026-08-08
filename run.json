@@ -1,0 +1,521 @@
+{
+  "title": "GitHub Issue #195: SSE reconnect wipes the chat transcript and destroys the reader's scroll position",
+  "spec": {
+    "run_id": "01KZGEASY58GAX3XWS3CS1SHGA",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": {
+          "type": "inline",
+          "value": "GitHub Issue #195: SSE reconnect wipes the chat transcript and destroys the reader's scroll position\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/195\n\n## Summary\n\nOn every SSE reconnect the chat panel clears its transcript to zero items and\nlets the server replay the whole buffer. The intermediate empty render collapses\nthe scroll container, which destroys the reader's position and silently resets\nthe \"stick to bottom only if already at bottom\" guard — so a reader scrolled up\nmid-transcript is thrown to the bottom. Make reconnect non-destructive: resume\nfrom the last delivered event instead of wiping and replaying.\n\n## Motivation / Problem\n\nThe panel already has a correct guard against yanking a reader who has scrolled\nup (`RightPanel.tsx:769`, with a 100 px slop). This defect defeats it, so the\nguard's protection is illusory whenever the stream reconnects.\n\nToday the stream reconnects roughly every 30 seconds because it has no keepalive\n— filed as the companion issue, which removes that cadence. **This issue is\nstill worth building after that fix lands**, because reconnects will still\nhappen: laptop sleep, network blips, a server restart during development, a\npaused tab. Each one silently destroys the reader's place in a long transcript,\nand there is no signal that anything happened. Fixing only the cadence leaves a\nloaded gun.\n\nThere is a second, quieter cost: every reconnect re-sends the entire event\nbuffer, which grows without bound over a long session.\n\n## Observed behavior\n\nWith a chat panel open, scroll to the middle of a long transcript. When the\nstream reconnects (today: ~30 s of idle; or kill and restart the server to force\nit), the transcript position is lost — in practice the panel lands at the\nbottom.\n\nWhich end you land on is incidental: the reading position is destroyed either\nway. If the container's clamp fires a `scroll` event you land at the bottom (the\nobserved case); if it does not, you land at the top. Neither is where you were.\n\n## Current shape\n\nThe client treats every reconnect as a fresh mount.\n`packages/viewer/src/app/next/chatApi.ts:196-221`:\n\n```ts\n    const source = new EventSource(apiPath(`/api/chat/${encodeURIComponent(skill)}/stream`));\n    const onOpen = () => {\n      // The server replays the live session's whole buffer on connect:\n      // start from a clean slate so a reconnect never duplicates items.\n      setEvents([]);\n    };\n```\n```ts\n      setEvents((prev) => [...prev, parsed]);\n```\n\nThe server unconditionally replays the full buffer on connect,\n`packages/cli/src/server/ChatSessions.ts:702-707`:\n\n```ts\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n```\n\nThe scroll machinery it collides with, `packages/viewer/src/app/next/RightPanel.tsx:759-770`:\n\n```tsx\n  const pendingRestore = useRef<number | null>(recallScroll(skill));\n  const nearBottom = useRef(true);\n  useEffect(() => {\n    const el = scrollRef.current;\n    if (!el) return;\n    if (pendingRestore.current !== null && items.length > 0) {\n      el.scrollTop = pendingRestore.current;\n      pendingRestore.current = null;\n      return;\n    }\n    if (nearBottom.current) el.scrollTop = el.scrollHeight;\n  }, [items.length, active?.status]);\n```\n\nand its only writer besides `sendDraft`, `RightPanel.tsx:809-812`:\n\n```tsx\n        onScroll={(e) => {\n          const el = e.currentTarget;\n          nearBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;\n        }}\n```\n\nFailure sequence:\n\n1. Reconnect fires `open` → `setEvents([])` → `items.length` N → 0. The effect\n   runs with `nearBottom.current === false`, so it correctly does nothing.\n2. The DOM empties. The browser clamps `scrollTop` on the now-short container\n   and dispatches a `scroll` event.\n3. The handler computes `0 + clientHeight >= smallScrollHeight - 100` → **`nearBottom.current = true`**.\n   The guard has been reset by the wipe, not by the user.\n4. Replayed events arrive as separate messages; `items.length` climbs 0 → N; the\n   effect fires with the corrupted guard → `el.scrollTop = el.scrollHeight`.\n\n`pendingRestore` does not help: it is consumed on the first replay after mount\nand set to `null`, so every later reconnect falls through to line 769.\n\nThe trap worth naming: the `setEvents([])` comment says it exists \"so a\nreconnect never duplicates items\" — the wipe is a *deduplication* strategy, and\nit works. The bug is that dedup-by-wipe is indistinguishable from a fresh\ntranscript. SSE has a purpose-built mechanism for exactly this (`Last-Event-ID`)\nthat the stream does not use.\n\n## Proposed contract\n\nBuffered event frames become resumable, and the client stops wiping.\n\nServer, `/api/chat/:skill/stream`:\n\n```\n: connected\n\ndata: {\"type\":\"state\",\"state\":{...}}          <- no id (not part of the ordered buffer)\n\nid: 0\ndata: {\"type\":\"user_message\",...}\n\nid: 1\ndata: {\"type\":\"update\",...}\n```\n\nOn connect the server reads the `Last-Event-ID` request header:\n\n| `Last-Event-ID` | Server replays |\n|---|---|\n| absent | `{type:\"replay_reset\"}`, then the full buffer with ids |\n| parses to index `i`, `i < buffer.length`, same live session | `buffer.slice(i + 1)` — normally nothing |\n| stale, unparseable, or the session was replaced/restarted | `{type:\"replay_reset\"}`, then the full buffer with ids |\n\n**Decisions:**\n\n- Ids are the **0-based index into `chat.events`**. The buffer is already an\n  ordered append-only array, so no new identity needs inventing.\n- The connect-time `state` frame carries **no id** — it is not part of the\n  ordered buffer, and giving it one would corrupt the offset.\n- The keepalive comment frame carries no id (it is a comment; it cannot).\n- A new `{type:\"replay_reset\"}` frame is added to `ChatStreamEvent`. It is the\n  **only** thing that clears the client's transcript. The client's `open`\n  handler no longer clears anything.\n- `replay_reset` renders nothing — it is a control frame, not a transcript item,\n  and must not appear in `items`.\n- The common case — reconnect with a valid id against a live session — replays\n  **zero** frames, so `items.length` never changes and no scroll effect fires.\n- Scroll position and the `nearBottom` guard are untouched by a resumed\n  reconnect. After a `replay_reset` the transcript is legitimately rebuilt and\n  the existing mount behavior applies.\n- `streamResponse` gains access to the request headers to read `Last-Event-ID`;\n  its skill-only signature changes accordingly.\n\n## Acceptance criteria\n\n- [ ] With the reader scrolled to the middle of a transcript, forcing a\n      reconnect leaves `scrollTop` unchanged — the reader stays exactly where\n      they were.\n- [ ] A reconnect against a live session with a valid `Last-Event-ID` replays no\n      already-delivered events; `items.length` never transits through 0.\n- [ ] Events that occurred *during* the disconnected window are delivered on\n      reconnect, exactly once, in order.\n- [ ] Negative / no duplicates: after a reconnect the transcript contains each\n      event exactly once — the guarantee `setEvents([])` was protecting still\n      holds.\n- [ ] Negative: `replay_reset` produces no visible transcript item.\n- [ ] A first connection with no `Last-Event-ID` receives `replay_reset` then\n      the full buffer, and renders identically to today.\n- [ ] Degraded state: after a server restart (buffer gone / session replaced), a\n      client holding a stale `Last-Event-ID` receives `replay_reset` + full\n      buffer and renders correctly, with no duplicated or missing items.\n- [ ] The `nearBottom` guard is not reset by anything other than a real user\n      scroll or `sendDraft` — a reconnect cannot flip it.\n- [ ] Regression: live streaming during an active turn is unchanged — new events\n      still append and still auto-scroll for a reader who is at the bottom.\n- [ ] Regression: scroll retention across tab/view switches\n      (`recallScroll`/`rememberScroll`, `RightPanel.tsx:759,771`) still works.\n- [ ] Regression: `test/e2e/chat-sessions.e2e.test.ts` passes, updated only\n      where it asserts connect-replay framing.\n- [ ] Tests cover: resume-with-no-missed-events, resume-with-missed-events,\n      no-`Last-Event-ID` first connect, stale-id after restart, and the\n      scroll-position-preserved assertion.\n\n## Implementation notes\n\nThe scroll guard itself is correct and should not be rewritten — the fix is to\nstop corrupting it. If a belt-and-braces hardening is wanted, distinguishing\nuser-initiated scroll from a programmatic clamp is the direction, but it is not\nrequired once the transcript stops emptying, and it should not be bundled here.\n\nNote that `pendingRestore` (`RightPanel.tsx:759`) is consumed exactly once per\nmount. That is correct under this design and needs no change; it is called out\nonly so it is not mistaken for the reconnect path.\n\nScope fences:\n\n- **Do not solve this by preserving/restoring `scrollTop` around the wipe.**\n  Snapshot-and-restore around an async replay has no well-defined completion\n  point; the wipe itself is what must go.\n- **Do not add the keepalive here** — that is the companion issue. These two\n  touch the same function and must not collide.\n- **Do not change the transcript rendering or `chatModel.ts`'s event→item\n  transform** beyond ignoring the new control frame.\n- **Do not persist the event buffer** or change its lifetime; resumability here\n  is within a live session only.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/app/next/chatApi.ts` — `onOpen`/`onMessage` (:196-221)\n- `packages/viewer/src/app/next/RightPanel.tsx` — scroll effect (:761), guard\n  writer (:809), `sendDraft`'s reset (:798)\n- `packages/cli/src/server/ChatSessions.ts` — `ChatStreamEvent` (:389),\n  `streamResponse` (:688), the buffer `events` (:431)\n- `packages/viewer/src/app/next/chatModel.ts` — event→item transform\n\n---\n\n**Companion:** #194 — the chat SSE stream has no keepalive, which is why reconnects currently happen every ~30s. #194 removes the cadence; this issue makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. NOTE: PR #206 (SSE keepalive heartbeats) may or may not be merged to main when you read the code — check, and build against what main actually has; the fix here is reconnect NON-DESTRUCTIVENESS (preserve transcript items across reconnect, reconcile replayed buffer against existing items instead of clear-and-replay, preserve scroll position and the stick-to-bottom guard). Stay minimal: fix with tests, nothing adjacent.\n"
+        },
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {
+          "agent_backend": "api"
+        },
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5.6-terra",
+          "fallbacks": {},
+          "controls": {
+            "reasoning_effort": "medium",
+            "speed": null
+          }
+        },
+        "git": {
+          "author": {
+            "name": "Fabro",
+            "email": "285810526+fabro-of-alexandria[bot]@users.noreply.github.com"
+          }
+        },
+        "prepare": {
+          "steps": [
+            {
+              "type": "command",
+              "command": [
+                "./.fabro/scripts/fabro-setup-env"
+              ]
+            }
+          ],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt"
+        },
+        "checkpoint": {
+          "exclude_globs": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ],
+          "skip_git_hooks": false,
+          "commit_timeout_ms": 30000
+        },
+        "clone": {
+          "enabled": true
+        },
+        "run_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "meta_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "environment": {
+          "id": "daytona",
+          "provider": "daytona",
+          "image": {
+            "docker": null,
+            "dockerfile": null
+          },
+          "resources": {
+            "cpu": null,
+            "memory": null,
+            "disk": null
+          },
+          "network": {
+            "mode": "allow_all",
+            "allow": []
+          },
+          "lifecycle": {
+            "preserve": false,
+            "stop_on_terminal": true,
+            "auto_stop": "1h"
+          },
+          "labels": {
+            "workflow": "sms-feature",
+            "host": "railway",
+            "project": "skillmaker-studio"
+          },
+          "env": {}
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null
+        },
+        "agent": {
+          "fabro_tools": false,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": {
+          "enabled": true,
+          "draft": true,
+          "auto_merge": false,
+          "merge_strategy": "squash"
+        },
+        "artifacts": {
+          "include": [
+            "verification-artifacts/**",
+            "screenshots/**",
+            "test-results/**"
+          ]
+        },
+        "integrations": {
+          "github": {
+            "permissions": {
+              "pull_requests": "write",
+              "contents": "write"
+            }
+          }
+        }
+      }
+    },
+    "graph": {
+      "name": "SmsFeature",
+      "nodes": {
+        "scope": {
+          "id": "scope",
+          "attrs": {
+            "max_visits": {
+              "Integer": 2
+            },
+            "prompt": {
+              "String": "# Scope\n\nWrite a durable technical implementation plan for the requested\nSkillmaker Studio feature to\n`docs/proposals/<yyyy-mm-dd>-<stable-feature-slug>.md` (refine an\nexisting relevant plan instead of duplicating it). Do not edit\nimplementation files in this stage.\n\n## The repository\n\nSkillmaker Studio is a bun + Effect TypeScript monorepo (bun workspaces):\n\n- `packages/core` — the domain engine: skills, evals, journal, todos,\n  triage. Effect-first; schemas live here and everything else consumes\n  them.\n- `packages/cli` — the `skillmaker` CLI and the local server the Studio\n  UI rides on. Command data on stdout, diagnostics on stderr, stable\n  exit codes.\n- `packages/viewer` — the Studio browser UI (Astro + React).\n- `packages/desktop`, `packages/docs-site`, `packages/marketing-site`,\n  `packages/skill` — touch these only when the goal names them.\n- `test/e2e` — black-box end-to-end tests over the CLI and server\n  surfaces.\n- `docs/proposals/` — dated proposal/plan documents. Do not\n  freehand-edit `docs/library` (the live product context library)\n  unless the plan explicitly owns a library migration.\n\nRepository gates (mirrors `.github/workflows/ci.yml`): typecheck core\nand cli, `bun test packages`, `bun test test/e2e`, and\n`bun run build:viewer` when the viewer changes. A script node runs these\nafter implementation; plan work that passes them.\n\nHouse comment style — plan for it now so implementation inherits it:\ncomments are plain English prose that explains WHY the code is shaped\nthis way, not what it does, and cites sources — issue numbers, dated\nproposals, rulings — the way `packages/core/src/Todo.ts` does.\n\n## Plan expectations\n\n- Keep work scoped to the packages and surfaces named by the goal, with\n  domain logic in core, deterministic CLI/server behavior in cli,\n  browser UI state in viewer.\n- Include tests for changed behavior, and risks, acceptance criteria,\n  and deferred follow-ups.\n\nEnd your response with `Plan ready for implementation: <plan-path>` and\na brief summary; the implement stage reads the plan file from disk.\n"
+            },
+            "label": {
+              "String": "Scope"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "backend": {
+              "String": "api"
+            }
+          }
+        },
+        "implement": {
+          "id": "implement",
+          "attrs": {
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "prompt": {
+              "String": "# Implement\n\nImplement the plan under `docs/proposals/` named by the scope stage.\nPackage-local README/guidance files own workflow and testing for the\npackages you touch.\n\nRules:\n\n- Stay scoped to the plan and its package boundaries: domain logic and\n  schemas in `packages/core`, deterministic CLI/server behavior in\n  `packages/cli` (data on stdout, diagnostics on stderr, stable exit\n  codes, black-box tests for behavior), browser UI state in\n  `packages/viewer`. If the plan cannot be implemented coherently\n  without expanding scope, implement the smallest coherent slice and\n  leave a clear blocking note in your final response.\n- Do not freehand-edit `docs/library` (the live product context\n  library) unless the plan explicitly owns a library migration.\n- Comments in the house style: plain English prose explaining WHY,\n  citing issues, dated proposals, and rulings, the way\n  `packages/core/src/Todo.ts` does.\n- If you are here after a gate failure or a ReviewJudge fix verdict,\n  read that stage's output from context and fix exactly what it names.\n  Retries are capped in the graph, so make the fix count.\n\nGates. Before finishing, run and pass ALL of:\n\n```bash\nbunx tsc --noEmit -p packages/core\nbunx tsc --noEmit -p packages/cli\nbun test packages\nbun test test/e2e --timeout 30000\n```\n\nAND, whenever the diff touches `packages/viewer`:\n\n```bash\nbun run build:viewer\n```\n\nA script node reruns the same gates right after this stage; a failure\nroutes straight back here. Summarize the implemented changes at the end.\n"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "max_visits": {
+              "Integer": 5
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "label": {
+              "String": "Implement"
+            }
+          }
+        },
+        "review_judge": {
+          "id": "review_judge",
+          "attrs": {
+            "provider": {
+              "String": "openai"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "max_visits": {
+              "Integer": 3
+            },
+            "prompt": {
+              "String": "# ReviewJudge\n\nYou are the single review-and-verdict gate before the PR. Review the\nimplementation diff against the scope plan (under `docs/proposals/`, named\nby the scope stage) and the house rules, read the gates output from the\nprevious stage, and deliver ONE verdict. Do not edit any files.\n\nCheck:\n\n- The diff stays within the plan's scope and package boundaries: domain\n  logic and schemas in `packages/core`, deterministic CLI/server behavior\n  in `packages/cli`, browser UI in `packages/viewer`.\n- Comments are plain English prose explaining WHY, citing issues, dated\n  proposals, and rulings (`packages/core/src/Todo.ts` is the standard).\n- Behavior changes have tests (black-box CLI tests for CLI behavior,\n  `test/e2e` for server-surface changes).\n- No files under `docs/library` were freehand-edited outside an approved\n  library migration.\n- The deterministic gates output shows the repo gates passed on the final\n  diff.\n\nGrading bar — this line is load-bearing: a mergeable change with noted\nimperfections is a PASSING grade — perfectionism is the expensive failure\nmode; note imperfections in the PR body instead of bouncing. Only route\nFix for real defects: broken or untested behavior, scope/plan mismatch,\nboundary violations, failing gates. Style nits, minor gaps, and \"could be\nbetter\" observations go in a short \"Imperfections to note in the PR body\"\nlist in your response, which the Prepare PR stage will include.\n\nVerdicts (exactly one):\n\n- **ready** — the change is mergeable. List any imperfections for the PR\n  body, then route to Prepare PR.\n- **fix** — a real defect blocks merge. Allowed AT MOST ONCE per run (the\n  graph enforces this: this node runs at most twice, so on your second\n  run Fix is off the table — choose ready or surface). Give concrete,\n  actionable fix items so the implement stage can act without guessing.\n- **surface** — you and the implementation cannot converge (e.g. the fix\n  round did not resolve the defect, or the plan itself is wrong). Stop\n  the run with a clear summary of the disagreement for a human.\n\nEnd with exactly one routing JSON object:\n\n```json\n{\"preferred_next_label\":\"Ready\",\"context_updates\":{\"verdict\":\"ready\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Fix\",\"context_updates\":{\"verdict\":\"fix\"}}\n```\n\nor:\n\n```json\n{\"preferred_next_label\":\"Surface\",\"outcome\":\"failed\",\"failure_reason\":\"<one-line summary of the disagreement>\",\"context_updates\":{\"verdict\":\"surface\"}}\n```\n"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "label": {
+              "String": "ReviewJudge"
+            },
+            "model": {
+              "String": "gpt-5.6-sol"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "goal_gate": {
+              "Boolean": true
+            }
+          }
+        },
+        "start": {
+          "id": "start",
+          "attrs": {
+            "shape": {
+              "String": "Mdiamond"
+            },
+            "label": {
+              "String": "Start"
+            }
+          }
+        },
+        "handoff": {
+          "id": "handoff",
+          "attrs": {
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "reasoning_effort": {
+              "String": "medium"
+            },
+            "model": {
+              "String": "gpt-5.6-terra"
+            },
+            "shape": {
+              "String": "tab"
+            },
+            "prompt": {
+              "String": "# Prepare PR\n\nPrepare the final pull request context.\n\nFabro's configured `[run.pull_request]` finalization creates the pull\nrequest after this node. Write the PR title and body to these files:\n\n- `/tmp/fabro-pr-title.txt`\n- `/tmp/fabro-pr-body.md`\n\nThe body must be honest reviewer context, not a sales pitch. Include:\n\n- Suggested PR title.\n- What changed and why, tied to the plan in `docs/proposals/`.\n- Validation: which gates ran (typecheck core/cli, `bun test packages`,\n  `bun test test/e2e`, `bun run build:viewer` if the viewer changed) and\n  their actual results.\n- The ReviewJudge's \"imperfections to note in the PR body\" list, carried\n  over verbatim from that stage's output. Noted imperfections are the\n  deal — the judge passes mergeable-with-notes changes on the promise\n  that the notes reach the reviewer.\n- Any remaining risks, known gaps, skipped checks, or manual follow-up —\n  stated plainly. If something was not verified, say so; do not imply\n  coverage that does not exist.\n\nKeep the summary concise and specific to Skillmaker Studio. Do not\ndescribe this as a handoff to a human; write it as PR-ready reviewer\ncontext.\n\nThe title file must contain exactly one line. The body file must contain\nMarkdown suitable for a draft pull request body.\n"
+            },
+            "backend": {
+              "String": "api"
+            },
+            "label": {
+              "String": "Prepare PR"
+            },
+            "provider": {
+              "String": "openai"
+            },
+            "max_visits": {
+              "Integer": 2
+            }
+          }
+        },
+        "validate_gates": {
+          "id": "validate_gates",
+          "attrs": {
+            "max_visits": {
+              "Integer": 5
+            },
+            "script": {
+              "String": "./.fabro/scripts/fabro-validate"
+            },
+            "timeout": {
+              "Duration": {
+                "secs": 5400,
+                "nanos": 0
+              }
+            },
+            "label": {
+              "String": "Run repo gates"
+            },
+            "shape": {
+              "String": "parallelogram"
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "label": {
+              "String": "Exit"
+            },
+            "shape": {
+              "String": "Msquare"
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "scope",
+          "attrs": {}
+        },
+        {
+          "from": "scope",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "scope",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "implement",
+          "to": "validate_gates",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            }
+          }
+        },
+        {
+          "from": "implement",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "validate_gates",
+          "to": "implement",
+          "attrs": {
+            "condition": {
+              "String": "outcome=failed"
+            },
+            "label": {
+              "String": "Fix validation"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "review_judge",
+          "attrs": {
+            "condition": {
+              "String": "outcome=succeeded"
+            },
+            "label": {
+              "String": "Validation OK"
+            }
+          }
+        },
+        {
+          "from": "validate_gates",
+          "to": "exit",
+          "attrs": {}
+        },
+        {
+          "from": "review_judge",
+          "to": "handoff",
+          "attrs": {
+            "condition": {
+              "String": "verdict=ready"
+            },
+            "label": {
+              "String": "Ready"
+            }
+          }
+        },
+        {
+          "from": "review_judge",
+          "to": "implement",
+          "attrs": {
+            "label": {
+              "String": "Fix"
+            },
+            "condition": {
+              "String": "verdict=fix"
+            }
+          }
+        },
+        {
+          "from": "review_judge",
+          "to": "exit",
+          "attrs": {
+            "label": {
+              "String": "Surface"
+            }
+          }
+        },
+        {
+          "from": "handoff",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "default_fidelity": {
+          "String": "summary:high"
+        },
+        "rankdir": {
+          "String": "LR"
+        },
+        "max_node_visits": {
+          "Integer": 5
+        },
+        "stall_timeout": {
+          "Duration": {
+            "secs": 18000,
+            "nanos": 0
+          }
+        },
+        "goal": {
+          "String": "GitHub Issue #195: SSE reconnect wipes the chat transcript and destroys the reader's scroll position\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/195\n\n## Summary\n\nOn every SSE reconnect the chat panel clears its transcript to zero items and\nlets the server replay the whole buffer. The intermediate empty render collapses\nthe scroll container, which destroys the reader's position and silently resets\nthe \"stick to bottom only if already at bottom\" guard — so a reader scrolled up\nmid-transcript is thrown to the bottom. Make reconnect non-destructive: resume\nfrom the last delivered event instead of wiping and replaying.\n\n## Motivation / Problem\n\nThe panel already has a correct guard against yanking a reader who has scrolled\nup (`RightPanel.tsx:769`, with a 100 px slop). This defect defeats it, so the\nguard's protection is illusory whenever the stream reconnects.\n\nToday the stream reconnects roughly every 30 seconds because it has no keepalive\n— filed as the companion issue, which removes that cadence. **This issue is\nstill worth building after that fix lands**, because reconnects will still\nhappen: laptop sleep, network blips, a server restart during development, a\npaused tab. Each one silently destroys the reader's place in a long transcript,\nand there is no signal that anything happened. Fixing only the cadence leaves a\nloaded gun.\n\nThere is a second, quieter cost: every reconnect re-sends the entire event\nbuffer, which grows without bound over a long session.\n\n## Observed behavior\n\nWith a chat panel open, scroll to the middle of a long transcript. When the\nstream reconnects (today: ~30 s of idle; or kill and restart the server to force\nit), the transcript position is lost — in practice the panel lands at the\nbottom.\n\nWhich end you land on is incidental: the reading position is destroyed either\nway. If the container's clamp fires a `scroll` event you land at the bottom (the\nobserved case); if it does not, you land at the top. Neither is where you were.\n\n## Current shape\n\nThe client treats every reconnect as a fresh mount.\n`packages/viewer/src/app/next/chatApi.ts:196-221`:\n\n```ts\n    const source = new EventSource(apiPath(`/api/chat/${encodeURIComponent(skill)}/stream`));\n    const onOpen = () => {\n      // The server replays the live session's whole buffer on connect:\n      // start from a clean slate so a reconnect never duplicates items.\n      setEvents([]);\n    };\n```\n```ts\n      setEvents((prev) => [...prev, parsed]);\n```\n\nThe server unconditionally replays the full buffer on connect,\n`packages/cli/src/server/ChatSessions.ts:702-707`:\n\n```ts\n        sendEvent({ type: \"state\", state: this.state(skill) });\n        if (chat !== undefined) {\n          for (const event of chat.events) sendEvent(event);\n```\n\nThe scroll machinery it collides with, `packages/viewer/src/app/next/RightPanel.tsx:759-770`:\n\n```tsx\n  const pendingRestore = useRef<number | null>(recallScroll(skill));\n  const nearBottom = useRef(true);\n  useEffect(() => {\n    const el = scrollRef.current;\n    if (!el) return;\n    if (pendingRestore.current !== null && items.length > 0) {\n      el.scrollTop = pendingRestore.current;\n      pendingRestore.current = null;\n      return;\n    }\n    if (nearBottom.current) el.scrollTop = el.scrollHeight;\n  }, [items.length, active?.status]);\n```\n\nand its only writer besides `sendDraft`, `RightPanel.tsx:809-812`:\n\n```tsx\n        onScroll={(e) => {\n          const el = e.currentTarget;\n          nearBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;\n        }}\n```\n\nFailure sequence:\n\n1. Reconnect fires `open` → `setEvents([])` → `items.length` N → 0. The effect\n   runs with `nearBottom.current === false`, so it correctly does nothing.\n2. The DOM empties. The browser clamps `scrollTop` on the now-short container\n   and dispatches a `scroll` event.\n3. The handler computes `0 + clientHeight >= smallScrollHeight - 100` → **`nearBottom.current = true`**.\n   The guard has been reset by the wipe, not by the user.\n4. Replayed events arrive as separate messages; `items.length` climbs 0 → N; the\n   effect fires with the corrupted guard → `el.scrollTop = el.scrollHeight`.\n\n`pendingRestore` does not help: it is consumed on the first replay after mount\nand set to `null`, so every later reconnect falls through to line 769.\n\nThe trap worth naming: the `setEvents([])` comment says it exists \"so a\nreconnect never duplicates items\" — the wipe is a *deduplication* strategy, and\nit works. The bug is that dedup-by-wipe is indistinguishable from a fresh\ntranscript. SSE has a purpose-built mechanism for exactly this (`Last-Event-ID`)\nthat the stream does not use.\n\n## Proposed contract\n\nBuffered event frames become resumable, and the client stops wiping.\n\nServer, `/api/chat/:skill/stream`:\n\n```\n: connected\n\ndata: {\"type\":\"state\",\"state\":{...}}          <- no id (not part of the ordered buffer)\n\nid: 0\ndata: {\"type\":\"user_message\",...}\n\nid: 1\ndata: {\"type\":\"update\",...}\n```\n\nOn connect the server reads the `Last-Event-ID` request header:\n\n| `Last-Event-ID` | Server replays |\n|---|---|\n| absent | `{type:\"replay_reset\"}`, then the full buffer with ids |\n| parses to index `i`, `i < buffer.length`, same live session | `buffer.slice(i + 1)` — normally nothing |\n| stale, unparseable, or the session was replaced/restarted | `{type:\"replay_reset\"}`, then the full buffer with ids |\n\n**Decisions:**\n\n- Ids are the **0-based index into `chat.events`**. The buffer is already an\n  ordered append-only array, so no new identity needs inventing.\n- The connect-time `state` frame carries **no id** — it is not part of the\n  ordered buffer, and giving it one would corrupt the offset.\n- The keepalive comment frame carries no id (it is a comment; it cannot).\n- A new `{type:\"replay_reset\"}` frame is added to `ChatStreamEvent`. It is the\n  **only** thing that clears the client's transcript. The client's `open`\n  handler no longer clears anything.\n- `replay_reset` renders nothing — it is a control frame, not a transcript item,\n  and must not appear in `items`.\n- The common case — reconnect with a valid id against a live session — replays\n  **zero** frames, so `items.length` never changes and no scroll effect fires.\n- Scroll position and the `nearBottom` guard are untouched by a resumed\n  reconnect. After a `replay_reset` the transcript is legitimately rebuilt and\n  the existing mount behavior applies.\n- `streamResponse` gains access to the request headers to read `Last-Event-ID`;\n  its skill-only signature changes accordingly.\n\n## Acceptance criteria\n\n- [ ] With the reader scrolled to the middle of a transcript, forcing a\n      reconnect leaves `scrollTop` unchanged — the reader stays exactly where\n      they were.\n- [ ] A reconnect against a live session with a valid `Last-Event-ID` replays no\n      already-delivered events; `items.length` never transits through 0.\n- [ ] Events that occurred *during* the disconnected window are delivered on\n      reconnect, exactly once, in order.\n- [ ] Negative / no duplicates: after a reconnect the transcript contains each\n      event exactly once — the guarantee `setEvents([])` was protecting still\n      holds.\n- [ ] Negative: `replay_reset` produces no visible transcript item.\n- [ ] A first connection with no `Last-Event-ID` receives `replay_reset` then\n      the full buffer, and renders identically to today.\n- [ ] Degraded state: after a server restart (buffer gone / session replaced), a\n      client holding a stale `Last-Event-ID` receives `replay_reset` + full\n      buffer and renders correctly, with no duplicated or missing items.\n- [ ] The `nearBottom` guard is not reset by anything other than a real user\n      scroll or `sendDraft` — a reconnect cannot flip it.\n- [ ] Regression: live streaming during an active turn is unchanged — new events\n      still append and still auto-scroll for a reader who is at the bottom.\n- [ ] Regression: scroll retention across tab/view switches\n      (`recallScroll`/`rememberScroll`, `RightPanel.tsx:759,771`) still works.\n- [ ] Regression: `test/e2e/chat-sessions.e2e.test.ts` passes, updated only\n      where it asserts connect-replay framing.\n- [ ] Tests cover: resume-with-no-missed-events, resume-with-missed-events,\n      no-`Last-Event-ID` first connect, stale-id after restart, and the\n      scroll-position-preserved assertion.\n\n## Implementation notes\n\nThe scroll guard itself is correct and should not be rewritten — the fix is to\nstop corrupting it. If a belt-and-braces hardening is wanted, distinguishing\nuser-initiated scroll from a programmatic clamp is the direction, but it is not\nrequired once the transcript stops emptying, and it should not be bundled here.\n\nNote that `pendingRestore` (`RightPanel.tsx:759`) is consumed exactly once per\nmount. That is correct under this design and needs no change; it is called out\nonly so it is not mistaken for the reconnect path.\n\nScope fences:\n\n- **Do not solve this by preserving/restoring `scrollTop` around the wipe.**\n  Snapshot-and-restore around an async replay has no well-defined completion\n  point; the wipe itself is what must go.\n- **Do not add the keepalive here** — that is the companion issue. These two\n  touch the same function and must not collide.\n- **Do not change the transcript rendering or `chatModel.ts`'s event→item\n  transform** beyond ignoring the new control frame.\n- **Do not persist the event buffer** or change its lifetime; resumability here\n  is within a live session only.\n\nRelevant current files, as orientation only:\n\n- `packages/viewer/src/app/next/chatApi.ts` — `onOpen`/`onMessage` (:196-221)\n- `packages/viewer/src/app/next/RightPanel.tsx` — scroll effect (:761), guard\n  writer (:809), `sendDraft`'s reset (:798)\n- `packages/cli/src/server/ChatSessions.ts` — `ChatStreamEvent` (:389),\n  `streamResponse` (:688), the buffer `events` (:431)\n- `packages/viewer/src/app/next/chatModel.ts` — event→item transform\n\n---\n\n**Companion:** #194 — the chat SSE stream has no keepalive, which is why reconnects currently happen every ~30s. #194 removes the cadence; this issue makes any reconnect harmless. Independent; either can be built first.\n\n\nImplement exactly this issue. Verify every claim against the current code; the issue is a report, not a spec. NOTE: PR #206 (SSE keepalive heartbeats) may or may not be merged to main when you read the code — check, and build against what main actually has; the fix here is reconnect NON-DESTRUCTIVENESS (preserve transcript items across reconnect, reconcile replayed buffer against existing items instead of clear-and-replay, preserve scroll position and the stick-to-bottom guard). Stay minimal: fix with tests, nothing adjacent.\n"
+        }
+      }
+    },
+    "graph_source": "digraph SmsFeature {\n    graph [\n        goal=\"Implement a Skillmaker Studio feature with one combined review-judge gate before the PR.\",\n        default_fidelity=\"summary:high\",\n        max_node_visits=5,\n        stall_timeout=\"5h\"\n    ]\n    rankdir=LR\n\n    start [shape=Mdiamond, label=\"Start\"]\n    exit  [shape=Msquare, label=\"Exit\"]\n\n    // Reshaped after the first real batch (2026-08-04): the old 9-node\n    // graph verified three times (deterministic gates + LLM verify +\n    // verification judge) with unbounded retry loops, and three runs were\n    // cancelled after heavy cycling (implement x5, verify x3 observed;\n    // ~$8/PR, ~$25 total). Director ruling: one combined ReviewJudge\n    // stage, and loop caps enforced in the graph via per-node max_visits\n    // (fabro terminates the run when a node exceeds its cap, so the caps\n    // are structural, not prompt suggestions).\n    //\n    // CAP SEMANTICS (learned the hard way, first run on the reshaped\n    // graph, 2026-08-04): fabro increments the visit counter on ENTRY\n    // and fails when `visits >= max_visits` -- BEFORE executing the node\n    // (fabro-core executor.rs, \"(>= semantics)\"). So max_visits=N allows\n    // only N-1 executions; a node meant to execute K times needs\n    // max_visits=K+1, and max_visits=1 fails on the very first entry.\n    // The graph-level max_node_visits has the same >= rule AND is\n    // checked in addition to per-node caps (both apply; the docs'\n    // \"per-node overrides graph-level\" is not what 0.315 executes), so\n    // it must be >= the largest per-node cap. Every cap below is\n    // therefore intended-executions + 1.\n    //\n    // Model split unchanged in spirit (director ruling, PR #188):\n    // sol-high where the graph makes judgment calls (scope, the judge);\n    // terra-medium for the in-loop worker stages.\n    scope [\n        label=\"Scope\",\n        prompt=\"@prompts/scope.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        max_visits=2,  // executes exactly once (K=1, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // Worst case 4 executions: 1 initial + at most 2 gate-failure\n    // bounces + at most 1 ReviewJudge fix bounce. A further bounce of\n    // either kind exceeds the cap and fails the run with the previous\n    // stage's (gates/judge) output as the last captured stage.\n    implement [\n        label=\"Implement\",\n        prompt=\"@prompts/implement.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        max_visits=5,  // <=4 executions (K=4, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // Deterministic gates; runs once after every implement execution, so\n    // its cap mirrors implement's.\n    validate_gates [\n        shape=parallelogram,\n        label=\"Run repo gates\",\n        script=\"./.fabro/scripts/fabro-validate\",\n        max_visits=5,  // <=4 executions (K=4, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    // One combined stage replacing the old review + verify +\n    // verification-judge trio. max_visits=3 allows exactly 2 executions,\n    // which makes \"fix\" a once-per-run route structurally: execution 1\n    // may route Fix, execution 2 must land Ready or Surface (a second\n    // Fix would need a third execution, which the cap rejects).\n    // goal_gate=true makes a Surface verdict (outcome=failed)\n    // fail the run at exit, so [run.pull_request] never opens a PR for a\n    // surfaced run. `fabro validate` warns that this goal gate has no\n    // retry_target; that is deliberate -- a retry target would re-run the\n    // loop that Surface exists to stop, and with no target fabro fails\n    // the run, which is the intended surface-to-a-human behavior.\n    review_judge [\n        label=\"ReviewJudge\",\n        prompt=\"@prompts/review-judge.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-sol\",\n        reasoning_effort=\"high\",\n        max_visits=3,  // <=2 executions (K=2, cap=K+1)\n        goal_gate=true,\n        timeout=\"90m\"\n    ]\n\n    handoff [\n        shape=tab,\n        label=\"Prepare PR\",\n        prompt=\"@prompts/handoff.md\",\n        backend=\"api\",\n        provider=\"openai\",\n        model=\"gpt-5.6-terra\",\n        reasoning_effort=\"medium\",\n        max_visits=2,  // executes exactly once (K=1, cap=K+1)\n        timeout=\"90m\"\n    ]\n\n    start -> scope\n    scope -> implement [condition=\"outcome=succeeded\"]\n    scope -> exit\n    implement -> validate_gates [condition=\"outcome=succeeded\"]\n    implement -> exit\n    validate_gates -> implement    [label=\"Fix validation\", condition=\"outcome=failed\"]\n    validate_gates -> review_judge [label=\"Validation OK\", condition=\"outcome=succeeded\"]\n    validate_gates -> exit\n\n    review_judge -> handoff   [label=\"Ready\", condition=\"verdict=ready\"]\n    review_judge -> implement [label=\"Fix\", condition=\"verdict=fix\"]\n    // Surface (and any non-verdict failure) falls through to exit; the\n    // judge sets outcome=failed on Surface and goal_gate turns that into\n    // a failed run with the judge's summary as the last stage output.\n    review_judge -> exit [label=\"Surface\"]\n    handoff -> exit\n}\n",
+    "workflow_slug": "sms-feature",
+    "source_directory": "/Users/jessmartin/Documents/code/skillmaker-studio",
+    "provenance": {
+      "server": {
+        "version": "0.315.0-nightly.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.315.0-nightly.0",
+        "name": "fabro-cli",
+        "version": "0.315.0-nightly.0"
+      },
+      "subject": {
+        "kind": "user",
+        "identity": {
+          "issuer": "https://github.com",
+          "subject": "27258"
+        },
+        "login": "jessmartin",
+        "auth_method": "github"
+      }
+    },
+    "manifest_blob": "370b240ddd04987b7bee0a432e296b95c26e148e1dce196426f86de58e5fb7a4",
+    "definition_blob": "a07a917c9ce5662397a8cdff20ff3afdf0a5dc99993b20f18f2bda52ca127e5b",
+    "git": {
+      "origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+      "branch": "try/chat-fixes",
+      "sha": "2db5c3cbfcb0f501b941dbf39514cf9cb289b728",
+      "dirty": "clean",
+      "push_outcome": {
+        "type": "succeeded",
+        "remote": "origin",
+        "branch": "try/chat-fixes"
+      }
+    }
+  },
+  "web_url": "https://fabro-st.up.railway.app/runs/01KZGEASY58GAX3XWS3CS1SHGA",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-08-08T10:22:38.772263551Z",
+  "last_event_at": "2026-08-08T10:22:57.304062100Z",
+  "pending_control": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "sandbox": {
+    "kind": "ready",
+    "plan": {
+      "provider": "daytona"
+    },
+    "instance": {
+      "provider": "daytona",
+      "snapshot": "daytona-medium",
+      "runtime": {
+        "id": "fabro-01KZGEASY58GAX3XWS3CS1SHGA",
+        "working_directory": "/home/daytona/workspace/skillmaker-studio",
+        "repo_cloned": true,
+        "clone_origin_url": "https://github.com/sociotechnica-org/skillmaker-studio",
+        "clone_branch": "try/chat-fixes",
+        "workspace_root": "/home/daytona/workspace",
+        "repos_root": "/home/daytona/repos",
+        "primary_repo_path": "/home/daytona/repos/sociotechnica-org/skillmaker-studio",
+        "primary_repo_link": "/home/daytona/workspace/skillmaker-studio"
+      }
+    }
+  },
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "stages": {}
+}
