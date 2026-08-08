@@ -61,6 +61,47 @@ constraint listed there into the shipped `SKILL.md` body verbatim, and the
 `## Proof spec` section is expected to name the fixture cases under
 `evals/fixtures/<case>/` that exercise each hypothesis.
 
+### Design-step input/output contract
+
+The design step refines an authored design; it does not originate the skill
+from research alone.
+
+Its required inputs are the bundle's existing root-level `design.md` and a
+substantive `research/notes.md`. It reads `design.md` first and treats it as
+the author's intent and current design direction. It then reads the research
+as supporting evidence, plus `bundle.json`, direct answers from the author,
+and an existing root-level `evals.json` when present. Direct answers are
+binding, still-valid decisions in `design.md` are preserved, and research
+does not override either. A material conflict or unresolved boundary decision
+goes back to the author rather than being silently reconciled.
+
+If `design.md` is absent, the step stops without writing. If the research is
+absent or too thin to supply facts, constraints, failure cases, or open
+questions, it leaves `design.md` and `evals.json` unchanged.
+
+The step may create or edit exactly two root-level files:
+
+- `design.md` — fleshed out in place, retaining the five-section design
+  skeleton above.
+- `evals.json` — the structured evaluation design. Its
+  `failureHypotheses` array nests each hypothesis's risk-family id,
+  observable failure, probability, impact, `mustNever` constraint, and one
+  or more reproducible `proofSpecs` (`name`, `setup`, and
+  `expectedBehavior`).
+
+`research/notes.md` is the exclusive source of new failure hypotheses and
+proof specs; the initial design and direct answers may clarify a risk already
+indicated by the notes but may not invent another. The same hypotheses and
+proof specs appear in human-readable form in `design.md` and structured form
+in `evals.json`; they are mirrored outputs, not alternatives. If the notes
+indicate no failure hypotheses, `evals.json` contains an empty
+`failureHypotheses` array.
+
+Both files live beside `bundle.json`. The step does not create a nested
+`design/` directory, draft `output/SKILL.md`, create fixtures, modify research
+or station configuration, run the skill, advance the bundle's state, publish,
+or ship.
+
 Verified: read the actual shipped `skills/william-draft-skill-md/design.md`
 in the worktree. It has all five recommended sections in the documented
 order (`## Intent`, `## When to use / triggers`, `## The workflow`,
