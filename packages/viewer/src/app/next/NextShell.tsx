@@ -48,13 +48,14 @@ export default function NextShell() {
   // A chat-link "show me the artifact" request: the CENTER navigates to the
   // artifact's home tab; the conversation never gets displaced (2026-08-08
   // invariant). Files panel only as fallback for homeless paths.
-  const [tabRequest, setTabRequest] = useState<{ readonly tab: "overview" | "research" | "eval" | "publish"; readonly n: number } | null>(null);
+  const [tabRequest, setTabRequest] = useState<{ readonly tab: "overview" | "research" | "prompt" | "eval" | "publish"; readonly n: number } | null>(null);
   const openArtifact = (path: string) => {
     const p = path.replace(/^\.\//, "").replace(/^skills\/[^/]+\//, "");
     const tab =
       p.startsWith("research/") ? ("research" as const)
       : p.startsWith("evals/") ? ("eval" as const)
-      : p === "output/SKILL.md" || p === "design.md" ? ("overview" as const)
+      : p === "output/SKILL.md" || p === "SKILL.md" ? ("prompt" as const)
+      : p === "design.md" ? ("research" as const)
       : null;
     if (tab !== null) {
       setTabRequest((cur) => ({ tab, n: (cur?.n ?? 0) + 1 }));

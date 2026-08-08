@@ -13,7 +13,7 @@ import { EvalsSection } from "./EvalsSection.tsx";
 import { AdvanceControls, ReviewSurface } from "./ReviewSurface.tsx";
 import type { SkillPage as SkillPageData, SkillVersion } from "./types.ts";
 
-type CenterTab = "overview" | "research" | "eval" | "publish";
+type CenterTab = "overview" | "research" | "prompt" | "eval" | "publish";
 
 const TAB_ACTIVE =
   "relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink";
@@ -43,7 +43,7 @@ export function SkillPageView({
   /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */
   readonly rightInset?: boolean;
   /** A chat-link navigation request: switch to this tab (nonce distinguishes repeats). */
-  readonly tabRequest?: { readonly tab: "overview" | "research" | "eval" | "publish"; readonly n: number } | null;
+  readonly tabRequest?: { readonly tab: "overview" | "research" | "prompt" | "eval" | "publish"; readonly n: number } | null;
 }) {
   const [tab, setTab] = useState<CenterTab>("overview");
   // Chat-transcript links navigate the CENTER to the artifact's home tab —
@@ -113,6 +113,7 @@ export function SkillPageView({
               [
                 { id: "overview", label: "Overview", onClick: () => setTab("overview"), dot: false },
                 { id: "research", label: "Research", onClick: () => { setTab("research"); markSeen("research", researchStamp); }, dot: showResearchDot },
+                { id: "prompt", label: "Prompt", onClick: () => setTab("prompt"), dot: false },
                 { id: "eval", label: "Eval", onClick: () => { setTab("eval"); markSeen("eval", runStamp); }, dot: showEvalDot },
                 { id: "publish", label: "Publish", onClick: () => setTab("publish"), dot: false },
               ] as const
@@ -133,6 +134,7 @@ export function SkillPageView({
         <div className="mx-auto max-w-3xl px-6 py-5">
           {tab === "overview" && <OverviewTab page={page} pinned={pinned} onOpenFile={onOpenFile} />}
           {tab === "research" && <ResearchTab slug={slug} onOpenFile={onOpenFile} />}
+          {tab === "prompt" && <PromptTab page={page} onOpenFile={onOpenFile} />}
           {tab === "eval" && <EvalsSection page={page} />}
           {tab === "publish" && <PublishTab slug={slug} page={page} pinned={pinned} />}
         </div>
@@ -295,6 +297,27 @@ function VersionMenuRow({
 }
 
 // ------------------------------------------------------------------- tabs
+
+/** The full SKILL.md, unabridged — the artifact itself gets its own tab
+    (director ruling 2026-08-08: Overview was awkwardly truncating it;
+    Overview will be repurposed separately). */
+function PromptTab({ page, onOpenFile }: { readonly page: SkillPageData; readonly onOpenFile: (path: string) => void }) {
+  if (page.instructions === null || page.instructions.length === 0) {
+    return <p className="text-sm text-ink-muted">No SKILL.md yet — it arrives when the draft is written.</p>;
+  }
+  return (
+    <div className="text-sm">
+      <button
+        type="button"
+        className="mb-3 cursor-pointer rounded border border-border bg-canvas px-2.5 py-1 font-display text-xs text-ink-muted shadow-sm hover:bg-surface hover:text-ink"
+        onClick={() => onOpenFile("output/SKILL.md")}
+      >
+        Open in Files
+      </button>
+      <MarkdownContent markdown={page.instructions} />
+    </div>
+  );
+}
 
 function OverviewTab({
   page,

@@ -131,7 +131,7 @@ export function SkillView({
   readonly pinned: string;
   readonly overviewOpen: boolean;
   readonly onOpenFile: (path: string) => void;
-  readonly tabRequest?: { readonly tab: "overview" | "research" | "eval" | "publish"; readonly n: number } | null;
+  readonly tabRequest?: { readonly tab: "overview" | "research" | "prompt" | "eval" | "publish"; readonly n: number } | null;
 }) {
   const page = useSkillPage(slug);
   // The overview card FLOATS OVER the page (z-10) so the full-bleed tab

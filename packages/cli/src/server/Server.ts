@@ -1322,12 +1322,14 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     lineage,
     files: listReviewableBundleFiles(bundleDir, layout),
     instructionsPath,
-    // The Eval tab's read-only gate (director ruling 2026-08-08: Method-stage
-    // evals are a reading surface): evals are RUNNABLE only once a draft
-    // exists to run against -- the same artifact probe as `instructionsPath`
-    // (`output/SKILL.md`, or `SKILL.md` for an in-place bundle). Server-
-    // informed so the viewer never infers the mode from missing data.
-    evalsRunnable: instructionsPath !== null,
+    // The Eval tab's read-only gate (director rulings 2026-08-08, refined
+    // same day): evals are RUNNABLE once there is BOTH a draft to run
+    // against (`instructionsPath`) AND at least one built fixture --
+    // during drafting the claims are still design-born intentions, so
+    // Run-all/mint/"gap" affordances would be premature theater; the
+    // first fixture's arrival is the honest signal that evaluating work
+    // has begun. Server-informed so the viewer never infers the mode.
+    evalsRunnable: instructionsPath !== null && detail.fixtures.length > 0,
   });
 };
 
