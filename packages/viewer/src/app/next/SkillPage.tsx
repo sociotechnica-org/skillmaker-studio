@@ -343,7 +343,10 @@ function firstSection(markdown: string): string {
   return out.join("\n").trim();
 }
 
-const RESEARCH_FILES = ["research/notes.md", "research/decisions.md"] as const;
+/** Researching's artifacts, in pipeline order — design.md included per the
+    2026-08-08 ruling: researching covers notes AND the design; the tab is
+    the whole thinking record. (Danvers floats renaming this tab "Method".) */
+const RESEARCH_FILES = ["research/notes.md", "design.md", "research/decisions.md"] as const;
 
 function ResearchTab({
   slug,
@@ -373,7 +376,7 @@ function ResearchTab({
       )}
       {files !== null &&
         files.map((f) => (
-          <details key={f.path} open={f.path.endsWith("notes.md")} className="mb-3">
+          <details key={f.path} open={f.path.endsWith("notes.md") || f.path === "design.md"} className="mb-3">
             <summary className="cursor-pointer font-display text-xs uppercase text-ink-muted hover:text-ink">
               {f.path.replace("research/", "")}
               <button

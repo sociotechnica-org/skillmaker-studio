@@ -229,7 +229,8 @@ export type PreambleStage = (typeof STAGES)[number];
 /** The stage-appropriate "current step" line -- encodes the real pipeline (research -> design.md co-authored in chat -> draft -> evals -> publish), so the product states the next step instead of relying on the director's memory. */
 export const NEXT_STEP_BY_STAGE: Readonly<Record<PreambleStage, string>> = {
   idea: "clarify intent and research",
-  researching: "research, then surface open questions",
+  researching:
+    "research into notes.md, surface open questions one at a time, then co-author design.md -- researching ends when the design is done",
   drafting: "draft from design.md",
   evaluating: "author/run evals",
   published: "maintain and improve",
@@ -282,13 +283,15 @@ const hasFixtures = (fixturesDir: string): boolean => {
  * review: the declared stage said "idea" while notes, design, draft, and
  * evals all existed, and the agent had to reconcile the lie itself):
  * evals/fixtures exist -> published; output/SKILL.md exists -> evaluating;
- * design.md has non-scaffold content -> drafting; research/notes.md exists
- * -> researching; nothing yet -> idea.
+ * design.md OR notes.md in progress -> researching (ruling 2026-08-08:
+ * researching INCLUDES co-authoring design.md -- the stage ends when the
+ * design is done and the human gate to drafting is passed; a content-bearing
+ * design.md is LATE researching, never auto-drafting); nothing yet -> idea.
  */
 export const deriveArtifactStage = (bundleDir: string): PreambleStage => {
   if (hasFixtures(join(bundleDir, "evals", "fixtures"))) return "published";
   if (existsSync(join(bundleDir, "output", "SKILL.md"))) return "evaluating";
-  if (designHasContent(join(bundleDir, "design.md"))) return "drafting";
+  if (designHasContent(join(bundleDir, "design.md"))) return "researching";
   if (existsSync(join(bundleDir, "research", "notes.md"))) return "researching";
   return "idea";
 };
@@ -348,7 +351,7 @@ export const buildChatPreamble = (skill: string, skillsDir: string, context: Pre
     `${PREAMBLE_SENTINEL} ${mission}`,
     ``,
     `- The bundle lives at ${skillsDir}/${skill}/ -- design.md (the design doc), output/SKILL.md (the shipped skill text), evals/ (risk map + fixtures), research/ (notes).`,
-    `- The pipeline is research/notes.md -> design.md (co-authored in this conversation) -> output/SKILL.md -> evals -> publish; stage moves are human-gated.`,
+    `- The pipeline: RESEARCHING covers both research/notes.md and co-authoring design.md in this conversation (the stage ends when the design is done); DRAFTING renders output/SKILL.md from the approved design; then evals; then publish. Stage moves happen only at explicit human gates via the skillmaker CLI -- "design" is not a stage, so never attempt or offer a stage transition for it.`,
     ...(context.installedHelpers.length > 0
       ? [
           `- Your guidance skills (${context.installedHelpers.join(", ")}) are installed in your agent home -- read the relevant one before acting.`,

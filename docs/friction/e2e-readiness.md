@@ -374,6 +374,23 @@ Everything else is a papercut: logged, parked, not fixed this week.
   IA questions for the next design pass with Danvers (relates to #204
   prototype + the D9 direct-manipulation amendment).
 
+- **STAGE-MODEL RULING (director, 2026-08-08 — partial answer to
+  #200): researching INCLUDES design.md.** notes.md is the process,
+  design.md is the exit artifact; researching ends when design.md is
+  done; drafting renders SKILL.md from it. No separate design stage,
+  no "advance to design" ceremony. Consequences: design.md's home is
+  the Research tab; researching→drafting gate gains an artifact guard
+  (design.md complete); deriveArtifactStage maps content-bearing
+  design.md to late-researching, not drafting; preamble/William codas
+  rephrase design as researching's second movement. Posted to #200
+  for Danvers's reaction before tab/guard rewiring.
+
+- Naming candidate (Danvers, relayed by director 2026-08-08): rename
+  "Research" -> "Method" — the stage is really forming how the method
+  works, and research/design are one iterative movement under the
+  2026-08-08 researching-includes-design ruling. Park for the design
+  table; the tab meanwhile shows notes.md + design.md + decisions.md.
+
 ## Session log
 
 **PAUSED mid-walk** at the design station: director answering the
