@@ -350,6 +350,18 @@ Everything else is a papercut: logged, parked, not fixed this week.
   evals.json restructure and the frozen Evals redesign — recon smeval's
   terms (eval/case/run/score/…) before naming anything new.
 
+- QA walk 2026-08-08 (director, note only — not for build yet):
+  (1) RULED: chat-transcript file links should open the doc in the
+  Files panel (upgrade of the parked 404-links papercut — intercept
+  bundle-relative links → onOpenFile).
+  (2) Musing: the Files tab may want to become TABS — multiple open
+  documents, ChatGPT-desktop style.
+  (3) Musing: "chat on the left may actually be stronger" — chat is
+  becoming the primary work surface ("I'm doing many things through
+  chat"); layout inversion candidate. Both musings are center-panel
+  IA questions for the next design pass with Danvers (relates to #204
+  prototype + the D9 direct-manipulation amendment).
+
 ## Session log
 
 **PAUSED mid-walk** at the design station: director answering the
