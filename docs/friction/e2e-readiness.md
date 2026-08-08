@@ -391,6 +391,16 @@ Everything else is a papercut: logged, parked, not fixed this week.
   2026-08-08 researching-includes-design ruling. Park for the design
   table; the tab meanwhile shows notes.md + design.md + decisions.md.
 
+- SKILL.md ordered-list numbering renders wrong in the new Prompt tab
+  (renderer's list handling again — sibling of the fixed
+  continuation-line bug). PARKED papercut.
+- Director, same moment: "we could make that a deterministic parsing
+  check I suppose — not for now — we don't have deterministic checks."
+  That IS the Preflight lens from the PMS harvest (task #1, frozen with
+  Evals): deterministic build-validity — SKILL.md parses, frontmatter
+  valid, references resolve. First organic demand signal for it; keep
+  frozen but the thaw case is building.
+
 ## Session log
 
 **PAUSED mid-walk** at the design station: director answering the
