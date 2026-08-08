@@ -114,17 +114,6 @@ export {
   type ParseEvalsJsonResult,
 } from "./EvalsJson.ts";
 export {
-  parseDossier,
-  writeDossierScaffold,
-  DOSSIER_SECTIONS,
-  type DossierSectionName,
-  type DossierContext,
-  type DossierSeed,
-  type DossierUnknownSection,
-  type DossierSections,
-  type ParseDossierResult,
-} from "./Dossier.ts";
-export {
   hashFile,
   hashOutputTree,
   hashDesign,

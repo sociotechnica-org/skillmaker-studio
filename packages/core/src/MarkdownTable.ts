@@ -51,7 +51,7 @@ export const splitTableCells = (line: string): string[] => {
   return cells;
 };
 
-/** trim+lowercase fold for loose label comparison -- table column names here; `Dossier.ts`'s section-heading matching reuses the same normalizer. */
+/** trim+lowercase fold for loose label comparison -- table column names. */
 export const normalizeLabel = (label: string): string => label.trim().toLowerCase();
 
 /**

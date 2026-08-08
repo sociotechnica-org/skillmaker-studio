@@ -51,9 +51,11 @@ export const VERSION_SNAPSHOTS_SUBDIR = "versions";
  * output tree: the studio-owned files `Adopt.ts` writes into the discovered
  * directory (mirroring the names `WorkspaceService.createBundle` scaffolds
  * for an in-workspace bundle), never the brownfield repo's own content.
- * `dossier.md` (issue #94) joined this set for the same reason `design.md`
- * is here: it's a studio-authored annotation about the skill, not part of
- * the skill's own output, so editing it must never register as drift.
+ * `dossier.md` stays in this set even though the dossier itself was
+ * expunged (2026-08-08): leftover `dossier.md` files in already-adopted
+ * bundles are inert user data -- excluding them keeps them from registering
+ * as drift, and keeps `Route.ts`'s upgrade landing (which clears every
+ * in-place entry NOT in this set) from deleting them.
  * `.skillmaker` (version snapshots) is studio plumbing for the same reason:
  * `snapshotVersionContent` below writes recorded-version content under
  * `<bundle>/.skillmaker/versions/`, and that history must never count as the
