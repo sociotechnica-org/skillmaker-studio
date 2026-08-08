@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { BundleDetailResponse, BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
-import { asWireStage, renderOrigin, STAGE_FROM_WIRE, toLoop, toProjects, toSkill, toTasks } from "./api.ts";
+import { asWireStage, evalsRunnableFromDetail, renderOrigin, STAGE_FROM_WIRE, toClaims, toLoop, toProjects, toSkill, toTasks } from "./api.ts";
 import { STAGES } from "./types.ts";
 import type { Stage } from "./types.ts";
 
@@ -224,5 +224,94 @@ describe("toLoop", () => {
       }),
     );
     expect(loop.outcome).toBeUndefined();
+  });
+});
+
+// The evals.json read-side bridge: claims map identically whichever source
+// won server-side; evals.json-sourced rows additionally carry proof-case
+// intentions, and the Eval tab's read-only gate is server-informed.
+describe("toClaims", () => {
+  test("an evals.json-sourced row maps to a claim with proof-case intentions", () => {
+    const claims = toClaims({
+      riskCoverage: [
+        {
+          bundle: "designed",
+          riskId: "ADV-1",
+          family: "ADV",
+          description: "Prompt injection via pasted doc",
+          coverage: "gap",
+          proofCases: ["adv-injection"],
+        },
+        {
+          bundle: "designed",
+          riskId: "IN-1",
+          family: "IN",
+          description: "Accepts thin input",
+          coverage: "covered",
+          fixtureCase: "refusal-thin-input",
+          proofCases: ["refusal-thin-input"],
+        },
+      ],
+      fixtures: [
+        {
+          bundle: "designed",
+          caseName: "refusal-thin-input",
+          class: "refusal",
+          risks: ["IN-1"],
+          hasPromptMd: true,
+        },
+      ],
+      measurements: [],
+    });
+    expect(claims).toEqual([
+      {
+        id: "ADV-1",
+        family: "Adversarial",
+        sentence: "Prompt injection via pasted doc",
+        status: "gap",
+        fixtures: 0,
+        fixtureCases: [],
+        proofCases: ["adv-injection"],
+      },
+      {
+        id: "IN-1",
+        family: "Input",
+        sentence: "Accepts thin input",
+        status: "unmeasured",
+        fixtures: 1,
+        fixtureCases: ["refusal-thin-input"],
+        proofCases: ["refusal-thin-input"],
+      },
+    ]);
+  });
+
+  test("a risk-map-sourced row (no proofCases on the wire) maps without the field", () => {
+    const claims = toClaims({
+      riskCoverage: [
+        { bundle: "legacy", riskId: "RE-1", family: "RE", description: "Invents metrics", coverage: "gap" },
+      ],
+      fixtures: [],
+      measurements: [],
+    });
+    expect(claims[0]).toEqual({
+      id: "RE-1",
+      family: "Reasoning",
+      sentence: "Invents metrics",
+      status: "gap",
+      fixtures: 0,
+      fixtureCases: [],
+    });
+  });
+});
+
+describe("evalsRunnableFromDetail (the Eval tab's read-only gate, both ways)", () => {
+  test("server-informed: the wire boolean wins when present", () => {
+    expect(evalsRunnableFromDetail({ evalsRunnable: false, instructionsPath: "output/SKILL.md" })).toBe(false);
+    expect(evalsRunnableFromDetail({ evalsRunnable: true, instructionsPath: null })).toBe(true);
+  });
+
+  test("pre-bridge servers: derived from the draft's existence (instructionsPath)", () => {
+    expect(evalsRunnableFromDetail({ instructionsPath: null })).toBe(false);
+    expect(evalsRunnableFromDetail({ instructionsPath: "output/SKILL.md" })).toBe(true);
   });
 });
