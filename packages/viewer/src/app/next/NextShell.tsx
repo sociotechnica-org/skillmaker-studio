@@ -15,6 +15,7 @@
  * - The right panel exists on skill pages only.
  */
 import { useEffect, useState } from "react";
+import { useActiveProject } from "../runtime/projectScope.ts";
 import { useProjectBootstrap } from "../runtime/useProjectBootstrap.ts";
 import { usePanelResize } from "./hooks.ts";
 import { CollapseIcon, ExpandIcon, OverviewIcon, PanelLeftIcon, PanelRightIcon } from "./icons.tsx";
@@ -25,7 +26,7 @@ import { IconButton } from "./ui.tsx";
 import { BoardView, OverviewCard, SkillView, TasksView, useSkillPage } from "./views.tsx";
 import { TopBarSkillControls } from "./SkillPage.tsx";
 import { CURRENT_DRAFT } from "./SkillPage.tsx";
-import { boardHref, skillHref, tasksHref, useStudioRouter } from "./router.tsx";
+import { boardHref, canonicalStudioHref, skillHref, tasksHref, useStudioRouter, versionPin } from "./router.tsx";
 
 /** Top-bar bridge: owns nothing, fetches the shared skill page for the controls. */
 function TopBarControls({ slug, pinned, onPin }: { readonly slug: string; readonly pinned: string; readonly onPin: (v: string) => void }) {
@@ -37,7 +38,8 @@ export default function NextShell() {
   // Machine registry (2026-07-27 rulings): resolve the ACTIVE project up
   // front -- stored selection if still registered, else the first healthy
   // project. Hooks re-fetch when the selection lands/changes.
-  useProjectBootstrap();
+  const bootstrapStatus = useProjectBootstrap();
+  const activeProject = useActiveProject();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(() => {
     try {
@@ -80,19 +82,15 @@ export default function NextShell() {
     if (route.name === "invalid") replace(boardHref());
     else if (window.location.pathname === "/") replace(boardHref());
     else if (route.name === "tasks" && route.projectSlug === undefined) {
-      const stored = localStorage.getItem("sm-active-project");
-      if (stored !== null) replace(tasksHref(stored));
+      // Wait for the registry to validate the persisted selection. A stale
+      // localStorage value must not manufacture a project-scoped Tasks URL.
+      if (bootstrapStatus === "ready" && activeProject !== null) replace(tasksHref(activeProject));
     }
     else {
-      const canonical =
-        route.name === "board" ? boardHref(route.projectSlug) :
-        route.name === "tasks" ? tasksHref(route.projectSlug) :
-        route.name === "new-skill" ? `/p/${encodeURIComponent(route.projectSlug)}/new` :
-        route.name === "skill" ? skillHref(route.projectSlug, route.skillSlug, route.tab, route.version) :
-        boardHref();
+      const canonical = canonicalStudioHref(route);
       if (`${window.location.pathname}${window.location.search}` !== canonical) replace(canonical);
     }
-  }, [replace, route]);
+  }, [activeProject, bootstrapStatus, replace, route]);
   useEffect(() => {
     if (route.name !== "board" && route.name !== "tasks" && route.name !== "new-skill" && route.name !== "skill") return;
     const projectSlug = route.name === "new-skill" || route.name === "skill" ? route.projectSlug : route.projectSlug;
@@ -103,7 +101,7 @@ export default function NextShell() {
       const body = (await response.json()) as { projects?: unknown };
       if (!Array.isArray(body.projects) || cancelled) return;
       const project = body.projects.find((row): row is { slug: string; skills?: unknown } =>
-        typeof row === "object" && row !== null && (row as { slug?: unknown }).slug === projectSlug,
+        typeof row === "object" && row !== null && (row as { slug?: unknown }).slug === projectSlug && (row as { ok?: unknown }).ok !== false,
       );
       if (project === undefined) replace(boardHref());
       else if (route.name === "skill" && Array.isArray(project.skills) && !project.skills.some((skill) =>
@@ -212,7 +210,7 @@ export default function NextShell() {
             {onSkillPage && <span className="text-ink-muted">···</span>}
           </div>
           {route.name === "skill" && <TopBarControls slug={route.skillSlug} pinned={route.version ?? CURRENT_DRAFT} onPin={(hash) => {
-            const version = hash === CURRENT_DRAFT ? undefined : hash.slice(0, 8);
+            const version = hash === CURRENT_DRAFT ? undefined : versionPin(hash);
             navigate(skillHref(route.projectSlug, route.skillSlug, route.tab, version));
           }} />}
           {onSkillPage && (
@@ -243,6 +241,8 @@ export default function NextShell() {
               pinned={route.version ?? CURRENT_DRAFT}
               tab={route.tab}
               onTabChange={(tab) => navigate(skillHref(route.projectSlug, route.skillSlug, tab, route.version))}
+              tabHref={(tab) => skillHref(route.projectSlug, route.skillSlug, tab, route.version)}
+              onStaleVersion={() => replace(skillHref(route.projectSlug, route.skillSlug, route.tab))}
               overviewOpen={overviewShown}
               onOpenFile={(path) => {
                 setRightOpen(true);
@@ -252,6 +252,7 @@ export default function NextShell() {
           )}
           {route.name === "new-skill" && (
             <NewSkillLauncher
+              key={route.projectSlug}
               project={route.projectSlug}
               onCreated={(slug, provider, message, model, effort) => {
                 // The launcher disappears; the conversation continues in the

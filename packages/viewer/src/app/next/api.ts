@@ -421,11 +421,16 @@ export function useApiData<T>(fetcher: () => Promise<T>, fallback: T, options: {
   const project = useActiveProject();
   const [state, setState] = useState<{ readonly data?: T; readonly project: string | null }>({ project });
   const lastProject = useRef(project);
+  const lastFetcher = useRef<(() => Promise<T>) | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
-    if (lastProject.current !== project) {
+    // Slug-specific fetchers change inside one project too. Tagging only the
+    // project let a failed request for skill B keep skill A on screen (#208).
+    const resourceChanged = lastFetcher.current !== fetcher;
+    if (lastProject.current !== project || resourceChanged) {
       lastProject.current = project;
+      lastFetcher.current = fetcher;
       setState({ project });
     }
     fetcher().then(

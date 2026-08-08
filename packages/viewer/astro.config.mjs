@@ -5,15 +5,13 @@ import { defineConfig } from "astro/config";
 // Phase 3 has exactly one route ("/"), rendered by a client-routed React
 // app. In production, `packages/cli`'s static server does the SPA fallback
 // (any non-/api GET -> index.html). This Vite plugin gives `astro dev` the
-// same behavior, so dev and prod routing match (per the phase-3 build
-// brief): any GET that isn't for a real file, an Astro-internal path, or
-// /api/* is rewritten to "/" before Astro's own router sees it.
+// same behavior: any GET that isn't for a real file, an Astro-internal
+// path, or /api/* is rewritten to "/" before Astro's own router sees it.
+// The package's `preview` script serves the built dist with that same
+// fallback because Astro's own static preview is intentionally MPA-only.
 const spaFallback = () => ({
   name: "skillmaker-dev-spa-fallback",
   configureServer(server) {
-    installFallback(server);
-  },
-  configurePreviewServer(server) {
     installFallback(server);
   },
 });

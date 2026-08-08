@@ -23,12 +23,17 @@ export const useProjectBootstrap = (): ProjectBootstrapStatus => {
           readonly projects?: ReadonlyArray<{ readonly slug?: unknown; readonly ok?: unknown }>;
         };
         const rows = Array.isArray(body.projects) ? body.projects : [];
-        const slugs = rows.map((row) => (typeof row.slug === "string" ? row.slug : null)).filter((s): s is string => s !== null);
+        const healthySlugs = rows
+          .map((row) => (typeof row.slug === "string" && row.slug.length > 0 && row.ok !== false ? row.slug : null))
+          .filter((slug): slug is string => slug !== null);
         if (cancelled) return;
         const stored = getActiveProject();
-        if (stored === null || !slugs.includes(stored)) {
-          const firstOk = rows.find((row) => typeof row.slug === "string" && row.ok !== false);
-          setActiveProject(typeof firstOk?.slug === "string" ? firstOk.slug : (slugs[0] ?? null));
+        if (stored === null || !healthySlugs.includes(stored)) {
+          const firstOk = rows.find((row) => typeof row.slug === "string" && row.slug.length > 0 && row.ok !== false);
+          // A live-but-unhealthy registry is distinct from the server being
+          // absent. Do not scope requests to a broken project merely because
+          // it is the only registry row.
+          setActiveProject(typeof firstOk?.slug === "string" && firstOk.slug.length > 0 ? firstOk.slug : null);
         }
         setStatus("ready");
       } catch {

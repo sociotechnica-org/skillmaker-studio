@@ -7,7 +7,7 @@
     "sync:brand": "bun ../../scripts/sync-brand-assets.ts",
     "dev": "bun run sync:brand && astro dev",
     "build": "bun run sync:brand && astro build",
-    "preview": "astro preview",
+    "preview": "bun scripts/preview.ts",
     "check": "astro check"
   },
   "dependencies": {

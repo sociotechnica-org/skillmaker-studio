@@ -35,6 +35,7 @@ export function SkillPageView({
   pinned,
   tab,
   onTabChange,
+  tabHref,
   onOpenFile,
   rightInset = false,
 }: {
@@ -43,6 +44,7 @@ export function SkillPageView({
   readonly pinned: string;
   readonly tab: CenterTab;
   readonly onTabChange: (tab: CenterTab) => void;
+  readonly tabHref: (tab: CenterTab) => string;
   readonly onOpenFile: (path: string) => void;
   /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */
   readonly rightInset?: boolean;
@@ -97,10 +99,20 @@ export function SkillPageView({
                 { id: "publish", label: "Publish", onClick: () => onTabChange("publish"), dot: false },
               ] as const
             ).map((t) => (
-              <button key={t.id} type="button" onClick={t.onClick} aria-current={tab === t.id ? "page" : undefined} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>
+              <a
+                key={t.id}
+                href={tabHref(t.id)}
+                onClick={(event) => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault();
+                  t.onClick();
+                }}
+                aria-current={tab === t.id ? "page" : undefined}
+                className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}
+              >
                 {t.label}
                 {t.dot && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" />}
-              </button>
+              </a>
             ))}
           </div>
         </div>

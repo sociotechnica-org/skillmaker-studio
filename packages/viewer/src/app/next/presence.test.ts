@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isRunning } from "./presence.ts";
+import { isRunning, presenceKey } from "./presence.ts";
 
 describe("isRunning", () => {
   test("an active dispatched run means running", () => {
@@ -31,5 +31,13 @@ describe("isRunning", () => {
   test("either signal alone suffices", () => {
     expect(isRunning({ active: [{}] }, { active: { status: "ready" } })).toBe(true);
     expect(isRunning({ active: [] }, { active: { status: "running" } })).toBe(true);
+  });
+});
+
+describe("presenceKey", () => {
+  test("qualifies duplicate skill slugs by their project", () => {
+    expect(presenceKey({ project: "alpha", slug: "release-notes" })).not.toBe(
+      presenceKey({ project: "beta", slug: "release-notes" }),
+    );
   });
 });

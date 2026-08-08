@@ -69,9 +69,8 @@ const isMachinePath = (path: string): boolean =>
  * the path is returned unscoped -- the request 404s quietly and the
  * hooks' placeholder/error fallbacks hold until selection lands.
  */
-export const apiPath = (path: string): string => {
+export const apiPath = (path: string, project: string | null = activeProject): string => {
   if (!path.startsWith("/api/") || isMachinePath(path)) return path;
-  const slug = activeProject;
-  if (slug === null) return path;
-  return `/api/projects/${encodeURIComponent(slug)}${path.slice("/api".length)}`;
+  if (project === null) return path;
+  return `/api/projects/${encodeURIComponent(project)}${path.slice("/api".length)}`;
 };

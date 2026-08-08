@@ -27,6 +27,15 @@ import { subscribeJournalTicks } from "./liveRefresh.ts";
 export const MAX_SWEEP = 20;
 export const HEARTBEAT_MS = 6000;
 
+/** A sidebar row's fully qualified identity. Skill slugs only identify a skill within one project. */
+export type PresenceTarget = {
+  readonly project: string;
+  readonly slug: string;
+};
+
+/** Stable identity for a project-scoped skill row; NUL cannot occur in a URL path segment. */
+export const presenceKey = ({ project, slug }: PresenceTarget): string => `${project}\0${slug}`;
+
 /** The `runs-active` fields presence reads (decoded defensively). */
 export type RunsActiveGlance = { readonly active?: ReadonlyArray<unknown> } | null;
 /** The chat-state fields presence reads (decoded defensively). */
@@ -59,17 +68,17 @@ const fetchGlance = async (path: string): Promise<unknown | null> => {
 };
 
 /** One aggregate sweep: both signals for every slug (bounded), in parallel. */
-const sweepPresence = async (slugs: ReadonlyArray<string>): Promise<ReadonlySet<string>> => {
-  const bounded = slugs.slice(0, MAX_SWEEP);
+const sweepPresence = async (targets: ReadonlyArray<PresenceTarget>): Promise<ReadonlySet<string>> => {
+  const bounded = targets.slice(0, MAX_SWEEP);
   const verdicts = await Promise.all(
-    bounded.map(async (slug) => {
+    bounded.map(async (target) => {
       const [runs, chat] = await Promise.all([
-        fetchGlance(apiPath(`/api/bundles/${encodeURIComponent(slug)}/runs-active`)),
-        fetchGlance(apiPath(`/api/chat/${encodeURIComponent(slug)}/state`)),
+        fetchGlance(apiPath(`/api/bundles/${encodeURIComponent(target.slug)}/runs-active`, target.project)),
+        fetchGlance(apiPath(`/api/chat/${encodeURIComponent(target.slug)}/state`, target.project)),
       ]);
-      if (runs === null && chat === null) return { slug, running: false, reachable: false };
+      if (runs === null && chat === null) return { target, running: false, reachable: false };
       return {
-        slug,
+        target,
         running: isRunning(runs as RunsActiveGlance, chat as ChatStateGlance),
         reachable: true,
       };
@@ -80,7 +89,7 @@ const sweepPresence = async (slugs: ReadonlyArray<string>): Promise<ReadonlySet<
   if (verdicts.length > 0 && verdicts.every((verdict) => !verdict.reachable)) {
     throw new Error("presence: server absent");
   }
-  return new Set(verdicts.filter((verdict) => verdict.running).map((verdict) => verdict.slug));
+  return new Set(verdicts.filter((verdict) => verdict.running).map((verdict) => presenceKey(verdict.target)));
 };
 
 /**
@@ -90,16 +99,16 @@ const sweepPresence = async (slugs: ReadonlyArray<string>): Promise<ReadonlySet<
  * inert after the first all-endpoints-unreachable sweep (serverless astro
  * dev) and when `slugs` is empty.
  */
-export function usePresence(slugs: ReadonlyArray<string>): ReadonlySet<string> {
+export function usePresence(targets: ReadonlyArray<PresenceTarget>): ReadonlySet<string> {
   const [running, setRunning] = useState<ReadonlySet<string>>(new Set());
   const disabled = useRef(false);
   const inFlight = useRef(false);
   // Identity-stable key so effects don't loop on a fresh array each render.
-  const key = slugs.join("\n");
+  const key = targets.map(presenceKey).join("\n");
 
   useEffect(() => {
     let cancelled = false;
-    const list = key.length === 0 ? [] : key.split("\n");
+    const list = targets;
 
     const sweep = () => {
       if (disabled.current || inFlight.current || list.length === 0) return;
@@ -130,7 +139,7 @@ export function usePresence(slugs: ReadonlyArray<string>): ReadonlySet<string> {
   const anyRunning = running.size > 0;
   useEffect(() => {
     if (!anyRunning || disabled.current) return;
-    const list = key.length === 0 ? [] : key.split("\n");
+    const list = targets;
     const timer = setInterval(() => {
       if (disabled.current || inFlight.current || list.length === 0) return;
       inFlight.current = true;

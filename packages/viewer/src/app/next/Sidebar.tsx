@@ -6,7 +6,7 @@ import { PROJECTS, TASKS } from "./data.ts";
 import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, MoonIcon, PlusIcon, SunIcon, TasksIcon } from "./icons.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { useJournalTick } from "./liveRefresh.ts";
-import { usePresence } from "./presence.ts";
+import { presenceKey, usePresence } from "./presence.ts";
 import { fetchProjects } from "./projectsApi.ts";
 import { applyTheme, currentTheme, type Theme } from "./theme.ts";
 import { FADE_R, IconButton, StageBadge } from "./ui.tsx";
@@ -40,14 +40,14 @@ export function Sidebar({
 
   // Presence sweep, bounded to the rows actually on screen: open projects'
   // visible skills only (presence.ts documents the cost discipline).
-  const visibleSlugs = projects.flatMap((project) =>
+  const visibleSkills = projects.flatMap((project) =>
     (openProjects[project.name] ?? false)
       ? ((showAll[project.name] ?? false) ? project.skills : project.skills.slice(0, VISIBLE_SKILLS)).map(
-          (skill) => skill.slug,
+          (skill) => ({ project: project.slug, slug: skill.slug }),
         )
       : [],
   );
-  const runningSlugs = usePresence(visibleSlugs);
+  const runningSkills = usePresence(visibleSkills);
 
   const loadProjects = useCallback(() => {
     let cancelled = false;
@@ -87,14 +87,16 @@ export function Sidebar({
           label="Board"
           icon={<BoardIcon />}
           active={route.name === "board" && route.projectSlug === undefined}
-          onClick={() => navigate(boardHref())}
+          href={boardHref()}
+          navigate={navigate}
         />
         <NavItem
           label="Tasks"
           icon={<TasksIcon />}
           active={route.name === "tasks"}
           badge={openTaskCount}
-          onClick={() => navigate(tasksHref(route.name === "tasks" ? route.projectSlug : activeProject ?? undefined))}
+          href={tasksHref(route.name === "tasks" ? route.projectSlug : activeProject ?? undefined)}
+          navigate={navigate}
         />
       </nav>
 
@@ -118,7 +120,7 @@ export function Sidebar({
             open={openProjects[project.name] ?? false}
             expanded={showAll[project.name] ?? false}
             route={route}
-            running={runningSlugs}
+            running={runningSkills}
             onToggle={() => {
               navigate(boardHref(project.slug));
               setOpenProjects({ ...openProjects, [project.name]: !(openProjects[project.name] ?? false) });
@@ -195,18 +197,24 @@ function NavItem({
   icon,
   active,
   badge,
-  onClick,
+  href,
+  navigate,
 }: {
   readonly label: string;
   readonly icon: React.ReactNode;
   readonly active: boolean;
   readonly badge?: number;
-  readonly onClick: () => void;
+  readonly href: string;
+  readonly navigate: (href: string) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <a
+      href={href}
+      onClick={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        navigate(href);
+      }}
       className={`flex w-full items-center gap-2 rounded px-3 py-1.5 text-left font-display text-sm ${
         active ? "bg-surface shadow-sm" : "text-ink-muted hover:bg-surface/60"
       }`}
@@ -214,7 +222,7 @@ function NavItem({
       <span className="text-ink-muted">{icon}</span>
       <span className="flex-1">{label}</span>
       {badge ? <span className="rounded-full bg-amber-200 px-2 text-xs">{badge}</span> : null}
-    </button>
+    </a>
   );
 }
 
@@ -236,7 +244,7 @@ function ProjectSection({
   readonly open: boolean;
   readonly expanded: boolean;
   readonly route: StudioRoute;
-  /** Slugs with something running right now (presence sweep). */
+  /** Project-qualified skills with something running right now (presence sweep). */
   readonly running: ReadonlySet<string>;
   readonly onToggle: () => void;
   readonly onToggleExpanded: () => void;
@@ -249,9 +257,13 @@ function ProjectSection({
   return (
     <div className="mb-1">
       <div className={`group flex items-center rounded pr-1 hover:bg-surface/60 ${active ? "bg-surface shadow-sm" : ""}`}>
-        <button
-          type="button"
-          onClick={onToggle}
+        <a
+          href={boardHref(project.slug)}
+          onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onToggle();
+          }}
           className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-1 text-left font-display text-sm"
           title={project.error !== undefined ? `${project.path} — ${project.error}` : project.path}
         >
@@ -267,7 +279,7 @@ function ProjectSection({
               broken
             </span>
           )}
-        </button>
+        </a>
         <button
           type="button"
           className="shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
@@ -286,10 +298,14 @@ function ProjectSection({
           {visible.map((skill) => {
             const active = route.name === "skill" && route.projectSlug === project.slug && route.skillSlug === skill.slug;
             return (
-              <button
+              <a
                 key={skill.slug}
-                type="button"
-                onClick={() => onOpenSkill(skill.slug)}
+                href={skillHref(project.slug, skill.slug)}
+                onClick={(event) => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault();
+                  onOpenSkill(skill.slug);
+                }}
                 className={`flex w-full items-center gap-2 rounded py-1 pl-8 pr-2 text-left text-sm ${
                   active ? "bg-surface shadow-sm" : "text-ink-muted hover:bg-surface/60"
                 }`}
@@ -301,13 +317,13 @@ function ProjectSection({
                 )}
                 <StageBadge stage={skill.stage} />
                 {/* row-right spinner: an active run or a chat turn in flight */}
-                {running.has(skill.slug) && (
+                {running.has(presenceKey({ project: project.slug, slug: skill.slug })) && (
                   <span
                     className="h-3 w-3 shrink-0 animate-spin rounded-full border border-amber-500 border-t-transparent"
                     title="Running"
                   />
                 )}
-              </button>
+              </a>
             );
           })}
           {hidden > 0 && (

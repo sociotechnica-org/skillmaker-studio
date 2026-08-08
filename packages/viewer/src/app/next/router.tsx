@@ -25,11 +25,24 @@ const decode = (part: string): string | undefined => {
   }
 };
 
+const isVersionPin = (value: string): boolean => /^[0-9a-f]{8}$/.test(value);
+
+/**
+ * The URL carries an eight-character, lowercase lens. UI callers hold either
+ * that lens or the wire's complete `sha256:<hash>` value, so normalize both
+ * at the router boundary instead of letting a `sha256:` prefix leak into a
+ * shareable URL.
+ */
+export const versionPin = (hash: string): string | undefined => {
+  const bare = hash.replace(/^sha256:/, "");
+  return /^[0-9a-f]{64}$/.test(bare) ? bare.slice(0, 8) : isVersionPin(bare) ? bare : undefined;
+};
+
 export const parseStudioRoute = (pathname: string, search = ""): StudioRoute => {
   const parts = pathname.split("/").filter(Boolean);
   const params = new URLSearchParams(search);
   const versions = params.getAll("v");
-  const version = versions.length === 1 && /^[0-9a-f]{8}$/.test(versions[0] ?? "") ? versions[0] : undefined;
+  const version = versions.length === 0 ? undefined : versions.length === 1 && isVersionPin(versions[0] ?? "") ? versions[0] : null;
   if (parts.length === 0 || (parts.length === 1 && parts[0] === "board")) return versions.length === 0 ? { name: "board" } : { name: "invalid" };
   if (parts.length === 1 && parts[0] === "tasks") return versions.length === 0 ? { name: "tasks" } : { name: "invalid" };
   if (parts[0] !== "p") return { name: "invalid" };
@@ -42,7 +55,7 @@ export const parseStudioRoute = (pathname: string, search = ""): StudioRoute => 
   const skillSlug = decode(parts[3] ?? "");
   if (skillSlug === undefined || parts.length > 5) return { name: "invalid" };
   const tab = parts.length === 5 ? parts[4] : "overview";
-  if (!SKILL_TABS.includes(tab as SkillTab)) return { name: "invalid" };
+  if (!SKILL_TABS.includes(tab as SkillTab) || version === null) return { name: "invalid" };
   return { name: "skill", projectSlug, skillSlug, tab: tab as SkillTab, ...(version === undefined ? {} : { version }) };
 };
 
@@ -51,11 +64,19 @@ export const tasksHref = (projectSlug?: string): string => projectSlug === undef
 export const newSkillHref = (projectSlug: string): string => `/p/${encodeURIComponent(projectSlug)}/new`;
 export const skillHref = (projectSlug: string, skillSlug: string, tab: SkillTab = "overview", version?: string): string => {
   const path = `/p/${encodeURIComponent(projectSlug)}/s/${encodeURIComponent(skillSlug)}${tab === "overview" ? "" : `/${tab}`}`;
-  return version === undefined ? path : `${path}?${new URLSearchParams({ v: version })}`;
+  const pin = version === undefined ? undefined : versionPin(version);
+  return pin === undefined ? path : `${path}?${new URLSearchParams({ v: pin })}`;
 };
 
 const routeProject = (route: StudioRoute): string | undefined =>
   route.name === "board" || route.name === "tasks" ? route.projectSlug : route.name === "new-skill" || route.name === "skill" ? route.projectSlug : undefined;
+
+/** The one byte-stable spelling for a parsed, valid Studio route. */
+export const canonicalStudioHref = (route: Exclude<StudioRoute, { readonly name: "invalid" }>): string =>
+  route.name === "board" ? boardHref(route.projectSlug) :
+  route.name === "tasks" ? tasksHref(route.projectSlug) :
+  route.name === "new-skill" ? newSkillHref(route.projectSlug) :
+  skillHref(route.projectSlug, route.skillSlug, route.tab, route.version);
 
 const readLocation = (): StudioRoute => parseStudioRoute(window.location.pathname, window.location.search);
 
@@ -68,10 +89,13 @@ export type StudioRouter = {
 export const useStudioRouter = (): StudioRouter => {
   const [route, setRoute] = useState<StudioRoute>(() => (typeof window === "undefined" ? { name: "board" } : readLocation()));
   const publish = useCallback((href: string, replace: boolean) => {
-    const next = parseStudioRoute(new URL(href, window.location.origin).pathname, new URL(href, window.location.origin).search);
+    const location = new URL(href, window.location.origin);
+    const next = parseStudioRoute(location.pathname, location.search);
+    const target = next.name === "invalid" ? href : canonicalStudioHref(next);
+    if (!replace && `${window.location.pathname}${window.location.search}` === target) return;
     const project = routeProject(next);
     if (project !== undefined) setActiveProject(project);
-    window.history[replace ? "replaceState" : "pushState"]({}, "", href);
+    window.history[replace ? "replaceState" : "pushState"]({}, "", target);
     setRoute(next);
   }, []);
   const navigate = useCallback((href: string) => publish(href, false), [publish]);

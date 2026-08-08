@@ -1,10 +1,10 @@
 /** Center-column views: Board, Tasks, and the Skill page. */
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from "./api.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
 import { SkillPageView } from "./SkillPage.tsx";
 import { CURRENT_DRAFT } from "./SkillPage.tsx";
-import type { SkillTab } from "./router.tsx";
+import { skillHref, type SkillTab } from "./router.tsx";
 import { STAGES } from "./types.ts";
 import { Button, FADE_R, STAGE_TINT } from "./ui.tsx";
 import type { Project, SkillPage } from "./types.ts";
@@ -13,6 +13,12 @@ import type { Project, SkillPage } from "./types.ts";
 export function useSkillPage(slug: string): SkillPage {
   const fetcher = useCallback(() => fetchSkillPage(slug), [slug]);
   return useApiData(fetcher, SKILL_PAGE);
+}
+
+/** A route lens must wait for live version data before it can be declared stale. */
+export function useSkillPageStatus(slug: string) {
+  const fetcher = useCallback(() => fetchSkillPage(slug), [slug]);
+  return useApiStatus(fetcher);
 }
 
 export function BoardView({
@@ -64,15 +70,19 @@ export function BoardView({
               p.skills
                 .filter((s) => s.stage === stage)
                 .map((s) => (
-                  <button
+                  <a
                     key={`${p.name}/${s.slug}`}
-                    type="button"
-                    onClick={() => onOpenSkill(p, s.slug)}
+                    href={skillHref(p.slug, s.slug)}
+                    onClick={(event) => {
+                      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      event.preventDefault();
+                      onOpenSkill(p, s.slug);
+                    }}
                     className="mb-2 block w-full rounded bg-surface p-2 text-left shadow-sm hover:shadow"
                   >
                     <div className={`font-display text-sm ${FADE_R}`}>{s.slug}</div>
                     <div className={`text-xs text-ink-muted ${FADE_R}`}>{p.name}</div>
-                  </button>
+                  </a>
                 )),
             )}
           </div>
@@ -129,6 +139,8 @@ export function SkillView({
   pinned,
   tab,
   onTabChange,
+  tabHref,
+  onStaleVersion,
   overviewOpen,
   onOpenFile,
 }: {
@@ -136,11 +148,21 @@ export function SkillView({
   readonly pinned: string;
   readonly tab: SkillTab;
   readonly onTabChange: (tab: SkillTab) => void;
+  readonly tabHref: (tab: SkillTab) => string;
+  readonly onStaleVersion: () => void;
   readonly overviewOpen: boolean;
   readonly onOpenFile: (path: string) => void;
 }) {
-  const page = useSkillPage(slug);
-  const resolvedPin = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : page.versions.find((version) => version.shortHash === pinned)?.hash ?? CURRENT_DRAFT;
+  const { data, status } = useSkillPageStatus(slug);
+  const page = data ?? SKILL_PAGE;
+  const matches = pinned === CURRENT_DRAFT ? [] : page.versions.filter((version) => version.shortHash === pinned);
+  const resolvedPin = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : matches.length === 1 ? matches[0]?.hash ?? CURRENT_DRAFT : CURRENT_DRAFT;
+  useEffect(() => {
+    // Fallback content is intentionally plausible during serverless dev, but
+    // it cannot prove a shared URL lens stale. Only live project data may
+    // remove a missing or ambiguous pin (#208).
+    if (pinned !== CURRENT_DRAFT && status === "live" && matches.length !== 1) onStaleVersion();
+  }, [matches.length, onStaleVersion, pinned, status]);
   // The overview card FLOATS OVER the page (z-10) so the full-bleed tab
   // surface and its separator run beneath it uninterrupted; the content
   // makes room via right padding, not a layout column that would notch
@@ -148,7 +170,7 @@ export function SkillView({
   return (
     <div className="relative flex min-h-full">
       <div className="min-w-0 flex-1">
-        <SkillPageView slug={slug} page={page} pinned={resolvedPin} tab={tab} onTabChange={onTabChange} onOpenFile={onOpenFile} rightInset={overviewOpen} />
+        <SkillPageView slug={slug} page={page} pinned={resolvedPin} tab={tab} onTabChange={onTabChange} tabHref={tabHref} onOpenFile={onOpenFile} rightInset={overviewOpen} />
       </div>
       {overviewOpen && (
         <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[244px]">
