@@ -23,6 +23,9 @@ import {
   claimStatusInScope,
   groupClaimsByFamily,
   modelChipsForClaim,
+  READ_ONLY_ORIENTATION,
+  readOnlyProofCaseLabels,
+  readOnlyStatusLabel,
   runAllButtonLabel,
   runsForFixture,
   shouldSettleMissingResponse,
@@ -111,6 +114,55 @@ const runStartedLabel = (startedAt: string): string => {
     ? startedAt
     : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 };
+
+/**
+ * The read-only Eval tab (director ruling 2026-08-08): while the bundle has
+ * no draft to run against (`page.evalsRunnable === false`, server-informed
+ * off the same artifact probe as `instructionsPath`), the authored axis is
+ * a clean reading surface -- claims grouped by family with their sentences
+ * and proof-case intentions, coverage shown honestly (`gap` reads as
+ * `planned`). NO run/grade/mint affordances; one quiet orientation line
+ * instead.
+ */
+function ReadOnlyEvals({ page }: { readonly page: SkillPage }) {
+  return (
+    <section>
+      <p className="text-xs text-ink-muted">{READ_ONLY_ORIENTATION}</p>
+      <div className="mt-1 space-y-2">
+        {groupClaimsByFamily(page.claims).map((group) => (
+          <div key={group.family}>
+            <div className="pt-1 font-display text-[10px] uppercase tracking-wide text-ink-muted">{group.family}</div>
+            <div className="mt-1 space-y-1">
+              {group.claims.map((claim) => {
+                const proofCases = readOnlyProofCaseLabels(claim);
+                const statusLabel = readOnlyStatusLabel(claim.status);
+                return (
+                  <div key={claim.id} className="rounded border border-border bg-surface px-3 py-2 shadow-sm">
+                    <div className="flex items-start gap-2 text-sm">
+                      <span title={statusLabel}>{CLAIM_DOT[claim.status]}</span>
+                      <span className="min-w-0 flex-1">{claim.sentence}</span>
+                      <span className="font-mono text-[10px] text-ink-muted">{claim.id}</span>
+                      <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted dark:bg-neutral-800">{statusLabel}</span>
+                    </div>
+                    <div className="pl-6 text-xs text-ink-muted">
+                      {proofCases.length === 0 ? (
+                        "No proof cases authored yet."
+                      ) : (
+                        <>
+                          Proof case{proofCases.length === 1 ? "" : "s"}: <span className="font-mono">{proofCases.join(", ")}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export function EvalsSection({ page }: { readonly page: SkillPage }) {
   const evals = page.evals;
@@ -268,6 +320,12 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
         }),
       );
   };
+
+  // The mode switch, AFTER every hook (rules of hooks): no draft to run
+  // against -> the authored axis renders read-only, full stop.
+  if (!page.evalsRunnable) {
+    return <ReadOnlyEvals page={page} />;
+  }
 
   return (
     <section>
