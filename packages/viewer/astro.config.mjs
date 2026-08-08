@@ -8,10 +8,18 @@ import { defineConfig } from "astro/config";
 // same behavior, so dev and prod routing match (per the phase-3 build
 // brief): any GET that isn't for a real file, an Astro-internal path, or
 // /api/* is rewritten to "/" before Astro's own router sees it.
-const devSpaFallback = () => ({
+const spaFallback = () => ({
   name: "skillmaker-dev-spa-fallback",
   configureServer(server) {
-    server.middlewares.use((req, _res, next) => {
+    installFallback(server);
+  },
+  configurePreviewServer(server) {
+    installFallback(server);
+  },
+});
+
+const installFallback = (server) => {
+  server.middlewares.use((req, _res, next) => {
       if (req.method !== "GET" && req.method !== "HEAD") {
         next();
         return;
@@ -21,19 +29,19 @@ const devSpaFallback = () => ({
       const isApi = pathname.startsWith("/api/");
       const isViteInternal = pathname.startsWith("/@") || pathname.startsWith("/src/");
       const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(pathname);
-      if (!isApi && !isViteInternal && !hasFileExtension && pathname !== "/") {
+      const isAstroPage = pathname === "/next" || pathname.startsWith("/next/");
+      if (!isApi && !isViteInternal && !isAstroPage && !hasFileExtension && pathname !== "/") {
         req.url = "/";
       }
       next();
-    });
-  },
-});
+  });
+};
 
 export default defineConfig({
   devToolbar: { enabled: false },
   integrations: [react()],
   vite: {
-    plugins: [tailwindcss(), devSpaFallback()],
+    plugins: [tailwindcss(), spaFallback()],
     server: {
       // Live data during design iteration: astro dev proxies /api to a
       // running `skillmaker start` (default port). Absent server = the

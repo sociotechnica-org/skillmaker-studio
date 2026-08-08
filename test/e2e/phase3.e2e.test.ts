@@ -127,9 +127,10 @@ describe("skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)", () => {
     expect(html).toContain("Skillmaker Studio");
   });
 
-  test("a client-routed path falls back to the SPA shell", async () => {
-    const response = await fetch(`${baseUrl}/some/client/route`);
+  test("a canonical deep skill route falls back to the SPA shell", async () => {
+    const response = await fetch(`${baseUrl}/p/${projectSlug}/s/alpha/research?v=12345678`);
     expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
     const html = await response.text();
     expect(html).toContain("astro-island");
   });

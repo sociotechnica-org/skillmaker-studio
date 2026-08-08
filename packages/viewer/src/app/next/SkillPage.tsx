@@ -12,8 +12,9 @@ import { fetchBundleFile, postPublish, useApiData } from "./api.ts";
 import { EvalsSection } from "./EvalsSection.tsx";
 import { AdvanceControls, ReviewSurface } from "./ReviewSurface.tsx";
 import type { SkillPage as SkillPageData, SkillVersion } from "./types.ts";
+import type { SkillTab } from "./router.tsx";
 
-type CenterTab = "overview" | "research" | "eval" | "publish";
+type CenterTab = SkillTab;
 
 const TAB_ACTIVE =
   "relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink";
@@ -32,18 +33,20 @@ export function SkillPageView({
   slug,
   page,
   pinned,
+  tab,
+  onTabChange,
   onOpenFile,
   rightInset = false,
 }: {
   readonly slug: string;
   readonly page: SkillPageData;
   readonly pinned: string;
+  readonly tab: CenterTab;
+  readonly onTabChange: (tab: CenterTab) => void;
   readonly onOpenFile: (path: string) => void;
   /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */
   readonly rightInset?: boolean;
 }) {
-  const [tab, setTab] = useState<CenterTab>("overview");
-
   // Unread dots: the newest event of each family, compared to a per-skill
   // "last seen" stamp (localStorage). Eval listens to run traffic; Research
   // listens to every OTHER journal family a producer can emit --
@@ -88,13 +91,13 @@ export function SkillPageView({
           <div className="flex items-end gap-1">
             {(
               [
-                { id: "overview", label: "Overview", onClick: () => setTab("overview"), dot: false },
-                { id: "research", label: "Research", onClick: () => { setTab("research"); markSeen("research", researchStamp); }, dot: showResearchDot },
-                { id: "eval", label: "Eval", onClick: () => { setTab("eval"); markSeen("eval", runStamp); }, dot: showEvalDot },
-                { id: "publish", label: "Publish", onClick: () => setTab("publish"), dot: false },
+                { id: "overview", label: "Overview", onClick: () => onTabChange("overview"), dot: false },
+                { id: "research", label: "Research", onClick: () => { onTabChange("research"); markSeen("research", researchStamp); }, dot: showResearchDot },
+                { id: "eval", label: "Eval", onClick: () => { onTabChange("eval"); markSeen("eval", runStamp); }, dot: showEvalDot },
+                { id: "publish", label: "Publish", onClick: () => onTabChange("publish"), dot: false },
               ] as const
             ).map((t) => (
-              <button key={t.id} type="button" onClick={t.onClick} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>
+              <button key={t.id} type="button" onClick={t.onClick} aria-current={tab === t.id ? "page" : undefined} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>
                 {t.label}
                 {t.dot && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" />}
               </button>

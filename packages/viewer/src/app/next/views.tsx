@@ -3,6 +3,8 @@ import { useCallback } from "react";
 import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from "./api.ts";
 import { PROJECTS, SKILL_PAGE, TASKS } from "./data.ts";
 import { SkillPageView } from "./SkillPage.tsx";
+import { CURRENT_DRAFT } from "./SkillPage.tsx";
+import type { SkillTab } from "./router.tsx";
 import { STAGES } from "./types.ts";
 import { Button, FADE_R, STAGE_TINT } from "./ui.tsx";
 import type { Project, SkillPage } from "./types.ts";
@@ -16,10 +18,12 @@ export function useSkillPage(slug: string): SkillPage {
 export function BoardView({
   onOpenSkill,
   onCreateProject,
+  projectSlug,
 }: {
   readonly onOpenSkill: (project: Project, slug: string) => void;
   /** Opens the shell's New-project dialog (the Sidebar's own). */
   readonly onCreateProject: () => void;
+  readonly projectSlug?: string;
 }) {
   // "all" scope: the Board renders every project, so any project's journal
   // append (new skill, stage change) refreshes it -- not just the active one.
@@ -56,7 +60,7 @@ export function BoardView({
         {STAGES.map((stage) => (
           <div key={stage} className="rounded border border-border bg-paper p-2">
             <div className={`mb-2 inline-block rounded px-2 py-0.5 font-display text-xs ${STAGE_TINT[stage]}`}>{stage}</div>
-            {projects.flatMap((p) =>
+            {projects.filter((p) => projectSlug === undefined || p.slug === projectSlug).flatMap((p) =>
               p.skills
                 .filter((s) => s.stage === stage)
                 .map((s) => (
@@ -123,15 +127,20 @@ export function OverviewCard({ slug, elevated }: { readonly slug: string; readon
 export function SkillView({
   slug,
   pinned,
+  tab,
+  onTabChange,
   overviewOpen,
   onOpenFile,
 }: {
   readonly slug: string;
   readonly pinned: string;
+  readonly tab: SkillTab;
+  readonly onTabChange: (tab: SkillTab) => void;
   readonly overviewOpen: boolean;
   readonly onOpenFile: (path: string) => void;
 }) {
   const page = useSkillPage(slug);
+  const resolvedPin = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : page.versions.find((version) => version.shortHash === pinned)?.hash ?? CURRENT_DRAFT;
   // The overview card FLOATS OVER the page (z-10) so the full-bleed tab
   // surface and its separator run beneath it uninterrupted; the content
   // makes room via right padding, not a layout column that would notch
@@ -139,7 +148,7 @@ export function SkillView({
   return (
     <div className="relative flex min-h-full">
       <div className="min-w-0 flex-1">
-        <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} rightInset={overviewOpen} />
+        <SkillPageView slug={slug} page={page} pinned={resolvedPin} tab={tab} onTabChange={onTabChange} onOpenFile={onOpenFile} rightInset={overviewOpen} />
       </div>
       {overviewOpen && (
         <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[244px]">

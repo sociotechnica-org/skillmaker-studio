@@ -1,6 +1,6 @@
 /** Left sidebar: global views (Board, Tasks) + the Projects → skills spine. */
 import { useCallback, useEffect, useState } from "react";
-import { setActiveProject, useActiveProject } from "../runtime/projectScope.ts";
+import { useActiveProject } from "../runtime/projectScope.ts";
 import { fetchTasks, useApiData } from "./api.ts";
 import { PROJECTS, TASKS } from "./data.ts";
 import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, MoonIcon, PlusIcon, SunIcon, TasksIcon } from "./icons.tsx";
@@ -10,18 +10,19 @@ import { usePresence } from "./presence.ts";
 import { fetchProjects } from "./projectsApi.ts";
 import { applyTheme, currentTheme, type Theme } from "./theme.ts";
 import { FADE_R, IconButton, StageBadge } from "./ui.tsx";
-import type { CenterView, Project } from "./types.ts";
+import { boardHref, newSkillHref, skillHref, tasksHref, type StudioRoute } from "./router.tsx";
+import type { Project } from "./types.ts";
 
 const VISIBLE_SKILLS = 5;
 
 export function Sidebar({
-  center,
-  onNavigate,
+  route,
+  navigate,
   newProjectOpen,
   onNewProjectOpenChange,
 }: {
-  readonly center: CenterView;
-  readonly onNavigate: (view: CenterView) => void;
+  readonly route: StudioRoute;
+  readonly navigate: (href: string) => void;
   /** Dialog open state lives in the shell so the Board's empty-registry welcome can open the SAME dialog. */
   readonly newProjectOpen: boolean;
   readonly onNewProjectOpenChange: (open: boolean) => void;
@@ -85,15 +86,15 @@ export function Sidebar({
         <NavItem
           label="Board"
           icon={<BoardIcon />}
-          active={center.kind === "board"}
-          onClick={() => onNavigate({ kind: "board" })}
+          active={route.name === "board" && route.projectSlug === undefined}
+          onClick={() => navigate(boardHref())}
         />
         <NavItem
           label="Tasks"
           icon={<TasksIcon />}
-          active={center.kind === "tasks"}
+          active={route.name === "tasks"}
           badge={openTaskCount}
-          onClick={() => onNavigate({ kind: "tasks" })}
+          onClick={() => navigate(tasksHref(route.name === "tasks" ? route.projectSlug : activeProject ?? undefined))}
         />
       </nav>
 
@@ -113,25 +114,21 @@ export function Sidebar({
           <ProjectSection
             key={project.slug}
             project={project}
-            active={project.slug === activeProject}
+            active={route.name !== "invalid" && "projectSlug" in route && route.projectSlug === project.slug}
             open={openProjects[project.name] ?? false}
             expanded={showAll[project.name] ?? false}
-            center={center}
+            route={route}
             running={runningSlugs}
             onToggle={() => {
-              // Selecting a project is REAL now (machine registry): every
-              // center view + the right panel scope to this project's API.
-              setActiveProject(project.slug);
+              navigate(boardHref(project.slug));
               setOpenProjects({ ...openProjects, [project.name]: !(openProjects[project.name] ?? false) });
             }}
             onToggleExpanded={() => setShowAll({ ...showAll, [project.name]: !(showAll[project.name] ?? false) })}
             onOpenSkill={(slug) => {
-              setActiveProject(project.slug);
-              onNavigate({ kind: "skill", project: project.name, slug });
+              navigate(skillHref(project.slug, slug));
             }}
             onNewSkill={() => {
-              setActiveProject(project.slug);
-              onNavigate({ kind: "new-skill", project: project.name });
+              navigate(newSkillHref(project.slug));
             }}
           />
         ))}
@@ -158,10 +155,9 @@ export function Sidebar({
           onClose={() => onNewProjectOpenChange(false)}
           onRegistered={(slug) => {
             if (slug !== null) {
-              setActiveProject(slug);
               // A just-registered project is empty (or newly adopted): land
               // on its New-skill page so the next step is obvious.
-              onNavigate({ kind: "new-skill", project: slug });
+              navigate(newSkillHref(slug));
             }
             loadProjects();
           }}
@@ -227,7 +223,7 @@ function ProjectSection({
   active,
   open,
   expanded,
-  center,
+  route,
   running,
   onToggle,
   onToggleExpanded,
@@ -239,7 +235,7 @@ function ProjectSection({
   readonly active: boolean;
   readonly open: boolean;
   readonly expanded: boolean;
-  readonly center: CenterView;
+  readonly route: StudioRoute;
   /** Slugs with something running right now (presence sweep). */
   readonly running: ReadonlySet<string>;
   readonly onToggle: () => void;
@@ -288,7 +284,7 @@ function ProjectSection({
       >
         <div className="overflow-hidden">
           {visible.map((skill) => {
-            const active = center.kind === "skill" && center.project === project.name && center.slug === skill.slug;
+            const active = route.name === "skill" && route.projectSlug === project.slug && route.skillSlug === skill.slug;
             return (
               <button
                 key={skill.slug}

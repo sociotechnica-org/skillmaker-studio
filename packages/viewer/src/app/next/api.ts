@@ -390,40 +390,47 @@ export function useApiStatus<T>(
   // Refetch when the ACTIVE PROJECT changes -- every project-scoped path
   // this fetcher hits is rewritten through projectScope.apiPath.
   const project = useActiveProject();
-  const [state, setState] = useState<{ readonly data?: T; readonly status: "loading" | "live" | "error" }>({ status: "loading" });
+  const [state, setState] = useState<{ readonly data?: T; readonly status: "loading" | "live" | "error"; readonly project: string | null }>({ status: "loading", project });
   const lastFetcher = useRef<(() => Promise<T>) | undefined>(undefined);
+  const lastProject = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
     // A tick with the same fetcher is a background refresh: keep what's
     // on screen. A new fetcher (e.g. slug change) starts from loading.
-    const isRefresh = lastFetcher.current === fetcher;
+    const isRefresh = lastFetcher.current === fetcher && lastProject.current === project;
     lastFetcher.current = fetcher;
-    if (!isRefresh) setState({ status: "loading" });
+    lastProject.current = project;
+    if (!isRefresh) setState({ status: "loading", project });
     fetcher().then(
       (value) => {
-        if (!cancelled) setState({ data: value, status: "live" });
+        if (!cancelled) setState({ data: value, status: "live", project });
       },
       () => {
-        if (!cancelled) setState((prev) => (isRefresh && prev.status === "live" ? prev : { status: "error" }));
+        if (!cancelled) setState((prev) => (isRefresh && prev.status === "live" ? prev : { status: "error", project }));
       },
     );
     return () => {
       cancelled = true;
     };
   }, [fetcher, tick, project]);
-  return state;
+  return state.project === project ? state : { status: "loading" };
 }
 
 export function useApiData<T>(fetcher: () => Promise<T>, fallback: T, options: { readonly scope?: TickScope } = {}): T {
   const tick = useJournalTick(options.scope ?? "active");
   const project = useActiveProject();
-  const [data, setData] = useState<T | undefined>(undefined);
+  const [state, setState] = useState<{ readonly data?: T; readonly project: string | null }>({ project });
+  const lastProject = useRef(project);
 
   useEffect(() => {
     let cancelled = false;
+    if (lastProject.current !== project) {
+      lastProject.current = project;
+      setState({ project });
+    }
     fetcher().then(
       (value) => {
-        if (!cancelled) setData(value);
+        if (!cancelled) setState({ data: value, project });
       },
       () => {
         // Server absent or wire mismatch: stay on the placeholders
@@ -435,5 +442,7 @@ export function useApiData<T>(fetcher: () => Promise<T>, fallback: T, options: {
     };
   }, [fetcher, tick, project]);
 
-  return data ?? fallback;
+  // Switching projects must never briefly display the identically named
+  // resource from the prior project's API scope (#208).
+  return state.project === project ? state.data ?? fallback : fallback;
 }

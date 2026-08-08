@@ -14,8 +14,7 @@
  *   the right panel is open.
  * - The right panel exists on skill pages only.
  */
-import { useState } from "react";
-import { setActiveProject } from "../runtime/projectScope.ts";
+import { useEffect, useState } from "react";
 import { useProjectBootstrap } from "../runtime/useProjectBootstrap.ts";
 import { usePanelResize } from "./hooks.ts";
 import { CollapseIcon, ExpandIcon, OverviewIcon, PanelLeftIcon, PanelRightIcon } from "./icons.tsx";
@@ -25,36 +24,47 @@ import { Sidebar } from "./Sidebar.tsx";
 import { IconButton } from "./ui.tsx";
 import { BoardView, OverviewCard, SkillView, TasksView, useSkillPage } from "./views.tsx";
 import { TopBarSkillControls } from "./SkillPage.tsx";
+import { CURRENT_DRAFT } from "./SkillPage.tsx";
+import { boardHref, skillHref, tasksHref, useStudioRouter } from "./router.tsx";
 
 /** Top-bar bridge: owns nothing, fetches the shared skill page for the controls. */
 function TopBarControls({ slug, pinned, onPin }: { readonly slug: string; readonly pinned: string; readonly onPin: (v: string) => void }) {
   const page = useSkillPage(slug);
-  return <TopBarSkillControls slug={slug} page={page} pinned={pinned} onPin={onPin} />;
+  const fullHash = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : page.versions.find((version) => version.shortHash === pinned)?.hash ?? CURRENT_DRAFT;
+  return <TopBarSkillControls slug={slug} page={page} pinned={fullHash} onPin={onPin} />;
 }
-import type { CenterView } from "./types.ts";
-
 export default function NextShell() {
   // Machine registry (2026-07-27 rulings): resolve the ACTIVE project up
   // front -- stored selection if still registered, else the first healthy
   // project. Hooks re-fetch when the selection lands/changes.
   useProjectBootstrap();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
-  // Land on the Board: with many projects there is no one hardcodable skill.
-  const [center, setCenter] = useState<CenterView>({ kind: "board" });
+  const [rightOpen, setRightOpen] = useState(() => {
+    try {
+      return localStorage.getItem("sm-next-right-open") !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const { route, navigate, replace } = useStudioRouter();
   const [overviewOpen, setOverviewOpen] = useState(true);
   // A center-panel "open in Files" request: RightPanel consumes + clears it.
   const [fileRequest, setFileRequest] = useState<string | null>(null);
-  // Top-level version pivot: every skill tab is a lens on this draft.
-  const [pinned, setPinned] = useState<string>("current");
   const [overviewOverlay, setOverviewOverlay] = useState(false);
   // Set by the new-skill launcher: the chat panel starts a session for this
   // skill whose first prompt is the launcher's message, then clears it.
-  const [chatIntro, setChatIntro] = useState<ChatIntro | null>(null);
+  const [chatIntro, setChatIntro] = useState<(ChatIntro & { readonly projectSlug: string }) | null>(null);
   // New-project dialog state lives HERE (not in Sidebar) so the Board's
   // empty-registry welcome opens the very same dialog (e2e-readiness
   // blocker: first run must offer a next action).
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  useEffect(() => {
+    try {
+      localStorage.setItem("sm-next-right-open", String(rightOpen));
+    } catch {
+      // The layout is still useful when storage is unavailable.
+    }
+  }, [rightOpen]);
 
   const left = usePanelResize("left", "sm-next-leftw", 256, 180, 440);
   // The right panel may eat almost everything: the center keeps ~300px.
@@ -64,11 +74,50 @@ export default function NextShell() {
   const dragging = left.dragging || right.dragging;
 
   const [rightExpanded, setRightExpanded] = useState(false);
-  const onSkillPage = center.kind === "skill";
+  // `/` is retained as a compatibility entry point, but never remains a
+  // history destination once the client shell owns the route.
+  useEffect(() => {
+    if (route.name === "invalid") replace(boardHref());
+    else if (window.location.pathname === "/") replace(boardHref());
+    else if (route.name === "tasks" && route.projectSlug === undefined) {
+      const stored = localStorage.getItem("sm-active-project");
+      if (stored !== null) replace(tasksHref(stored));
+    }
+    else {
+      const canonical =
+        route.name === "board" ? boardHref(route.projectSlug) :
+        route.name === "tasks" ? tasksHref(route.projectSlug) :
+        route.name === "new-skill" ? `/p/${encodeURIComponent(route.projectSlug)}/new` :
+        route.name === "skill" ? skillHref(route.projectSlug, route.skillSlug, route.tab, route.version) :
+        boardHref();
+      if (`${window.location.pathname}${window.location.search}` !== canonical) replace(canonical);
+    }
+  }, [replace, route]);
+  useEffect(() => {
+    if (route.name !== "board" && route.name !== "tasks" && route.name !== "new-skill" && route.name !== "skill") return;
+    const projectSlug = route.name === "new-skill" || route.name === "skill" ? route.projectSlug : route.projectSlug;
+    if (projectSlug === undefined) return;
+    let cancelled = false;
+    void fetch("/api/projects", { headers: { accept: "application/json" } }).then(async (response) => {
+      if (!response.ok) return;
+      const body = (await response.json()) as { projects?: unknown };
+      if (!Array.isArray(body.projects) || cancelled) return;
+      const project = body.projects.find((row): row is { slug: string; skills?: unknown } =>
+        typeof row === "object" && row !== null && (row as { slug?: unknown }).slug === projectSlug,
+      );
+      if (project === undefined) replace(boardHref());
+      else if (route.name === "skill" && Array.isArray(project.skills) && !project.skills.some((skill) =>
+        typeof skill === "object" && skill !== null && (skill as { slug?: unknown }).slug === route.skillSlug,
+      )) replace(boardHref());
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [replace, route]);
+
+  const onSkillPage = route.name === "skill";
   const rightShown = onSkillPage && rightOpen;
   const expanded = rightShown && rightExpanded;
   const title =
-    center.kind === "board" ? "Board" : center.kind === "tasks" ? "Tasks" : center.kind === "new-skill" ? "New skill" : center.slug;
+    route.name === "board" ? "Board" : route.name === "tasks" ? "Tasks" : route.name === "new-skill" ? "New skill" : route.name === "skill" ? route.skillSlug : "Board";
 
   // Overview rules: with the right panel CLOSED, the overview is an
   // in-layout column (persists, content slides over). With the right panel
@@ -130,8 +179,8 @@ export default function NextShell() {
       >
         <div className="h-full" style={{ width: left.width }}>
           <Sidebar
-            center={center}
-            onNavigate={setCenter}
+            route={route}
+            navigate={navigate}
             newProjectOpen={newProjectOpen}
             onNewProjectOpenChange={setNewProjectOpen}
           />
@@ -147,22 +196,25 @@ export default function NextShell() {
 
       {/* center column — hidden entirely while the right panel is expanded */}
       <div className={`relative flex min-w-[300px] flex-col ${expanded ? "hidden" : "flex-1"}`}>
-        {center.kind === "skill" && overviewOverlay && (
+        {route.name === "skill" && overviewOverlay && (
           <div data-overview-overlay className="absolute right-[10px] top-[54px] z-30">
-            <OverviewCard slug={center.slug} elevated />
+            <OverviewCard slug={route.skillSlug} elevated />
           </div>
         )}
         <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3">
           {!sidebarOpen && <span className="w-7 shrink-0" />}
           <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
-            {(center.kind === "skill" || center.kind === "new-skill") && (
-              <span className="shrink-0 whitespace-nowrap font-display text-sm text-ink-muted">{center.project} /</span>
+            {(route.name === "skill" || route.name === "new-skill") && (
+              <span className="shrink-0 whitespace-nowrap font-display text-sm text-ink-muted">{route.projectSlug} /</span>
             )}
             {/* long slugs truncate — the h-11 bar must never wrap or overflow */}
             <span className="truncate font-display text-sm" title={title}>{title}</span>
             {onSkillPage && <span className="text-ink-muted">···</span>}
           </div>
-          {center.kind === "skill" && <TopBarControls slug={center.slug} pinned={pinned} onPin={setPinned} />}
+          {route.name === "skill" && <TopBarControls slug={route.skillSlug} pinned={route.version ?? CURRENT_DRAFT} onPin={(hash) => {
+            const version = hash === CURRENT_DRAFT ? undefined : hash.slice(0, 8);
+            navigate(skillHref(route.projectSlug, route.skillSlug, route.tab, version));
+          }} />}
           {onSkillPage && (
             <IconButton
               active={overviewShown || overviewOverlay}
@@ -176,22 +228,21 @@ export default function NextShell() {
           {onSkillPage && !rightOpen && <span className="w-7 shrink-0" />}
         </header>
         <main className="relative flex-1 overflow-y-auto">
-          {center.kind === "board" && (
+          {route.name === "board" && (
             <BoardView
-              onOpenSkill={(project, slug) => {
-                // A board card may belong to a different project than the
-                // active one -- opening it switches the scope too.
-                setActiveProject(project.slug);
-                setCenter({ kind: "skill", project: project.name, slug });
-              }}
+              projectSlug={route.projectSlug}
+              onOpenSkill={(project, slug) => navigate(skillHref(project.slug, slug))}
               onCreateProject={() => setNewProjectOpen(true)}
             />
           )}
-          {center.kind === "tasks" && <TasksView />}
-          {center.kind === "skill" && (
+          {route.name === "tasks" && route.projectSlug !== undefined && <TasksView />}
+          {route.name === "tasks" && route.projectSlug === undefined && <p className="p-6 text-sm text-ink-muted">Register or repair a project to view its tasks.</p>}
+          {route.name === "skill" && (
             <SkillView
-              slug={center.slug}
-              pinned={pinned}
+              slug={route.skillSlug}
+              pinned={route.version ?? CURRENT_DRAFT}
+              tab={route.tab}
+              onTabChange={(tab) => navigate(skillHref(route.projectSlug, route.skillSlug, tab, route.version))}
               overviewOpen={overviewShown}
               onOpenFile={(path) => {
                 setRightOpen(true);
@@ -199,23 +250,24 @@ export default function NextShell() {
               }}
             />
           )}
-          {center.kind === "new-skill" && (
+          {route.name === "new-skill" && (
             <NewSkillLauncher
-              project={center.project}
+              project={route.projectSlug}
               onCreated={(slug, provider, message, model, effort) => {
                 // The launcher disappears; the conversation continues in the
                 // right panel (session started with this very message).
                 setChatIntro({
                   slug,
+                  projectSlug: route.projectSlug,
                   provider,
                   message,
                   ...(model !== undefined ? { model } : {}),
                   ...(effort !== undefined ? { effort } : {}),
                 });
-                setCenter({ kind: "skill", project: center.project, slug });
+                navigate(skillHref(route.projectSlug, slug));
                 setRightOpen(true);
               }}
-              onAdopted={(slug) => setCenter({ kind: "skill", project: center.project, slug })}
+              onAdopted={(slug) => navigate(skillHref(route.projectSlug, slug))}
             />
           )}
         </main>
@@ -236,13 +288,14 @@ export default function NextShell() {
           />
         )}
         <div className="h-full" style={expanded ? undefined : { width: right.width }}>
-          {onSkillPage && (
+          {route.name === "skill" && (
             <RightPanel
-              skill={center.slug}
+              key={`${route.projectSlug}/${route.skillSlug}`}
+              skill={route.skillSlug}
               width={expanded ? 9999 : right.width}
               fileRequest={fileRequest}
               onFileRequestHandled={() => setFileRequest(null)}
-              intro={chatIntro !== null && chatIntro.slug === center.slug ? chatIntro : null}
+              intro={chatIntro !== null && chatIntro.projectSlug === route.projectSlug && chatIntro.slug === route.skillSlug ? chatIntro : null}
               onIntroConsumed={() => setChatIntro(null)}
             />
           )}
