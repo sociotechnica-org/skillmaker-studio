@@ -81,12 +81,13 @@ describe("chat SSE keepalive", () => {
 
     try {
       const baselineTimers = clock.size;
-      const response = manager.streamResponse("no-live-session");
+      const response = manager.streamResponse("no-live-session", new Request("http://localhost/stream"));
       reader = (response.body as ReadableStream<Uint8Array>).getReader();
 
       expect(await readFrame(reader)).toBe(": connected\n\n");
       const initialState = await readFrame(reader);
       expect(initialState).toStartWith("data: ");
+      expect(await readFrame(reader)).toBe('data: {"type":"replay_reset"}\n\n');
       expect(clock.delays).toContain(HEARTBEAT_MS);
       expect(clock.size).toBe(baselineTimers + 1);
 
@@ -124,7 +125,9 @@ describe("chat SSE keepalive", () => {
     try {
       const baselineTimers = clock.size;
       for (const skill of ["one", "two", "three"]) {
-        readers.push((manager.streamResponse(skill).body as ReadableStream<Uint8Array>).getReader());
+        readers.push(
+          (manager.streamResponse(skill, new Request(`http://localhost/${skill}`)).body as ReadableStream<Uint8Array>).getReader(),
+        );
       }
       expect(clock.size).toBe(baselineTimers + readers.length);
 

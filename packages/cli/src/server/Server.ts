@@ -2832,7 +2832,7 @@ const handleProjectApi = async (
           return jsonResponse(chatManager.state(chatSkill));
         }
         if (chatAction === "stream" && request.method === "GET") {
-          return chatManager.streamResponse(chatSkill);
+          return chatManager.streamResponse(chatSkill, request);
         }
         if (request.method !== "POST") {
           return jsonResponse({ error: `${chatAction} requires POST` }, 405);

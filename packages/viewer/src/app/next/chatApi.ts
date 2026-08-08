@@ -148,7 +148,7 @@ export interface ChatSessionHook {
   /** False when the chat API is absent (plain astro dev) -> placeholder mode. */
   readonly available: boolean;
   readonly state: ChatState | undefined;
-  /** SSE events in arrival order (chatModel.ts renders them). Reset on each stream (re)connect -- the server replays from session start. */
+  /** SSE events in arrival order (chatModel.ts renders them). */
   readonly events: ReadonlyArray<unknown>;
   readonly actionError: string | undefined;
   readonly start: (provider: string, mode: "new" | "resume", choice?: ChatModelChoice) => void;
@@ -158,6 +158,23 @@ export interface ChatSessionHook {
   readonly answerPermission: (requestId: string, optionId: string, decision: "allowed" | "denied") => void;
   readonly cancelTurn: () => void;
 }
+
+/**
+ * Applies the stream's transcript policy independently of React. A normal
+ * reconnect has no transcript frame, while issue #195's explicit reset is
+ * the only frame permitted to discard the current transcript.
+ */
+export const reconcileChatStreamEvent = (
+  events: ReadonlyArray<unknown>,
+  event: unknown,
+): ReadonlyArray<unknown> => {
+  if (typeof event === "object" && event !== null) {
+    const type = (event as Record<string, unknown>).type;
+    if (type === "state") return events;
+    if (type === "replay_reset") return [];
+  }
+  return [...events, event];
+};
 
 export function useChatSession(skill: string): ChatSessionHook {
   const [available, setAvailable] = useState(true);
@@ -198,11 +215,6 @@ export function useChatSession(skill: string): ChatSessionHook {
   useEffect(() => {
     if (!available) return;
     const source = new EventSource(apiPath(`/api/chat/${encodeURIComponent(skill)}/stream`));
-    const onOpen = () => {
-      // The server replays the live session's whole buffer on connect:
-      // start from a clean slate so a reconnect never duplicates items.
-      setEvents([]);
-    };
     const onMessage = (message: MessageEvent) => {
       let parsed: unknown;
       try {
@@ -219,12 +231,10 @@ export function useChatSession(skill: string): ChatSessionHook {
         if (decoded !== undefined) setState(decoded);
         return;
       }
-      setEvents((prev) => [...prev, parsed]);
+      setEvents((prev) => reconcileChatStreamEvent(prev, parsed));
     };
-    source.addEventListener("open", onOpen);
     source.addEventListener("message", onMessage);
     return () => {
-      source.removeEventListener("open", onOpen);
       source.removeEventListener("message", onMessage);
       source.close();
     };
