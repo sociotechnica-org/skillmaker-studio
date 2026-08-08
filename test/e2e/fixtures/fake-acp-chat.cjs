@@ -24,6 +24,21 @@
  *   cancelled".
  * - A prompt containing "HANG" never finishes its turn until a
  *   `session/cancel` arrives -> then answers `stopReason: "cancelled"`.
+ * - MID-TURN prompts (issue #191): a `session/prompt` arriving while a
+ *   HANG turn is open models the real adapters' empirically observed
+ *   behaviors, selected per message:
+ *   - text contains "REJECT-MIDTURN" -> JSON-RPC error -32000 "turn in
+ *     progress" (a strict adapter refusing mid-turn prompts);
+ *   - text contains "SWALLOW-MIDTURN" -> an agent chunk `steered: <text>`
+ *     streams into the OPEN turn and the request is NEVER answered
+ *     (codex-acp's observed live-steering shape);
+ *   - otherwise -> the prompt is answered immediately as its own turn
+ *     while the first keeps hanging.
+ *   With env FAKE_CHAT_PROMPT_QUEUEING=1, `initialize` also advertises
+ *   `agentCapabilities._meta.claudeCode.promptQueueing: true` and mid-turn
+ *   prompts are instead QUEUED adapter-side, each answered as its own turn
+ *   in order after the hanging turn is cancelled (claude-agent-acp's
+ *   observed shape).
  * - MODELS (mirroring `claude-code-acp@0.16.2`'s real shape): `initialize`
  *   advertises `promptCapabilities: {image: true}`; `session/new` lists two
  *   `availableModels` with `currentModelId: "fake-chat-model"`; a
@@ -96,6 +111,9 @@ let nextOutboundId = 1000;
 const pendingPermissions = new Map();
 /** Pending HANG turn: { promptRequestId } or null. */
 let hangingTurn = null;
+/** Adapter-side prompt queue (FAKE_CHAT_PROMPT_QUEUEING mode): [{requestId, text}] flushed in order after the hanging turn resolves. */
+const queuedPrompts = [];
+const PROMPT_QUEUEING = process.env.FAKE_CHAT_PROMPT_QUEUEING === "1";
 
 const PERMISSION_OPTIONS = [
   { optionId: "opt-allow-once", kind: "allow_once" },
@@ -162,15 +180,24 @@ rl.on("line", (line) => {
   }
 
   if (msg.method === "initialize") {
-    send({
+    // FAKE_CHAT_SLOW_START_MS holds the handshake open so tests can
+    // observe (and message into) the manager's `starting` window.
+    const slowStartMs = Number(process.env.FAKE_CHAT_SLOW_START_MS || 0);
+    const respond = () => send({
       jsonrpc: "2.0",
       id: msg.id,
       result: {
         protocolVersion: 1,
         agentInfo: { name: "fake-acp-chat" },
-        agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
+        agentCapabilities: {
+          loadSession: true,
+          promptCapabilities: { image: true },
+          ...(PROMPT_QUEUEING ? { _meta: { claudeCode: { promptQueueing: true } } } : {}),
+        },
       },
     });
+    if (slowStartMs > 0) setTimeout(respond, slowStartMs);
+    else respond();
     return;
   }
 
@@ -232,6 +259,11 @@ rl.on("line", (line) => {
       const { promptRequestId } = hangingTurn;
       hangingTurn = null;
       send({ jsonrpc: "2.0", id: promptRequestId, result: { stopReason: "cancelled" } });
+      // promptQueueing mode: queued mid-turn prompts each run as their own
+      // turn, in order, once the hanging turn resolves.
+      for (const queued of queuedPrompts.splice(0)) {
+        finishTurn(queued.requestId, queued.text, null);
+      }
     }
     return;
   }
@@ -251,6 +283,25 @@ rl.on("line", (line) => {
       })
       .filter((part) => part !== null)
       .join("\n");
+
+    // Mid-turn prompt (a HANG turn is open): model the shapes observed
+    // live against the real adapters (issue #191) -- see module doc.
+    if (hangingTurn) {
+      if (promptText.includes("REJECT-MIDTURN")) {
+        send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "turn in progress" } });
+        return;
+      }
+      if (promptText.includes("SWALLOW-MIDTURN")) {
+        chunk(sessionId, "agent", `steered: ${promptText}`);
+        return; // never answered -- codex-acp's observed shape
+      }
+      if (PROMPT_QUEUEING) {
+        queuedPrompts.push({ requestId: msg.id, text: promptText });
+        return;
+      }
+      finishTurn(msg.id, promptText, null);
+      return;
+    }
 
     if (promptText.includes("HANG")) {
       hangingTurn = { promptRequestId: msg.id };

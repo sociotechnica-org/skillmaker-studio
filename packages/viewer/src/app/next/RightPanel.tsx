@@ -412,11 +412,14 @@ function UserMessage({
   sentAt,
   context,
   images = [],
+  pending = false,
 }: {
   readonly text: string;
   readonly sentAt: string;
   readonly context?: string;
   readonly images?: ReadonlyArray<ChatItemImage>;
+  /** Held server-side awaiting the turn boundary (issue #191): rendered muted with a "queued" chip until delivery flips it to a normal bubble. */
+  readonly pending?: boolean;
 }) {
   // The orientation opening is machine context with no user words: just the
   // collapsed chip, no empty bubble.
@@ -430,7 +433,14 @@ function UserMessage({
   return (
     <div className="group flex flex-col items-end pt-3">
       {context !== undefined && <ContextChip context={context} />}
-      <div className="max-w-[85%] rounded-xl bg-amber-50 px-3 py-2 shadow-sm">
+      {pending && <span className="pb-0.5 font-display text-[10px] uppercase tracking-wide text-ink-muted">queued</span>}
+      <div
+        className={
+          pending
+            ? "max-w-[85%] rounded-xl border border-dashed border-border bg-surface/60 px-3 py-2 text-ink-muted"
+            : "max-w-[85%] rounded-xl bg-amber-50 px-3 py-2 shadow-sm"
+        }
+      >
         {images.length > 0 && (
           <div className="flex flex-wrap justify-end gap-1.5 pb-1">
             {images.map((image, i) => (
@@ -669,7 +679,11 @@ function ChatTab({
 
   const items = chatItemsFromEvents(chat.events);
   const active = chat.state?.active ?? null;
-  const canSend = chat.available && active !== null && active.status === "ready";
+  // Issue #191 (director ruling 2026-08-08): typing is NEVER blocked. The
+  // composer stays enabled in every session state; a send mid-turn steers
+  // the live session or queues server-side for the turn boundary. The only
+  // gate left is "no session at all", where Send has nothing to talk to.
+  const canSend = chat.available && active !== null;
 
   // The selection the picker shows: a pending provider-switch proposal
   // first, else the ACTIVE session's model when one is live (the picker
@@ -751,6 +765,29 @@ function ChatTab({
     autoResumeDone.current = true;
     chat.start(stored.provider, "resume");
   }, [chat, intro]);
+
+  // Degraded state (issue #191): if the session dies -- closed, reaped, or
+  // errored -- while messages are still queued server-side, their text
+  // returns to the composer as an editable draft instead of vanishing with
+  // the session. Fires once per session loss (the ref); the queue's texts
+  // are still visible in `items` because the stream buffer outlives the
+  // session state flip.
+  const queuedRestoreDone = useRef(false);
+  const pendingTexts = items
+    .filter((item): item is Extract<ChatItem, { kind: "user" }> => item.kind === "user" && item.pending === true)
+    .map((item) => item.text)
+    .filter((text) => text.length > 0);
+  useEffect(() => {
+    if (active !== null) {
+      queuedRestoreDone.current = false;
+      return;
+    }
+    if (queuedRestoreDone.current || pendingTexts.length === 0) return;
+    queuedRestoreDone.current = true;
+    const restored = pendingTexts.join("\n\n");
+    setDraft(draft.trim().length > 0 ? `${draft}\n\n${restored}` : restored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active === null, pendingTexts.join("\n")]);
 
   // Transcript scroll retention: a remount (tab/view switch) restores the
   // remembered position once the replayed stream has content; otherwise
@@ -856,6 +893,7 @@ function ChatTab({
                   sentAt={fmtTime(item.t)}
                   context={item.context}
                   images={item.images}
+                  pending={item.pending}
                 />
               );
             if (item.kind === "agent") return <AgentMessage key={i} text={item.text} sentAt={fmtTime(item.t)} />;
@@ -948,9 +986,8 @@ function ChatTab({
           ref={composerRef}
           className="max-h-[210px] w-full resize-none bg-transparent px-4 pb-1.5 pt-3.5 text-sm outline-none disabled:opacity-60"
           rows={1}
-          placeholder={canSend || !chat.available ? "What should we do?" : active === null ? "Choose a model to start" : "Agent is working…"}
+          placeholder={canSend || !chat.available ? "What should we do?" : "Choose a model to start"}
           value={draft}
-          disabled={chat.available && !canSend}
           onChange={(e) => {
             setDraft(e.target.value);
             // Auto-grow up to max-h: reset then track content height.
@@ -990,7 +1027,6 @@ function ChatTab({
                 type="button"
                 className="rounded p-1 text-ink-muted hover:bg-surface hover:text-ink disabled:opacity-35"
                 title="Attach images (or paste into the input)"
-                disabled={chat.available && !canSend && active !== null}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <AttachIcon />

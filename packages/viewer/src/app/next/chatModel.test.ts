@@ -133,6 +133,55 @@ describe("chatItemsFromEvents", () => {
   });
 });
 
+describe("queued messages (issue #191 steering)", () => {
+  test("a queued user_message renders pending; queue_delivered flips it to a normal bubble in place", () => {
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "banked", t: "t1", queued: true, queueId: "msg-1" },
+      { type: "queue_delivered", queueId: "msg-1", t: "t2" },
+      agentChunk("On it."),
+    ]);
+    expect(items).toEqual([
+      { kind: "user", text: "banked", t: "t1", pending: false },
+      { kind: "agent", text: "On it.", t: "2026-07-23T10:00:00.000Z" },
+    ]);
+  });
+
+  test("still-queued messages stay pending, at their send position", () => {
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "first", t: "t1" },
+      { type: "user_message", text: "waiting", t: "t2", queued: true, queueId: "msg-2" },
+    ]);
+    expect(items).toEqual([
+      { kind: "user", text: "first", t: "t1" },
+      { kind: "user", text: "waiting", t: "t2", pending: true },
+    ]);
+  });
+
+  test("a reconnect's replay (same events again from a clean slate) resolves identically -- no duplicates", () => {
+    const events = [
+      { type: "user_message", text: "banked", t: "t1", queued: true, queueId: "msg-1" },
+      { type: "queue_delivered", queueId: "msg-1", t: "t2" },
+    ];
+    // The client resets its event list on reconnect and the server replays
+    // the full buffer: the transform is pure, so the result is identical.
+    expect(chatItemsFromEvents(events)).toEqual(chatItemsFromEvents(events));
+    expect(chatItemsFromEvents(events).length).toBe(1);
+  });
+
+  test("a live-steered message (queueId, no queued flag) is a normal delivered bubble; queue_delivered for it stays a no-op flip", () => {
+    const items = chatItemsFromEvents([
+      { type: "user_message", text: "redirect", t: "t1", queueId: "msg-3" },
+      { type: "queue_delivered", queueId: "msg-3", t: "t2" },
+    ]);
+    expect(items).toEqual([{ kind: "user", text: "redirect", t: "t1", pending: false }]);
+    expect(items[0]?.kind === "user" && items[0].pending).toBeFalsy();
+  });
+
+  test("queue_delivered for an unknown id degrades silently", () => {
+    expect(chatItemsFromEvents([{ type: "queue_delivered", queueId: "ghost", t: "t" }])).toEqual([]);
+  });
+});
+
 describe("first-prompt production context (Blocker #5)", () => {
   const preamble =
     "You're inside Skillmaker Studio. Your job is to help me create a reusable SKILL -- x -- as a skillmaker bundle (slug: s).";

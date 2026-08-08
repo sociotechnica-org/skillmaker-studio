@@ -33,6 +33,8 @@ export interface ChatActiveState {
   readonly effort?: string;
   /** Set when the chosen model could not be applied -- the session runs on the adapter's default. */
   readonly modelFallback?: string;
+  /** Messages held server-side awaiting the turn boundary (issue #191), in delivery order. */
+  readonly queued?: ReadonlyArray<{ readonly id: string; readonly text: string; readonly t: string }>;
 }
 
 // -- Provider capability catalog (GET /api/chat/providers) -------------------
