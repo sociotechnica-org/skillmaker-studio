@@ -491,7 +491,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-08T10:33:40.270256084Z",
-  "last_event_at": "2026-08-08T11:09:14.725503273Z",
+  "last_event_at": "2026-08-08T11:13:03.936785928Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -624,9 +624,9 @@
       }
     },
     {
-      "seq": 0,
+      "seq": 1820,
       "checkpoint": {
-        "timestamp": "2026-08-08T11:09:15.227703971Z",
+        "timestamp": "2026-08-08T11:09:20.801755558Z",
         "current_node": "implement",
         "completed_nodes": [
           "start",
@@ -635,28 +635,163 @@
         ],
         "node_retries": {},
         "context_values": {
-          "internal.retry_count.start": 0,
-          "internal.fidelity": "summary:high",
-          "failure_class": "",
-          "graph.rankdir": "LR",
           "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
-          "internal.run_id": "01KZGEY5FAPKGK8R4MRQKG9NSV",
-          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
-          "internal.node_visit_count": 1,
-          "current_node": "implement",
-          "last_response": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router",
-          "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md",
           "thread.start.current_node": "scope",
-          "internal.retry_count.scope": 0,
-          "response.implement": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.tsx):\n  - `/board`, `/tasks`, project Board, project Tasks, New Skill, skill tabs, and `?v=<shortHash>`.\n  - `pushState` navigation, `replaceState` canonicalization/recovery, and `popstate` Back/Forward handling.\n  - Invalid/stale project or skill routes recover to `/board`.\n\n- Converted the mounted shell in [NextShell.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/NextShell.tsx) from in-memory center/pin state to route-derived rendering.\n  - Sidebar, Board cards, launcher handoff, tabs, and version picker now update the URL.\n  - Project scope is synchronized before routed project content runs.\n  - Right-panel open state is persisted locally and remains out of the URL.\n  - New-skill chat handoff is qualified by project and skill.\n\n- Updated [Sidebar.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/Sidebar.tsx), [views.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/views.tsx), and [SkillPage.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/SkillPage.tsx) for controlled route navigation, project-filtered Board, and route-controlled skill tabs with `aria-current`.\n\n- Prevented cross-project stale API data flashes in [api.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/api.ts).\n\n- Switched the Astro shell to client-only mounting in [index.astro](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/pages/index.astro), and applied SPA fallback to preview as well as dev in [astro.config.mjs](/home/daytona/workspace/skillmaker-studio/packages/viewer/astro.config.mjs).\n\n- Added pure route coverage in [router.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.test.ts) and updated the server E2E to request a canonical deep skill URL in [phase3.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/phase3.e2e.test.ts).\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: viewer TypeScript check, router unit tests, and `bun run build:viewer`\n- Passed once: `bun test test/e2e --timeout 30000` — 370 passed, 17 expected skips.\n- Verified manually: `skillmaker start` serves the rebuilt shell at `/` (200); the existing server fallback handles arbitrary-depth non-asset paths.\n\nOne gate remains externally blocked: `bun test packages` fails in the pre-existing `packages/cli/test/JournalWatcher.test.ts` test (“fires (debounced) on appends to an existing journal”). It also fails identically when run alone, and no watcher/server code was changed by this routing work.",
+          "internal.run_id": "01KZGEY5FAPKGK8R4MRQKG9NSV",
+          "internal.fidelity": "summary:high",
           "internal.retry_count.implement": 0,
           "graph.max_node_visits": "5",
+          "internal.thread_id": "scope",
+          "failure_class": "",
+          "graph.stall_timeout": "18000000ms",
+          "internal.retry_count.start": 0,
+          "graph.rankdir": "LR",
+          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
+          "last_stage": "implement",
+          "current_node": "implement",
+          "outcome": "succeeded",
+          "internal.node_visit_count": 1,
+          "graph.default_fidelity": "summary:high",
+          "last_response": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router",
+          "response.implement": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.tsx):\n  - `/board`, `/tasks`, project Board, project Tasks, New Skill, skill tabs, and `?v=<shortHash>`.\n  - `pushState` navigation, `replaceState` canonicalization/recovery, and `popstate` Back/Forward handling.\n  - Invalid/stale project or skill routes recover to `/board`.\n\n- Converted the mounted shell in [NextShell.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/NextShell.tsx) from in-memory center/pin state to route-derived rendering.\n  - Sidebar, Board cards, launcher handoff, tabs, and version picker now update the URL.\n  - Project scope is synchronized before routed project content runs.\n  - Right-panel open state is persisted locally and remains out of the URL.\n  - New-skill chat handoff is qualified by project and skill.\n\n- Updated [Sidebar.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/Sidebar.tsx), [views.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/views.tsx), and [SkillPage.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/SkillPage.tsx) for controlled route navigation, project-filtered Board, and route-controlled skill tabs with `aria-current`.\n\n- Prevented cross-project stale API data flashes in [api.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/api.ts).\n\n- Switched the Astro shell to client-only mounting in [index.astro](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/pages/index.astro), and applied SPA fallback to preview as well as dev in [astro.config.mjs](/home/daytona/workspace/skillmaker-studio/packages/viewer/astro.config.mjs).\n\n- Added pure route coverage in [router.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.test.ts) and updated the server E2E to request a canonical deep skill URL in [phase3.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/phase3.e2e.test.ts).\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: viewer TypeScript check, router unit tests, and `bun run build:viewer`\n- Passed once: `bun test test/e2e --timeout 30000` — 370 passed, 17 expected skips.\n- Verified manually: `skillmaker start` serves the rebuilt shell at `/` (200); the existing server fallback handles arbitrary-depth non-asset paths.\n\nOne gate remains externally blocked: `bun test packages` fails in the pre-existing `packages/cli/test/JournalWatcher.test.ts` test (“fires (debounced) on appends to an existing journal”). It also fails identically when run alone, and no watcher/server code was changed by this routing work.",
+          "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md",
+          "thread.scope.current_node": "implement",
+          "failure_signature": "",
+          "internal.retry_count.scope": 0
+        },
+        "node_outcomes": {
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          },
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative ",
+              "last_stage": "scope",
+              "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 160891,
+                    "output_tokens": 21402,
+                    "reasoning_tokens": 17012,
+                    "cache_read_tokens": 5312913,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 4613319
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 711030,
+              "tool_time_ms": 889129,
+              "active_time_ms": 1600159
+            }
+          },
+          "implement": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_stage": "implement",
+              "last_response": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router",
+              "response.implement": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.tsx):\n  - `/board`, `/tasks`, project Board, project Tasks, New Skill, skill tabs, and `?v=<shortHash>`.\n  - `pushState` navigation, `replaceState` canonicalization/recovery, and `popstate` Back/Forward handling.\n  - Invalid/stale project or skill routes recover to `/board`.\n\n- Converted the mounted shell in [NextShell.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/NextShell.tsx) from in-memory center/pin state to route-derived rendering.\n  - Sidebar, Board cards, launcher handoff, tabs, and version picker now update the URL.\n  - Project scope is synchronized before routed project content runs.\n  - Right-panel open state is persisted locally and remains out of the URL.\n  - New-skill chat handoff is qualified by project and skill.\n\n- Updated [Sidebar.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/Sidebar.tsx), [views.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/views.tsx), and [SkillPage.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/SkillPage.tsx) for controlled route navigation, project-filtered Board, and route-controlled skill tabs with `aria-current`.\n\n- Prevented cross-project stale API data flashes in [api.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/api.ts).\n\n- Switched the Astro shell to client-only mounting in [index.astro](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/pages/index.astro), and applied SPA fallback to preview as well as dev in [astro.config.mjs](/home/daytona/workspace/skillmaker-studio/packages/viewer/astro.config.mjs).\n\n- Added pure route coverage in [router.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.test.ts) and updated the server E2E to request a canonical deep skill URL in [phase3.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/phase3.e2e.test.ts).\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: viewer TypeScript check, router unit tests, and `bun run build:viewer`\n- Passed once: `bun test test/e2e --timeout 30000` — 370 passed, 17 expected skips.\n- Verified manually: `skillmaker start` serves the rebuilt shell at `/` (200); the existing server fallback handles arbitrary-depth non-asset paths.\n\nOne gate remains externally blocked: `bun test packages` fails in the pre-existing `packages/cli/test/JournalWatcher.test.ts` test (“fires (debounced) on appends to an existing journal”). It also fails identically when run alone, and no watcher/server code was changed by this routing work."
+            },
+            "notes": "Stage completed: implement",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 103055,
+                    "output_tokens": 13227,
+                    "reasoning_tokens": 3065,
+                    "cache_read_tokens": 3068204,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 1269042
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 174936,
+              "tool_time_ms": 345906,
+              "active_time_ms": 520842
+            }
+          }
+        },
+        "next_node_id": "validate_gates",
+        "git_commit_sha": "6e6db0b85de009db7ab21218c0cb1ddd63f1a097",
+        "node_visits": {
+          "scope": 1,
+          "start": 1,
+          "implement": 1
+        }
+      },
+      "diff": {
+        "patch": "diff --git a/packages/viewer/astro.config.mjs b/packages/viewer/astro.config.mjs\nindex 11c23b3..807ea59 100644\n--- a/packages/viewer/astro.config.mjs\n+++ b/packages/viewer/astro.config.mjs\n@@ -8,10 +8,18 @@ import { defineConfig } from \"astro/config\";\n // same behavior, so dev and prod routing match (per the phase-3 build\n // brief): any GET that isn't for a real file, an Astro-internal path, or\n // /api/* is rewritten to \"/\" before Astro's own router sees it.\n-const devSpaFallback = () => ({\n+const spaFallback = () => ({\n   name: \"skillmaker-dev-spa-fallback\",\n   configureServer(server) {\n-    server.middlewares.use((req, _res, next) => {\n+    installFallback(server);\n+  },\n+  configurePreviewServer(server) {\n+    installFallback(server);\n+  },\n+});\n+\n+const installFallback = (server) => {\n+  server.middlewares.use((req, _res, next) => {\n       if (req.method !== \"GET\" && req.method !== \"HEAD\") {\n         next();\n         return;\n@@ -21,19 +29,19 @@ const devSpaFallback = () => ({\n       const isApi = pathname.startsWith(\"/api/\");\n       const isViteInternal = pathname.startsWith(\"/@\") || pathname.startsWith(\"/src/\");\n       const hasFileExtension = /\\.[a-zA-Z0-9]+$/.test(pathname);\n-      if (!isApi && !isViteInternal && !hasFileExtension && pathname !== \"/\") {\n+      const isAstroPage = pathname === \"/next\" || pathname.startsWith(\"/next/\");\n+      if (!isApi && !isViteInternal && !isAstroPage && !hasFileExtension && pathname !== \"/\") {\n         req.url = \"/\";\n       }\n       next();\n-    });\n-  },\n-});\n+  });\n+};\n \n export default defineConfig({\n   devToolbar: { enabled: false },\n   integrations: [react()],\n   vite: {\n-    plugins: [tailwindcss(), devSpaFallback()],\n+    plugins: [tailwindcss(), spaFallback()],\n     server: {\n       // Live data during design iteration: astro dev proxies /api to a\n       // running `skillmaker start` (default port). Absent server = the\ndiff --git a/packages/viewer/src/app/next/NextShell.tsx b/packages/viewer/src/app/next/NextShell.tsx\nindex 9a5fceb..61b5969 100644\n--- a/packages/viewer/src/app/next/NextShell.tsx\n+++ b/packages/viewer/src/app/next/NextShell.tsx\n@@ -14,8 +14,7 @@\n  *   the right panel is open.\n  * - The right panel exists on skill pages only.\n  */\n-import { useState } from \"react\";\n-import { setActiveProject } from \"../runtime/projectScope.ts\";\n+import { useEffect, useState } from \"react\";\n import { useProjectBootstrap } from \"../runtime/useProjectBootstrap.ts\";\n import { usePanelResize } from \"./hooks.ts\";\n import { CollapseIcon, ExpandIcon, OverviewIcon, PanelLeftIcon, PanelRightIcon } from \"./icons.tsx\";\n@@ -25,36 +24,47 @@ import { Sidebar } from \"./Sidebar.tsx\";\n import { IconButton } from \"./ui.tsx\";\n import { BoardView, OverviewCard, SkillView, TasksView, useSkillPage } from \"./views.tsx\";\n import { TopBarSkillControls } from \"./SkillPage.tsx\";\n+import { CURRENT_DRAFT } from \"./SkillPage.tsx\";\n+import { boardHref, skillHref, tasksHref, useStudioRouter } from \"./router.tsx\";\n \n /** Top-bar bridge: owns nothing, fetches the shared skill page for the controls. */\n function TopBarControls({ slug, pinned, onPin }: { readonly slug: string; readonly pinned: string; readonly onPin: (v: string) => void }) {\n   const page = useSkillPage(slug);\n-  return <TopBarSkillControls slug={slug} page={page} pinned={pinned} onPin={onPin} />;\n+  const fullHash = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : page.versions.find((version) => version.shortHash === pinned)?.hash ?? CURRENT_DRAFT;\n+  return <TopBarSkillControls slug={slug} page={page} pinned={fullHash} onPin={onPin} />;\n }\n-import type { CenterView } from \"./types.ts\";\n-\n export default function NextShell() {\n   // Machine registry (2026-07-27 rulings): resolve the ACTIVE project up\n   // front -- stored selection if still registered, else the first healthy\n   // project. Hooks re-fetch when the selection lands/changes.\n   useProjectBootstrap();\n   const [sidebarOpen, setSidebarOpen] = useState(true);\n-  const [rightOpen, setRightOpen] = useState(true);\n-  // Land on the Board: with many projects there is no one hardcodable skill.\n-  const [center, setCenter] = useState<CenterView>({ kind: \"board\" });\n+  const [rightOpen, setRightOpen] = useState(() => {\n+    try {\n+      return localStorage.getItem(\"sm-next-right-open\") !== \"false\";\n+    } catch {\n+      return true;\n+    }\n+  });\n+  const { route, navigate, replace } = useStudioRouter();\n   const [overviewOpen, setOverviewOpen] = useState(true);\n   // A center-panel \"open in Files\" request: RightPanel consumes + clears it.\n   const [fileRequest, setFileRequest] = useState<string | null>(null);\n-  // Top-level version pivot: every skill tab is a lens on this draft.\n-  const [pinned, setPinned] = useState<string>(\"current\");\n   const [overviewOverlay, setOverviewOverlay] = useState(false);\n   // Set by the new-skill launcher: the chat panel starts a session for this\n   // skill whose first prompt is the launcher's message, then clears it.\n-  const [chatIntro, setChatIntro] = useState<ChatIntro | null>(null);\n+  const [chatIntro, setChatIntro] = useState<(ChatIntro & { readonly projectSlug: string }) | null>(null);\n   // New-project dialog state lives HERE (not in Sidebar) so the Board's\n   // empty-registry welcome opens the very same dialog (e2e-readiness\n   // blocker: first run must offer a next action).\n   const [newProjectOpen, setNewProjectOpen] = useState(false);\n+  useEffect(() => {\n+    try {\n+      localStorage.setItem(\"sm-next-right-open\", String(rightOpen));\n+    } catch {\n+      // The layout is still useful when storage is unavailable.\n+    }\n+  }, [rightOpen]);\n \n   const left = usePanelResize(\"left\", \"sm-next-leftw\", 256, 180, 440);\n   // The right panel may eat almost everything: the center keeps ~300px.\n@@ -64,11 +74,50 @@ export default function NextShell() {\n   const dragging = left.dragging || right.dragging;\n \n   const [rightExpanded, setRightExpanded] = useState(false);\n-  const onSkillPage = center.kind === \"skill\";\n+  // `/` is retained as a compatibility entry point, but never remains a\n+  // history destination once the client shell owns the route.\n+  useEffect(() => {\n+    if (route.name === \"invalid\") replace(boardHref());\n+    else if (window.location.pathname === \"/\") replace(boardHref());\n+    else if (route.name === \"tasks\" && route.projectSlug === undefined) {\n+      const stored = localStorage.getItem(\"sm-active-project\");\n+      if (stored !== null) replace(tasksHref(stored));\n+    }\n+    else {\n+      const canonical =\n+        route.name === \"board\" ? boardHref(route.projectSlug) :\n+        route.name === \"tasks\" ? tasksHref(route.projectSlug) :\n+        route.name === \"new-skill\" ? `/p/${encodeURIComponent(route.projectSlug)}/new` :\n+        route.name === \"skill\" ? skillHref(route.projectSlug, route.skillSlug, route.tab, route.version) :\n+        boardHref();\n+      if (`${window.location.pathname}${window.location.search}` !== canonical) replace(canonical);\n+    }\n+  }, [replace, route]);\n+  useEffect(() => {\n+    if (route.name !== \"board\" && route.name !== \"tasks\" && route.name !== \"new-skill\" && route.name !== \"skill\") return;\n+    const projectSlug = route.name === \"new-skill\" || route.name === \"skill\" ? route.projectSlug : route.projectSlug;\n+    if (projectSlug === undefined) return;\n+    let cancelled = false;\n+    void fetch(\"/api/projects\", { headers: { accept: \"application/json\" } }).then(async (response) => {\n+      if (!response.ok) return;\n+      const body = (await response.json()) as { projects?: unknown };\n+      if (!Array.isArray(body.projects) || cancelled) return;\n+      const project = body.projects.find((row): row is { slug: string; skills?: unknown } =>\n+        typeof row === \"object\" && row !== null && (row as { slug?: unknown }).slug === projectSlug,\n+      );\n+      if (project === undefined) replace(boardHref());\n+      else if (route.name === \"skill\" && Array.isArray(project.skills) && !project.skills.some((skill) =>\n+        typeof skill === \"object\" && skill !== null && (skill as { slug?: unknown }).slug === route.skillSlug,\n+      )) replace(boardHref());\n+    }).catch(() => {});\n+    return () => { cancelled = true; };\n+  }, [replace, route]);\n+\n+  const onSkillPage = route.name === \"skill\";\n   const rightShown = onSkillPage && rightOpen;\n   const expanded = rightShown && rightExpanded;\n   const title =\n-    center.kind === \"board\" ? \"Board\" : center.kind === \"tasks\" ? \"Tasks\" : center.kind === \"new-skill\" ? \"New skill\" : center.slug;\n+    route.name === \"board\" ? \"Board\" : route.name === \"tasks\" ? \"Tasks\" : route.name === \"new-skill\" ? \"New skill\" : route.name === \"skill\" ? route.skillSlug : \"Board\";\n \n   // Overview rules: with the right panel CLOSED, the overview is an\n   // in-layout column (persists, content slides over). With the right panel\n@@ -130,8 +179,8 @@ export default function NextShell() {\n       >\n         <div className=\"h-full\" style={{ width: left.width }}>\n           <Sidebar\n-            center={center}\n-            onNavigate={setCenter}\n+            route={route}\n+            navigate={navigate}\n             newProjectOpen={newProjectOpen}\n             onNewProjectOpenChange={setNewProjectOpen}\n           />\n@@ -147,22 +196,25 @@ export default function NextShell() {\n \n       {/* center column — hidden entirely while the right panel is expanded */}\n       <div className={`relative flex min-w-[300px] flex-col ${expanded ? \"hidden\" : \"flex-1\"}`}>\n-        {center.kind === \"skill\" && overviewOverlay && (\n+        {route.name === \"skill\" && overviewOverlay && (\n           <div data-overview-overlay className=\"absolute right-[10px] top-[54px] z-30\">\n-            <OverviewCard slug={center.slug} elevated />\n+            <OverviewCard slug={route.skillSlug} elevated />\n           </div>\n         )}\n         <header className=\"flex h-11 shrink-0 items-center gap-1 border-b border-border px-3\">\n           {!sidebarOpen && <span className=\"w-7 shrink-0\" />}\n           <div className=\"flex min-w-0 flex-1 items-center gap-2 px-1\">\n-            {(center.kind === \"skill\" || center.kind === \"new-skill\") && (\n-              <span className=\"shrink-0 whitespace-nowrap font-display text-sm text-ink-muted\">{center.project} /</span>\n+            {(route.name === \"skill\" || route.name === \"new-skill\") && (\n+              <span className=\"shrink-0 whitespace-nowrap font-display text-sm text-ink-muted\">{route.projectSlug} /</span>\n             )}\n             {/* long slugs truncate — the h-11 bar must never wrap or overflow */}\n             <span className=\"truncate font-display text-sm\" title={title}>{title}</span>\n             {onSkillPage && <span className=\"text-ink-muted\">···</span>}\n           </div>\n-          {center.kind === \"skill\" && <TopBarControls slug={center.slug} pinned={pinned} onPin={setPinned} />}\n+          {route.name === \"skill\" && <TopBarControls slug={route.skillSlug} pinned={route.version ?? CURRENT_DRAFT} onPin={(hash) => {\n+            const version = hash === CURRENT_DRAFT ? undefined : hash.slice(0, 8);\n+            navigate(skillHref(route.projectSlug, route.skillSlug, route.tab, version));\n+          }} />}\n           {onSkillPage && (\n             <IconButton\n               active={overviewShown || overviewOverlay}\n@@ -176,22 +228,21 @@ export default function NextShell() {\n           {onSkillPage && !rightOpen && <span className=\"w-7 shrink-0\" />}\n         </header>\n         <main className=\"relative flex-1 overflow-y-auto\">\n-          {center.kind === \"board\" && (\n+          {route.name === \"board\" && (\n             <BoardView\n-              onOpenSkill={(project, slug) => {\n-                // A board card may belong to a different project than the\n-                // active one -- opening it switches the scope too.\n-                setActiveProject(project.slug);\n-                setCenter({ kind: \"skill\", project: project.name, slug });\n-              }}\n+              projectSlug={route.projectSlug}\n+              onOpenSkill={(project, slug) => navigate(skillHref(project.slug, slug))}\n               onCreateProject={() => setNewProjectOpen(true)}\n             />\n           )}\n-          {center.kind === \"tasks\" && <TasksView />}\n-          {center.kind === \"skill\" && (\n+          {route.name === \"tasks\" && route.projectSlug !== undefined && <TasksView />}\n+          {route.name === \"tasks\" && route.projectSlug === undefined && <p className=\"p-6 text-sm text-ink-muted\">Register or repair a project to view its tasks.</p>}\n+          {route.name === \"skill\" && (\n             <SkillView\n-              slug={center.slug}\n-              pinned={pinned}\n+              slug={route.skillSlug}\n+              pinned={route.version ?? CURRENT_DRAFT}\n+              tab={route.tab}\n+              onTabChange={(tab) => navigate(skillHref(route.projectSlug, route.skillSlug, tab, route.version))}\n               overviewOpen={overviewShown}\n               onOpenFile={(path) => {\n                 setRightOpen(true);\n@@ -199,23 +250,24 @@ export default function NextShell() {\n               }}\n             />\n           )}\n-          {center.kind === \"new-skill\" && (\n+          {route.name === \"new-skill\" && (\n             <NewSkillLauncher\n-              project={center.project}\n+              project={route.projectSlug}\n               onCreated={(slug, provider, message, model, effort) => {\n                 // The launcher disappears; the conversation continues in the\n                 // right panel (session started with this very message).\n                 setChatIntro({\n                   slug,\n+                  projectSlug: route.projectSlug,\n                   provider,\n                   message,\n                   ...(model !== undefined ? { model } : {}),\n                   ...(effort !== undefined ? { effort } : {}),\n                 });\n-                setCenter({ kind: \"skill\", project: center.project, slug });\n+                navigate(skillHref(route.projectSlug, slug));\n                 setRightOpen(true);\n               }}\n-              onAdopted={(slug) => setCenter({ kind: \"skill\", project: center.project, slug })}\n+              onAdopted={(slug) => navigate(skillHref(route.projectSlug, slug))}\n             />\n           )}\n         </main>\n@@ -236,13 +288,14 @@ export default function NextShell() {\n           />\n         )}\n         <div className=\"h-full\" style={expanded ? undefined : { width: right.width }}>\n-          {onSkillPage && (\n+          {route.name === \"skill\" && (\n             <RightPanel\n-              skill={center.slug}\n+              key={`${route.projectSlug}/${route.skillSlug}`}\n+              skill={route.skillSlug}\n               width={expanded ? 9999 : right.width}\n               fileRequest={fileRequest}\n               onFileRequestHandled={() => setFileRequest(null)}\n-              intro={chatIntro !== null && chatIntro.slug === center.slug ? chatIntro : null}\n+              intro={chatIntro !== null && chatIntro.projectSlug === route.projectSlug && chatIntro.slug === route.skillSlug ? chatIntro : null}\n               onIntroConsumed={() => setChatIntro(null)}\n             />\n           )}\ndiff --git a/packages/viewer/src/app/next/Sidebar.tsx b/packages/viewer/src/app/next/Sidebar.tsx\nindex fb077c2..763c6d8 100644\n--- a/packages/viewer/src/app/next/Sidebar.tsx\n+++ b/packages/viewer/src/app/next/Sidebar.tsx\n@@ -1,6 +1,6 @@\n /** Left sidebar: global views (Board, Tasks) + the Projects → skills spine. */\n import { useCallback, useEffect, useState } from \"react\";\n-import { setActiveProject, useActiveProject } from \"../runtime/projectScope.ts\";\n+import { useActiveProject } from \"../runtime/projectScope.ts\";\n import { fetchTasks, useApiData } from \"./api.ts\";\n import { PROJECTS, TASKS } from \"./data.ts\";\n import { BoardIcon, ChevronIcon, GitHubIcon, HelpIcon, MoonIcon, PlusIcon, SunIcon, TasksIcon } from \"./icons.tsx\";\n@@ -10,18 +10,19 @@ import { usePresence } from \"./presence.ts\";\n import { fetchProjects } from \"./projectsApi.ts\";\n import { applyTheme, currentTheme, type Theme } from \"./theme.ts\";\n import { FADE_R, IconButton, StageBadge } from \"./ui.tsx\";\n-import type { CenterView, Project } from \"./types.ts\";\n+import { boardHref, newSkillHref, skillHref, tasksHref, type StudioRoute } from \"./router.tsx\";\n+import type { Project } from \"./types.ts\";\n \n const VISIBLE_SKILLS = 5;\n \n export function Sidebar({\n-  center,\n-  onNavigate,\n+  route,\n+  navigate,\n   newProjectOpen,\n   onNewProjectOpenChange,\n }: {\n-  readonly center: CenterView;\n-  readonly onNavigate: (view: CenterView) => void;\n+  readonly route: StudioRoute;\n+  readonly navigate: (href: string) => void;\n   /** Dialog open state lives in the shell so the Board's empty-registry welcome can open the SAME dialog. */\n   readonly newProjectOpen: boolean;\n   readonly onNewProjectOpenChange: (open: boolean) => void;\n@@ -85,15 +86,15 @@ export function Sidebar({\n         <NavItem\n           label=\"Board\"\n           icon={<BoardIcon />}\n-          active={center.kind === \"board\"}\n-          onClick={() => onNavigate({ kind: \"board\" })}\n+          active={route.name === \"board\" && route.projectSlug === undefined}\n+          onClick={() => navigate(boardHref())}\n         />\n         <NavItem\n           label=\"Tasks\"\n           icon={<TasksIcon />}\n-          active={center.kind === \"tasks\"}\n+          active={route.name === \"tasks\"}\n           badge={openTaskCount}\n-          onClick={() => onNavigate({ kind: \"tasks\" })}\n+          onClick={() => navigate(tasksHref(route.name === \"tasks\" ? route.projectSlug : activeProject ?? undefined))}\n         />\n       </nav>\n \n@@ -113,25 +114,21 @@ export function Sidebar({\n           <ProjectSection\n             key={project.slug}\n             project={project}\n-            active={project.slug === activeProject}\n+            active={route.name !== \"invalid\" && \"projectSlug\" in route && route.projectSlug === project.slug}\n             open={openProjects[project.name] ?? false}\n             expanded={showAll[project.name] ?? false}\n-            center={center}\n+            route={route}\n             running={runningSlugs}\n             onToggle={() => {\n-              // Selecting a project is REAL now (machine registry): every\n-              // center view + the right panel scope to this project's API.\n-              setActiveProject(project.slug);\n+              navigate(boardHref(project.slug));\n               setOpenProjects({ ...openProjects, [project.name]: !(openProjects[project.name] ?? false) });\n             }}\n             onToggleExpanded={() => setShowAll({ ...showAll, [project.name]: !(showAll[project.name] ?? false) })}\n             onOpenSkill={(slug) => {\n-              setActiveProject(project.slug);\n-              onNavigate({ kind: \"skill\", project: project.name, slug });\n+              navigate(skillHref(project.slug, slug));\n             }}\n             onNewSkill={() => {\n-              setActiveProject(project.slug);\n-              onNavigate({ kind: \"new-skill\", project: project.name });\n+              navigate(newSkillHref(project.slug));\n             }}\n           />\n         ))}\n@@ -158,10 +155,9 @@ export function Sidebar({\n           onClose={() => onNewProjectOpenChange(false)}\n           onRegistered={(slug) => {\n             if (slug !== null) {\n-              setActiveProject(slug);\n               // A just-registered project is empty (or newly adopted): land\n               // on its New-skill page so the next step is obvious.\n-              onNavigate({ kind: \"new-skill\", project: slug });\n+              navigate(newSkillHref(slug));\n             }\n             loadProjects();\n           }}\n@@ -227,7 +223,7 @@ function ProjectSection({\n   active,\n   open,\n   expanded,\n-  center,\n+  route,\n   running,\n   onToggle,\n   onToggleExpanded,\n@@ -239,7 +235,7 @@ function ProjectSection({\n   readonly active: boolean;\n   readonly open: boolean;\n   readonly expanded: boolean;\n-  readonly center: CenterView;\n+  readonly route: StudioRoute;\n   /** Slugs with something running right now (presence sweep). */\n   readonly running: ReadonlySet<string>;\n   readonly onToggle: () => void;\n@@ -288,7 +284,7 @@ function ProjectSection({\n       >\n         <div className=\"overflow-hidden\">\n           {visible.map((skill) => {\n-            const active = center.kind === \"skill\" && center.project === project.name && center.slug === skill.slug;\n+            const active = route.name === \"skill\" && route.projectSlug === project.slug && route.skillSlug === skill.slug;\n             return (\n               <button\n                 key={skill.slug}\ndiff --git a/packages/viewer/src/app/next/SkillPage.tsx b/packages/viewer/src/app/next/SkillPage.tsx\nindex e63e292..3226f85 100644\n--- a/packages/viewer/src/app/next/SkillPage.tsx\n+++ b/packages/viewer/src/app/next/SkillPage.tsx\n@@ -12,8 +12,9 @@ import { fetchBundleFile, postPublish, useApiData } from \"./api.ts\";\n import { EvalsSection } from \"./EvalsSection.tsx\";\n import { AdvanceControls, ReviewSurface } from \"./ReviewSurface.tsx\";\n import type { SkillPage as SkillPageData, SkillVersion } from \"./types.ts\";\n+import type { SkillTab } from \"./router.tsx\";\n \n-type CenterTab = \"overview\" | \"research\" | \"eval\" | \"publish\";\n+type CenterTab = SkillTab;\n \n const TAB_ACTIVE =\n   \"relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink\";\n@@ -32,18 +33,20 @@ export function SkillPageView({\n   slug,\n   page,\n   pinned,\n+  tab,\n+  onTabChange,\n   onOpenFile,\n   rightInset = false,\n }: {\n   readonly slug: string;\n   readonly page: SkillPageData;\n   readonly pinned: string;\n+  readonly tab: CenterTab;\n+  readonly onTabChange: (tab: CenterTab) => void;\n   readonly onOpenFile: (path: string) => void;\n   /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */\n   readonly rightInset?: boolean;\n }) {\n-  const [tab, setTab] = useState<CenterTab>(\"overview\");\n-\n   // Unread dots: the newest event of each family, compared to a per-skill\n   // \"last seen\" stamp (localStorage). Eval listens to run traffic; Research\n   // listens to every OTHER journal family a producer can emit --\n@@ -88,13 +91,13 @@ export function SkillPageView({\n           <div className=\"flex items-end gap-1\">\n             {(\n               [\n-                { id: \"overview\", label: \"Overview\", onClick: () => setTab(\"overview\"), dot: false },\n-                { id: \"research\", label: \"Research\", onClick: () => { setTab(\"research\"); markSeen(\"research\", researchStamp); }, dot: showResearchDot },\n-                { id: \"eval\", label: \"Eval\", onClick: () => { setTab(\"eval\"); markSeen(\"eval\", runStamp); }, dot: showEvalDot },\n-                { id: \"publish\", label: \"Publish\", onClick: () => setTab(\"publish\"), dot: false },\n+                { id: \"overview\", label: \"Overview\", onClick: () => onTabChange(\"overview\"), dot: false },\n+                { id: \"research\", label: \"Research\", onClick: () => { onTabChange(\"research\"); markSeen(\"research\", researchStamp); }, dot: showResearchDot },\n+                { id: \"eval\", label: \"Eval\", onClick: () => { onTabChange(\"eval\"); markSeen(\"eval\", runStamp); }, dot: showEvalDot },\n+                { id: \"publish\", label: \"Publish\", onClick: () => onTabChange(\"publish\"), dot: false },\n               ] as const\n             ).map((t) => (\n-              <button key={t.id} type=\"button\" onClick={t.onClick} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>\n+              <button key={t.id} type=\"button\" onClick={t.onClick} aria-current={tab === t.id ? \"page\" : undefined} className={tab === t.id ? TAB_ACTIVE : TAB_IDLE}>\n                 {t.label}\n                 {t.dot && <span className=\"ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle\" />}\n               </button>\ndiff --git a/packages/viewer/src/app/next/api.ts b/packages/viewer/src/app/next/api.ts\nindex bc8a6d6..d3e8c54 100644\n--- a/packages/viewer/src/app/next/api.ts\n+++ b/packages/viewer/src/app/next/api.ts\n@@ -390,40 +390,47 @@ export function useApiStatus<T>(\n   // Refetch when the ACTIVE PROJECT changes -- every project-scoped path\n   // this fetcher hits is rewritten through projectScope.apiPath.\n   const project = useActiveProject();\n-  const [state, setState] = useState<{ readonly data?: T; readonly status: \"loading\" | \"live\" | \"error\" }>({ status: \"loading\" });\n+  const [state, setState] = useState<{ readonly data?: T; readonly status: \"loading\" | \"live\" | \"error\"; readonly project: string | null }>({ status: \"loading\", project });\n   const lastFetcher = useRef<(() => Promise<T>) | undefined>(undefined);\n+  const lastProject = useRef<string | null | undefined>(undefined);\n   useEffect(() => {\n     let cancelled = false;\n     // A tick with the same fetcher is a background refresh: keep what's\n     // on screen. A new fetcher (e.g. slug change) starts from loading.\n-    const isRefresh = lastFetcher.current === fetcher;\n+    const isRefresh = lastFetcher.current === fetcher && lastProject.current === project;\n     lastFetcher.current = fetcher;\n-    if (!isRefresh) setState({ status: \"loading\" });\n+    lastProject.current = project;\n+    if (!isRefresh) setState({ status: \"loading\", project });\n     fetcher().then(\n       (value) => {\n-        if (!cancelled) setState({ data: value, status: \"live\" });\n+        if (!cancelled) setState({ data: value, status: \"live\", project });\n       },\n       () => {\n-        if (!cancelled) setState((prev) => (isRefresh && prev.status === \"live\" ? prev : { status: \"error\" }));\n+        if (!cancelled) setState((prev) => (isRefresh && prev.status === \"live\" ? prev : { status: \"error\", project }));\n       },\n     );\n     return () => {\n       cancelled = true;\n     };\n   }, [fetcher, tick, project]);\n-  return state;\n+  return state.project === project ? state : { status: \"loading\" };\n }\n \n export function useApiData<T>(fetcher: () => Promise<T>, fallback: T, options: { readonly scope?: TickScope } = {}): T {\n   const tick = useJournalTick(options.scope ?? \"active\");\n   const project = useActiveProject();\n-  const [data, setData] = useState<T | undefined>(undefined);\n+  const [state, setState] = useState<{ readonly data?: T; readonly project: string | null }>({ project });\n+  const lastProject = useRef(project);\n \n   useEffect(() => {\n     let cancelled = false;\n+    if (lastProject.current !== project) {\n+      lastProject.current = project;\n+      setState({ project });\n+    }\n     fetcher().then(\n       (value) => {\n-        if (!cancelled) setData(value);\n+        if (!cancelled) setState({ data: value, project });\n       },\n       () => {\n         // Server absent or wire mismatch: stay on the placeholders\n@@ -435,5 +442,7 @@ export function useApiData<T>(fetcher: () => Promise<T>, fallback: T, options: {\n     };\n   }, [fetcher, tick, project]);\n \n-  return data ?? fallback;\n+  // Switching projects must never briefly display the identically named\n+  // resource from the prior project's API scope (#208).\n+  return state.project === project ? state.data ?? fallback : fallback;\n }\ndiff --git a/packages/viewer/src/app/next/router.test.ts b/packages/viewer/src/app/next/router.test.ts\nnew file mode 100644\nindex 0000000..ce52648\n--- /dev/null\n+++ b/packages/viewer/src/app/next/router.test.ts\n@@ -0,0 +1,25 @@\n+import { describe, expect, test } from \"bun:test\";\n+import { boardHref, parseStudioRoute, skillHref, tasksHref } from \"./router.tsx\";\n+\n+describe(\"next shell routes (#208)\", () => {\n+  test(\"parses canonical skill places, tabs, and a version lens\", () => {\n+    expect(parseStudioRoute(\"/p/team/s/review-pr/research\", \"?v=deadbeef\")).toEqual({\n+      name: \"skill\", projectSlug: \"team\", skillSlug: \"review-pr\", tab: \"research\", version: \"deadbeef\",\n+    });\n+    expect(parseStudioRoute(\"/p/team/s/review-pr\")).toEqual({\n+      name: \"skill\", projectSlug: \"team\", skillSlug: \"review-pr\", tab: \"overview\",\n+    });\n+  });\n+\n+  test(\"rejects malformed places without allowing a crash from bad encoding\", () => {\n+    expect(parseStudioRoute(\"/p/%E0%A4%A/s/alpha\")).toEqual({ name: \"invalid\" });\n+    expect(parseStudioRoute(\"/p/team/s/alpha/unknown\")).toEqual({ name: \"invalid\" });\n+    expect(parseStudioRoute(\"/p/team/s/alpha/extra/path\")).toEqual({ name: \"invalid\" });\n+  });\n+\n+  test(\"href builders encode identity and omit the overview suffix\", () => {\n+    expect(boardHref(\"a b\")).toBe(\"/p/a%20b\");\n+    expect(tasksHref(\"team\")).toBe(\"/p/team/tasks\");\n+    expect(skillHref(\"a/b\", \"new skill\", \"overview\", \"deadbeef\")).toBe(\"/p/a%2Fb/s/new%20skill?v=deadbeef\");\n+  });\n+});\ndiff --git a/packages/viewer/src/app/next/router.tsx b/packages/viewer/src/app/next/router.tsx\nnew file mode 100644\nindex 0000000..3f24df4\n--- /dev/null\n+++ b/packages/viewer/src/app/next/router.tsx\n@@ -0,0 +1,95 @@\n+/**\n+ * The mounted shell's deliberately small History API router. Issue #208\n+ * makes the browser URL authoritative for places a teammate can share; panel\n+ * layout remains local device state and is intentionally absent here.\n+ */\n+import { useCallback, useEffect, useLayoutEffect, useState } from \"react\";\n+import { getActiveProject, setActiveProject } from \"../runtime/projectScope.ts\";\n+\n+export const SKILL_TABS = [\"overview\", \"research\", \"eval\", \"publish\"] as const;\n+export type SkillTab = (typeof SKILL_TABS)[number];\n+\n+export type StudioRoute =\n+  | { readonly name: \"board\"; readonly projectSlug?: string }\n+  | { readonly name: \"tasks\"; readonly projectSlug?: string }\n+  | { readonly name: \"new-skill\"; readonly projectSlug: string }\n+  | { readonly name: \"skill\"; readonly projectSlug: string; readonly skillSlug: string; readonly tab: SkillTab; readonly version?: string }\n+  | { readonly name: \"invalid\" };\n+\n+const decode = (part: string): string | undefined => {\n+  try {\n+    const value = decodeURIComponent(part);\n+    return value === \"\" ? undefined : value;\n+  } catch {\n+    return undefined;\n+  }\n+};\n+\n+export const parseStudioRoute = (pathname: string, search = \"\"): StudioRoute => {\n+  const parts = pathname.split(\"/\").filter(Boolean);\n+  const params = new URLSearchParams(search);\n+  const versions = params.getAll(\"v\");\n+  const version = versions.length === 1 && /^[0-9a-f]{8}$/.test(versions[0] ?? \"\") ? versions[0] : undefined;\n+  if (parts.length === 0 || (parts.length === 1 && parts[0] === \"board\")) return versions.length === 0 ? { name: \"board\" } : { name: \"invalid\" };\n+  if (parts.length === 1 && parts[0] === \"tasks\") return versions.length === 0 ? { name: \"tasks\" } : { name: \"invalid\" };\n+  if (parts[0] !== \"p\") return { name: \"invalid\" };\n+  const projectSlug = decode(parts[1] ?? \"\");\n+  if (projectSlug === undefined) return { name: \"invalid\" };\n+  if (parts.length === 2) return versions.length === 0 ? { name: \"board\", projectSlug } : { name: \"invalid\" };\n+  if (parts.length === 3 && parts[2] === \"tasks\") return versions.length === 0 ? { name: \"tasks\", projectSlug } : { name: \"invalid\" };\n+  if (parts.length === 3 && parts[2] === \"new\") return versions.length === 0 ? { name: \"new-skill\", projectSlug } : { name: \"invalid\" };\n+  if (parts[2] !== \"s\") return { name: \"invalid\" };\n+  const skillSlug = decode(parts[3] ?? \"\");\n+  if (skillSlug === undefined || parts.length > 5) return { name: \"invalid\" };\n+  const tab = parts.length === 5 ? parts[4] : \"overview\";\n+  if (!SKILL_TABS.includes(tab as SkillTab)) return { name: \"invalid\" };\n+  return { name: \"skill\", projectSlug, skillSlug, tab: tab as SkillTab, ...(version === undefined ? {} : { version }) };\n+};\n+\n+export const boardHref = (projectSlug?: string): string => projectSlug === undefined ? \"/board\" : `/p/${encodeURIComponent(projectSlug)}`;\n+export const tasksHref = (projectSlug?: string): string => projectSlug === undefined ? \"/tasks\" : `/p/${encodeURIComponent(projectSlug)}/tasks`;\n+export const newSkillHref = (projectSlug: string): string => `/p/${encodeURIComponent(projectSlug)}/new`;\n+export const skillHref = (projectSlug: string, skillSlug: string, tab: SkillTab = \"overview\", version?: string): string => {\n+  const path = `/p/${encodeURIComponent(projectSlug)}/s/${encodeURIComponent(skillSlug)}${tab === \"overview\" ? \"\" : `/${tab}`}`;\n+  return version === undefined ? path : `${path}?${new URLSearchParams({ v: version })}`;\n+};\n+\n+const routeProject = (route: StudioRoute): string | undefined =>\n+  route.name === \"board\" || route.name === \"tasks\" ? route.projectSlug : route.name === \"new-skill\" || route.name === \"skill\" ? route.projectSlug : undefined;\n+\n+const readLocation = (): StudioRoute => parseStudioRoute(window.location.pathname, window.location.search);\n+\n+export type StudioRouter = {\n+  readonly route: StudioRoute;\n+  readonly navigate: (href: string) => void;\n+  readonly replace: (href: string) => void;\n+};\n+\n+export const useStudioRouter = (): StudioRouter => {\n+  const [route, setRoute] = useState<StudioRoute>(() => (typeof window === \"undefined\" ? { name: \"board\" } : readLocation()));\n+  const publish = useCallback((href: string, replace: boolean) => {\n+    const next = parseStudioRoute(new URL(href, window.location.origin).pathname, new URL(href, window.location.origin).search);\n+    const project = routeProject(next);\n+    if (project !== undefined) setActiveProject(project);\n+    window.history[replace ? \"replaceState\" : \"pushState\"]({}, \"\", href);\n+    setRoute(next);\n+  }, []);\n+  const navigate = useCallback((href: string) => publish(href, false), [publish]);\n+  const replace = useCallback((href: string) => publish(href, true), [publish]);\n+\n+  useLayoutEffect(() => {\n+    const project = routeProject(route);\n+    if (project !== undefined && getActiveProject() !== project) setActiveProject(project);\n+  }, [route]);\n+  useEffect(() => {\n+    const onPopState = () => {\n+      const next = readLocation();\n+      const project = routeProject(next);\n+      if (project !== undefined) setActiveProject(project);\n+      setRoute(next);\n+    };\n+    window.addEventListener(\"popstate\", onPopState);\n+    return () => window.removeEventListener(\"popstate\", onPopState);\n+  }, []);\n+  return { route, navigate, replace };\n+};\ndiff --git a/packages/viewer/src/app/next/views.tsx b/packages/viewer/src/app/next/views.tsx\nindex f239946..63fcbba 100644\n--- a/packages/viewer/src/app/next/views.tsx\n+++ b/packages/viewer/src/app/next/views.tsx\n@@ -3,6 +3,8 @@ import { useCallback } from \"react\";\n import { fetchProjects, fetchSkillPage, fetchTasks, useApiData, useApiStatus } from \"./api.ts\";\n import { PROJECTS, SKILL_PAGE, TASKS } from \"./data.ts\";\n import { SkillPageView } from \"./SkillPage.tsx\";\n+import { CURRENT_DRAFT } from \"./SkillPage.tsx\";\n+import type { SkillTab } from \"./router.tsx\";\n import { STAGES } from \"./types.ts\";\n import { Button, FADE_R, STAGE_TINT } from \"./ui.tsx\";\n import type { Project, SkillPage } from \"./types.ts\";\n@@ -16,10 +18,12 @@ export function useSkillPage(slug: string): SkillPage {\n export function BoardView({\n   onOpenSkill,\n   onCreateProject,\n+  projectSlug,\n }: {\n   readonly onOpenSkill: (project: Project, slug: string) => void;\n   /** Opens the shell's New-project dialog (the Sidebar's own). */\n   readonly onCreateProject: () => void;\n+  readonly projectSlug?: string;\n }) {\n   // \"all\" scope: the Board renders every project, so any project's journal\n   // append (new skill, stage change) refreshes it -- not just the active one.\n@@ -56,7 +60,7 @@ export function BoardView({\n         {STAGES.map((stage) => (\n           <div key={stage} className=\"rounded border border-border bg-paper p-2\">\n             <div className={`mb-2 inline-block rounded px-2 py-0.5 font-display text-xs ${STAGE_TINT[stage]}`}>{stage}</div>\n-            {projects.flatMap((p) =>\n+            {projects.filter((p) => projectSlug === undefined || p.slug === projectSlug).flatMap((p) =>\n               p.skills\n                 .filter((s) => s.stage === stage)\n                 .map((s) => (\n@@ -123,15 +127,20 @@ export function OverviewCard({ slug, elevated }: { readonly slug: string; readon\n export function SkillView({\n   slug,\n   pinned,\n+  tab,\n+  onTabChange,\n   overviewOpen,\n   onOpenFile,\n }: {\n   readonly slug: string;\n   readonly pinned: string;\n+  readonly tab: SkillTab;\n+  readonly onTabChange: (tab: SkillTab) => void;\n   readonly overviewOpen: boolean;\n   readonly onOpenFile: (path: string) => void;\n }) {\n   const page = useSkillPage(slug);\n+  const resolvedPin = pinned === CURRENT_DRAFT ? CURRENT_DRAFT : page.versions.find((version) => version.shortHash === pinned)?.hash ?? CURRENT_DRAFT;\n   // The overview card FLOATS OVER the page (z-10) so the full-bleed tab\n   // surface and its separator run beneath it uninterrupted; the content\n   // makes room via right padding, not a layout column that would notch\n@@ -139,7 +148,7 @@ export function SkillView({\n   return (\n     <div className=\"relative flex min-h-full\">\n       <div className=\"min-w-0 flex-1\">\n-        <SkillPageView slug={slug} page={page} pinned={pinned} onOpenFile={onOpenFile} rightInset={overviewOpen} />\n+        <SkillPageView slug={slug} page={page} pinned={resolvedPin} tab={tab} onTabChange={onTabChange} onOpenFile={onOpenFile} rightInset={overviewOpen} />\n       </div>\n       {overviewOpen && (\n         <div className=\"pointer-events-none absolute inset-y-0 right-0 z-10 w-[244px]\">\ndiff --git a/packages/viewer/src/pages/index.astro b/packages/viewer/src/pages/index.astro\nindex 9c27d14..1cb1c1d 100644\n--- a/packages/viewer/src/pages/index.astro\n+++ b/packages/viewer/src/pages/index.astro\n@@ -33,6 +33,6 @@ import \"../styles/global.css\";\n     </script>\n   </head>\n   <body class=\"min-h-screen text-ink antialiased\">\n-    <NextShell client:load />\n+    <NextShell client:only=\"react\" />\n   </body>\n </html>\ndiff --git a/test/e2e/phase3.e2e.test.ts b/test/e2e/phase3.e2e.test.ts\nindex 979423e..b205a7c 100644\n--- a/test/e2e/phase3.e2e.test.ts\n+++ b/test/e2e/phase3.e2e.test.ts\n@@ -127,9 +127,10 @@ describe(\"skillmaker CLI end-to-end: Phase 3 (start + viewer skeleton)\", () => {\n     expect(html).toContain(\"Skillmaker Studio\");\n   });\n \n-  test(\"a client-routed path falls back to the SPA shell\", async () => {\n-    const response = await fetch(`${baseUrl}/some/client/route`);\n+  test(\"a canonical deep skill route falls back to the SPA shell\", async () => {\n+    const response = await fetch(`${baseUrl}/p/${projectSlug}/s/alpha/research?v=12345678`);\n     expect(response.status).toBe(200);\n+    expect(response.headers.get(\"content-type\")).toContain(\"text/html\");\n     const html = await response.text();\n     expect(html).toContain(\"astro-island\");\n   });\n",
+        "summary": {
+          "files_changed": 11,
+          "additions": 1151,
+          "deletions": 91
+        }
+      }
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-08T11:13:03.952855823Z",
+        "current_node": "validate_gates",
+        "completed_nodes": [
+          "start",
+          "scope",
+          "implement",
+          "validate_gates"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.retry_count.start": 0,
+          "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md",
+          "graph.rankdir": "LR",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "internal.node_visit_count": 1,
+          "thread.implement.current_node": "validate_gates",
           "thread.scope.current_node": "implement",
           "graph.default_fidelity": "summary:high",
-          "last_stage": "implement",
           "graph.stall_timeout": "18000000ms",
+          "internal.retry_count.scope": 0,
+          "last_response": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router",
+          "failure_class": "",
+          "internal.fidelity": "summary:high",
+          "response.implement": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.tsx):\n  - `/board`, `/tasks`, project Board, project Tasks, New Skill, skill tabs, and `?v=<shortHash>`.\n  - `pushState` navigation, `replaceState` canonicalization/recovery, and `popstate` Back/Forward handling.\n  - Invalid/stale project or skill routes recover to `/board`.\n\n- Converted the mounted shell in [NextShell.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/NextShell.tsx) from in-memory center/pin state to route-derived rendering.\n  - Sidebar, Board cards, launcher handoff, tabs, and version picker now update the URL.\n  - Project scope is synchronized before routed project content runs.\n  - Right-panel open state is persisted locally and remains out of the URL.\n  - New-skill chat handoff is qualified by project and skill.\n\n- Updated [Sidebar.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/Sidebar.tsx), [views.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/views.tsx), and [SkillPage.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/SkillPage.tsx) for controlled route navigation, project-filtered Board, and route-controlled skill tabs with `aria-current`.\n\n- Prevented cross-project stale API data flashes in [api.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/api.ts).\n\n- Switched the Astro shell to client-only mounting in [index.astro](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/pages/index.astro), and applied SPA fallback to preview as well as dev in [astro.config.mjs](/home/daytona/workspace/skillmaker-studio/packages/viewer/astro.config.mjs).\n\n- Added pure route coverage in [router.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.test.ts) and updated the server E2E to request a canonical deep skill URL in [phase3.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/phase3.e2e.test.ts).\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: viewer TypeScript check, router unit tests, and `bun run build:viewer`\n- Passed once: `bun test test/e2e --timeout 30000` — 370 passed, 17 expected skips.\n- Verified manually: `skillmaker start` serves the rebuilt shell at `/` (200); the existing server fallback handles arbitrary-depth non-asset paths.\n\nOne gate remains externally blocked: `bun test packages` fails in the pre-existing `packages/cli/test/JournalWatcher.test.ts` test (“fires (debounced) on appends to an existing journal”). It also fails identically when run alone, and no watcher/server code was changed by this routing work.",
+          "internal.run_id": "01KZGEY5FAPKGK8R4MRQKG9NSV",
+          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
+          "current_node": "validate_gates",
+          "thread.start.current_node": "scope",
+          "internal.retry_count.implement": 0,
+          "graph.max_node_visits": "5",
+          "internal.retry_count.validate_gates": 0,
+          "command.output": "blob://sha256/0e4a1d094dafe621eca346becad54bf8f50b8c4aaaa04564d6b7615bf837232a",
+          "last_stage": "implement",
           "outcome": "succeeded",
-          "internal.thread_id": "scope",
+          "internal.thread_id": "implement",
           "failure_signature": ""
         },
         "node_outcomes": {
@@ -735,13 +870,28 @@
               "tool_time_ms": 889129,
               "active_time_ms": 1600159
             }
+          },
+          "validate_gates": {
+            "status": "succeeded",
+            "context_updates": {
+              "command.output": "blob://sha256/0e4a1d094dafe621eca346becad54bf8f50b8c4aaaa04564d6b7615bf837232a"
+            },
+            "notes": "Script completed: ./.fabro/scripts/fabro-validate",
+            "usage": null,
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 0,
+              "tool_time_ms": 222453,
+              "active_time_ms": 222453
+            }
           }
         },
-        "next_node_id": "validate_gates",
+        "next_node_id": "review_judge",
         "node_visits": {
           "start": 1,
+          "implement": 1,
           "scope": 1,
-          "implement": 1
+          "validate_gates": 1
         }
       },
       "diff": {}
@@ -1007,47 +1157,16 @@
       "agent_control": "running",
       "state": "succeeded"
     },
-    "start@1": {
-      "first_event_seq": 20,
-      "prompt": null,
-      "response": null,
-      "completion": {
-        "outcome": "succeeded",
-        "notes": null,
-        "failure_reason": null,
-        "timestamp": "2026-08-08T10:33:42.554226485Z"
-      },
-      "provider_used": null,
-      "diff": null,
-      "script_invocation": null,
-      "script_timing": null,
-      "parallel_results": null,
-      "output": null,
-      "started_at": "2026-08-08T10:33:42.192616084Z",
-      "handler": "start",
-      "graph_visit": 1,
-      "timing": {
-        "wall_time_ms": 0,
-        "inference_time_ms": 0,
-        "tool_time_ms": 0,
-        "active_time_ms": 0
-      },
-      "usage": {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "total_tokens": 0,
-        "reasoning_tokens": 0,
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0
-      },
-      "agent_control": "running",
-      "state": "succeeded"
-    },
     "implement@1": {
       "first_event_seq": 1340,
       "prompt": null,
       "response": null,
-      "completion": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: implement",
+        "failure_reason": null,
+        "timestamp": "2026-08-08T11:09:15.227489944Z"
+      },
       "provider_used": {
         "mode": "agent",
         "provider": "openai",
@@ -1062,8 +1181,12 @@
       "started_at": "2026-08-08T11:00:31.643801688Z",
       "handler": "agent",
       "graph_visit": 1,
-      "live_inference_ms": 174910,
-      "live_tool_ms": 345881,
+      "timing": {
+        "wall_time_ms": 523216,
+        "inference_time_ms": 174936,
+        "tool_time_ms": 345906,
+        "active_time_ms": 520842
+      },
       "usage": {
         "input_tokens": 103055,
         "output_tokens": 13227,
@@ -1236,7 +1359,94 @@
         "warnings": []
       },
       "agent_control": "running",
-      "state": "running"
+      "state": "succeeded"
+    },
+    "start@1": {
+      "first_event_seq": 20,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": null,
+        "failure_reason": null,
+        "timestamp": "2026-08-08T10:33:42.554226485Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-08T10:33:42.192616084Z",
+      "handler": "start",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 0,
+        "inference_time_ms": 0,
+        "tool_time_ms": 0,
+        "active_time_ms": 0
+      },
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "agent_control": "running",
+      "state": "succeeded"
+    },
+    "validate_gates@1": {
+      "first_event_seq": 1823,
+      "prompt": null,
+      "response": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Script completed: ./.fabro/scripts/fabro-validate",
+        "failure_reason": null,
+        "timestamp": "2026-08-08T11:13:03.936785928Z"
+      },
+      "provider_used": null,
+      "diff": null,
+      "script_invocation": {
+        "script": "./.fabro/scripts/fabro-validate",
+        "command": "exec 2>&1\n./.fabro/scripts/fabro-validate",
+        "language": "shell",
+        "timeout_ms": 5400000
+      },
+      "script_timing": {
+        "output": "blob://sha256/0e4a1d094dafe621eca346becad54bf8f50b8c4aaaa04564d6b7615bf837232a",
+        "exit_code": 0,
+        "duration_ms": 222453,
+        "termination": "exited",
+        "output_bytes": 178253,
+        "live_streaming": true
+      },
+      "parallel_results": null,
+      "output": null,
+      "output_bytes": 178253,
+      "live_streaming": true,
+      "termination": "exited",
+      "started_at": "2026-08-08T11:09:20.874180271Z",
+      "handler": "command",
+      "graph_visit": 1,
+      "timing": {
+        "wall_time_ms": 222674,
+        "inference_time_ms": 0,
+        "tool_time_ms": 222453,
+        "active_time_ms": 222453
+      },
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "agent_control": "running",
+      "state": "succeeded"
     }
   }
 }
