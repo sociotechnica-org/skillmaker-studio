@@ -491,7 +491,7 @@
     "kind": "running"
   },
   "status_updated_at": "2026-08-08T10:33:40.270256084Z",
-  "last_event_at": "2026-08-08T11:00:25.053395964Z",
+  "last_event_at": "2026-08-08T11:09:14.725503273Z",
   "pending_control": null,
   "checkpoints": [
     {
@@ -534,9 +534,9 @@
       "diff": {}
     },
     {
-      "seq": 0,
+      "seq": 1337,
       "checkpoint": {
-        "timestamp": "2026-08-08T11:00:25.719739278Z",
+        "timestamp": "2026-08-08T11:00:31.572898849Z",
         "current_node": "scope",
         "completed_nodes": [
           "start",
@@ -544,26 +544,26 @@
         ],
         "node_retries": {},
         "context_values": {
-          "internal.retry_count.start": 0,
-          "internal.fidelity": "summary:high",
-          "failure_class": "",
-          "graph.rankdir": "LR",
-          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
           "internal.run_id": "01KZGEY5FAPKGK8R4MRQKG9NSV",
-          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
-          "internal.node_visit_count": 1,
-          "current_node": "scope",
+          "internal.fidelity": "summary:high",
           "last_response": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative ",
+          "last_stage": "scope",
+          "current_node": "scope",
+          "graph.stall_timeout": "18000000ms",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "graph.default_fidelity": "summary:high",
+          "failure_class": "",
+          "graph.max_node_visits": "5",
+          "internal.node_visit_count": 1,
           "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md",
           "thread.start.current_node": "scope",
-          "internal.retry_count.scope": 0,
-          "graph.max_node_visits": "5",
-          "graph.default_fidelity": "summary:high",
-          "last_stage": "scope",
-          "graph.stall_timeout": "18000000ms",
+          "graph.rankdir": "LR",
+          "failure_signature": "",
+          "internal.retry_count.start": 0,
           "outcome": "succeeded",
           "internal.thread_id": "start",
-          "failure_signature": ""
+          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
+          "internal.retry_count.scope": 0
         },
         "node_outcomes": {
           "start": {
@@ -608,9 +608,140 @@
           }
         },
         "next_node_id": "implement",
+        "git_commit_sha": "9b588fcb1814771263f81917d7cb3c2de0e3d1a9",
+        "node_visits": {
+          "scope": 1,
+          "start": 1
+        }
+      },
+      "diff": {
+        "patch": "diff --git a/docs/proposals/2026-08-08-viewer-route-state.md b/docs/proposals/2026-08-08-viewer-route-state.md\nnew file mode 100644\nindex 0000000..d877a3d\n--- /dev/null\n+++ b/docs/proposals/2026-08-08-viewer-route-state.md\n@@ -0,0 +1,861 @@\n+# Viewer Route State\n+\n+*Implementation plan — 2026-08-08. GitHub issue #208. Run\n+`01KZGEY5FAPKGK8R4MRQKG9NSV`.*\n+\n+## Status\n+\n+Ready for implementation. This is one coherent viewer-routing change plus the\n+small serving and browser-test seams needed to prove it. The URL will become\n+the source of truth for the center view, selected project, selected skill,\n+skill tab, and version lens. Project-scoped API routing remains in the viewer's\n+existing `projectScope` store; the router will drive that store rather than UI\n+events driving it independently.\n+\n+The product server already has the required arbitrary-depth SPA fallback and\n+does not need a behavior change. Astro development has a fallback too, but\n+`astro preview` currently does not. The implementation will apply the same\n+middleware to preview so a built viewer can be exercised honestly before it is\n+packaged.\n+\n+The retired pre-July-23 shell has a separate router in\n+`packages/viewer/src/app/runtime/router.tsx`. Its History API mechanics are a\n+useful precedent, but its Board/Lab/Track/Ship route vocabulary is not mounted\n+by the current product. This proposal adds a next-shell router rather than\n+rewriting dormant application code. It refines, rather than edits, the\n+archived Phase 17 routing plan and the accepted 2026-07-22 information\n+architecture.\n+\n+## Outcome\n+\n+The current shell will have these canonical routes:\n+\n+| URL | Reconstructed view |\n+|---|---|\n+| `/board` | Machine-wide Board. |\n+| `/p/<projectSlug>` | The Board filtered to one registered project, with that project active. |\n+| `/p/<projectSlug>/tasks` | That project's Tasks view. |\n+| `/p/<projectSlug>/new` | That project's New-skill/import launcher. |\n+| `/p/<projectSlug>/s/<skillSlug>` | The skill's Overview tab. |\n+| `/p/<projectSlug>/s/<skillSlug>/research` | The skill's Research tab. |\n+| `/p/<projectSlug>/s/<skillSlug>/eval` | The skill's Eval tab. |\n+| `/p/<projectSlug>/s/<skillSlug>/publish` | The skill's Publish tab. |\n+| Any skill URL plus `?v=<shortHash>` | The same place viewed through that recorded-version lens. |\n+\n+`/` is a compatibility/default alias that is replaced with `/board`. A bare\n+`/tasks` is a convenience alias: after project bootstrap chooses the stored or\n+first healthy project, it is replaced with that project's canonical\n+`/p/<projectSlug>/tasks` URL. This preserves the issue's proposed entry point\n+without pretending the current Tasks API is machine-wide.\n+\n+The project route deliberately renders a project-filtered Board. That is the\n+honest project landing supported by the current UI and registry response; the\n+implementation will not invent a project dashboard or arbitrarily choose a\n+first skill.\n+\n+`/board` has no selected project. The API layer may retain a last-project\n+preference so ancillary project-scoped data can bootstrap, but that preference\n+must not highlight a project or otherwise masquerade as route state. A\n+project is selected in the UI only when the URL carries its slug.\n+\n+Normal UI navigation uses `history.pushState`. Initial canonicalization,\n+invalid/stale path recovery, and the bare Tasks alias use\n+`history.replaceState`, so Back never returns to a broken URL or an alias that\n+immediately redirects again. `popstate` reconstructs the route and API project\n+scope before the destination's project-scoped effects run.\n+\n+## Verified current state\n+\n+The issue report matches the mounted application:\n+\n+- `packages/viewer/src/pages/index.astro` mounts `NextShell` as the product\n+  root. The older `App.tsx` and `runtime/router.tsx` are not mounted.\n+- `NextShell.tsx` initializes `center` to `{ kind: \"board\" }` and `pinned` to\n+  `\"current\"`. Sidebar, Board, launcher, and version-menu callbacks mutate\n+  those values directly. No current-shell code reads `window.location` or\n+  listens for `popstate`.\n+- `types.ts`'s `CenterView` stores a project display string on Skill and\n+  New-skill variants. Most call sites put `project.name` there, while the\n+  new-project handoff puts a slug there. A routed identity must consistently\n+  use the stable registry slug and resolve the display name separately.\n+- `SkillPage.tsx` owns its tab in `useState(\"overview\")`. Tab clicks do not\n+  reach the shell or URL. The unread markers are correctly device-local\n+  per-skill state and are independent of that navigation ownership.\n+- The version menu emits full hashes into shell state. The wire mapper already\n+  exposes both the full hash and an eight-character `shortHash`, so URLs need\n+  no domain or server schema change.\n+- `projectScope.ts` initializes a module store from `sm-active-project` and\n+  prefixes project API requests at the fetch boundary. `useProjectBootstrap`\n+  keeps that value if it is still registered or chooses the first healthy\n+  project. The next shell currently ignores bootstrap's loading result.\n+- Board is machine-wide and already refreshes on journal events from every\n+  project. Tasks is not machine-wide: `fetchTasks()` calls `/api/todos`, which\n+  `apiPath()` rewrites under the active project. This is why the canonical\n+  Tasks route carries a project path segment.\n+- The New-skill launcher is a real center view omitted from the issue's\n+  tentative scheme. Creation/adoption currently hands an ephemeral\n+  `ChatIntro` to `NextShell`, swaps the center to the new skill, and opens the\n+  right panel. The routed version must retain that one-shot handoff while\n+  pushing the new skill URL.\n+- Panel widths use `sm-next-leftw` and `sm-next-rightw` in localStorage.\n+  Contrary to the acceptance-criteria shorthand, panel open/closed values are\n+  currently React memory only. Overview visibility, expanded mode, selected\n+  panel tab/file, file-tree state, chat draft, and transcript position are\n+  also deliberately not route state.\n+- Chat API effects and the one-shot intro are currently keyed only by skill\n+  slug. Once project identity becomes routinely navigable, moving between two\n+  projects that both contain `review-pr` could retain the wrong project's chat\n+  effect. The routing work must qualify that mounted identity by project\n+  without changing chat protocol or server session behavior.\n+- Live data hooks already refetch on `useActiveProject()` changes and filter\n+  journal ticks against the active project. Keeping the external project store\n+  as the API scoping seam preserves this mechanism.\n+\n+Serving was also verified against current code:\n+\n+| Surface | Current result for `/p/a/s/b/research?v=12345678` |\n+|---|---|\n+| `astro dev` | `200` root shell: the custom Vite middleware rewrites extensionless GET/HEAD paths. |\n+| `astro preview` over built `dist/` | `404`: the middleware only implements `configureServer`. |\n+| `skillmaker start` using viewer `dist/` | `200` root shell at arbitrary depth. |\n+| Distributed `skillmaker` beside `viewer-dist/` | Same server path and fallback, though the dist E2E currently checks `/` only. |\n+\n+`Server.ts`'s `serveStatic` first serves real files and Astro directory\n+indexes, leaves missing asset-like paths as 404, and falls back other non-API\n+paths to root `index.html`. API dispatch rejects unknown `/api/*` routes before\n+static serving. Existing Phase 3 E2E coverage requests a generic\n+`/some/client/route`; it proves fallback but not issue #208's route shape or\n+hydrated view.\n+\n+The repository has no browser runner. Existing E2Es use Bun `fetch` against a\n+real CLI server and explicitly note that they cannot hydrate React or exercise\n+history. A narrowly scoped Chromium Playwright smoke suite is included below\n+because HTTP fallback plus pure parser tests cannot satisfy the direct-load\n+rendering criterion.\n+\n+## Route and state design\n+\n+### Route model\n+\n+Add `packages/viewer/src/app/next/router.tsx` with a next-shell-specific\n+discriminated union:\n+\n+```ts\n+type SkillTab = \"overview\" | \"research\" | \"eval\" | \"publish\";\n+\n+type StudioRoute =\n+  | { readonly name: \"board\"; readonly projectSlug?: string }\n+  | { readonly name: \"tasks\"; readonly projectSlug?: string }\n+  | { readonly name: \"new-skill\"; readonly projectSlug: string }\n+  | {\n+      readonly name: \"skill\";\n+      readonly projectSlug: string;\n+      readonly skillSlug: string;\n+      readonly tab: SkillTab;\n+      readonly version: string | undefined;\n+    }\n+  | { readonly name: \"invalid\" };\n+```\n+\n+The parser is pure and accepts pathname plus search. It must:\n+\n+- match exact segment counts rather than accepting arbitrary suffixes;\n+- decode project and skill segments inside `try`/`catch`, returning `invalid`\n+  for malformed percent encoding rather than throwing;\n+- map a missing skill-tab segment to `overview`;\n+- accept only `research`, `eval`, and `publish` as explicit tab segments;\n+- read only a non-empty `v` on skill routes;\n+- parse `/`, `/tasks`, and harmless trailing slashes as aliases that the\n+  provider can canonicalize;\n+- return `invalid` for unrelated paths, extra segments, or a version query on\n+  a non-skill route.\n+\n+Canonical `v` values are exactly eight lowercase hexadecimal characters, the\n+shape already rendered as `SkillVersion.shortHash`. A missing, duplicate,\n+malformed, or ambiguous `v` is a stale lens and is removed from the otherwise\n+valid skill URL with `replaceState`. Unknown query parameters are dropped\n+during canonicalization on every route; they never become hidden application\n+state and never cause a valid place to fall back to Board.\n+\n+Export href builders for Board, project Board, Tasks, New-skill, and skills.\n+They URI-encode dynamic segments and use `URLSearchParams` for `v`. Skill-tab\n+links preserve the current version lens; navigation to another skill or\n+top-level view starts at that destination's default and drops the old lens.\n+Overview has no `/overview` suffix.\n+\n+Keep this hand-rolled route layer small. The old router's dependency ruling\n+deserves reassessment because the overall repository now has more routes, but\n+the mounted shell still needs only the exact grammar above, two history\n+operations, and one context. Adding a general router dependency would not\n+remove the application-specific registry and version validation described\n+below.\n+\n+### History provider\n+\n+The next router provider owns only `StudioRoute` and exposes:\n+\n+- `navigate(href)` for user-initiated `pushState`;\n+- `replace(href)` for canonicalization/recovery;\n+- a Link component with a real `href` that intercepts only an unmodified\n+  primary click, preserving open-in-new-tab, copy-link, and browser status-bar\n+  behavior;\n+- a `popstate` listener that reparses `location.pathname` and\n+  `location.search`.\n+\n+Before publishing a project-bearing route to project-scoped descendants, the\n+provider establishes that slug in `projectScope`. This ordering is\n+load-bearing: API hooks derive their request URL at effect time, so a\n+cold-loaded skill or a Back navigation must not issue its first request\n+against the project remembered from some other URL.\n+\n+Use an explicit project-scope boundary rather than an ordinary passive effect\n+or a mutation during component render:\n+\n+1. On every render, compare the route project with `getActiveProject()` and\n+   keep project-scoped descendants behind a small loading boundary whenever\n+   they disagree. This applies to initial load and every transition, so\n+   correctness does not depend on React batching two different stores.\n+2. A layout effect establishes the route project in the external store; the\n+   boundary mounts descendants only when `getActiveProject()` agrees.\n+3. User navigation and the `popstate` handler set the next project scope\n+   synchronously inside their event callback before publishing the new route,\n+   minimizing the boundary interval. If the external-store notification paints\n+   first, the always-active agreement check hides the old project-scoped\n+   descendants until route and scope agree.\n+4. A route without a project does not create a selected project. The stored\n+   slug is only a last-project preference for resolving bare `/tasks` and\n+   ancillary API defaults, and Sidebar highlighting comes from the route.\n+\n+Route-driven project scope mirrors to the existing localStorage key, retaining\n+a useful default for bare `/tasks`; localStorage never overrides an explicit\n+project path.\n+\n+Do not key or remount the provider or whole shell on route changes. Panel\n+state, `ChatIntro`, live-refresh's singleton subscription, and in-flight chat\n+state must survive ordinary `pushState` changes.\n+\n+Because a statically generated Astro island cannot know the request pathname\n+while rendering `index.html`, mount the shell as a client-only React island.\n+This avoids server-rendering Board and then hydrating a different route from\n+the browser URL. The pre-paint theme script remains in the Astro page.\n+\n+### Route validation and recovery\n+\n+Syntax and live registry validation are separate:\n+\n+1. A syntactically invalid URL replaces itself with `/board` immediately.\n+2. For a route containing a project, fetch the live `/api/projects` registry.\n+   Validate raw identity fields with a dedicated tri-state decoder instead of\n+   treating the existing tolerant rendering decoder as an authority.\n+3. A fully valid registry response in which all relevant project/skill\n+   identities decoded and the target is absent proves the route stale and\n+   replaces the current history entry with `/board`.\n+4. A network failure, absent API under standalone `astro dev`, or malformed\n+   registry response is not proof of staleness. Retain the parsed route and\n+   the shell's existing placeholder/error posture.\n+5. Bare `/tasks` waits for bootstrap's stored-or-first healthy project and\n+   replaces itself with `/p/<slug>/tasks`. It must not choose a broken project\n+   merely because one is registered. With no healthy project, keep `/tasks`\n+   and render a small “register or repair a project” state without mounting\n+   `TasksView` or calling `/api/todos`.\n+\n+The validation decoder has these outcomes:\n+\n+| Registry evidence | Decision |\n+|---|---|\n+| Fully valid identities; target project/skill absent | Stale: replace with `/board`. |\n+| Matching project and skill present | Valid. |\n+| Matching project has `ok: false` | Unavailable, not stale: retain its route and let the existing broken/error posture render. |\n+| Matching project cannot authoritatively list skills, or an identity-bearing row relevant to absence is malformed | Indeterminate: retain the route. |\n+| Transport/top-level decode failure | Indeterminate: retain the route. |\n+\n+The current defensive `decodeProjectsResponse` remains right for display\n+because it drops bad rows and supplies tolerant defaults. Do not use an array\n+from which it dropped data to prove absence.\n+\n+Validate on cold load and when the `(projectSlug, skillSlug)` identity changes,\n+including Back/Forward to another identity. Tab/version-only navigation reuses\n+the current authoritative result and does not rescan every registered project.\n+After creation/adoption, explicitly invalidate that snapshot and perform a\n+fresh read so the new skill is not judged against pre-creation data. Registry\n+live-refresh may invalidate the snapshot as well. Cancel superseded validation\n+effects so a slow result for the previous URL cannot redirect the current one.\n+\n+A version is validated after live skill-page data arrives. Resolve the URL's\n+short hash to exactly one `SkillVersion`; use that record's full hash for the\n+existing UI props. A zero-match or ambiguous prefix is a stale lens, not a\n+stale place, so replace only the query with the current-draft URL for the same\n+skill and tab. Do not eject a user from a valid skill because one version\n+receipt was pruned. Do not make a placeholder response prove a version stale.\n+\n+### Controlled shell views\n+\n+Remove `NextShell`'s `center` and `pinned` navigation ownership. Derive the\n+rendered center, top-bar title, active sidebar row, project breadcrumb, skill\n+tab, and version query from `StudioRoute`.\n+\n+Resolve project display names from registry/project data while keeping the\n+slug as identity. `CenterView` should either be retired from the mounted shell\n+or revised so it cannot carry the current name/slug ambiguity.\n+\n+Project identity must also participate in data-hook request identity.\n+`useApiStatus` and `useApiData` currently cancel old effects but can retain the\n+previous project's visible data when a same-named resource or Tasks fetch\n+changes scope. Store the request identity beside resolved data and\n+synchronously return loading/fallback whenever it differs from the current\n+`(activeProject, fetcher/resource)` identity; an effect-time reset alone is too\n+late for the intervening render. Keep quiet background refresh only when both\n+resource and project are unchanged, and retain cancellation of superseded\n+requests. This prevents project A's `review-pr` or Tasks from appearing under\n+project B's URL while the new request is in flight.\n+\n+Make `SkillPageView` controlled:\n+\n+```ts\n+{\n+  tab: SkillTab;\n+  onTabChange: (tab: SkillTab) => void;\n+}\n+```\n+\n+Its real tab links navigate to the canonical skill href and preserve `v`.\n+Research/Eval unread dots retain their localStorage stamps; selecting those\n+routes still marks the corresponding stamp seen. Add an accessible selected\n+state such as `aria-current=\"page\"` so keyboard/screen-reader behavior and the\n+browser smoke test observe the same contract.\n+\n+The version menu navigates with the selected record's short hash. “Current\n+draft” pushes the same route without `v`. Existing tab content continues to\n+receive the resolved full hash/`CURRENT_DRAFT` sentinel; this issue does not\n+claim to add historical snapshot rendering where a tab currently shows the\n+live draft.\n+\n+Board accepts an optional project filter:\n+\n+- `/board` shows every project exactly as today.\n+- `/p/<projectSlug>` shows only that project's cards and keeps all-project\n+  live refresh so registry/journal updates remain visible.\n+\n+Sidebar navigation changes as follows:\n+\n+- Board links to `/board`.\n+- Tasks links to `/p/<route-or-last-project>/tasks`; before any project exists\n+  it may use `/tasks`. A last-project fallback chooses the destination but\n+  does not make that project selected while the user is on `/board`.\n+- A project heading links to `/p/<projectSlug>` and expands that section.\n+- A skill links to its Overview URL.\n+- The plus action links to `/p/<projectSlug>/new`.\n+- A newly registered project lands at `/p/<newSlug>/new`.\n+\n+Board cards link directly to their project/skill Overview URL. These paths\n+replace direct `setActiveProject` calls in UI components; the router is the\n+single navigation owner.\n+\n+### Launcher and chat continuity\n+\n+The New-skill route carries the project slug, while the launcher may receive a\n+separately resolved display name. Its create/adopt requests continue through\n+the active project API scope.\n+\n+After creation or adoption:\n+\n+1. Store the existing one-shot intro for a created skill (adoption has none).\n+2. Push `/p/<projectSlug>/s/<newSkillSlug>`.\n+3. Open the right panel.\n+4. Let the existing `ChatTab` consume and clear the intro.\n+\n+Qualify `ChatIntro`, `RightPanel`, `ChatTab`, and the mounted chat key with\n+both project and skill. Add project identity to `useChatSession`'s fetch,\n+EventSource, and callback dependencies so a same-slug cross-project\n+navigation closes the old stream and opens the correct one. This is a client\n+lifecycle correction only; endpoint paths, session persistence, automatic\n+resume, prompt preamble, draft sending, and server chat behavior do not\n+change.\n+\n+Tab and version navigation within one skill must not remount the chat panel.\n+Back to the launcher renders a fresh launcher; already-created skill data\n+comes from the server and is not rolled back.\n+\n+### Device-local state boundary\n+\n+No route or href builder may include panel/layout state. Keep these outside\n+the URL:\n+\n+- left and right widths (`sm-next-leftw`, `sm-next-rightw`);\n+- sidebar/right-panel open state;\n+- overview in-layout/overlay state;\n+- right-panel expanded state;\n+- Files/Chat selection, selected file, and file-tree state;\n+- chat drafts and transcript scroll.\n+\n+Use a small storage-safe boolean hook for right-panel open/closed state so it\n+meets the acceptance criterion's device-local persistence wording. Preserve\n+the current default of open and leave sidebar open/closed as current\n+page-memory state unless product requirements separately ask to persist it.\n+Do not fold widths or any panel state into the router.\n+\n+Project-qualify existing slug-only chat draft, transcript scroll, and tab-seen\n+keys so two projects' `review-pr` skills cannot exchange device-local state.\n+For localStorage values, read the new scoped key first; when only the legacy\n+slug-only key exists, migrate it once into the currently routed project and\n+remove the legacy key. Key module-memory scroll state directly by the compound\n+identity. Cover the compatibility read and cross-project isolation in the\n+existing pure helper tests.\n+\n+Presence is not a storage key, but it has the same identity bug: Sidebar\n+currently gathers slugs from multiple projects while every request is scoped\n+through one active project. Pass `{ projectSlug, skillSlug }` identities and\n+build each presence request with its explicit project API prefix. Return\n+compound identities to Sidebar so duplicate slugs cannot share a spinner.\n+\n+## SPA serving design\n+\n+### Astro development and preview\n+\n+Refactor the fallback plugin in `packages/viewer/astro.config.mjs` so the same\n+middleware is registered through both Vite hooks:\n+\n+- `configureServer` for `astro dev`;\n+- `configurePreviewServer` for `astro preview` over built `dist/`.\n+\n+Retain the current rules: only GET/HEAD, no Vite internals, no real asset-like\n+path, and no `/api/*` traffic. Keep the known `/next` Astro redirect reachable\n+rather than rewriting it as an arbitrary client route. Bare `/api` currently\n+falls through to the shell in both the product server and development posture;\n+normalizing that unrelated edge would require a separate server behavior\n+decision and is not part of issue #208.\n+\n+A raw `dist/` directory has no request handling and therefore cannot itself\n+perform History API fallback. “Built dist” verification means `astro preview`\n+for an unpackaged viewer and `skillmaker start` for the product/distribution,\n+not claiming that every generic static file server supplies rewrites.\n+\n+### CLI server and distribution\n+\n+Do not change `packages/cli/src/server/Server.ts` or `StaticFiles.ts` unless an\n+implementation-time regression disproves the verified behavior. Extend tests\n+to use the canonical deep skill-tab shape. Preserve:\n+\n+- real file and Astro directory-index precedence;\n+- missing asset 404s;\n+- traversal rejection;\n+- unknown API JSON 404s;\n+- arbitrary-depth non-asset fallback to root `index.html`.\n+\n+The distributed binary uses the same `serveStatic` path after locating\n+`viewer-dist`; its guarded E2E should make that contract explicit.\n+\n+## Implementation plan\n+\n+### 1. Add and unit-test the next-shell route grammar\n+\n+Create:\n+\n+- `packages/viewer/src/app/next/router.tsx`\n+- `packages/viewer/src/app/next/router.test.ts`\n+\n+Implement the pure parser, canonical href builders, version query handling,\n+History API provider, modified-click-safe Link, project extraction, and\n+push/replace operations. Cite issue #208 and this proposal in comments that\n+explain why route project synchronization precedes descendant effects and why\n+invalid recovery replaces rather than pushes.\n+\n+The unit suite covers:\n+\n+| Area | Cases |\n+|---|---|\n+| Canonical paths | Board, project Board, project Tasks, New-skill, Overview, and all three explicit skill tabs. |\n+| Aliases | `/` to Board intent, bare `/tasks`, trailing slashes. |\n+| Queries | `v` on every skill tab, tab changes preserving it, Current draft removing it, unrelated/non-skill queries rejected or canonicalized. |\n+| Encoding | Encoded project/skill segments round-trip; malformed percent encoding returns `invalid`. |\n+| Strictness | Unknown tab, extra segments, missing project/skill, and unrelated routes return `invalid`. |\n+| History helpers | Same-location navigation is a no-op; canonical hrefs are stable and do not serialize panel state. |\n+\n+Keep the existing retired-router tests unchanged; they continue to protect\n+dormant compatibility code until that code is removed in a separate cleanup.\n+\n+### 2. Make URL project scope authoritative\n+\n+Update `projectScope.ts`'s ownership comments and, if useful, add an explicit\n+setter/helper used by the route provider. Keep `apiPath` and the external-store\n+subscription contract intact.\n+\n+Adjust `useProjectBootstrap.ts` and add a route-validation/scope boundary so:\n+\n+- an explicit route project wins over stored selection;\n+- `/board` has no selected/highlighted project even if ancillary APIs retain a\n+  last-project preference;\n+- bare-task startup still gets stored-or-first fallback before mounting Tasks;\n+- bare Tasks never canonicalizes to a broken project and renders its dedicated\n+  register/repair state without a todos request when no healthy project exists;\n+- successful registry reads distinguish stale route identities from\n+  unavailable server conditions;\n+- superseded checks are cancelled;\n+- invalid recovery uses router replacement.\n+\n+The route must be able to resolve a display name without putting that mutable\n+name in path identity. Keep the existing defensive registry decoder for\n+rendering, but add the raw tri-state identity decoder described above for\n+absence/staleness decisions.\n+\n+Add focused tests around pure route reconciliation decisions: healthy/stale\n+project, healthy/stale skill, broken matching project, a matching project whose\n+skill list is unavailable, partially malformed identity rows, empty registry,\n+transport failure, and bare Tasks with only broken/no projects. Only fully\n+authoritative absence may be classified as “go to Board.”\n+\n+Update `packages/viewer/src/app/next/api.ts` so active project is part of a\n+hook's request identity. A project change resets stale data/loading state even\n+when the fetcher identity or skill slug is unchanged; a journal tick within\n+the same project remains a quiet background refresh.\n+\n+### 3. Route the persistent shell and every navigation entry\n+\n+Update:\n+\n+- `packages/viewer/src/pages/index.astro`\n+- `packages/viewer/src/app/next/NextShell.tsx`\n+- `packages/viewer/src/app/next/Sidebar.tsx`\n+- `packages/viewer/src/app/next/views.tsx`\n+- `packages/viewer/src/app/next/types.ts`\n+\n+Mount the persistent shell under the next router as a client-only island.\n+Derive center rendering and active states from the route. Remove direct\n+`setCenter`/navigation-time `setActiveProject` calls from Sidebar and Board.\n+Add project filtering to Board and the honest project-scoped Tasks/New-skill\n+paths. Preserve the existing new-project dialog ownership and make its success\n+handoff navigate to the new project's launcher URL.\n+\n+Keep layout toggles, file requests, overview behavior, and panel dimensions in\n+the shell. Add storage-safe right-panel open persistence without placing it in\n+the route. Derive project highlighting from the route, not from the ancillary\n+API preference in `projectScope`.\n+\n+### 4. Route skill tabs and version pins\n+\n+Update `SkillPage.tsx` and the skill-page data hook seam in `views.tsx`/`api.ts`\n+as needed to distinguish live version data from placeholders.\n+\n+Make the tab controlled by `StudioRoute`, turn the tab controls into route\n+links, preserve unread-dot side effects, and expose accessible selected state.\n+Resolve `v` only after live versions arrive, pass the full hash to existing\n+tab controls/content, and replace a stale/ambiguous lens with the same skill\n+route without `v`.\n+\n+Version menu choices push URL changes and preserve the active tab. Navigating\n+between skills starts at Overview/current draft unless the destination href\n+explicitly says otherwise. This also removes the current bug where a shell\n+level pin can leak into a subsequently opened skill.\n+\n+### 5. Preserve launcher and chat handoff across routes\n+\n+Update:\n+\n+- `NextShell.tsx`\n+- `NewSkillLauncher.tsx` only if its project prop needs to separate slug/name\n+- `RightPanel.tsx`\n+- `chatApi.ts`\n+- `composer.ts` and its test\n+- `presence.ts` and its test\n+\n+Push the newly created/adopted skill's canonical URL. Keep the one-shot\n+created-skill intro and automatic panel opening. Qualify the intro and chat\n+mount by project plus skill, and include project identity in chat effect\n+dependencies so cross-project same-slug Back/Forward cannot retain the prior\n+stream. Project-qualify draft, scroll, tab-seen, and presence identities with\n+the one-time legacy localStorage migration described above.\n+\n+Add focused tests for any extracted project/skill chat identity or handoff\n+helper, with both create and adopt callbacks producing the same canonical\n+destination. The browser case covers the more complex created-skill intro;\n+also seed one import candidate and assert the routed adoption handoff, unless\n+the shared destination helper already gives direct coverage of the exact\n+adoption callback. Existing chat model, composer, live-refresh, launcher slug,\n+and chat server suites must remain green.\n+\n+### 6. Make built preview match dev and product serving\n+\n+Update `packages/viewer/astro.config.mjs` to share the fallback middleware\n+between dev and preview and preserve `/api/*`, asset, internal, and `/next`\n+behavior.\n+\n+Update:\n+\n+- `test/e2e/phase3.e2e.test.ts`\n+- `test/e2e/dist.e2e.test.ts`\n+- a focused preview HTTP E2E under `test/e2e`\n+\n+Replace or supplement the generic fallback assertion with an exact\n+`/p/<project>/s/alpha/research?v=12345678`-shaped GET. Assert 200, HTML content\n+type, and the root shell marker; compare with root HTML where stable. Add the\n+same assertion to the guarded distributed-binary suite so an isolated\n+`viewer-dist` location is covered.\n+\n+Make the serving matrix explicit:\n+\n+- Phase 3 source-server E2E: deep route, missing asset, encoded traversal, and\n+  unknown `/api/*` non-fallback;\n+- preview E2E: deep route, `/next`, missing asset, and unknown `/api/*`\n+  non-fallback;\n+- guarded distributed-binary E2E: deep route, missing asset, encoded\n+  traversal, and unknown `/api/*` non-fallback.\n+\n+The preview E2E starts the already-built viewer with `astro preview`, requests\n+the canonical deep route, `/api/unknown`, `/next`, and a missing asset, and\n+asserts shell/non-shell behavior. Extract the fallback classification\n+predicate for fast unit coverage as well. Because CI builds the viewer before\n+`bun test test/e2e`, this test can remain in the existing HTTP E2E gate rather\n+than adding another serving command.\n+\n+No CLI source change is expected.\n+\n+### 7. Add one browser-level routing smoke suite\n+\n+Add `@playwright/test` as a root development dependency, update `bun.lock`,\n+and add a narrowly named script/config for a Chromium-only routing suite. Keep\n+the browser file outside Bun's `.test`/`.spec` discovery pattern so the\n+existing `bun test test/e2e` contract remains unchanged; invoke it explicitly\n+after the viewer build.\n+\n+The fixture must:\n+\n+1. create two isolated temporary projects and one isolated machine home;\n+2. initialize the same skill slug in both projects with distinct names and\n+   research content, plus a recorded version whose short hash is captured\n+   explicitly;\n+3. start the real source `skillmaker start --no-open` against the built viewer;\n+4. discover both registered project slugs from the live API;\n+5. configure the existing fake ACP chat fixture for a deterministic launcher\n+   creation path;\n+6. cleanly stop the process and remove scratch state.\n+\n+The browser assertions cover:\n+\n+- seed localStorage with project A, then cold-load project B's canonical\n+  Research URL with `?v=<shortHash>`;\n+- wait for project B's name/content, selected Research tab, and\n+  historical-version control state, proving the URL beat stored preference;\n+- click Eval and assert the canonical URL retains `v`;\n+- go Back and Forward and assert both the URL and selected/rendered tab follow\n+  history without a page crash;\n+- reload on one of those URLs and assert the same project, skill, tab, and\n+  version lens reconstruct.\n+- navigate between the two projects' same-slug skill URLs and assert each\n+  project's distinct content, including Back/Forward across that boundary;\n+- open project B's New-skill route, submit one deterministic launcher message,\n+  and assert the browser lands on the created skill's canonical URL with one\n+  copy of the launch message in chat.\n+- exercise an import candidate in the same launcher (or the directly tested\n+  shared handoff helper) and assert adoption also selects the canonical skill\n+  URL.\n+\n+Use role/text/`aria-current` selectors rather than CSS implementation details.\n+Do not broaden this into screenshot, cross-browser, or every-page coverage.\n+\n+Add a CI step that runs\n+`bunx playwright install --with-deps chromium` and then the routing script\n+after `build:viewer`. The normal unit and HTTP E2E jobs remain as they are.\n+\n+## Expected file scope\n+\n+Authored product changes are limited to:\n+\n+- `packages/viewer/src/pages/index.astro`\n+- `packages/viewer/astro.config.mjs`\n+- `packages/viewer/src/app/next/router.tsx` and its test\n+- `packages/viewer/src/app/next/NextShell.tsx`\n+- `packages/viewer/src/app/next/Sidebar.tsx`\n+- `packages/viewer/src/app/next/SkillPage.tsx`\n+- `packages/viewer/src/app/next/views.tsx`\n+- `packages/viewer/src/app/next/api.ts`\n+- `packages/viewer/src/app/next/types.ts`\n+- `packages/viewer/src/app/next/RightPanel.tsx`\n+- `packages/viewer/src/app/next/chatApi.ts`\n+- `packages/viewer/src/app/next/composer.ts`\n+- `packages/viewer/src/app/next/presence.ts`\n+- `packages/viewer/src/app/next/hooks.ts`\n+- `packages/viewer/src/app/runtime/projectScope.ts`\n+- `packages/viewer/src/app/runtime/useProjectBootstrap.ts`\n+- a small route-reconciliation module/test if separating pure policy makes the\n+  bootstrap easier to verify.\n+\n+Test/tooling changes are limited to focused tests beside those modules, the two\n+existing serving E2Es, one preview HTTP E2E, one browser smoke fixture/config,\n+root package metadata/lockfile, and the CI browser step.\n+\n+Do not edit:\n+\n+- `packages/core` domain schemas or services;\n+- CLI API routes or chat/session protocol;\n+- `docs/library`;\n+- the retired classic shell/router merely to remove dead code;\n+- desktop, docs-site, marketing-site, or skill packages.\n+\n+## Validation\n+\n+Run focused checks first:\n+\n+```sh\n+bun test packages/viewer/src/app/next/router.test.ts\n+bun test packages/viewer/src/app/next\n+bun run --filter @skillmaker/viewer check\n+bun run build:viewer\n+bun test test/e2e/phase3.e2e.test.ts --timeout 30000\n+bun test test/e2e/viewer-preview.e2e.test.ts --timeout 30000\n+bunx playwright install --with-deps chromium\n+bun run test:viewer-routing\n+```\n+\n+Exercise the two non-product serving modes:\n+\n+1. Start `astro dev`, request a nested canonical skill URL, `/api/unknown`, a\n+   missing asset, and `/next`; confirm shell/API/404/redirect handling\n+   respectively.\n+2. Build and start `astro preview`, then repeat the nested route and\n+   missing-asset requests. The nested route must now serve root `index.html`.\n+\n+Build and run the isolated distribution check:\n+\n+```sh\n+bun run build:dist\n+bun test test/e2e/dist.e2e.test.ts --timeout 30000\n+```\n+\n+Then run repository gates:\n+\n+```sh\n+bunx tsc --noEmit -p packages/core\n+bunx tsc --noEmit -p packages/cli\n+bun test packages\n+bun run build:viewer\n+bun test test/e2e --timeout 30000\n+bun run test:viewer-routing\n+```\n+\n+Manual browser acceptance should additionally confirm:\n+\n+- copied skill/tab/version URLs open correctly in a fresh tab;\n+- project headings, Sidebar skills, Board cards, tabs, version rows, Tasks,\n+  and New-skill all change the address bar;\n+- Back/Forward crosses projects without showing one project's skill against\n+  another project's API data;\n+- `/board` highlights no project even when a last-project preference exists;\n+- panel widths and right-panel open state survive locally but never appear in\n+  the URL;\n+- creating a skill pushes its skill URL, opens chat, and sends the launcher's\n+  message exactly once;\n+- a running/resumable chat, draft, live journal refresh, and Files requests\n+  behave as before across tab/version navigation.\n+\n+Finish with `git diff --check` and `git status --short`. The proposal itself,\n+viewer/router files, focused E2Es/browser harness, package lock, and CI change\n+are the only expected diff families.\n+\n+## Risks and mitigations\n+\n+### Route and API project can momentarily disagree\n+\n+The API path is read from a separate external store. Synchronize that store\n+before publishing a project-bearing route to descendants, include project\n+identity in chat effects, and browser-test cross-history transitions. Do not\n+rely on a later ordinary effect to repair the first request.\n+\n+### Registry validation can turn an outage into destructive navigation\n+\n+Only a fully authoritative live registry response may prove a project or skill\n+stale. A broken matching project, unavailable skill list, partial identity\n+decode, network failure, or serverless posture retains the route. Cancel old\n+validations when location identity changes.\n+\n+### New skills can race a cached route guard\n+\n+Explicitly invalidate and reread after creation/adoption. Those operations\n+already complete before their callback, so the fresh `/api/projects` response\n+is the correct authority; tab/version changes do not need the same rescan.\n+\n+### Same-slug project navigation can retain old client data\n+\n+Include project in request, chat, draft, scroll, seen, and presence identity.\n+Reset visible API data when project identity changes and browser-test two\n+projects with distinct content under the same skill slug.\n+\n+### Static Astro rendering does not know the fallback request URL\n+\n+Use a client-only island. Otherwise built `index.html` always contains the\n+Board render and a deep URL either flashes Board or hydrates against different\n+markup.\n+\n+### Short version hashes can collide or disappear\n+\n+Resolve against live version records and require one match. Ambiguous/missing\n+pins replace only the stale lens, leaving the valid skill/tab intact. The UI\n+continues to use full hashes internally.\n+\n+### Back can return to the launcher after creation\n+\n+Creation is not undone by browser history. A Back navigation shows a fresh\n+launcher backed by the now-updated project catalog; the one-shot intro has\n+already been consumed and must not resend. This is preferable to silently\n+rewriting user history and is covered by the deterministic browser launcher\n+case.\n+\n+### Adding a browser runner increases CI weight\n+\n+Install Chromium only, run one routing file, and keep it as a separate command\n+after the shared viewer build. Do not add screenshots, multiple engines, or a\n+general browser matrix in this issue.\n+\n+### Preview and product fallback can drift\n+\n+Share one Astro middleware between dev/preview and retain HTTP tests against\n+the real CLI server plus the isolated distributed binary. Keep asset and API\n+negative cases beside the positive deep route.\n+\n+## Acceptance criteria\n+\n+1. `/board`, project Board, project Tasks, New-skill, every skill tab, and\n+   `?v=<shortHash>` have canonical hrefs and are derived from the browser URL,\n+   not duplicated `center`/`tab`/`pinned` navigation state.\n+2. Sidebar, Board-card, project, Tasks, launcher, tab, and version navigation\n+   use `pushState`; root/alias normalization and invalid/stale recovery use\n+   `replaceState`.\n+3. Cold-loading or reloading a valid project/skill/tab/version URL selects the\n+   URL project before project-scoped data effects, renders the named skill and\n+   tab, and resolves the version lens.\n+4. Invalid syntax, malformed encoding, unknown projects, and unknown skills\n+   recover to `/board` without throwing. A stale version query recovers to the\n+   same valid skill/tab at Current draft. API unavailability alone does not\n+   redirect.\n+5. Browser Back/Forward traverses project, skill, tab, and version changes and\n+   keeps API/chat scope aligned with the visible route.\n+6. Right-panel open/closed state and panel widths remain device-local and\n+   never appear in a route. Other overview, Files, and chat presentation state\n+   also stays out of the URL.\n+7. `astro dev`, `astro preview` over a build, source `skillmaker start`, and\n+   the guarded distributed-binary E2E all serve root SPA HTML for the nested\n+   canonical route, while API, missing-asset, and traversal requests retain\n+   their current non-fallback behavior.\n+8. The Chromium smoke suite proves direct-load and reload of a version-pinned\n+   Research URL renders the URL project's distinct same-slug content despite a\n+   conflicting stored preference, then proves tab/cross-project navigation\n+   plus Back/Forward update both URL and rendered data.\n+9. The New-skill create/adopt handoff lands on the new skill's canonical URL;\n+   the created-skill chat intro is consumed once, and normal chat resume,\n+   drafts, live refresh, and right-panel behavior do not regress.\n+10. Core/CLI typechecks, package tests, viewer check/build, HTTP E2Es,\n+    distributed deep-route test, and the focused browser suite pass.\n+\n+## Deferred follow-ups\n+\n+- Remove the retired classic `App.tsx`, old router, and their route vocabulary\n+  only in an explicit dead-code cleanup.\n+- Make Tasks machine-wide. Until its data source changes, its honest canonical\n+  route remains project-scoped.\n+- Render historical snapshot contents consistently in every tab. Issue #208\n+  serializes the existing version lens; it does not redefine what each tab\n+  does with a pin.\n+- Expand Playwright into cross-browser, visual, accessibility, or full\n+  chat-session lifecycle coverage beyond the one launcher handoff.\n+- Document rewrite requirements for third-party raw static hosts. The shipped\n+  product uses `skillmaker start`, and Astro preview is covered here; a\n+  directory of files cannot impose host routing policy by itself.\n",
+        "summary": {
+          "files_changed": 1,
+          "additions": 861,
+          "deletions": 0
+        }
+      }
+    },
+    {
+      "seq": 0,
+      "checkpoint": {
+        "timestamp": "2026-08-08T11:09:15.227703971Z",
+        "current_node": "implement",
+        "completed_nodes": [
+          "start",
+          "scope",
+          "implement"
+        ],
+        "node_retries": {},
+        "context_values": {
+          "internal.retry_count.start": 0,
+          "internal.fidelity": "summary:high",
+          "failure_class": "",
+          "graph.rankdir": "LR",
+          "internal.work_dir": "/home/daytona/workspace/skillmaker-studio",
+          "internal.run_id": "01KZGEY5FAPKGK8R4MRQKG9NSV",
+          "graph.goal": "GitHub Issue #208: The shell has no routes — every view lives behind '/' with no shareable or navigable URLs\n\nIssue URL: https://github.com/sociotechnica-org/skillmaker-studio/issues/208\n\n## Summary\n\nThe entire product renders behind `/`: center view, selected project, selected skill, active tab, and version pin are all in-memory React state (`NextShell`'s `center`/`pinned`, `SkillPage`'s `tab`, projectScope's localStorage slug). Nothing is in the URL. Consequences: no copy-paste links to a skill or tab, refresh loses your place, browser back/forward do nothing, and nothing can deep-link into the app (docs, issues, chat messages, factory PR bodies all *want* to link to skill pages). Poor behavior for a browser-based app — and blocking for sharing-with-teammates workflows.\n\n## Direction\n\nClient-side routing via the History API (the viewer is an Astro-served SPA; no server changes should be needed beyond ensuring the existing SPA fallback serves all route paths — verify).\n\nProposed scheme (adjust to code reality):\n- `/board` (default landing), `/tasks`\n- `/p/<projectSlug>` → project (board scoped or first skill — pick the honest one)\n- `/p/<projectSlug>/s/<skillSlug>` → skill page, Overview tab\n- `/p/<projectSlug>/s/<skillSlug>/<tab>` for research|eval|publish\n- Version pin as query (`?v=<shortHash>`), since it's a lens not a place\n\n## Acceptance criteria\n\n1. Every navigation the sidebar/Board/tabs perform updates the URL (pushState); active project changes reflected in URL rather than only localStorage.\n2. Cold-loading any URL (paste into a fresh tab) reconstructs the exact view: project selected, skill open, tab active, version pinned. Unknown/stale routes fall back to `/board` without crashing.\n3. Browser back/forward traverse navigation history correctly (popstate).\n4. The right-panel open/closed and panel widths stay OUT of the URL (device-local state, keep localStorage).\n5. Server: direct-loading deep paths serves the SPA (dev + built dist + `skillmaker start`) — verify the existing fallback covers arbitrary depth, fix if not.\n6. e2e coverage: direct-load of a skill-tab URL renders that skill's tab; back/forward test if the harness allows.\n7. No regression to live-refresh, chat panel state, or the launcher flow (the new-skill → skill-page handoff should land on the new skill's URL).\n\nImplement this issue. Verify current state against the code (NextShell.tsx center-view state, projectScope.ts, SkillPage tab state, astro SPA fallback + Server.ts static serving). This is a MEDIUM-LARGE change — take the scope stage seriously; if the honest scope exceeds one coherent PR, implement the core (routes for board/tasks/project/skill/tab + cold-load + back/forward) and note deferred slices in the PR body rather than sprawling.\n",
+          "internal.node_visit_count": 1,
+          "current_node": "implement",
+          "last_response": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router",
+          "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md",
+          "thread.start.current_node": "scope",
+          "internal.retry_count.scope": 0,
+          "response.implement": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.tsx):\n  - `/board`, `/tasks`, project Board, project Tasks, New Skill, skill tabs, and `?v=<shortHash>`.\n  - `pushState` navigation, `replaceState` canonicalization/recovery, and `popstate` Back/Forward handling.\n  - Invalid/stale project or skill routes recover to `/board`.\n\n- Converted the mounted shell in [NextShell.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/NextShell.tsx) from in-memory center/pin state to route-derived rendering.\n  - Sidebar, Board cards, launcher handoff, tabs, and version picker now update the URL.\n  - Project scope is synchronized before routed project content runs.\n  - Right-panel open state is persisted locally and remains out of the URL.\n  - New-skill chat handoff is qualified by project and skill.\n\n- Updated [Sidebar.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/Sidebar.tsx), [views.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/views.tsx), and [SkillPage.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/SkillPage.tsx) for controlled route navigation, project-filtered Board, and route-controlled skill tabs with `aria-current`.\n\n- Prevented cross-project stale API data flashes in [api.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/api.ts).\n\n- Switched the Astro shell to client-only mounting in [index.astro](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/pages/index.astro), and applied SPA fallback to preview as well as dev in [astro.config.mjs](/home/daytona/workspace/skillmaker-studio/packages/viewer/astro.config.mjs).\n\n- Added pure route coverage in [router.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.test.ts) and updated the server E2E to request a canonical deep skill URL in [phase3.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/phase3.e2e.test.ts).\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: viewer TypeScript check, router unit tests, and `bun run build:viewer`\n- Passed once: `bun test test/e2e --timeout 30000` — 370 passed, 17 expected skips.\n- Verified manually: `skillmaker start` serves the rebuilt shell at `/` (200); the existing server fallback handles arbitrary-depth non-asset paths.\n\nOne gate remains externally blocked: `bun test packages` fails in the pre-existing `packages/cli/test/JournalWatcher.test.ts` test (“fires (debounced) on appends to an existing journal”). It also fails identically when run alone, and no watcher/server code was changed by this routing work.",
+          "internal.retry_count.implement": 0,
+          "graph.max_node_visits": "5",
+          "thread.scope.current_node": "implement",
+          "graph.default_fidelity": "summary:high",
+          "last_stage": "implement",
+          "graph.stall_timeout": "18000000ms",
+          "outcome": "succeeded",
+          "internal.thread_id": "scope",
+          "failure_signature": ""
+        },
+        "node_outcomes": {
+          "implement": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_stage": "implement",
+              "last_response": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router",
+              "response.implement": "Implemented the Issue #208 core routing slice.\n\nKey changes:\n\n- Added URL-authoritative next-shell routing in [router.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.tsx):\n  - `/board`, `/tasks`, project Board, project Tasks, New Skill, skill tabs, and `?v=<shortHash>`.\n  - `pushState` navigation, `replaceState` canonicalization/recovery, and `popstate` Back/Forward handling.\n  - Invalid/stale project or skill routes recover to `/board`.\n\n- Converted the mounted shell in [NextShell.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/NextShell.tsx) from in-memory center/pin state to route-derived rendering.\n  - Sidebar, Board cards, launcher handoff, tabs, and version picker now update the URL.\n  - Project scope is synchronized before routed project content runs.\n  - Right-panel open state is persisted locally and remains out of the URL.\n  - New-skill chat handoff is qualified by project and skill.\n\n- Updated [Sidebar.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/Sidebar.tsx), [views.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/views.tsx), and [SkillPage.tsx](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/SkillPage.tsx) for controlled route navigation, project-filtered Board, and route-controlled skill tabs with `aria-current`.\n\n- Prevented cross-project stale API data flashes in [api.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/api.ts).\n\n- Switched the Astro shell to client-only mounting in [index.astro](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/pages/index.astro), and applied SPA fallback to preview as well as dev in [astro.config.mjs](/home/daytona/workspace/skillmaker-studio/packages/viewer/astro.config.mjs).\n\n- Added pure route coverage in [router.test.ts](/home/daytona/workspace/skillmaker-studio/packages/viewer/src/app/next/router.test.ts) and updated the server E2E to request a canonical deep skill URL in [phase3.e2e.test.ts](/home/daytona/workspace/skillmaker-studio/test/e2e/phase3.e2e.test.ts).\n\nValidation:\n\n- Passed: `bunx tsc --noEmit -p packages/core`\n- Passed: `bunx tsc --noEmit -p packages/cli`\n- Passed: viewer TypeScript check, router unit tests, and `bun run build:viewer`\n- Passed once: `bun test test/e2e --timeout 30000` — 370 passed, 17 expected skips.\n- Verified manually: `skillmaker start` serves the rebuilt shell at `/` (200); the existing server fallback handles arbitrary-depth non-asset paths.\n\nOne gate remains externally blocked: `bun test packages` fails in the pre-existing `packages/cli/test/JournalWatcher.test.ts` test (“fires (debounced) on appends to an existing journal”). It also fails identically when run alone, and no watcher/server code was changed by this routing work."
+            },
+            "notes": "Stage completed: implement",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-terra"
+                  },
+                  "tokens": {
+                    "input_tokens": 103055,
+                    "output_tokens": 13227,
+                    "reasoning_tokens": 3065,
+                    "cache_read_tokens": 3068204,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 1269042
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 174936,
+              "tool_time_ms": 345906,
+              "active_time_ms": 520842
+            }
+          },
+          "start": {
+            "status": "succeeded",
+            "usage": null
+          },
+          "scope": {
+            "status": "succeeded",
+            "context_updates": {
+              "last_response": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative ",
+              "last_stage": "scope",
+              "response.scope": "Created the durable implementation plan at [2026-08-08-viewer-route-state.md](/home/daytona/workspace/skillmaker-studio/docs/proposals/2026-08-08-viewer-route-state.md).\n\nIt defines URL-authoritative project/skill/tab/version routing, cold-load and history synchronization, launcher/chat continuity, SPA fallback verification, project-safe data identity, and focused HTTP plus Playwright coverage. No implementation files were changed; `git diff --check` passes.\n\nPlan ready for implementation: docs/proposals/2026-08-08-viewer-route-state.md"
+            },
+            "notes": "Stage completed: scope",
+            "usage": {
+              "input": {
+                "usage": {
+                  "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.6-sol"
+                  },
+                  "tokens": {
+                    "input_tokens": 160891,
+                    "output_tokens": 21402,
+                    "reasoning_tokens": 17012,
+                    "cache_read_tokens": 5312913,
+                    "cache_write_tokens": 0
+                  }
+                },
+                "facts": {
+                  "algorithm": "openai"
+                }
+              },
+              "total_usd_micros": 4613319
+            },
+            "timing": {
+              "wall_time_ms": 0,
+              "inference_time_ms": 711030,
+              "tool_time_ms": 889129,
+              "active_time_ms": 1600159
+            }
+          }
+        },
+        "next_node_id": "validate_gates",
         "node_visits": {
           "start": 1,
-          "scope": 1
+          "scope": 1,
+          "implement": 1
         }
       },
       "diff": {}
@@ -646,7 +777,12 @@
       "first_event_seq": 24,
       "prompt": null,
       "response": null,
-      "completion": null,
+      "completion": {
+        "outcome": "succeeded",
+        "notes": "Stage completed: scope",
+        "failure_reason": null,
+        "timestamp": "2026-08-08T11:00:25.719559880Z"
+      },
       "provider_used": {
         "mode": "agent",
         "provider": "openai",
@@ -661,8 +797,12 @@
       "started_at": "2026-08-08T10:33:42.630358912Z",
       "handler": "agent",
       "graph_visit": 1,
-      "live_inference_ms": 711011,
-      "live_tool_ms": 889102,
+      "timing": {
+        "wall_time_ms": 1602700,
+        "inference_time_ms": 711030,
+        "tool_time_ms": 889129,
+        "active_time_ms": 1600159
+      },
       "usage": {
         "input_tokens": 160891,
         "output_tokens": 21402,
@@ -865,7 +1005,7 @@
         "warnings": []
       },
       "agent_control": "running",
-      "state": "running"
+      "state": "succeeded"
     },
     "start@1": {
       "first_event_seq": 20,
@@ -902,6 +1042,201 @@
       },
       "agent_control": "running",
       "state": "succeeded"
+    },
+    "implement@1": {
+      "first_event_seq": 1340,
+      "prompt": null,
+      "response": null,
+      "completion": null,
+      "provider_used": {
+        "mode": "agent",
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "medium"
+      },
+      "diff": null,
+      "script_invocation": null,
+      "script_timing": null,
+      "parallel_results": null,
+      "output": null,
+      "started_at": "2026-08-08T11:00:31.643801688Z",
+      "handler": "agent",
+      "graph_visit": 1,
+      "live_inference_ms": 174910,
+      "live_tool_ms": 345881,
+      "usage": {
+        "input_tokens": 103055,
+        "output_tokens": 13227,
+        "total_tokens": 3187551,
+        "reasoning_tokens": 3065,
+        "cache_read_tokens": 3068204,
+        "cache_write_tokens": 0,
+        "total_usd_micros": 1269042
+      },
+      "model": {
+        "provider": "openai",
+        "model_id": "gpt-5.6-terra"
+      },
+      "todos": {
+        "kind": "openai_plan",
+        "list_id": "openai_plan:65c5f867-7314-425b-bdc5-b64dab58d817",
+        "items": [
+          {
+            "id": "2b3d8ae3eb07da8e",
+            "status": "completed",
+            "order": 0,
+            "subject": "Read routing proposal and applicable package guidance; inspect existing viewer/server architecture"
+          },
+          {
+            "id": "017359d024400625",
+            "status": "completed",
+            "order": 1,
+            "subject": "Implement URL-authoritative client routing and navigation synchronization"
+          },
+          {
+            "id": "d793a03a9b45aa28",
+            "status": "completed",
+            "order": 2,
+            "subject": "Ensure SPA fallback covers deep paths and add focused coverage"
+          },
+          {
+            "id": "ec86b9b376beac0e",
+            "status": "completed",
+            "order": 3,
+            "subject": "Run required typecheck, test, e2e, and viewer build gates; fix failures"
+          }
+        ]
+      },
+      "subagents": [
+        {
+          "agent_id": "78a25966",
+          "depth": 1,
+          "task": "Independently inspect the current packages/viewer routing-relevant architecture and the proposal docs/proposals/2026-08-08-viewer-route-state.md. Report precise implementation touchpoints, existing test conventions, and risks. Do not edit files.",
+          "status": {
+            "kind": "closed"
+          }
+        }
+      ],
+      "permission_level": "full",
+      "agent_tools": [
+        {
+          "name": "apply_patch",
+          "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "write",
+          "invoked": true
+        },
+        {
+          "name": "close_agent",
+          "description": "Close a running or completed subagent that is no longer needed.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "request_user_input",
+          "description": "Ask the human one or more questions and wait for their answers before continuing this stage.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        },
+        {
+          "name": "send_input",
+          "description": "Send a follow-up message to a subagent. A running agent receives it at a safe turn boundary. A completed agent starts another turn in the same session with its existing history.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": false
+        },
+        {
+          "name": "shell_command",
+          "description": "Runs a shell command and returns its output.\n- Always set the `workdir` param rather than using `cd`.\n- Reading and searching files goes through this tool: prefer `rg` and `rg --files`, which are much faster than alternatives like `grep` and `find`.\n- Use `apply_patch` to edit files, not `cat`, heredocs, or other shell write tricks.\n- `timeout_ms` defaults to 10000 ms and is capped at 600000 ms. A command that timed out once will time out again, so raise the timeout rather than retrying.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "shell",
+          "invoked": true
+        },
+        {
+          "name": "spawn_agent",
+          "description": "Spawn a subagent for independent work or context isolation. Use it for tasks that can proceed separately, and avoid duplicating the same work in the parent session.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "update_plan",
+          "description": "Update the multi-step plan for the current task. Submit the entire plan; existing steps are reconciled by exact step text.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": true
+        },
+        {
+          "name": "wait",
+          "description": "Wait for a subagent to complete, then use the result to synthesize the outcome for the user.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "subagent",
+          "invoked": true
+        },
+        {
+          "name": "web_search",
+          "description": "Search the web using Brave Search when current external information is needed. Returns result titles, URLs, and descriptions; use web_fetch for a specific URL.",
+          "source": {
+            "kind": "native"
+          },
+          "category": "other",
+          "invoked": false
+        }
+      ],
+      "context_window": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "context_window_tokens": 272000,
+        "input_tokens": 102914,
+        "usage_percent": 37.836029411764706,
+        "count_method": "response_usage_scaled_breakdown",
+        "staleness": "live",
+        "generated_at": "2026-08-08T11:09:14.724069752Z",
+        "event_seq": 1812,
+        "breakdown": [
+          {
+            "category": "system_prompt",
+            "tokens": 2663,
+            "usage_percent": 0.9790441176470588
+          },
+          {
+            "category": "tools",
+            "tokens": 890,
+            "usage_percent": 0.3272058823529412
+          },
+          {
+            "category": "conversation",
+            "tokens": 99355,
+            "usage_percent": 36.52757352941177
+          },
+          {
+            "category": "other",
+            "tokens": 6,
+            "usage_percent": 0.0022058823529411764
+          }
+        ],
+        "warnings": []
+      },
+      "agent_control": "running",
+      "state": "running"
     }
   }
 }
