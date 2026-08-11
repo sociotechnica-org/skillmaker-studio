@@ -1,6 +1,8 @@
 # Architecture review — layers, the runner contract, and the Inspect swap
 
-2026-08-11 · drafted by Raven, companion to
+2026-08-11 · drafted by Raven; v2 — director's rulings folded in
+(2026-08-11); remaining open: per-risk grading (parked), drift-scoped
+selection (parked). Companion:
 `2026-08-11-the-merge-skill-json.md` (read that first — this doc assumes
 the merged `skill.json`). Research basis:
 `docs/research/2026-08-11-eval-ecosystem-survey.md`.
@@ -24,7 +26,7 @@ customer's own infra) a dialect.
 │  API / SESSIONS  project-scoped HTTP + SSE ticks            │
 │                  ACP chat sessions (William/design-skill)   │
 ├─────────────────────────────────────────────────────────────┤
-│  LIFECYCLE CORE  workspace svc · stage machine · stations   │
+│  LIFECYCLE CORE  workspace svc · stage machine              │
 │                  publish door · version records · journal   │
 │                  index (SQLite, derived) · measurements view│
 ├─────────────────────────────────────────────────────────────┤
@@ -66,8 +68,10 @@ SMS_CASE_DIR      …/evals/cases/nothing-worth-writing/
 SMS_CASE_NAME     nothing-worth-writing
 SMS_SKILL_DIR     …/output/            (the version under test, resolved)
 SMS_VERSION_HASH  sha256:…
-SMS_PROVIDER      claude-code          (from the config)
-SMS_MODEL         claude-sonnet-5
+SMS_PROVIDER      claude-code          (the config's harness; configs are
+SMS_MODEL         claude-sonnet-5       auto-registered by the door on first
+                                        run against a new (harness, model)
+                                        pair — ruled, MERGE R5)
 SMS_RUN_DIR       …/runs/<id>/         (empty dir, runner fills it)
 SMS_TIMEOUT       600
 ```
@@ -100,6 +104,8 @@ now, split later — the ActiveRecord precedent.
 
 ## 3. Grading lanes
 
+**RULED (2026-08-11), no longer proposed:** git-visible grade files are
+required — the grade file is the record; grades cannot be journal-only.
 Grades are records **about** runs, appended beside them:
 
 ```
@@ -121,10 +127,11 @@ coexist on one run without touching it. This is smevals' re-gradability
 model unified with our append-only human grades.
 
 Measurements are unchanged: computed cells over graded runs keyed
-(skill, case, versionHash, provider, model), never pooled, Wilson /
-rule-of-three CIs. A future per-risk refinement (checks tagged with
-hypothesis ids → per-risk cells) slots into the checks lane without
-schema surgery — parked per MERGE ⚖️ REVIEW discussion.
+(skill, case, versionHash, harness, model) — the config axis, per the
+MERGE R5 ruling — never pooled, Wilson / rule-of-three CIs. A future
+per-risk refinement (checks tagged with hypothesis ids → per-risk
+cells) slots into the checks lane without schema surgery — parked, per
+ruling.
 
 ## 4. Worked example: swapping RunEngine → Inspect
 

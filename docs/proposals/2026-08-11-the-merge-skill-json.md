@@ -1,6 +1,8 @@
 # THE MERGE — skill.json data-model review
 
-2026-08-11 · drafted by Raven for the director's thorough review.
+2026-08-11 · drafted by Raven; v2 — director's rulings folded in
+(2026-08-11); remaining open: per-risk grading (parked), drift-scoped
+selection (parked).
 Companion: `2026-08-11-architecture-review-runner.md` (layers, runner
 contract, the Inspect swap). Research basis:
 `docs/research/2026-08-11-eval-ecosystem-survey.md`.
@@ -8,10 +10,10 @@ contract, the Inspect swap). Research basis:
 **How to read this doc:** Part 1 inventories every structured file that
 exists today, with real JSON pulled from real bundles on this machine.
 Part 2 is the merged `skill.json` — a complete, real example, built by
-actually merging those files, with a ⚖️ REVIEW marker at every decision
-that is yours to make. Part 3 is global config. Part 4 is the migration.
-Work through the ⚖️ markers; everything unmarked is claimed as
-mechanical.
+actually merging those files. All ten review markers from v1 have been
+ruled (2026-08-11); each ruling appears inline as **RULED**, stated as
+decided. Part 3 is global config. Part 4 is the migration. Everything
+unmarked is claimed as mechanical.
 
 ---
 
@@ -137,6 +139,7 @@ Minimal in practice. Fuller shape per `Fixtures.ts`: optional
 Note this template predates two rulings: no design station wiring
 (design-skill reaches chat via HELPER_SKILL_SLUGS, not stations), and
 "researching includes design.md" isn't reflected in `produces`.
+**RULED (R6): this file dies — see Part 2.**
 
 ### 1e. `runs/<id>/run.json` — execution record (real:
 `skills/william-research-a-skill/runs/791a4742…/`)
@@ -181,10 +184,10 @@ work.) Sits beside `transcript.jsonl`, `response.md`, `artifacts/`.
 ```
 
 Grades today live ONLY here (append-only, latest-wins at index build) —
-there is no grade file beside the run. The architecture doc proposes a
-per-run `grades/` lane; the journal event stays as the notification
-side-channel, per the ruling that history-tracking is deprioritized but
-"two doors, one journal" remains for UI liveness.
+there is no grade file beside the run. **RULED: git-visible grade files
+are required.** `runs/<id>/grades/<grader>/grade.json` is the record;
+the journal `run.graded` event is kept as the UI-liveness notification.
+Grades cannot be journal-only.
 
 ### 1g. Machine registry (real: `~/.skillmaker-studio/config.json`)
 
@@ -214,7 +217,8 @@ stations→skill slugs) — none enforced at write time.
 ## Part 2 — THE MERGE: `skill.json`
 
 One file at the bundle root. This is the real skill #2 merged — every
-field below exists in the actual files above, except where marked NEW.
+field below exists in the actual files above, except where marked NEW
+or restructured per ruling.
 
 ```jsonc
 {
@@ -227,17 +231,33 @@ field below exists in the actual files above, except where marked NEW.
     "oneLiner": "Mine recent meeting transcripts for tweet-worthy insights with evidence.",
     "tags": [],
     "created": "2026-08-07",
-    "agents": ["claude-code"],              // ⚖️ REVIEW 1: renamed from bundle.json
-    "stage": "evaluating"                   //   "targets" (collides with publish).
-  },                                        //   Keep "targets"? Call it "platforms"?
+    "harnesses": ["claude-code"],           // RULED (R1): renamed from bundle.json
+    "stage": "evaluating"                   //   "targets" — "harnesses" aligns with
+  },                                        //   smevals' "model-and-harness
+                                            //   configuration" vocabulary.
 
-  // ⚖️ REVIEW 2: "stage" moving INTO skill.json makes the declared stage a
-  // fact of the skill record. The open declared-vs-derived stages question
-  // (#200 remainder) is NOT settled by this doc — but note that if stages
-  // ever become derived, this field becomes a cache or disappears. Merge
-  // anyway, or leave stage in the journal only?
+  // RULED (R2): stages are DECLARED and live here in skill.json.
+  // Transitions are gated on derived artifact existence. Derived
+  // readiness = the same checks running continuously; a gate = the
+  // check enforced at transition time. Gate table (RULED 2026-08-11):
+  //
+  //   idea → researching          HARD gate: `name` and `oneLiner`
+  //                               (birth intent) non-empty — "how else
+  //                               will you research"
+  //   researching → drafting      HARD gate: design.md exists + non-empty
+  //   drafting → evaluating       HARD gate: output/SKILL.md exists
+  //   evaluating → published      SOFT gate: ≥1 realized case with ≥1
+  //                               graded run — warn "publishing
+  //                               unmeasured", never block (the Vision's
+  //                               soft-gate ruling stands)
+  //   any → archived              no gate
 
-  // ── the design layer ── (absorbs root evals.json, byte-identical shape)
+  // ── the design layer ── (absorbs root evals.json)
+  // RULED (R3): key is "design". MAJOR RESTRUCTURE ruled: proofSpecs
+  // are absorbed into cases — a proof spec and a planned case are the
+  // same thing at different maturities. Hypotheses point at cases by
+  // name (pointers only); this hypothesis→case edge is the ONLY edge —
+  // the old case.risks[] back-reference is REMOVED.
   "design": {
     "failureHypotheses": [
       {
@@ -246,66 +266,64 @@ field below exists in the actual files above, except where marked NEW.
         "probability": "Medium",
         "impact": "Medium",
         "mustNever": "The skill must never invent or pad suggestions when no distinctive, safe idea is present.",
-        "proofSpecs": [
-          {
-            "name": "nothing-worth-writing",
-            "setup": "Provide transcripts with no distinctive and safe public insight.",
-            "expectedBehavior": "The skill explicitly returns no suggestions instead of inventing or padding candidates."
-          }
-        ]
+        "cases": ["nothing-worth-writing"]
       }
-      // … six more, exactly as design-skill wrote them
+      // … six more, same shape (RE-1 → ["summary-conflicts-with-raw-transcript"], …)
     ]
   },
-  // ⚖️ REVIEW 3: key it "design" (this doc: evals are born from design —
-  // the enterprise-lifecycle story told structurally) or "claims" (what
-  // the viewer calls them) or keep "evals"-adjacent naming?
+  // Coverage is DERIVED, never stored: a hypothesis is "covered" when
+  // all its pointed cases are realized, "partial" when some are,
+  // "gap" when none are. A case with no materials dir yet is "planned"
+  // (a proof spec, in the old vocabulary). Shared cases across
+  // hypotheses fall out free — two hypotheses may point at one case.
 
-  // ── eval definitions ── (absorbs every per-case case.json)
+  // ── eval definitions ── (absorbs every per-case case.json AND the
+  //    old proofSpecs)
   "evals": {
     "cases": [
       {
-        "name": "nothing-worth-writing",    // == proofSpec.name == dir name.
-        "class": "empty",                   //   THE join, now explicit and
-        "risks": ["OUT-3"],                 //   CLI-enforced at write time.
-        "expected": "expected.md",          // ⚖️ REVIEW 4: renamed from
+        "name": "nothing-worth-writing",    // == dir name under evals/cases/.
+        "class": "empty",
+        "setup": "Provide transcripts with no distinctive and safe public insight.",
+        "expectedBehavior": "The skill explicitly returns no suggestions instead of inventing or padding candidates.",
+        // ^ RULED (R3): `setup` (prose) and `expectedBehavior` come
+        //   from the old proofSpec. No `risks[]` — hypothesis→case is
+        //   the only edge. A case with no evals/cases/<name>/ dir yet
+        //   is planned; realizing it = writing the materials.
+        "expected": "expected.md",          // RULED (R4): renamed from
         "checks": [                         //   grading.answerKey (industry-
           {                                 //   universal term; free Braintrust
             "checker": "contains",          //   alignment)
             "text": "no suggestions"
           }
         ]
-        // optional, unchanged: "setup": {"files": "files/", "env": {}},
-        // "source": {"kind": "field-report", "eventId": "…"}  (harvest)
+        // optional, unchanged in substance: the legacy structured
+        // setup {files, env} yields its name to the prose field and
+        // migrates to "sandbox": {"files": "files/", "env": {}}
+        // (mechanical); "source": {"kind": "field-report", …} (harvest)
       }
-      // … one per case dir; bodies stay in evals/cases/<name>/
+      // … one per hypothesis-pointed case; realized bodies live in
+      //   evals/cases/<name>/
     ],
-    "configs": [                            // NEW (smevals' Config): names the
-      {                                     // model-and-harness setup once,
-        "id": "cc-default",                 // instead of per-run flags
-        "provider": "claude-code",
-        "model": "claude-sonnet-5"
-      }
-    ]
-    // ⚖️ REVIEW 5: configs — worth having now (they complete the
-    // measurement key and give runs a stable axis), or premature?
-  },
+    "configs": [                            // RULED (R5): configs STAY, but are
+      {                                     // auto-registered by the door on
+        "id": "cc-default",                 // first run against a new
+        "harness": "claude-code",           // (harness, model) pair — never
+        "model": "claude-sonnet-5"          // required up front. Renameable and
+      }                                     // prunable. They are the measurement
+    ]                                       // axis and the runner-picker's
+  },                                        // data source.
 
   // ── distribution ── (absorbs publishTargets)
   "publish": {
     "targets": [{ "audience": "user", "installedAt": "2026-08-08T…" }]
-  },
-
-  // ── production line ── (absorbs stations.json)
-  "stations": {
-    "template": "default",
-    "researching": { "doer": "agent", "skill": "william-research-a-skill", "produces": ["research/", "design.md"], "review": true },
-    "drafting":    { "doer": "agent", "skill": "william-draft-skill-md", "produces": ["output/SKILL.md"], "seeds": ["research/", "design.md"], "review": true },
-    "evaluating":  { "doer": "agent", "produces": ["evals/", "runs/"], "seeds": ["research/", "design.md", "output/"], "review": true }
   }
-  // ⚖️ REVIEW 6: while merging, fix the template to the method ruling
-  // (researching produces design.md; drafting seeds from it) — or migrate
-  // byte-faithful and fix the template separately?
+
+  // ── production line ── RULED (R6): stations.json DIES and no
+  // stations section replaces it. The production line is CODE, not
+  // config: which skill serves which stage lives in code —
+  // HELPER_SKILL_SLUGS becomes the single home. skill.json carries no
+  // stations block.
 }
 ```
 
@@ -314,26 +332,22 @@ field below exists in the actual files above, except where marked NEW.
 - **Runs** — immutable records, not skill state. They stay in `runs/`
   (architecture doc). skill.json is *current-state*; ruled: history
   deprioritized.
-- **Grades/measurements** — computed/appended over runs, never skill
-  state.
+- **Grades/measurements** — records about runs, never skill state.
+  RULED: git-visible grade files are required —
+  `runs/<id>/grades/<grader>/grade.json` is the record; the journal
+  `run.graded` event stays as UI-liveness notification only.
+- **Stations** — RULED (R6): the production line is code, not config.
 - **Versions** — journal + version records, unchanged.
 - **Prose bodies** — SKILL.md, design.md, prompt.md, expected.md are
   files; skill.json holds references. Markdown renders, never sources.
 
-⚖️ REVIEW 7 (the big structural one): **cases inline vs. per-case
-files.** This draft inlines all case *metadata* into skill.json (the
-"pull it all into one file" instinct). The cost: skill.json becomes the
-merge-conflict hotspot when an agent adds cases while a human edits
-identity fields; and CLI doors must be the only writer or conflicts get
-worse. The alternative: skill.json holds the case *index* (names only)
-and per-case metadata stays in `evals/cases/<name>/case.json`. My
-recommendation is inline — the whole point is one record, agents
-already go through doors, and the conflict window is narrow — but this
-is the decision most expensive to reverse.
+**RULED (R7): cases are INLINE in skill.json.** Director intent
+recorded: skill.json is the interim form of a future relational DB, so
+the schema stays relational-clean — hypotheses→cases is the one
+foreign-key edge; cases, runs, and grades key naturally (case name, run
+id, grader). CLI doors are the writers; the conflict window is narrow.
 
-⚖️ REVIEW 8: **naming the unit.** This doc says `case` (industry
-convergence; `case.json` already used the word; smevals says Task).
-Directory becomes `evals/cases/`. Sign off or veto.
+**RULED (R8): the unit is `case`.** Directory becomes `evals/cases/`.
 
 ---
 
@@ -345,14 +359,15 @@ Two machine-level files, cleanly split:
 Stays exactly as-is: which projects this machine knows. Nothing merges
 into it; it's a directory, not a settings file.
 
-**`~/.skillmaker-studio/settings.json` (proposed, does not exist)** —
-machine-level defaults that today have nowhere to live:
+**`~/.skillmaker-studio/settings.json` (new)** — machine-level
+defaults that today have nowhere to live. **RULED (R9): fine to have
+now.**
 
 ```jsonc
 {
   "schemaVersion": 1,
   "defaults": {
-    "provider": "claude-code",             // today: per-run flags/UI picker
+    "harness": "claude-code",              // today: per-run flags/UI picker
     "model": "claude-sonnet-5",
     "runTimeoutSeconds": 600
   },
@@ -360,26 +375,34 @@ machine-level defaults that today have nowhere to live:
 }
 ```
 
-⚖️ REVIEW 9: Is this file wanted *now*, or does it wait until a second
-runner exists? (The director's "skillmaker-config.json (or whatever we
-call it)" comment prompted it. Precedence when both exist: skill.json
-`configs[]` > project > machine settings.)
+Precedence when several exist: skill.json `configs[]` > project >
+machine settings.
 
-⚖️ REVIEW 10: project-level config (a `.skillmaker/settings.json` next
-to the journal) — wanted, or is machine + skill enough? Registered
-projects currently have zero project-scoped settings.
+**Project-level settings** (a `.skillmaker/settings.json` next to the
+journal) — **RULED (R10): allowed; build it when something needs it.**
+Nothing does yet, so nothing ships now.
 
 ---
 
 ## Part 4 — The migration (one migration, not three)
 
 Absorbs every pending rename in a single change (case.json→evals.json
-rename ruling, claims-storage restructure, this consolidation):
+rename ruling, claims-storage restructure, this consolidation).
 
-1. `skillmaker migrate` (or first write through any door): reads 1a–1d
-   + publishTargets, writes `skill.json` schemaVersion 2, moves
-   `evals/fixtures/` → `evals/cases/`, `expected/answer-key.md` →
-   `expected.md`. Old files deleted after write (git is the undo).
+**RULED: migration is an explicit, throwaway standalone script**
+(`scripts/migrate-skill-json.ts`) — NOT a `skillmaker migrate` product
+command, and NOT auto-on-write through the doors. Rationale:
+pre-release, no real users; only this repo and 2–3 repos we all own
+need migrating. Still one reviewable git diff per bundle, still
+idempotent, still dry-runnable — just a script, not product surface.
+
+1. The script reads 1a–1c + publishTargets, writes
+   `skill.json` schemaVersion 2 (restructuring proofSpecs into cases
+   and dropping case `risks[]` per R3), moves `evals/fixtures/` →
+   `evals/cases/`, `expected/answer-key.md` → `expected.md`. It
+   **deletes `stations.json` without replacement** (R6 — the
+   production line lives in code, HELPER_SKILL_SLUGS). Old files
+   deleted after write (git is the undo).
 2. Tolerant readers (the EvalsJson.ts pattern) accept schemaVersion-1
    layouts for one release, warn, never hard-fail.
 3. `risk-map.md` fallback reader survives one release, then drops.
@@ -389,5 +412,6 @@ rename ruling, claims-storage restructure, this consolidation):
    per-case `case.json` is absorbed — no file named `evals.json`
    remains.
 
-Everything in Part 2/3 marked ⚖️ blocks the migration design; nothing
-else does. Ten markers total — that's the review.
+All ten review markers are now ruled, and the gate table is ruled; the
+migration design is unblocked. Remaining open: per-risk grading
+(parked), drift-scoped selection (parked).
