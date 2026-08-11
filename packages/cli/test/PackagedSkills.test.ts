@@ -32,14 +32,15 @@ describe("packaged station skills (packages/cli/skills)", () => {
   test("the default stations template's skills are all packaged", () => {
     expect(stationSkillSlugs.length).toBeGreaterThan(0);
     for (const slug of stationSkillSlugs) {
-      expect(existsSync(join(packagedRoot, slug, "bundle.json"))).toBe(true);
+      // skill.json is the schemaVersion-2 bundle marker (THE MERGE, 2026-08-11).
+      expect(existsSync(join(packagedRoot, slug, "skill.json"))).toBe(true);
       expect(existsSync(join(packagedRoot, slug, "output", "SKILL.md"))).toBe(true);
     }
   });
 
   test("packaged copies match the workspace originals byte for byte (no silent drift)", () => {
     for (const slug of stationSkillSlugs) {
-      for (const relPath of ["bundle.json", "design.md", join("output", "SKILL.md")]) {
+      for (const relPath of ["skill.json", "design.md", join("output", "SKILL.md")]) {
         const original = join(workspaceRoot, slug, relPath);
         const packaged = join(packagedRoot, slug, relPath);
         expect(existsSync(original)).toBe(true);

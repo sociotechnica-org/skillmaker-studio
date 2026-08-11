@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "skill": {
+    "slug": "william-import-a-skill",
+    "name": "William Import A Skill",
+    "oneLiner": "Turns an adopted in-place skill into our format, and shows the maker exactly what changed.",
+    "tags": [],
+    "created": "2026-08-06",
+    "harnesses": [
+      "claude-code"
+    ],
+    "stage": "idea"
+  },
+  "design": {
+    "failureHypotheses": []
+  },
+  "evals": {
+    "cases": [],
+    "configs": []
+  }
+}

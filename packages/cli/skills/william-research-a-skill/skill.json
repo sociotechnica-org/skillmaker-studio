@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "skill": {
+    "slug": "william-research-a-skill",
+    "name": "William Research A Skill",
+    "oneLiner": "Researches a skill's topic and writes research/notes.md before anyone drafts design.md or SKILL.md.",
+    "tags": [],
+    "created": "2026-07-11",
+    "harnesses": [
+      "claude-code"
+    ],
+    "stage": "idea"
+  },
+  "design": {
+    "failureHypotheses": [
+      {
+        "id": "IN-1",
+        "failure": "bundle.json's oneLiner and design.md's Intent are both empty, and the agent invents a topic and researches it anyway instead of stopping (design.md failure hypothesis #1)",
+        "cases": [
+          "golden-basic"
+        ]
+      },
+      {
+        "id": "IN-2",
+        "failure": "Revise notes from a prior review are silently ignored in favor of re-researching from scratch (design.md failure hypothesis #2)",
+        "cases": []
+      },
+      {
+        "id": "OUT-1",
+        "failure": "A stated-but-unconfident fact is written into research/notes.md as if it were settled, with no hedge or open-question flag (design.md failure hypothesis #3)",
+        "cases": []
+      },
+      {
+        "id": "OUT-2",
+        "failure": "The agent edits files outside research/ (design.md failure hypothesis #4)",
+        "cases": []
+      },
+      {
+        "id": "RE-1",
+        "failure": "research/notes.md restates the topic and platitudes with no concrete, checkable facts or edge cases (design.md failure hypothesis #5)",
+        "cases": [
+          "golden-basic"
+        ]
+      }
+    ]
+  },
+  "evals": {
+    "cases": [
+      {
+        "name": "golden-basic",
+        "class": "golden"
+      }
+    ],
+    "configs": []
+  }
+}
