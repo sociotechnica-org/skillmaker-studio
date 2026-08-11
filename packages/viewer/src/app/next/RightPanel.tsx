@@ -44,6 +44,7 @@ export function RightPanel({
   onIntroConsumed,
   fileRequest = null,
   onFileRequestHandled,
+  showFiles = true,
   onArtifactLink,
 }: {
   readonly skill: string;
@@ -54,6 +55,12 @@ export function RightPanel({
   readonly onArtifactLink?: (path: string) => void;
   readonly intro?: ChatIntro | null;
   readonly onIntroConsumed?: () => void;
+  /**
+   * False hides the Files tab, leaving the panel as chat alone. Used by the
+   * /prototype fork, where files live on the skill page instead; defaults
+   * to true so the shipping shell at `/` is unaffected.
+   */
+  readonly showFiles?: boolean;
 }) {
   const [tab, setTab] = useState<PanelTab>("chat");
   // Files state lives here (not in FilesTab) so switching tabs keeps it.
@@ -80,7 +87,7 @@ export function RightPanel({
       {/* implied top section — no bottom border; the fixed corner toggles
           overlay the right edge of this row */}
       <div className="flex h-11 shrink-0 items-center gap-1 px-2">
-        {(["files", "chat"] as const).map((t) => (
+        {(showFiles ? (["files", "chat"] as const) : (["chat"] as const)).map((t) => (
           <button
             key={t}
             type="button"

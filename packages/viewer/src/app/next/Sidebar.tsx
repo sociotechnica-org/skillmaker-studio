@@ -19,12 +19,28 @@ export function Sidebar({
   onNavigate,
   newProjectOpen,
   onNewProjectOpenChange,
+  boardLabel = "Board",
+  showStage = true,
 }: {
   readonly center: CenterView;
   readonly onNavigate: (view: CenterView) => void;
   /** Dialog open state lives in the shell so the Board's empty-registry welcome can open the SAME dialog. */
   readonly newProjectOpen: boolean;
   readonly onNewProjectOpenChange: (open: boolean) => void;
+  /**
+   * Label for the first nav row. The /prototype fork calls it "Status",
+   * since that surface stopped being a stage board; defaults to "Board" so
+   * the shipping shell at `/` is unchanged.
+   */
+  readonly boardLabel?: string;
+  /**
+   * Show each skill's stage badge. The /prototype fork turns it OFF: stage
+   * and the Status page's "Live" column were two nouns competing to answer
+   * one question, and the badge was the one that lied (a bundle can sit at
+   * stage `published` having never been installed anywhere). Defaults true,
+   * so the shipping shell is unchanged.
+   */
+  readonly showStage?: boolean;
 }) {
   // Placeholder until the live fetch lands; astro dev without the API keeps
   // rendering data.ts's PROJECTS (fetchProjects resolves null there).
@@ -83,7 +99,7 @@ export function Sidebar({
 
       <nav className="px-2">
         <NavItem
-          label="Board"
+          label={boardLabel}
           icon={<BoardIcon />}
           active={center.kind === "board"}
           onClick={() => onNavigate({ kind: "board" })}
@@ -116,6 +132,7 @@ export function Sidebar({
             active={project.slug === activeProject}
             open={openProjects[project.name] ?? false}
             expanded={showAll[project.name] ?? false}
+            showStage={showStage}
             center={center}
             running={runningSlugs}
             onToggle={() => {
@@ -227,6 +244,7 @@ function ProjectSection({
   active,
   open,
   expanded,
+  showStage,
   center,
   running,
   onToggle,
@@ -239,6 +257,7 @@ function ProjectSection({
   readonly active: boolean;
   readonly open: boolean;
   readonly expanded: boolean;
+  readonly showStage: boolean;
   readonly center: CenterView;
   /** Slugs with something running right now (presence sweep). */
   readonly running: ReadonlySet<string>;
@@ -287,33 +306,18 @@ function ProjectSection({
         }`}
       >
         <div className="overflow-hidden">
-          {visible.map((skill) => {
-            const active = center.kind === "skill" && center.project === project.name && center.slug === skill.slug;
-            return (
-              <button
-                key={skill.slug}
-                type="button"
-                onClick={() => onOpenSkill(skill.slug)}
-                className={`flex w-full items-center gap-2 rounded py-1 pl-8 pr-2 text-left text-sm ${
-                  active ? "bg-surface shadow-sm" : "text-ink-muted hover:bg-surface/60"
-                }`}
-              >
-                <span className={`min-w-0 flex-1 ${FADE_R}`}>{skill.slug}</span>
-                {/* attention dot: the bundle awaits review (subtle, left of the badge) */}
-                {skill.awaitingReview === true && (
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Awaiting review" />
-                )}
-                <StageBadge stage={skill.stage} />
-                {/* row-right spinner: an active run or a chat turn in flight */}
-                {running.has(skill.slug) && (
-                  <span
-                    className="h-3 w-3 shrink-0 animate-spin rounded-full border border-amber-500 border-t-transparent"
-                    title="Running"
-                  />
-                )}
-              </button>
-            );
-          })}
+          {visible.map((skill) => (
+            <SkillRow
+              key={skill.slug}
+              skill={skill}
+              showStage={showStage}
+              project={project}
+              center={center}
+              running={running}
+              onOpenSkill={onOpenSkill}
+            />
+          ))}
+
           {hidden > 0 && (
             <button
               type="button"
@@ -326,5 +330,49 @@ function ProjectSection({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * One skill in the spine. Extracted during the tag-grouping experiment and
+ * kept after it was reverted: the row is easier to read as its own thing,
+ * and whatever the spine eventually groups by will want exactly this seam.
+ */
+function SkillRow({
+  skill,
+  showStage,
+  project,
+  center,
+  running,
+  onOpenSkill,
+}: {
+  readonly skill: Project["skills"][number];
+  readonly showStage: boolean;
+  readonly project: Project;
+  readonly center: CenterView;
+  readonly running: ReadonlySet<string>;
+  readonly onOpenSkill: (slug: string) => void;
+}) {
+  const active = center.kind === "skill" && center.project === project.name && center.slug === skill.slug;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenSkill(skill.slug)}
+      className={`flex w-full items-center gap-2 rounded py-1 pl-8 pr-2 text-left text-sm ${
+        active ? "bg-surface shadow-sm" : "text-ink-muted hover:bg-surface/60"
+      }`}
+    >
+      <span className={`min-w-0 flex-1 ${FADE_R}`}>{skill.slug}</span>
+      {skill.awaitingReview === true && (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Awaiting review" />
+      )}
+      {showStage && <StageBadge stage={skill.stage} />}
+      {running.has(skill.slug) && (
+        <span
+          className="h-3 w-3 shrink-0 animate-spin rounded-full border border-amber-500 border-t-transparent"
+          title="Running"
+        />
+      )}
+    </button>
   );
 }

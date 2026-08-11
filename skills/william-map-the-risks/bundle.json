@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "slug": "william-map-the-risks",
+  "name": "William Map The Risks",
+  "oneLiner": "Authors evals/risk-map.md and the fixtures that buy each row.",
+  "tags": [],
+  "created": "2026-08-06",
+  "targets": [
+    "claude-code"
+  ]
+}

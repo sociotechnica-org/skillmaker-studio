@@ -742,7 +742,17 @@ const handleProjects = async (registry: ProjectRegistryManager): Promise<Respons
         const bundles = await listBundleRecords(context.root);
         const skills = bundles
           .filter((bundle) => !bundle.archived)
-          .map((bundle) => ({ slug: bundle.slug, stage: bundle.stage, substate: bundle.substate, oneLiner: bundle.oneLiner }));
+          // `tags` rides along (additive): the sidebar can group its spine by
+          // the flat taxonomy without a per-bundle fetch. Already on the
+          // record and already served by /api/bundles -- this was the only
+          // payload that dropped it.
+          .map((bundle) => ({
+            slug: bundle.slug,
+            stage: bundle.stage,
+            substate: bundle.substate,
+            oneLiner: bundle.oneLiner,
+            tags: bundle.tags,
+          }));
         return { ...base, ok: true, skills };
       } catch (cause) {
         return { ...base, ok: false, error: `could not read project index: ${String(cause)}`, skills: [] };
