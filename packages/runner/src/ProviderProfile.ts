@@ -1,0 +1,198 @@
+/**
+ * Per-provider behavior that `RunEngine.ts` / `StationEngine.ts` /
+ * `AcpClient.ts` need to branch on, resolved from a `providers` key in
+ * `skillmaker.config.json` (e.g. `"claude-code"`, `"codex"`).
+ *
+ * Phase 12 (codex parity, `spike-codex/FINDINGS.md`) found three real
+ * per-provider deltas against the Phase 8 `claude-code-acp` baseline:
+ *
+ * 1. **Skill install directory.** claude-code-acp reads
+ *    `.claude/skills/<slug>/SKILL.md`; codex-acp reads
+ *    `.agents/skills/<slug>/SKILL.md` (confirmed live: prompted a real
+ *    `codex-acp` session to use a skill installed at
+ *    `.agents/skills/demo-skill/`, it read the file and followed it).
+ * 2. **Model extraction from `session/new`'s result.** claude-code-acp
+ *    reports `result.models.currentModelId`. The npm-deprecated
+ *    `@zed-industries/codex-acp@0.16.0` reports model info under
+ *    `result.configOptions` (an array of `{id, currentValue, ...}`, model
+ *    entry has `id: "model"`) instead -- no `models` key at all, so the
+ *    claude-code-shaped `extractModel()` silently returns `null`. The
+ *    non-deprecated `@agentclientprotocol/codex-acp@1.1.2` (this repo's
+ *    default codex provider command, see `Workspace.ts`) was re-spiked for
+ *    Phase 12 and turned out to report `result.models.currentModelId` too
+ *    (plus `configOptions`, for defense-in-depth) -- but a provider-aware
+ *    extractor is kept anyway so a workspace still configured with the
+ *    deprecated zed package (or a future adapter that only exposes
+ *    `configOptions`) doesn't silently lose its `run.json.model` field.
+ * 3. **Infra-stderr signatures.** codex-acp's adapter package can trail the
+ *    installed `codex` CLI's own model catalog, producing a JSON-RPC
+ *    `-32603` whose `data.message` reads "The '<model>' model requires a
+ *    newer version of Codex. Please upgrade..." -- a real, provider-specific
+ *    infra fault distinct from anything claude-code-acp exhibits. Codex also
+ *    logs pre-existing, unrelated skill-parse `ERROR` lines to stderr on
+ *    every session start (it scans all discoverable skill dirs, not just the
+ *    sandbox cwd) -- those must NOT be classified as infra, so the signature
+ *    list stays a specific substring match, never a broad `"ERROR"` scan.
+ *
+ * No nested-session guard exists in codex-acp as of this spike (unlike
+ * claude-code-acp's), so codex has no analog of `AcpClient.ts`'s
+ * `stripClaudeCodeEnv` signature -- stripping is still applied unconditionally
+ * (harmless, defense in depth) but isn't part of this per-provider profile.
+ */
+
+/** Shape `AcpClient.ts`'s `session/new` result is read through for model extraction -- kept structurally compatible with `NewSessionResult` there rather than importing it, to avoid a circular module dependency. */
+export interface SessionModelSource {
+  readonly models?: {
+    readonly currentModelId?: string;
+    readonly availableModels?: ReadonlyArray<{ readonly modelId: string; readonly description?: string }>;
+  };
+  readonly configOptions?: ReadonlyArray<{
+    readonly id?: string;
+    readonly currentValue?: unknown;
+    /** `@agentclientprotocol/claude-agent-acp`'s select-option list -- carries the human `description` used as the model label. */
+    readonly options?: ReadonlyArray<{
+      readonly value?: unknown;
+      readonly name?: string;
+      readonly description?: string;
+    }>;
+  }>;
+  readonly [key: string]: unknown;
+}
+
+export interface ProviderProfile {
+  /** The `providers.<id>` key in `skillmaker.config.json` this profile matches (falls back to the default profile for any other id -- data-model.md's `targets` field lists provider ids freely, and an unrecognized one should still run, just without provider-specific niceties). */
+  readonly id: string;
+  /** Relative to the sandbox root, e.g. `".claude/skills"` / `".agents/skills"`. `RunEngine`/`StationEngine` join `<skillInstallDir>/<slug>` to install the skill's `output/` before the session starts. */
+  readonly skillInstallDir: string;
+  /** Reads a provider-shaped `session/new` result into a model id, or `null` if the shape doesn't match. */
+  readonly extractModel: (session: SessionModelSource) => string | null;
+  /** Stderr substrings that indicate an infra fault for THIS provider specifically, on top of `AcpClient.ts`'s provider-agnostic `INFRA_STDERR_SIGNATURES`. */
+  readonly infraStderrSignatures: ReadonlyArray<string>;
+  /**
+   * The env var THIS provider's CLI respects to relocate its whole config
+   * directory (default `~/.claude` / `~/.codex`) -- including that
+   * provider's OWN user-level skill directory. Fix F6: without this, the
+   * ACP adapter subprocess inherits the operator's real `$HOME`, so the
+   * underlying CLI reads the operator's personal user-level skills
+   * (`~/.claude/skills` for claude-code) in ADDITION to the bundle's skill
+   * `RunEngine`/`StationEngine` install at the sandbox-local
+   * `skillInstallDir` above -- contaminating eval measurements with
+   * whatever the operator happens to have installed locally.
+   * `RunEngine`/`StationEngine` set this env var to a fresh, run-scoped,
+   * empty directory before every session so the sandbox is the ONLY source
+   * of skills the agent can see.
+   */
+  readonly configDirEnvVar: string;
+}
+
+/**
+ * Fix (Phase 20 Story 2 friction log F2): joins a `modelId` (typically
+ * `session/new`'s `currentModelId`, or a caller-requested model id after
+ * `session/set_model`) against that same response's `availableModels` list
+ * and returns the matched entry's `description` -- e.g. "Opus 4.6 - Most
+ * capable for complex work" -- instead of the bare alias (`"default"`,
+ * `"sonnet"`, `"haiku"`). The alias is a stable protocol id but NOT a stable
+ * model identity: `"default"` resolves to whatever the user's account
+ * default is *that day*, so two runs recorded as `claude-code/default`
+ * could silently be two different real models pooled into the same
+ * measurement cell -- the exact corruption the product's "never pooled"
+ * guarantee (data-model.md §1.1.5) cannot tolerate. Falls back to the bare
+ * `modelId` only when no matching `availableModels` entry (or no
+ * `description` on it) exists -- e.g. a minimal/legacy adapter response --
+ * so callers never get `null`/throw here, just a best-effort label.
+ */
+export const resolveModelLabel = (session: SessionModelSource, modelId: string): string => {
+  const match = session.models?.availableModels?.find((candidate) => candidate.modelId === modelId);
+  if (match?.description !== undefined) return match.description;
+  // `@agentclientprotocol/claude-agent-acp` (issue #154) advertises models
+  // only via configOptions -- same label reasoning applies there.
+  const option = session.configOptions
+    ?.find((opt) => opt.id === "model")
+    ?.options?.find((candidate) => candidate.value === modelId);
+  return option?.description ?? modelId;
+};
+
+/**
+ * Every model id the session advertises as selectable, across BOTH wire
+ * shapes: `models.availableModels[].modelId` (legacy claude-code-acp,
+ * codex-acp) and the configOptions model entry's `options[].value`
+ * (`@agentclientprotocol/claude-agent-acp`). Used to validate a
+ * caller-requested `--model` before switching to it.
+ */
+export const advertisedModelIds = (session: SessionModelSource): ReadonlyArray<string> => {
+  const fromModels = session.models?.availableModels?.map((candidate) => candidate.modelId) ?? [];
+  const fromConfig =
+    session.configOptions
+      ?.find((opt) => opt.id === "model")
+      ?.options?.map((candidate) => candidate.value)
+      .filter((value): value is string => typeof value === "string") ?? [];
+  return [...fromModels, ...fromConfig];
+};
+
+const extractFromModelsField = (session: SessionModelSource): string | null => {
+  const currentModelId = session.models?.currentModelId;
+  if (currentModelId === undefined) return null;
+  return resolveModelLabel(session, currentModelId);
+};
+
+/**
+ * `configOptions` fallback for adapters that report the selected model only
+ * there, as `{id: "model", currentValue: "<modelId>"}`: the deprecated
+ * `@zed-industries/codex-acp`, and -- since the issue #154 migration -- the
+ * current claude provider `@agentclientprotocol/claude-agent-acp` (0.63.0),
+ * whose `session/new` has no `models` key at all. When the model option
+ * also carries an `options` list (claude-agent-acp does), the matching
+ * option's `description` wins as the label -- same reasoning as
+ * `resolveModelLabel`: `"default"`/`"opus"` are stable protocol ids but not
+ * stable model identities.
+ */
+const extractFromConfigOptions = (session: SessionModelSource): string | null => {
+  const modelOption = session.configOptions?.find((opt) => opt.id === "model");
+  const current = modelOption?.currentValue;
+  if (typeof current !== "string") return null;
+  const match = modelOption?.options?.find((option) => option.value === current);
+  return match?.description ?? current;
+};
+
+/** Tries `models.currentModelId` first (the legacy claude-code-acp, and `@agentclientprotocol/codex-acp`), then `configOptions[id="model"].currentValue` (the deprecated `@zed-industries/codex-acp`, and `@agentclientprotocol/claude-agent-acp`). The two shapes never collide, so trying both is safe for any provider (spike/FINDINGS.md's recommendation). */
+const extractModelTolerant = (session: SessionModelSource): string | null =>
+  extractFromModelsField(session) ?? extractFromConfigOptions(session);
+
+/** "The '<model>' model requires a newer version of Codex" -- the model-compat class of infra fault found live against `@zed-industries/codex-acp@0.16.0` when the adapter package trails the installed `codex` CLI's default model (spike-codex/FINDINGS.md). Kept as a substring, not a broad `"ERROR"` match, because codex-acp also logs harmless per-session skill-parse `ERROR` lines unconditionally at startup. */
+export const CODEX_MODEL_COMPAT_STDERR_SIGNATURE = "requires a newer version of Codex";
+
+export const CLAUDE_CODE_PROVIDER_ID = "claude-code";
+export const CODEX_PROVIDER_ID = "codex";
+
+/** Respected by the `claude` CLI (which claude-code-acp wraps) to relocate its whole `~/.claude`-equivalent config directory, including user-level skills. */
+export const CLAUDE_CODE_CONFIG_DIR_ENV_VAR = "CLAUDE_CONFIG_DIR";
+/** Respected by the `codex` CLI (which codex-acp wraps) to relocate its whole `~/.codex`-equivalent config directory. */
+export const CODEX_CONFIG_DIR_ENV_VAR = "CODEX_HOME";
+
+export const CLAUDE_CODE_PROFILE: ProviderProfile = {
+  id: CLAUDE_CODE_PROVIDER_ID,
+  skillInstallDir: ".claude/skills",
+  extractModel: extractModelTolerant,
+  infraStderrSignatures: [],
+  configDirEnvVar: CLAUDE_CODE_CONFIG_DIR_ENV_VAR,
+};
+
+export const CODEX_PROFILE: ProviderProfile = {
+  id: CODEX_PROVIDER_ID,
+  skillInstallDir: ".agents/skills",
+  extractModel: extractModelTolerant,
+  infraStderrSignatures: [CODEX_MODEL_COMPAT_STDERR_SIGNATURE],
+  configDirEnvVar: CODEX_CONFIG_DIR_ENV_VAR,
+};
+
+/** Any provider id not explicitly known (custom `skillmaker.config.json` entries) gets claude-code-acp's shape -- the more common ACP adapter layout, and the tolerant `extractModel` still recognizes codex's shape too. */
+const DEFAULT_PROFILE: ProviderProfile = CLAUDE_CODE_PROFILE;
+
+const PROFILES_BY_ID: ReadonlyMap<string, ProviderProfile> = new Map([
+  [CLAUDE_CODE_PROFILE.id, CLAUDE_CODE_PROFILE],
+  [CODEX_PROFILE.id, CODEX_PROFILE],
+]);
+
+/** Resolves a `providers.<id>` key from `skillmaker.config.json` to its `ProviderProfile`. Unknown ids resolve to `DEFAULT_PROFILE` rather than failing -- provider IDs are workspace-configurable free text (data-model.md §2.3's `targets`), not a closed enum. */
+export const resolveProviderProfile = (providerId: string): ProviderProfile =>
+  PROFILES_BY_ID.get(providerId) ?? DEFAULT_PROFILE;
