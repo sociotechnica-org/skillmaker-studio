@@ -129,6 +129,11 @@ export {
   type ParseEvalsJsonResult,
 } from "./EvalsJson.ts";
 export {
+  buildSkillJsonDocument,
+  type LegacyBundleSnapshot,
+  type BuildResult,
+} from "./SkillJsonMigration.ts";
+export {
   parseSkillJson,
   parseSkillJsonSync,
   readBundleStructuredState,

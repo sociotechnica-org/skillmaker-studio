@@ -6,14 +6,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  buildSkillJsonDocument,
-  executePlan,
-  planBundleMigration,
-} from "../../../scripts/migrate-skill-json.ts";
+import { buildSkillJsonDocument } from "../src/SkillJsonMigration.ts";
 import { readBundleStructuredState } from "../src/SkillJson.ts";
 import { TestServices } from "./support/TestLayer.ts";
 
@@ -220,14 +217,21 @@ bundle: william-shaped
     writeFileSync(join(caseDir, "expected", "answer-key.md"), "# Answer key\n");
   };
 
+  /** The script stays outside core's tsc program, so the round-trip drives it as a subprocess — which also exercises the real entry point. */
+  const runScript = (dir: string): { stdout: string; status: number | null } => {
+    const scriptPath = join(import.meta.dir, "..", "..", "..", "scripts", "migrate-skill-json.ts");
+    const result = spawnSync(process.execPath, [scriptPath, dir], { encoding: "utf8" });
+    return { stdout: `${result.stdout}${result.stderr}`, status: result.status };
+  };
+
   test("migrate -> files restructured, legacy files deleted, unified reader serves the same claims/cases; second run is a no-op", async () => {
     const dir = mkdtempSync(join(tmpdir(), "skillmaker-migrate-test-"));
     try {
       scaffoldLegacyBundle(dir);
 
-      const plan = await planBundleMigration(dir);
-      expect(plan.status).toBe("ready");
-      executePlan(plan);
+      const first = runScript(dir);
+      expect(first.status).toBe(0);
+      expect(first.stdout).toContain("migrated.");
 
       // Files restructured.
       expect(existsSync(join(dir, "skill.json"))).toBe(true);
@@ -255,9 +259,11 @@ bundle: william-shaped
       expect(state.warnings).toEqual([]);
 
       // Idempotent: running again is a no-op with a message, not a rewrite.
-      const again = await planBundleMigration(dir);
-      expect(again.status).toBe("already-migrated");
-      expect(again.actions).toEqual([]);
+      const before = readFileSync(join(dir, "skill.json"), "utf8");
+      const again = runScript(dir);
+      expect(again.status).toBe(0);
+      expect(again.stdout).toContain("already migrated");
+      expect(readFileSync(join(dir, "skill.json"), "utf8")).toBe(before);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
