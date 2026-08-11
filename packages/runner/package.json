@@ -1,16 +1,18 @@
 {
-  "name": "@skillmaker/core",
+  "name": "@skillmaker/runner",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "sms-runner": "./src/bin.ts"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@skillmaker/runner": "workspace:*",
     "effect": "^4.0.0-beta.97"
   },
   "devDependencies": {
-    "@effect/platform-bun": "^4.0.0-beta.97"
+    "@types/bun": "^1.3.14"
   }
 }
