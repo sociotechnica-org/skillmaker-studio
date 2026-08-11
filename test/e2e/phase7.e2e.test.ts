@@ -12,7 +12,7 @@
  * confirm reindex still exits 0 but surfaces a warning everywhere.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startE2eRegistryServer } from "./support/server.ts";
@@ -200,6 +200,30 @@ beforeAll(async () => {
   expect(runCli(["new", "frame-the-problem", "--json"], scratchDir).exitCode).toBe(0);
 
   bundleDir = join(scratchDir, "skills", "frame-the-problem");
+
+  // Convert the fresh (skill.json-born) bundle to the PRE-MERGE layout:
+  // this suite documents the LEGACY evals chain -- case.json fixtures +
+  // risk-map.md coverage -- which must keep serving for old bundles, and
+  // `fixture add` must keep writing the legacy shape on them.
+  rmSync(join(bundleDir, "skill.json"));
+  rmSync(join(bundleDir, "evals", "cases"), { recursive: true });
+  mkdirSync(join(bundleDir, "evals", "fixtures"), { recursive: true });
+  writeFileSync(
+    join(bundleDir, "bundle.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        slug: "frame-the-problem",
+        name: "Frame The Problem",
+        oneLiner: "",
+        tags: [],
+        created: "2026-01-01",
+        targets: ["claude-code"],
+      },
+      null,
+      2,
+    )}\n`,
+  );
 
   const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],

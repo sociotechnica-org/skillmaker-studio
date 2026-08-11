@@ -251,35 +251,38 @@ describe("skillmaker fixture harvest: happy path", () => {
     });
   });
 
-  test("case.json carries provenance, schemaVersion, and empty risks", () => {
-    const caseJsonPath = join(bundleDir, "evals", "fixtures", "hard-case-1", "case.json");
-    const caseJson = JSON.parse(readFileSync(caseJsonPath, "utf8")) as {
-      readonly schemaVersion: number;
-      readonly case: string;
-      readonly class: string;
-      readonly risks: ReadonlyArray<string>;
-      readonly source: { readonly kind: string; readonly eventId: string; readonly destination?: string };
+  test("the case entry lands in skill.json with its provenance (THE MERGE write side: no case.json)", () => {
+    // `new` births skill.json bundles now, so harvest writes the case entry
+    // into skill.json's evals.cases and the materials into evals/cases/.
+    const skillJson = JSON.parse(readFileSync(join(bundleDir, "skill.json"), "utf8")) as {
+      readonly evals: {
+        readonly cases: ReadonlyArray<{
+          readonly name: string;
+          readonly class: string;
+          readonly source?: { readonly kind: string; readonly eventId: string; readonly destination?: string };
+        }>;
+      };
     };
-    expect(caseJson.schemaVersion).toBe(1);
-    expect(caseJson.case).toBe("hard-case-1");
-    expect(caseJson.class).toBe("hard-case");
-    expect(caseJson.risks).toEqual([]);
-    expect(caseJson.source).toEqual({
+    const entry = skillJson.evals.cases.find((c) => c.name === "hard-case-1");
+    expect(entry).toBeDefined();
+    expect(entry?.class).toBe("hard-case");
+    expect(entry?.source).toEqual({
       kind: "field-report",
       eventId: failedReportId,
       destination: "acme-agent-fleet",
     });
+    expect(existsSync(join(bundleDir, "evals", "cases", "hard-case-1", "case.json"))).toBe(false);
   });
 
   test("prompt.md carries the report's prose verbatim", () => {
-    const promptPath = join(bundleDir, "evals", "fixtures", "hard-case-1", "prompt.md");
+    const promptPath = join(bundleDir, "evals", "cases", "hard-case-1", "prompt.md");
     expect(readFileSync(promptPath, "utf8")).toBe("Broke on a repo with no package.json.\n");
   });
 
-  test("files/.gitkeep and expected/answer-key.md are scaffolded, same as fixture add", () => {
-    const caseDir = join(bundleDir, "evals", "fixtures", "hard-case-1");
+  test("files/.gitkeep and expected.md are scaffolded, same as case add", () => {
+    const caseDir = join(bundleDir, "evals", "cases", "hard-case-1");
     expect(existsSync(join(caseDir, "files", ".gitkeep"))).toBe(true);
-    expect(existsSync(join(caseDir, "expected", "answer-key.md"))).toBe(true);
+    expect(existsSync(join(caseDir, "expected.md"))).toBe(true);
   });
 
   test("harvesting never appends to the journal -- fixtures are files, not events", () => {

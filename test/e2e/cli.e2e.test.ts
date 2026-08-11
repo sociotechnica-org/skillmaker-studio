@@ -78,12 +78,21 @@ describe("skillmaker CLI end-to-end", () => {
     expect(parsed.slug).toBe("my-first-skill");
 
     const bundleDir = join(scratchDir, "skills", "my-first-skill");
-    expect(existsSync(join(bundleDir, "bundle.json"))).toBe(true);
-    // stations.json is no longer scaffolded (THE MERGE, 2026-08-11): the
-    // production line is code.
+    // THE MERGE write-side tranche (2026-08-11): new bundles are born
+    // migrated -- skill.json (schemaVersion 2), no legacy bundle.json, no
+    // stations.json (the production line is code).
+    expect(existsSync(join(bundleDir, "skill.json"))).toBe(true);
+    expect(existsSync(join(bundleDir, "bundle.json"))).toBe(false);
     expect(existsSync(join(bundleDir, "stations.json"))).toBe(false);
+    const skillJson = JSON.parse(readFileSync(join(bundleDir, "skill.json"), "utf8")) as {
+      schemaVersion: number;
+      skill: { slug: string; stage: string };
+    };
+    expect(skillJson.schemaVersion).toBe(2);
+    expect(skillJson.skill.slug).toBe("my-first-skill");
+    expect(skillJson.skill.stage).toBe("idea");
     expect(existsSync(join(bundleDir, "design.md"))).toBe(true);
-    for (const relative of ["research", "evals/fixtures", "output", "runs"]) {
+    for (const relative of ["research", "evals/cases", "output", "runs"]) {
       expect(existsSync(join(bundleDir, relative, ".gitkeep"))).toBe(true);
     }
 

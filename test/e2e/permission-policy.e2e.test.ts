@@ -110,7 +110,7 @@ beforeAll(() => {
   expect(
     runCli(["fixture", "add", "example-skill", "golden-basic", "--json"], scratchDir).exitCode,
   ).toBe(0);
-  writeFileSync(join(bundleDir, "evals", "fixtures", "golden-basic", "prompt.md"), "Do the thing.\n");
+  writeFileSync(join(bundleDir, "evals", "cases", "golden-basic", "prompt.md"), "Do the thing.\n");
 
   // Point the claude-code provider at the permission-probing fake adapter.
   const configPath = join(scratchDir, "skillmaker.config.json");

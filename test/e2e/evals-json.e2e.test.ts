@@ -76,6 +76,29 @@ beforeAll(async () => {
   expect(runCli(["new", "designed-skill", "--json"], scratchDir).exitCode).toBe(0);
   bundleDir = join(scratchDir, "skills", "designed-skill");
 
+  // Convert the fresh (skill.json-born) bundle to the PRE-MERGE layout:
+  // this suite documents the LEGACY claims chain -- root evals.json over
+  // risk-map.md -- which only answers when no skill.json wins (one source,
+  // never a merge).
+  rmSync(join(bundleDir, "skill.json"));
+  rmSync(join(bundleDir, "evals", "cases"), { recursive: true });
+  writeFileSync(
+    join(bundleDir, "bundle.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        slug: "designed-skill",
+        name: "Designed Skill",
+        oneLiner: "",
+        tags: [],
+        created: "2026-01-01",
+        targets: ["claude-code"],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
   // A realized fixture for IN-1's proof spec, an unrealized one for ADV-1.
   const caseDir = join(bundleDir, "evals", "fixtures", "refusal-thin-input");
   mkdirSync(caseDir, { recursive: true });

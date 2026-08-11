@@ -105,7 +105,7 @@ beforeAll(() => {
   bundleDir = join(scratchDir, "skills", "example-skill");
   writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Example Skill\n\nDoes a thing.\n");
   expect(runCli(["fixture", "add", "example-skill", "golden-basic", "--json"]).exitCode).toBe(0);
-  writeFileSync(join(bundleDir, "evals", "fixtures", "golden-basic", "prompt.md"), "Do the thing.\n");
+  writeFileSync(join(bundleDir, "evals", "cases", "golden-basic", "prompt.md"), "Do the thing.\n");
 }, 30000);
 
 afterAll(() => {

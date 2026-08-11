@@ -160,6 +160,30 @@ export {
   type BundleStructuredState,
 } from "./SkillJson.ts";
 export {
+  newSkillJsonDocument,
+  writeSkillJsonStageSync,
+  addCaseToSkillJson,
+  addClaimToSkillJson,
+  writeCaseMaterialsScaffold,
+  scaffoldCaseForBundle,
+  type ScaffoldCaseInput,
+  type ScaffoldCaseOutcome,
+  type NewSkillJsonInput,
+  type WriteStageOutcome,
+  type AddCaseInput,
+  type AddCaseResult,
+  type AddClaimInput,
+  type AddClaimResult,
+  type CaseMaterialsInput,
+} from "./SkillJsonWrite.ts";
+export {
+  checkStageGateSync,
+  nextStageReadinessSync,
+  PUBLISHING_UNMEASURED_WARNING,
+  type StageGateVerdict,
+  type StageReadiness,
+} from "./StageGates.ts";
+export {
   hashFile,
   hashOutputTree,
   hashDesign,

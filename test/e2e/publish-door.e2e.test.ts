@@ -108,7 +108,12 @@ beforeAll(async () => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"]).exitCode).toBe(0);
-  expect(runCli(["new", "demo-skill", "--json"]).exitCode).toBe(0);
+  // Birth intent up front: the idea -> researching gate (THE MERGE ruled
+  // table) requires a non-empty oneLiner.
+  expect(
+    runCli(["new", "demo-skill", "--one-liner", "A demo skill for the publish-door e2e suite.", "--json"])
+      .exitCode,
+  ).toBe(0);
 
   bundleDir = join(scratchDir, "skills", "demo-skill");
   writeFileSync(join(bundleDir, "design.md"), "# Demo Skill\n\nA demo skill for the publish-door e2e suite.\n");
@@ -204,12 +209,13 @@ describe("CLI install door", () => {
     // output/ siblings ride along.
     expect(readFileSync(join(installedDir, "reference.md"), "utf8")).toBe("sibling file\n");
 
-    // Remembered in bundle.json -- the long-empty publishTargets field's
-    // per-bundle home, traveling with the bundle in git.
-    const bundleJson = JSON.parse(readFileSync(join(bundleDir, "bundle.json"), "utf8")) as {
-      publishTargets?: ReadonlyArray<string>;
+    // Remembered in skill.json's publish.targets (THE MERGE: this bundle is
+    // skill.json-born) -- the per-bundle memory traveling with the bundle in
+    // git, absorbed from bundle.json's old publishTargets.
+    const skillJson = JSON.parse(readFileSync(join(bundleDir, "skill.json"), "utf8")) as {
+      publish?: { targets?: ReadonlyArray<string> };
     };
-    expect(bundleJson.publishTargets).toEqual(["user"]);
+    expect(skillJson.publish?.targets).toEqual(["user"]);
 
     // Journaled with the evidence state.
     const published = installPublishEvents();
@@ -285,10 +291,10 @@ describe("server install door", () => {
     const installed = readFileSync(join(installedDir, "SKILL.md"), "utf8");
     expect(installed).toContain("published by skillmaker-studio");
 
-    const bundleJson = JSON.parse(readFileSync(join(bundleDir, "bundle.json"), "utf8")) as {
-      publishTargets?: ReadonlyArray<string>;
+    const skillJson = JSON.parse(readFileSync(join(bundleDir, "skill.json"), "utf8")) as {
+      publish?: { targets?: ReadonlyArray<string> };
     };
-    expect(bundleJson.publishTargets).toEqual(["user", "project"]);
+    expect(skillJson.publish?.targets).toEqual(["user", "project"]);
   });
 
   test("GET bundle detail carries the publish block: remembered audiences, last publish, installed drift", async () => {

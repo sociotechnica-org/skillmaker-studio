@@ -105,10 +105,13 @@ export interface SkillJsonSkill {
   /** Agent platforms the skill is written for (bundle.json's old `targets`). */
   readonly harnesses: ReadonlyArray<string>;
   /**
-   * The declared stage. INTERIM (tranche 1 is read-side): nothing writes
-   * this field yet, so readers keep trusting the journal fold for the live
-   * stage. The write-side tranche makes stage transitions write it — file
-   * = record, journal event = liveness, the same pattern grade files use.
+   * The declared stage — THE stage on a skill.json bundle (director ruling
+   * 2026-08-11: no declared-vs-live split). Written by the transition doors
+   * (`SkillJsonWrite.writeSkillJsonStageSync`, called by the CLI `advance`
+   * command and the server's `POST /api/events` stage_changed branch) —
+   * file = record, journal `bundle.stage_changed` event = liveness, the
+   * same pattern grade files use. Readers prefer it on skill.json bundles
+   * (IndexService's rebuild); legacy bundles keep folding the journal.
    */
   readonly stage?: string;
 }

@@ -19,7 +19,7 @@
  * journal does get elided by it.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { partitionDoorway } from "../../packages/viewer/src/app/runtime/boardDoorway.ts";
@@ -130,8 +130,14 @@ beforeAll(async () => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
-  expect(runCli(["new", "kappa", "--json"], scratchDir).exitCode).toBe(0);
-  expect(runCli(["new", "lambda", "--json"], scratchDir).exitCode).toBe(0);
+  // Birth intent + the drafting->evaluating artifact up front: the ruled
+  // gate table (THE MERGE, StageGates.ts) is live on the guarded flow.
+  expect(runCli(["new", "kappa", "--one-liner", "Walks through the doorway.", "--json"], scratchDir).exitCode).toBe(0);
+  expect(runCli(["new", "lambda", "--one-liner", "Backdated doorway probe.", "--json"], scratchDir).exitCode).toBe(0);
+  writeFileSync(
+    join(scratchDir, "skills", "kappa", "output", "SKILL.md"),
+    "---\nname: kappa\ndescription: doorway walker.\n---\n\nDo the kappa thing.\n",
+  );
 
   const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
@@ -186,6 +192,17 @@ describe("issue #82: the Published column is a doorway, not a shelf", () => {
       payload: { bundle: "lambda", from: "idea", to: "published" },
     };
     appendFileSync(journalPath, `${JSON.stringify(backdatedPublish)}\n`);
+
+    // File = record (THE MERGE write side): a real transition door would
+    // have written skill.json.stage alongside the event, and readers now
+    // prefer the declared stage on skill.json bundles -- so the simulated
+    // old publish writes the file half by hand too.
+    const lambdaSkillJsonPath = join(scratchDir, "skills", "lambda", "skill.json");
+    const lambdaSkillJson = JSON.parse(readFileSync(lambdaSkillJsonPath, "utf8")) as {
+      skill: Record<string, unknown>;
+    };
+    lambdaSkillJson.skill.stage = "published";
+    writeFileSync(lambdaSkillJsonPath, `${JSON.stringify(lambdaSkillJson, null, 2)}\n`);
 
     const bundles = await getBundles();
     const lambda = bundles.find((b) => b.slug === "lambda");

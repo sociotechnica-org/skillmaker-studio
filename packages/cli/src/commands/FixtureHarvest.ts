@@ -105,7 +105,7 @@ export const runFixtureHarvest = Effect.fn("runFixtureHarvest")(function* (
       return expectedFailure(`skillmaker fixture harvest: no such intake "${outcome.intake}"\n`);
     }
     if (outcome.kind === "case_exists") {
-      return expectedFailure(`skillmaker fixture harvest: evals/fixtures/${caseName}/ already exists for "${slug}"\n`);
+      return expectedFailure(`skillmaker fixture harvest: case "${caseName}" already exists for "${slug}"\n`);
     }
 
     return summarizeFromIntake(slug, outcome.result, options.json);
@@ -157,7 +157,7 @@ export const runFixtureHarvest = Effect.fn("runFixtureHarvest")(function* (
     );
   }
   if (outcome.kind === "case_exists") {
-    return expectedFailure(`skillmaker fixture harvest: evals/fixtures/${caseName}/ already exists for "${slug}"\n`);
+    return expectedFailure(`skillmaker fixture harvest: case "${caseName}" already exists for "${slug}"\n`);
   }
 
   return summarize(slug, outcome.result, options.json);
@@ -176,7 +176,7 @@ const summarize = (slug: string, result: HarvestFixtureResult, json: boolean): C
     );
   }
   return ok(
-    `skillmaker: harvested field report ${result.source.eventId} into ${slug}/evals/fixtures/${result.caseName}/ (class: ${result.class})\n`,
+    `skillmaker: harvested field report ${result.source.eventId} into ${slug}/${result.caseDirRel}/ (class: ${result.class})\n`,
   );
 };
 
@@ -193,6 +193,6 @@ const summarizeFromIntake = (slug: string, result: HarvestFixtureFromIntakeResul
     );
   }
   return ok(
-    `skillmaker: harvested intake ${result.source.intake} into ${slug}/evals/fixtures/${result.caseName}/ (class: ${result.class})\n`,
+    `skillmaker: harvested intake ${result.source.intake} into ${slug}/${result.caseDirRel}/ (class: ${result.class})\n`,
   );
 };

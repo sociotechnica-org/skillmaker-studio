@@ -83,7 +83,7 @@ beforeAll(async () => {
   writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Run Todo Skill\n\nv1.\n");
   expect(runCli(["fixture", "add", "run-todo-skill", "hard-case-conflict", "--json"]).exitCode).toBe(0);
   writeFileSync(
-    join(bundleDir, "evals", "fixtures", "hard-case-conflict", "prompt.md"),
+    join(bundleDir, "evals", "cases", "hard-case-conflict", "prompt.md"),
     "Reconcile the conflicting sections.\n",
   );
 

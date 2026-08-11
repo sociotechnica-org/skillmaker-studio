@@ -70,12 +70,12 @@ describe("POST /api/bundles", () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ status: "created", slug: "my-first-skill" });
 
-    // A full scaffold on disk, same as `skillmaker new`.
+    // A full scaffold on disk, same as `skillmaker new` -- born migrated
+    // (THE MERGE write side): skill.json, no bundle.json, no stations.json.
     const bundleDir = join(scratchDir, "skills", "my-first-skill");
-    expect(existsSync(join(bundleDir, "bundle.json"))).toBe(true);
+    expect(existsSync(join(bundleDir, "skill.json"))).toBe(true);
+    expect(existsSync(join(bundleDir, "bundle.json"))).toBe(false);
     expect(existsSync(join(bundleDir, "design.md"))).toBe(true);
-    // stations.json is no longer scaffolded (THE MERGE, 2026-08-11): the
-    // production line is code.
     expect(existsSync(join(bundleDir, "stations.json"))).toBe(false);
     expect(journalHasBundleCreated("my-first-skill")).toBe(true);
 

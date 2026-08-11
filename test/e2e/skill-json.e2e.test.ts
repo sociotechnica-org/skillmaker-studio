@@ -51,6 +51,28 @@ const getBundleDetail = async (slug: string): Promise<{ status: number; body: Bu
   return { status: response.status, body: (await response.json()) as BundleDetailView };
 };
 
+/**
+ * Hand-scaffolds a LEGACY (pre-merge) bundle: `skillmaker new` births
+ * skill.json bundles now (write-side tranche), but this suite exists to
+ * prove the MIGRATION + legacy read chain, which both start from the
+ * pre-merge layout.
+ */
+const scaffoldLegacyBundle = (slug: string, name: string): void => {
+  const dir = join(scratchDir, "skills", slug);
+  for (const sub of ["research", join("evals", "fixtures"), "output", "runs"]) {
+    mkdirSync(join(dir, sub), { recursive: true });
+  }
+  writeFileSync(
+    join(dir, "bundle.json"),
+    `${JSON.stringify(
+      { schemaVersion: 1, slug, name, oneLiner: "", tags: [], created: "2026-01-01", targets: ["claude-code"] },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(join(dir, "design.md"), `# Design — ${name}\n`);
+};
+
 const scaffoldEvals = (bundleDir: string): void => {
   const caseDir = join(bundleDir, "evals", "fixtures", "refusal-thin-input");
   mkdirSync(join(caseDir, "expected"), { recursive: true });
@@ -113,8 +135,8 @@ beforeAll(async () => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
-  expect(runCli(["new", "merged-skill", "--json"], scratchDir).exitCode).toBe(0);
-  expect(runCli(["new", "legacy-skill", "--json"], scratchDir).exitCode).toBe(0);
+  scaffoldLegacyBundle("merged-skill", "Merged Skill");
+  scaffoldLegacyBundle("legacy-skill", "Legacy Skill");
 
   scaffoldEvals(join(scratchDir, "skills", "merged-skill"));
   scaffoldEvals(join(scratchDir, "skills", "legacy-skill"));
