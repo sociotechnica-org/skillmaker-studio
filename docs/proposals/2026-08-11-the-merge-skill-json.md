@@ -251,6 +251,13 @@ or restructured per ruling.
   //                               unmeasured", never block (the Vision's
   //                               soft-gate ruling stands)
   //   any → archived              no gate
+  //
+  // NO DECLARED-VS-LIVE SPLIT (director, 2026-08-11): skill.json.stage
+  // IS the stage — file = record, journal `bundle.stage_changed` event =
+  // liveness notification, same pattern as grade files. INTERIM ONLY:
+  // until the write-side tranche gives stage a writer (advance writes
+  // skill.json), readers keep trusting the journal fold — because the
+  // field has no writer yet, not because two truths exist.
 
   // ── the design layer ── (absorbs root evals.json)
   // RULED (R3): key is "design". MAJOR RESTRUCTURE ruled: proofSpecs
