@@ -222,12 +222,9 @@ afterAll(async () => {
 });
 
 describe("skillmaker CLI end-to-end: Phase 7 (evals have shape: fixtures + coverage)", () => {
-  test("`skillmaker new` scaffolds an evals/risk-map.md skeleton", () => {
+  test("`skillmaker new` no longer scaffolds evals/risk-map.md (claims are born in root evals.json; deprecated 2026-08-08)", () => {
     const riskMapPath = join(bundleDir, "evals", "risk-map.md");
-    expect(existsSync(riskMapPath)).toBe(true);
-    const content = readFileSync(riskMapPath, "utf8");
-    expect(content).toContain("bundle: frame-the-problem");
-    expect(content).toContain("| Risk | Description | Coverage | Fixture |");
+    expect(existsSync(riskMapPath)).toBe(false);
   });
 
   test("`skillmaker fixture add` scaffolds a golden case with risks", () => {

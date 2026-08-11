@@ -319,13 +319,13 @@ describe("issue #109: the acts land in the Feed while the items land in the draw
 describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopted bundle", () => {
   let inPlaceSlug: string;
 
-  test("a brownfield triage adopt's detail carries the seeded dossier, its reviewable files, and every listed file is servable", async () => {
+  test("a brownfield triage adopt's detail carries its reviewable files, and every listed file is servable", async () => {
     // A brownfield skill living OUTSIDE skills/ -- adopted in place, it
     // stays exactly where it was discovered (`.skillmaker-adopt.json`,
     // layout "in-place"), which is the case the detail handler used to go
-    // blind on (it recomputed `<skillsDir>/<slug>` and returned an empty
-    // dossier, null station, and zero files -- defeating the #108→#109 seam
-    // for exactly the imports it targets).
+    // blind on (it recomputed `<skillsDir>/<slug>` and returned a null
+    // station and zero files -- defeating the #108→#109 seam for exactly
+    // the imports it targets).
     const brownfieldDir = join(scratchDir, "brownfield", "complete-skill");
     mkdirSync(brownfieldDir, { recursive: true });
     writeFileSync(
@@ -341,9 +341,9 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     writeFileSync(
       manifestPath,
       [
-        "| Path | Decision | Whose | Job | Basis |",
-        "| --- | --- | --- | --- | --- |",
-        "| brownfield/complete-skill | keep | mine | Do the brownfield thing | the seam-pass field manual |",
+        "| Path | Decision | Whose |",
+        "| --- | --- | --- |",
+        "| brownfield/complete-skill | keep | mine |",
         "",
       ].join("\n"),
     );
@@ -361,29 +361,20 @@ describe("seam pass over #108/#109: GET /api/bundles/:slug for an in-place adopt
     const response = await fetch(`${projectUrl}/bundles/${slug}`);
     expect(response.status).toBe(200);
     const detail = (await response.json()) as {
-      dossier: { job?: string; basis?: string };
       files: ReadonlyArray<string>;
       versions: ReadonlyArray<{ hash: string; label?: string }>;
       instructionsPath: string | null;
     };
-
-    // The manifest's card answers (issue #108) round-trip: seeded into the
-    // in-place dossier at adopt time, read back from the bundle's ACTUAL
-    // directory by the detail handler.
-    expect(detail.dossier.job).toBe("Do the brownfield thing");
-    expect(detail.dossier.basis).toBe("the seam-pass field manual");
 
     // Card-fidelity simplify pass: the SERVER owns the Instructions tab's
     // path, derived from the resolved layout -- an in-place bundle IS the
     // skill directory, so the instructions are its root SKILL.md.
     expect(detail.instructionsPath).toBe("SKILL.md");
 
-    // Layout-aware reviewable files: the in-place payload's SKILL.md plus
-    // the dossier Adopt scaffolded next to it (no design.md traveled with
-    // this directory, so none is listed).
+    // Layout-aware reviewable files: the in-place payload's SKILL.md (no
+    // design.md traveled with this directory, so none is listed).
     expect(detail.files.length).toBeGreaterThan(0);
     expect(detail.files).toContain("SKILL.md");
-    expect(detail.files).toContain("dossier.md");
 
     // No dead links: every listed file must be servable from the bundle's
     // real directory through the file endpoint.
@@ -492,7 +483,6 @@ describe("card-fidelity round 2: GET /api/bundles/:slug/fixtures/:case for an ou
           case: "harness-golden",
           class: "golden",
           risks: ["OUT-1"],
-          context: "fleet-eval",
           grading: { checks: ["output mentions the gizmo"] },
         },
         null,
@@ -506,14 +496,12 @@ describe("card-fidelity round 2: GET /api/bundles/:slug/fixtures/:case for an ou
     const body = (await response.json()) as {
       caseName: string;
       class: string | null;
-      context: string | null;
       promptMd: string | null;
       legacyPrompt: string | null;
       grading: { answerKey: string | null; checks: ReadonlyArray<string> } | null;
     };
     expect(body.caseName).toBe("harness-golden");
     expect(body.class).toBe("golden");
-    expect(body.context).toBe("fleet-eval");
     expect(body.promptMd).toContain("Do the gizmo task for the harness.");
     expect(body.legacyPrompt).toBeNull();
     expect(body.grading?.answerKey).toBeNull();

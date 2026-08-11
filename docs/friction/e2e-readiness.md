@@ -350,6 +350,85 @@ Everything else is a papercut: logged, parked, not fixed this week.
   evals.json restructure and the frozen Evals redesign — recon smeval's
   terms (eval/case/run/score/…) before naming anything new.
 
+- QA walk 2026-08-08 (director, note only — not for build yet):
+  (1) RULED then immediately REVISED by (4): chat-transcript file
+  links must open the doc SOMEWHERE — but see the invariant below;
+  the Files panel would displace the chat.
+  (4) THE INVARIANT (director, same walk): "I basically want to see
+  notes.md AND the chat at the same time" — reading a document must
+  never displace the conversation. This is the design anchor under
+  (1)-(3): doc-in-center + chat-in-panel, or split panel, or
+  chat-as-permanent-column with docs-as-tabs in center. Decide the
+  layout ONCE from this invariant, then the link ruling falls out.
+  LEADING CANDIDATE (director, same minute): "that could also just be
+  showing the Research tab!" — transcript links navigate the CENTER
+  to the artifact's home tab (research/* → Research, SKILL.md →
+  Overview, evals/* → Eval, else Files panel as fallback); chat never
+  moves. Zero new layout, satisfies the invariant, and quietly
+  delivers the force-navigate idea from the first walk.
+  (2) Musing: the Files tab may want to become TABS — multiple open
+  documents, ChatGPT-desktop style.
+  (3) Musing: "chat on the left may actually be stronger" — chat is
+  becoming the primary work surface ("I'm doing many things through
+  chat"); layout inversion candidate. Both musings are center-panel
+  IA questions for the next design pass with Danvers (relates to #204
+  prototype + the D9 direct-manipulation amendment).
+
+- **STAGE-MODEL RULING (director, 2026-08-08 — partial answer to
+  #200): researching INCLUDES design.md.** notes.md is the process,
+  design.md is the exit artifact; researching ends when design.md is
+  done; drafting renders SKILL.md from it. No separate design stage,
+  no "advance to design" ceremony. Consequences: design.md's home is
+  the Research tab; researching→drafting gate gains an artifact guard
+  (design.md complete); deriveArtifactStage maps content-bearing
+  design.md to late-researching, not drafting; preamble/William codas
+  rephrase design as researching's second movement. Posted to #200
+  for Danvers's reaction before tab/guard rewiring.
+
+- Naming candidate (Danvers, relayed by director 2026-08-08): rename
+  "Research" -> "Method" — the stage is really forming how the method
+  works, and research/design are one iterative movement under the
+  2026-08-08 researching-includes-design ruling. Park for the design
+  table; the tab meanwhile shows notes.md + design.md + decisions.md.
+
+- SKILL.md ordered-list numbering renders wrong in the new Prompt tab
+  (renderer's list handling again — sibling of the fixed
+  continuation-line bug). PARKED papercut.
+- Director, same moment: "we could make that a deterministic parsing
+  check I suppose — not for now — we don't have deterministic checks."
+  That IS the Preflight lens from the PMS harvest (task #1, frozen with
+  Evals): deterministic build-validity — SKILL.md parses, frontmatter
+  valid, references resolve. First organic demand signal for it; keep
+  frozen but the thaw case is building.
+
+- QA 2026-08-08 (fixtures-before-skill session): (1) read-only Eval
+  mode hides fixture BODIES — director drafted fixtures pre-draft and
+  couldn't inspect them ("I might have feedback on fixture
+  structure!") → read-only mode should allow expanding claims/fixtures
+  to READ prompt/purpose, just without run/grade affordances. (2) No
+  per-fixture "Running" indicator — a run started and he couldn't tell
+  which case was executing without unfolding → spinner on the running
+  fixture row. (3) Idea: top-level "Runs" view in the sidebar next to
+  Board/Tasks. (4) Idea: fixed bottom-aligned "Active Runs" strip in
+  the Chat panel above the composer — runs started from chat show
+  status where the user is already looking. (1)+(2) = next batch;
+  (3)+(4) = design-table candidates.
+
+- **Eval-writer skill — founding notes (director thinking aloud,
+  2026-08-08):** the evaluating-stage William. (1) Fixture design is
+  ITERATIVE with human judgment: propose -> "would this actually
+  happen?" -> refine (the research open-questions loop, applied to
+  fixtures — confidence is the residue of the loop). (2) HARVESTED
+  over synthetic: takes evidence sources (dirs/logs/real examples) and
+  extracts real fixture data; `skillmaker fixture harvest` already
+  exists; Vision card's "failures in real use become fixtures" +
+  receiving-dock session-log idea are the lineage. (3) Fixtures carry
+  PROVENANCE (harvested-from vs synthetic) so "do these represent real
+  use?" is readable, not remembered. Inputs: evals.json proof specs +
+  evidence sources; output: one-risk-per-fixture with provenance.
+  Build it THROUGH the product with design-skill facilitating.
+  Structure conversation w/ Danvers pending.
+
 ## Session log
 
 **PAUSED mid-walk** at the design station: director answering the

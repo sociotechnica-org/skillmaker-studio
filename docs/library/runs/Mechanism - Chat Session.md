@@ -25,11 +25,17 @@ Stations cover unattended production; the walk-validated way a director
 actually co-authors research answers, `design.md`, and steering is
 conversation. Chat is that path: same `AcpClient` wire client and typed
 error union as runs, extended with what a conversation needs — streamed
-`session/update`s, serialized turns (a prompt while another is in flight
-is a visible 409, never a silent queue), and interactive permissions (a
-request whose paths all stay inside the project auto-approves — the
-"comfortable Claude Code session" ruling; anything reaching outside
-renders as an inline approve/deny card for the human).
+`session/update`s, mid-turn steering (issue #191 ruling, 2026-08-08:
+typing is never blocked; a message sent during a running turn is
+delivered LIVE into the session when the adapter accepts a mid-turn
+`session/prompt` — claude-agent-acp queues it adapter-side, codex-acp
+folds it into the running turn — and otherwise sits in a VISIBLE
+server-side queue, rendered as a pending bubble, flushed at the turn
+boundary in order; the only 409 left is "no session at all"), and
+interactive permissions (a request whose paths all stay inside the
+project auto-approves — the "comfortable Claude Code session" ruling;
+anything reaching outside renders as an inline approve/deny card for the
+human).
 
 ## HOW
 

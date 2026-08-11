@@ -21,7 +21,7 @@ import { useJournalTick, type TickScope } from "./liveRefresh.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
 import { latestReviewOutcome, pendingReview } from "../runtime/reviewPanel.ts";
 import type { BundleDetailResponse, BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
-import { claimFixtureCases, fixturePurpose, promptSummary, unclaimedFixtureCases } from "./evals.ts";
+import { claimFixtureCases, fixtureBodyText, fixturePurpose, promptSummary, unclaimedFixtureCases } from "./evals.ts";
 import type { BundleFile, Claim, ClaimStatus, Project, Skill, SkillLoop, SkillPage, Stage, Task, WireStage } from "./types.ts";
 
 /**
@@ -157,25 +157,20 @@ const FAMILY_NAMES: Record<string, string> = {
 };
 
 /**
- * `GET /api/bundles/:slug` (+ the instructions file) -> the Skill page.
- * Claim status is honest about the coverage-vs-validation split: an
- * authored "covered" row only shows `proven` when a measurement actually
- * passed for its fixture; otherwise it renders `unmeasured`.
+ * The claim rows off the bundle detail's `riskCoverage` -- whichever source
+ * won server-side (root `evals.json`, or the legacy risk-map fallback;
+ * `detail.claimsSource` says which). Claim status is honest about the
+ * coverage-vs-validation split: an authored "covered" row only shows
+ * `proven` when a measurement actually passed for its fixture; otherwise it
+ * renders `unmeasured`. Exported pure for unit tests.
  */
-export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
-  const detail = await getBundleDetail(slug);
-  const instructions =
-    detail.instructionsPath === null
-      ? null
-      : await getBundleFile(slug, detail.instructionsPath).then(
-          (f) => f.content,
-          () => null,
-        );
-
+export const toClaims = (
+  detail: Pick<BundleDetailResponse, "riskCoverage" | "fixtures" | "measurements">,
+): ReadonlyArray<Claim> => {
   const measuredPass = new Set(
     detail.measurements.filter((m) => m.passes > 0).map((m) => m.fixtureCase),
   );
-  const claims: ReadonlyArray<Claim> = detail.riskCoverage.map((r) => {
+  return detail.riskCoverage.map((r) => {
     // `case.json.risks` is the join (IA §C rule 2); the authored risk-map
     // column is a fallback while the dual-write still exists.
     const fixtureCases = claimFixtureCases(r.riskId, detail.fixtures, r.fixtureCase);
@@ -194,8 +189,35 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       status,
       fixtures: fixtureCases.length,
       fixtureCases,
+      // Proof-case intentions (evals.json-sourced claims only): shown by the
+      // read-only Eval tab even before any fixture exists.
+      ...(r.proofCases !== undefined ? { proofCases: r.proofCases } : {}),
     };
   });
+};
+
+/**
+ * The Eval tab's read-only gate: server-informed (`evalsRunnable`); a
+ * pre-bridge server omits it, so derive the same fact from the same
+ * artifact probe it uses (`instructionsPath` = the draft's existence).
+ * Exported pure for unit tests of the mode switch, both ways.
+ */
+export const evalsRunnableFromDetail = (
+  detail: Pick<BundleDetailResponse, "evalsRunnable" | "instructionsPath">,
+): boolean => detail.evalsRunnable ?? detail.instructionsPath !== null;
+
+/** `GET /api/bundles/:slug` (+ the instructions file) -> the Skill page. */
+export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
+  const detail = await getBundleDetail(slug);
+  const instructions =
+    detail.instructionsPath === null
+      ? null
+      : await getBundleFile(slug, detail.instructionsPath).then(
+          (f) => f.content,
+          () => null,
+        );
+
+  const claims = toClaims(detail);
 
   const latestVersion = detail.versions.at(-1);
   const provenModels = [
@@ -246,6 +268,7 @@ export const fetchSkillPage = async (slug: string): Promise<SkillPage> => {
       unclaimed: unclaimedFixtureCases(detail.fixtures, detail.riskCoverage.map((r) => r.riskId)),
     },
     publish: detail.publish ?? null,
+    evalsRunnable: evalsRunnableFromDetail(detail),
     // `at` stays the raw ISO timestamp: the unread-dot stamps compare
     // `type-at` pairs, and a day-granular display date made two same-day
     // events indistinguishable (the dot never re-fired). Format at render
@@ -318,24 +341,37 @@ export const fetchBundleFile = async (slug: string, path: string): Promise<strin
   return body.content;
 };
 
-/** What the claim accordion shows per fixture: prompt summary + answer-key presence (IA §C rule 2). */
+/** What the claim accordion shows per fixture: prompt summary + answer-key presence (IA §C rule 2), plus the full inspectable body for the inline fold (2026-08-11: fixtures drafted via chat must be readable from the Eval tab). */
 export type FixtureGlance = {
   readonly purpose: string | null;
   readonly summary: string | null;
   readonly hasAnswerKey: boolean;
   readonly checkCount: number;
   readonly fixtureClass: string | null;
+  /** The whole prompt body (leading purpose comment stripped -- `purpose` carries it); `null` = nothing authored. */
+  readonly body: string | null;
+  /** The authored answer key's full text; `null` when none (or blank). */
+  readonly answerKey: string | null;
+  /** The authored grading checks, verbatim. */
+  readonly checks: ReadonlyArray<string>;
 };
 
-/** `GET /api/bundles/:slug/fixtures/:case` -> the accordion's fixture line. Fetched lazily on first claim expand. */
+/** `GET /api/bundles/:slug/fixtures/:case` -> the accordion's fixture line + inspectable body. Fetched lazily on first expand. */
 export const fetchFixtureGlance = async (slug: string, caseName: string): Promise<FixtureGlance> => {
   const detail = await getFixtureDetail(slug, caseName);
+  const answerKey =
+    detail.grading !== null && detail.grading.answerKey !== null && detail.grading.answerKey.trim().length > 0
+      ? detail.grading.answerKey
+      : null;
   return {
     purpose: fixturePurpose(detail.promptMd),
     summary: promptSummary(detail),
-    hasAnswerKey: detail.grading !== null && detail.grading.answerKey !== null && detail.grading.answerKey.trim().length > 0,
+    hasAnswerKey: answerKey !== null,
     checkCount: detail.grading?.checks.length ?? 0,
     fixtureClass: detail.class,
+    body: fixtureBodyText(detail),
+    answerKey,
+    checks: detail.grading?.checks ?? [],
   };
 };
 

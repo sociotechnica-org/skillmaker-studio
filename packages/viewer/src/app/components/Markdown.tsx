@@ -86,11 +86,18 @@ const Block: FC<{ block: MarkdownBlock }> = ({ block }) => {
     case "list": {
       const items = block.items.map((item, i) => (
         <li key={i}>
-          <InlineNodes nodes={item} />
+          <InlineNodes nodes={item.children} />
+          {item.blocks.map((child, j) => (
+            <Block key={j} block={child} />
+          ))}
         </li>
       ));
+      // `start` keeps source numbering when a list is genuinely interrupted
+      // (e.g. by a fence) and resumes -- no restart at 1.
       return block.ordered ? (
-        <ol className="list-decimal pl-5 text-neutral-700 dark:text-neutral-300">{items}</ol>
+        <ol start={block.start !== 1 ? block.start : undefined} className="list-decimal pl-5 text-neutral-700 dark:text-neutral-300">
+          {items}
+        </ol>
       ) : (
         <ul className="list-disc pl-5 text-neutral-700 dark:text-neutral-300">{items}</ul>
       );

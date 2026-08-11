@@ -32,7 +32,6 @@ import {
   JournalLayer,
   JournalEvent,
   listUndisposedCrates,
-  parseDossier,
   publishBundle,
   publishToInstallTargets,
   readMachineConfig,
@@ -55,13 +54,13 @@ import {
   type BundleLocation,
   type BundleStage,
   type BundleRecord,
-  type DossierSections,
   type InstallTargetKind,
   type InstalledDrift,
   type IntakeStakes,
   type FixtureCaseRecord,
   type FixtureRecord,
   type MeasurementRecord,
+  type ClaimsSource,
   type RiskCoverageRecord,
   type RunIndexRecord,
   type SkillRoutedEvent,
@@ -84,9 +83,8 @@ import { locatePackagedSkillsDir } from "../PackagedSkills.ts";
 import { loadSkillbook } from "../Skillbook.ts";
 import { handleFsList, handleFsMkdir, handleFsValidate, normalizeAbsolutePath } from "./FsBrowse.ts";
 import { ProjectRegistryManager, type OkProjectContext } from "./ProjectRegistry.ts";
+import { HEARTBEAT_MS } from "./Sse.ts";
 import { contentTypeFor, resolveStaticPath } from "./StaticFiles.ts";
-
-const HEARTBEAT_MS = 15_000;
 
 /**
  * The v1 event catalog (data-model.md §2.9) is much larger than this --
@@ -1163,6 +1161,8 @@ type BundleIndexDetail =
       readonly forks: ReadonlyArray<string>;
       /** Where the bundle actually lives + its layout (seam pass over #108/#109), off the SAME rebuild's identity scan: an in-place bundle (brownfield adopt, `route`'s `new`/`fork` doors) does not live at `<skillsDir>/<slug>` and has no `output/` subtree. `null` for a journal-only bundle (no `bundle.json` found); callers fall back to the skillsDir convention. */
       readonly location: BundleLocation | null;
+      /** Which source `riskCoverage` came from (evals.json read-side bridge): root `evals.json` when it exists and parses, else the legacy risk-map. One source wins, never merged. */
+      readonly claimsSource: ClaimsSource;
     };
 
 const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexDetail> =>
@@ -1193,29 +1193,9 @@ const loadBundleIndexDetail = (root: string, slug: string): Promise<BundleIndexD
         forkOf: rebuildResult.forkOf.get(slug) ?? null,
         forks: rebuildResult.forkChildren.get(slug) ?? [],
         location: rebuildResult.locations.get(slug) ?? null,
+        claimsSource: rebuildResult.claimsSources.get(slug) ?? "risk-map",
       };
     }),
-  );
-
-/**
- * Reads `dossier.md`'s CONTENT directly (issue #94), the same "don't pay for
- * a full `rebuild()` for a single-bundle read" split `handleFieldReports`'
- * own direct `scanFixtures` call already uses -- `loadBundleIndexDetail`'s
- * `rebuild()` above already ran the dossier scanner too, but only for its
- * WARNINGS (joined into `warnings` alongside fixtures/risk-map, same as
- * `IndexService.rebuild`); the sections+gaps the detail page actually
- * renders are a second, cheap, targeted read, never persisted. Takes the
- * bundle's ACTUAL directory (seam pass over #108/#109): an in-place bundle's
- * `dossier.md` -- including the one the triage manifest's card answers
- * seeded (issue #108) -- lives wherever the bundle was discovered, not at
- * `<skillsDir>/<slug>`.
- */
-const loadDossierSections = (bundleDir: string): Promise<DossierSections> =>
-  Effect.runPromise(
-    parseDossier(join(bundleDir, "dossier.md")).pipe(
-      Effect.provide(BunServices.layer),
-      Effect.map((result) => result.sections),
-    ),
   );
 
 const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: string): Promise<Response> => {
@@ -1236,13 +1216,12 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   // in-place bundle -- brownfield adopt via triage, `route`'s `new`/`fork`
   // doors -- lives wherever it was discovered, and hardcoding
   // `<skillsDir>/<slug>` + the `design.md`/`output/` layout here silently
-  // returned an empty dossier, a null station, and zero files for exactly
-  // the imports the #108→#109 seam (seeded Job/Basis on the card) targets.
+  // returned a null station and zero files for exactly the imports the
+  // #108→#109 seam targets.
   const bundleDir = detail.location?.dir ?? join(root, config.skillsDir, slug);
   const layout: BundleLayout = detail.location?.layout ?? "output-dir";
 
   const station = readCurrentStageStation(bundleDir, bundle.stage);
-  const dossier = await loadDossierSections(bundleDir);
 
   // Lineage (issue #109): chain of custody replayed from the journal (the
   // SAME full `events` read above -- uncapped, unlike `recentEvents`) plus
@@ -1339,6 +1318,9 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     })),
     fixtures,
     riskCoverage,
+    // Which source `riskCoverage` came from (evals.json read-side bridge):
+    // noted so the UI could badge it later; never a merge of both.
+    claimsSource: detail.claimsSource,
     warnings,
     runs,
     measurements,
@@ -1347,10 +1329,17 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     // `measurements.length` (already fetched above, unfiltered/any-version).
     unverified: isUnverified(bundle.everReceived, measurements.length),
     station,
-    dossier,
     lineage,
     files: listReviewableBundleFiles(bundleDir, layout),
     instructionsPath,
+    // The Eval tab's read-only gate (director rulings 2026-08-08, refined
+    // same day): evals are RUNNABLE once there is BOTH a draft to run
+    // against (`instructionsPath`) AND at least one built fixture --
+    // during drafting the claims are still design-born intentions, so
+    // Run-all/mint/"gap" affordances would be premature theater; the
+    // first fixture's arrival is the honest signal that evaluating work
+    // has begun. Server-informed so the viewer never infers the mode.
+    evalsRunnable: instructionsPath !== null && detail.fixtures.length > 0,
   });
 };
 
@@ -1431,6 +1420,7 @@ const handleRecordVersion = async (
 interface CreateBundleRequestBody {
   readonly slug?: unknown;
   readonly name?: unknown;
+  readonly oneLiner?: unknown;
 }
 
 /**
@@ -1458,14 +1448,22 @@ const handleCreateBundle = async (root: string, request: Request): Promise<Respo
   if (body.name !== undefined && typeof body.name !== "string") {
     return jsonResponse({ error: "name must be a string" }, 400);
   }
+  if (body.oneLiner !== undefined && typeof body.oneLiner !== "string") {
+    return jsonResponse({ error: "oneLiner must be a string" }, 400);
+  }
   const slug = body.slug;
   const name = body.name;
+  const oneLiner = body.oneLiner;
 
   try {
     const created = await Effect.runPromise(
       Effect.gen(function* () {
         const workspace = yield* Workspace;
-        return yield* workspace.createBundle(root, name !== undefined ? { slug, name } : { slug });
+        return yield* workspace.createBundle(root, {
+          slug,
+          ...(name !== undefined ? { name } : {}),
+          ...(oneLiner !== undefined ? { oneLiner } : {}),
+        });
       }).pipe(
         Effect.catchTag("InvalidSlugError", () => Effect.succeed({ status: "invalid_slug" as const })),
         Effect.provide(Layer.provide(WorkspaceLayer, BunServices.layer)),
@@ -1699,10 +1697,10 @@ const REVIEWABLE_SUBDIRS = ["research", "output", "evals"] as const;
  * file-read allowlist below -- the same in-sync-by-construction treatment
  * `REVIEWABLE_SUBDIRS` already has.
  */
-const IN_PLACE_REVIEWABLE_FILES = ["SKILL.md", "design.md", "dossier.md"] as const;
+const IN_PLACE_REVIEWABLE_FILES = ["SKILL.md", "design.md"] as const;
 
 /**
- * Only `design.md`, an in-place bundle's top-level `SKILL.md`/`dossier.md`,
+ * Only `design.md`, an in-place bundle's top-level `SKILL.md`,
  * a non-empty path under `research/` or `output/`, a run's `artifacts/`
  * contents, or a run's `response.md` may be read back over HTTP
  * (data-model.md §2.12 -- artifacts listed/viewable on the run-detail
@@ -1728,7 +1726,7 @@ const isAllowedBundleFilePath = (relativePath: string): boolean => {
 /**
  * `GET /api/bundles/:slug/file?path=design.md|research/...|output/...` -- the
  * viewer's read-only Files tab. A strict allowlist (design.md, an in-place
- * bundle's top-level SKILL.md/dossier.md, or under research/ or output/) plus
+ * bundle's top-level SKILL.md, or under research/ or output/) plus
  * a resolved-path containment check guards against traversal (`../..`,
  * absolute paths, symlink escapes); anything outside the allowlist or off
  * the bundle directory 404s rather than erroring, so it never leaks whether
@@ -1897,7 +1895,7 @@ const handleVersionSnapshotFile = async (
  * human can read: the task prompt (`prompt.md` content when present, the
  * legacy `case.json` `prompt` field otherwise), what passing means
  * (`grading.answerKey` + `grading.checks`, the authored words), class,
- * risks, and context. Derived per request from the bundle's ACTUAL
+ * and risks. Derived per request from the bundle's ACTUAL
  * directory (`resolveBundleDir` -- an in-place bundle's `evals/` lives
  * under its own dir), never stored. Tolerant like `Fixtures.scanFixtures`:
  * malformed `case.json` fields become honest nulls + a warning line, never
@@ -1956,7 +1954,6 @@ const handleFixtureDetail = async (
     caseName,
     class: stringOrNull(parsed["class"]),
     risks: stringArray(parsed["risks"]),
-    context: stringOrNull(parsed["context"]),
     promptMd,
     // The scaffold-era `prompt` string field (Fixtures.ts: tolerated, never
     // required) -- shown only when no prompt.md exists.
@@ -1991,9 +1988,9 @@ const listFilesRecursive = (dir: string, relPrefix = ""): ReadonlyArray<string> 
  * → output so the dropdown reads like the production pipeline); an
  * `"in-place"` bundle has no `output/` subtree -- its skill payload IS the
  * bundle directory (`Versions.ts`'s `BundleLayout`), so its reviewable set
- * is the top-level `SKILL.md` plus the `design.md`/`dossier.md` siblings
- * when present (Adopt scaffolds `dossier.md`; `design.md` only exists if it
- * traveled with the directory). Scaffolding dotfiles (`.gitkeep`) are
+ * is the top-level `SKILL.md` plus the `design.md` sibling when present
+ * (`design.md` only exists if it traveled with the directory).
+ * Scaffolding dotfiles (`.gitkeep`) are
  * dropped; run transcripts/artifacts are deliberately excluded (those belong
  * to the run-detail panel).
  */
@@ -2813,7 +2810,7 @@ const handleProjectApi = async (
       // Chat surface (D9): per-skill agent sessions. Explicit-start flow:
       //   GET  /api/chat/:skill/state       session + provider + resumable snapshot
       //   POST /api/chat/:skill/session     { provider, mode: "new" | "resume", model?, effort? } -> spawn/resume
-      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn (409 while running)
+      //   POST /api/chat/:skill/message     { text, images? } -> one prompt turn; mid-turn sends steer the live session or queue for the boundary (issue #191)
       //   POST /api/chat/:skill/model       { model, effort? } -> mid-session model change (between turns)
       //   POST /api/chat/:skill/permission  { requestId, optionId, decision } -> answer a pending ask
       //   POST /api/chat/:skill/cancel      cancel the in-flight turn
@@ -2834,7 +2831,7 @@ const handleProjectApi = async (
           return jsonResponse(chatManager.state(chatSkill));
         }
         if (chatAction === "stream" && request.method === "GET") {
-          return chatManager.streamResponse(chatSkill);
+          return chatManager.streamResponse(chatSkill, request);
         }
         if (request.method !== "POST") {
           return jsonResponse({ error: `${chatAction} requires POST` }, 405);
@@ -2876,7 +2873,9 @@ const handleProjectApi = async (
             return jsonResponse({ error: "message requires non-empty text or at least one image" }, 400);
           }
           const sent = await chatManager.sendMessage(chatSkill, text, images);
-          return sent.ok ? jsonResponse({ accepted: true }, 202) : jsonResponse({ error: sent.error }, sent.status);
+          return sent.ok
+            ? jsonResponse({ accepted: true, delivery: sent.delivery }, 202)
+            : jsonResponse({ error: sent.error }, sent.status);
         }
         if (chatAction === "model") {
           const model = typeof body.model === "string" ? body.model.trim() : "";

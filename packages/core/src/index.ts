@@ -104,16 +104,15 @@ export {
   type ParseRiskMapResult,
 } from "./RiskMap.ts";
 export {
-  parseDossier,
-  writeDossierScaffold,
-  DOSSIER_SECTIONS,
-  type DossierSectionName,
-  type DossierContext,
-  type DossierSeed,
-  type DossierUnknownSection,
-  type DossierSections,
-  type ParseDossierResult,
-} from "./Dossier.ts";
+  parseEvalsJson,
+  claimRowsFromEvals,
+  CLAIMS_SOURCES,
+  type ClaimsSource,
+  type EvalsProofSpec,
+  type EvalsFailureHypothesis,
+  type EvalsJsonStatus,
+  type ParseEvalsJsonResult,
+} from "./EvalsJson.ts";
 export {
   hashFile,
   hashOutputTree,

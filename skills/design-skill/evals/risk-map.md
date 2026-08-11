@@ -1,5 +1,5 @@
 ---
-bundle: william-write-a-dossier
+bundle: design-skill
 ---
 <!-- The authored coverage axis ONLY (data-model.md §2.6) -- no results
      column, ever: validation is computed from graded runs and joined in the

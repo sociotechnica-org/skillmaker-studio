@@ -13,7 +13,6 @@ links:
     - "./Reference - Untrusted-Input Rule"
     - "./Reference - Measurements Bind To Version"
     - "../outputs/Entity - Field Report"
-    - "../authoring/Entity - Dossier"
 ---
 
 ## WHAT
@@ -53,17 +52,12 @@ harvest` pulled from a `skill.field_report` event -- absent on every
 hand-scaffolded (`fixture add`) case, so every `case.json` written before
 harvest existed keeps validating unchanged.
 
-`context` is an optional sixth top-level field (issue #94, the Receiving
-Dock's "jobs singular, contexts plural" ruling): a plain string naming
-which of the bundle's `../authoring/Entity - Dossier.md` `## Contexts`
-entries this case exercises, e.g. `"PR review comment"`. Tolerant like
-`source` -- present-but-not-a-string is a reindex warning and the field is
-dropped, absent is silently fine (every `case.json` written before this
-field existed). Deliberately not cross-checked against the dossier's own
-context names (free prose, no closed vocabulary to validate against) and
-deliberately not surfaced as a per-context coverage rollup yet -- this
-issue adds only the field and the scanner's tolerance of it; a coverage
-lens that reads it lands later.
+`context` was an optional sixth top-level field (issue #94, the dossier's
+"jobs singular, contexts plural" ruling) naming a dossier `## Contexts`
+entry this case exercised. Expunged with the dossier (2026-08-08, see
+`../authoring/Entity - Dossier.md`): the scanner no longer reads or writes
+it, and a leftover `context` on an old `case.json` is silently ignored --
+never a warning, never a failure.
 
 Deviation from data-model.md §2.5 as written: the task prompt does **not**
 live in `case.json`'s `prompt` field — it lives in a sibling `prompt.md`
@@ -81,11 +75,12 @@ in `files/`.
 
 Verified: `packages/core/src/Fixtures.ts` — `FixtureCase` schema
 (`schemaVersion`, `case`, `class`, `risks`, `setup?`, `grading?`, legacy
-`prompt?`, `source?`, `context?`) and `scanFixtures`'s field-by-field
-tolerant parsing, including the "case.json has a legacy prompt field",
-"prompt.md is missing", "case.json has a malformed source field", and
-"case.json has a malformed context field" warnings; `FixtureAdd.ts`'s
-`--context` flag and `IndexService.ts`'s `fixtures.context` column.
+`prompt?`, `source?`, and a tolerated-but-ignored `context?`) and
+`scanFixtures`'s field-by-field tolerant parsing, including the
+"case.json has a legacy prompt field", "prompt.md is missing", and
+"case.json has a malformed source field" warnings. (`FixtureAdd.ts`'s
+`--context` flag, `IndexService.ts`'s `fixtures.context` column, and the
+malformed-context warning were expunged with the dossier, 2026-08-08.)
 
 ## RULED DIRECTION (NOT SHIPPED): `case.json` → `evals.json`
 

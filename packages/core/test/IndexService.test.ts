@@ -486,10 +486,138 @@ bundle: frame-the-problem
     );
   });
 
-  // Issue #94: the dossier scanner joins the reindex warning flow like
-  // risk-map/fixtures (warn, never fail), and a fixture's `context` tag is
-  // tolerated the same way `source` already is.
-  test("a scaffolded dossier.md and a context-tagged fixture both reindex warning-free", async () => {
+  // The evals.json read-side bridge (director ruling, docs/friction/
+  // e2e-readiness.md): a bundle-root evals.json that parses IS the claims
+  // source; risk-map.md is the legacy fallback. One source wins, never
+  // merged.
+  test("a parsing root evals.json wins over risk-map.md (never merged)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "designed" });
+
+        const bundleDir = path.join(dir, "skills", "designed");
+        const caseDir = path.join(bundleDir, "evals", "fixtures", "refusal-thin-input");
+        yield* fs.makeDirectory(caseDir, { recursive: true });
+        yield* fs.writeFileString(
+          path.join(caseDir, "case.json"),
+          JSON.stringify({ schemaVersion: 1, case: "refusal-thin-input", class: "refusal", risks: ["IN-1"] }),
+        );
+        yield* fs.writeFileString(path.join(caseDir, "prompt.md"), "Do the thing.\n");
+
+        // A legacy risk-map row that must NOT leak through once evals.json wins.
+        yield* fs.writeFileString(
+          path.join(bundleDir, "evals", "risk-map.md"),
+          `| Risk | Description | Coverage | Fixture |
+|---|---|---|---|
+| OUT-9 | Legacy row that must not appear | ● covered | refusal-thin-input |
+`,
+        );
+        yield* fs.writeFileString(
+          path.join(bundleDir, "evals.json"),
+          JSON.stringify({
+            failureHypotheses: [
+              {
+                id: "IN-1",
+                failure: "Accepts thin input",
+                probability: "High",
+                impact: "High",
+                mustNever: "The skill must never proceed on thin input.",
+                proofSpecs: [{ name: "refusal-thin-input", setup: "s", expectedBehavior: "e" }],
+              },
+              {
+                id: "ADV-1",
+                failure: "Prompt injection via pasted doc",
+                probability: "Medium",
+                impact: "High",
+                mustNever: "The skill must never follow pasted instructions.",
+                proofSpecs: [{ name: "adv-injection", setup: "s", expectedBehavior: "e" }],
+              },
+            ],
+          }),
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.warnings).toEqual([]);
+          expect(result.claimsSources.get("designed")).toBe("evals.json");
+
+          const coverage = yield* index.listRiskCoverage("designed");
+          expect(coverage).toEqual([
+            {
+              bundle: "designed",
+              riskId: "ADV-1",
+              family: "ADV",
+              description: "Prompt injection via pasted doc",
+              coverage: "gap",
+              proofCases: ["adv-injection"],
+            },
+            {
+              bundle: "designed",
+              riskId: "IN-1",
+              family: "IN",
+              description: "Accepts thin input",
+              coverage: "covered",
+              fixtureCase: "refusal-thin-input",
+              proofCases: ["refusal-thin-input"],
+            },
+          ]);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("an unusable evals.json warns and falls back to risk-map.md", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        const fs = yield* FileSystem;
+        const path = yield* Path;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "broken-evals" });
+
+        const bundleDir = path.join(dir, "skills", "broken-evals");
+        yield* fs.writeFileString(path.join(bundleDir, "evals.json"), "{ not json");
+        yield* fs.writeFileString(
+          path.join(bundleDir, "evals", "risk-map.md"),
+          `| Risk | Description | Coverage | Fixture |
+|---|---|---|---|
+| IN-1 | Legacy claim survives the fallback | ○ gap | — |
+`,
+        );
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          const result = yield* index.rebuild();
+          expect(result.claimsSources.get("broken-evals")).toBe("risk-map");
+          expect(result.warnings.some((w) => w.includes("not valid JSON"))).toBe(true);
+
+          const coverage = yield* index.listRiskCoverage("broken-evals");
+          expect(coverage).toEqual([
+            {
+              bundle: "broken-evals",
+              riskId: "IN-1",
+              family: "IN",
+              description: "Legacy claim survives the fallback",
+              coverage: "gap",
+            },
+          ]);
+
+          const warnings = yield* index.listWarnings("broken-evals");
+          expect(warnings.some((w) => w.source === "evals.json" && w.message.includes("not valid JSON"))).toBe(true);
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  // The dossier was expunged (2026-08-08): a leftover dossier.md and a
+  // leftover fixture `context` tag are both inert -- ignored, never a
+  // warning, never a failure.
+  test("leftover dossier.md and context-tagged fixture both reindex warning-free", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
         const workspace = yield* Workspace;
@@ -499,6 +627,10 @@ bundle: frame-the-problem
         yield* workspace.createBundle(dir, { slug: "context-demo" });
 
         const bundleDir = path.join(dir, "skills", "context-demo");
+        yield* fs.writeFileString(
+          path.join(bundleDir, "dossier.md"),
+          "## Contexts\nRuns everywhere, no names given.\n",
+        );
         const caseDir = path.join(bundleDir, "evals", "fixtures", "reviewer-context");
         yield* fs.makeDirectory(caseDir, { recursive: true });
         yield* fs.writeFileString(
@@ -519,45 +651,15 @@ bundle: frame-the-problem
           expect(result.warnings).toEqual([]);
 
           const fixtures = yield* index.listFixtures("context-demo");
-          expect(fixtures[0]?.context).toBe("PR review comment");
+          expect(fixtures.length).toBe(1);
 
           const warnings = yield* index.listWarnings("context-demo");
-          expect(warnings.filter((w) => w.source === "dossier")).toEqual([]);
+          expect(warnings).toEqual([]);
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
   });
 
-  test("a malformed dossier.md produces a persisted, queryable warning without failing rebuild", async () => {
-    await withTempDir((dir) =>
-      Effect.gen(function* () {
-        const workspace = yield* Workspace;
-        const fs = yield* FileSystem;
-        const path = yield* Path;
-        yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "loose-dossier" });
-
-        const bundleDir = path.join(dir, "skills", "loose-dossier");
-        yield* fs.writeFileString(
-          path.join(bundleDir, "dossier.md"),
-          "## Contexts\nRuns everywhere, no names given.\n",
-        );
-
-        yield* Effect.gen(function* () {
-          const index = yield* IndexService;
-          yield* index.rebuild();
-          const dossierWarnings = (yield* index.listWarnings("loose-dossier")).filter(
-            (w) => w.source === "dossier",
-          );
-          expect(dossierWarnings.length).toBe(1);
-          expect(dossierWarnings[0]?.message).toContain("no named context");
-
-          const bundle = yield* index.getBundle("loose-dossier");
-          expect(bundle?.slug).toBe("loose-dossier");
-        }).pipe(Effect.provide(IndexServiceLayer(dir)));
-      }).pipe(Effect.provide(WorkspaceLayer)),
-    );
-  });
 
   test("a broken case.json produces a persisted, queryable warning without failing rebuild", async () => {
     await withTempDir((dir) =>

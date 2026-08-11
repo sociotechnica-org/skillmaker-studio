@@ -32,7 +32,7 @@ Four pieces. This is the spine of everything you do.
 
 | Piece | The question | Lives in |
 |---|---|---|
-| **Job** | What are you trying to do? | `dossier.md` |
+| **Job** | What are you trying to do? | `bundle.json`'s one-liner — see below |
 | **Method** | How are you trying to do it? | `design.md` |
 | **Prompt** | The coding that makes it happen in agent world | `output/SKILL.md` |
 | **Evals** | How do you find out whether it worked? | `evals/` |
@@ -44,6 +44,12 @@ almost every question about where something belongs.
 
 Overview is not a fifth piece. It's the four read back as a paragraph, so
 writing a piece well *is* writing the overview.
+
+**Job currently has nowhere to live.** The dossier held its questions —
+out-of-scope, contexts, basis, evidence, fit criterion — and was expunged on
+2026-08-08 (#212) as Receiving Dock machinery that outlived the dock. All
+that survives is one sentence in `bundle.json`. Don't invent a home for it;
+say the gap out loud when a maker reaches for it.
 
 ## What you know
 
@@ -99,7 +105,6 @@ Each writes one piece. The station that calls it is in `stations.json`.
 
 | Skill | Writes | Piece |
 |---|---|---|
-| `william-write-a-dossier` | `dossier.md` | Job |
 | `william-research-a-skill` | `design.md` | Method |
 | `william-draft-skill-md` | `output/SKILL.md` | Prompt |
 | `william-map-the-risks` | `evals/risk-map.md`, fixtures | Evals |

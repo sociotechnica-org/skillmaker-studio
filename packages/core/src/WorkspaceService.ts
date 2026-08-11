@@ -6,7 +6,6 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { BundleIdentity } from "./Bundle.ts";
-import { writeDossierScaffold } from "./Dossier.ts";
 import { BundleExistsError, InvalidSlugError, WorkspaceIOError, WorkspaceNotFoundError } from "./Errors.ts";
 import { DEFAULT_STATIONS_TEMPLATE, StationsFile } from "./Stations.ts";
 import {
@@ -57,25 +56,11 @@ bundle: ${slug}
 <!-- Which fixture cases the failure hypotheses demand (seeds evals/). -->
 `;
 
-const riskMapSkeleton = (slug: string): string =>
-  `---
-bundle: ${slug}
----
-<!-- The authored coverage axis ONLY (data-model.md §2.6) -- no results
-     column, ever: validation is computed from graded runs and joined in the
-     viewer at read time. Risk ids band into IN (input) / RE (reasoning) /
-     OUT (output) / ADV (adversarial) / CHN (chain) families. Coverage is
-     ● covered / ◐ partial / ○ gap (or the plain words). Fixture is the
-     evals/fixtures/<case>/ directory name that buys this row's coverage, or
-     "—" for a gap. -->
-
-| Risk | Description | Coverage | Fixture |
-|---|---|---|---|
-`;
-
 export interface CreateBundleInput {
   readonly slug: string;
   readonly name?: string;
+  /** Birth intent: the launcher's brief (or `skillmaker new --one-liner`) lands here so the bundle is never topic-less at minute zero (2026-08-08 walk finding: William's refusal rule fired on an "empty" bundle while the intent sat in the chat). */
+  readonly oneLiner?: string;
 }
 
 export class Workspace extends Context.Service<
@@ -207,7 +192,7 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
         schemaVersion: 1,
         slug: input.slug,
         name: input.name ?? titleCaseFromSlug(input.slug),
-        oneLiner: "",
+        oneLiner: input.oneLiner ?? "",
         tags: [],
         created: todayIsoDate(),
         targets: ["claude-code"],
@@ -252,13 +237,10 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
           .pipe(Effect.mapError(toIOError(`could not write ${dir}/.gitkeep`)));
       }
 
-      yield* fs
-        .writeFileString(path.join(bundleDir, "evals", "risk-map.md"), riskMapSkeleton(input.slug))
-        .pipe(Effect.mapError(toIOError("could not write evals/risk-map.md")));
-
-      yield* writeDossierScaffold(bundleDir, input.slug, identity.name).pipe(
-        Effect.provideService(FileSystem, fs),
-      );
+      // evals/risk-map.md is no longer scaffolded (deprecated 2026-08-08):
+      // claims are born in root evals.json at design time (design-skill's
+      // contract; the index prefers it when present). Legacy bundles with
+      // risk maps keep working via the read fallback.
 
       return { status: "created" as const, slug: input.slug };
     });

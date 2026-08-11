@@ -103,7 +103,16 @@ export const PIECES: ReadonlyArray<Piece> = [
     was: "Idea",
     name: "Job",
     is: "what you're trying to do",
-    makes: "dossier.md",
+    // WAS dossier.md. The dossier was expunged wholesale on 2026-08-08
+    // (director ruling, #212): parser, scaffold, CLI command, server
+    // response and viewer schemas all removed, and `Entity - Dossier` is
+    // status:superseded. It was Receiving Dock machinery that outlived the
+    // dock. So Job's six questions -- out-of-scope, contexts, basis,
+    // evidence, fit criterion -- have NO storage anywhere today; a
+    // one-line summary in bundle.json is all that's left of the piece.
+    // That is the largest open hole in this model, and it is drawn as a
+    // hole rather than papered over.
+    makes: "bundle.json · oneLiner",
     group: "informs",
     alternates: "Purpose · Brief",
   },
@@ -190,6 +199,16 @@ export const MODEL_SELECTION_IS_UNRECORDED = true;
 
 /** OPEN RULING — does Method hold grounding and structure, or split in two? */
 export const OPEN_METHOD = "grounding + structure: one piece or two?";
+
+/**
+ * OPEN — Job has nowhere to live (2026-08-08). The dossier held the piece's
+ * six questions and was expunged; `bundle.json.oneLiner` is a single
+ * sentence and answers only the first. Either Job shrinks to that sentence,
+ * or design.md absorbs it (main has already moved that way: design.md is
+ * now "the whole thinking record" and the Research tab shows it), or the
+ * piece needs a new artifact. Unruled.
+ */
+export const OPEN_JOB_HAS_NO_HOME = true;
 
 /**
  * RULING — A BLANK IS AN OFFER, NOT A DEFICIENCY (2026-08-05).

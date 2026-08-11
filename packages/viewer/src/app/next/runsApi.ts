@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiPath } from "../runtime/projectScope.ts";
+import { useJournalTick } from "./liveRefresh.ts";
 
 export interface ActiveRun {
   readonly runId: string;
@@ -100,11 +101,14 @@ export function useRunDispatch(slug: string): RunDispatch {
     }
   }, [slug]);
 
-  // One poll on mount (picks up runs started elsewhere), then every few
-  // seconds only while something is active.
+  // One poll on mount, and again on every journal tick (a `run.started`
+  // appended by a CLI/chat-dispatched run reaches us over SSE) -- so runs
+  // started ANYWHERE light the indicators, not just this page's buttons.
+  // Then every few seconds only while something is active.
+  const tick = useJournalTick();
   useEffect(() => {
     void poll();
-  }, [poll]);
+  }, [poll, tick]);
   useEffect(() => {
     if (!watching) return;
     const timer = setInterval(() => void poll(), POLL_MS);

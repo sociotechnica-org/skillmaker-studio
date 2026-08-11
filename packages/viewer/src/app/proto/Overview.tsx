@@ -64,28 +64,17 @@ const TAB_IDLE =
 
 // --------------------------------------------------------------- the wire
 
-/** The dossier as the server already serialises it (core/src/Dossier.ts:32). */
-type WireDossier = {
-  readonly job?: string;
-  readonly outOfScope?: string;
-  readonly basis?: string;
-  readonly evidence?: string;
-  readonly fitCriterion?: string;
-  readonly contexts?: ReadonlyArray<{ readonly name?: string }>;
-};
+type Detail = { readonly name: string; readonly oneLiner: string };
 
-type Detail = { readonly name: string; readonly oneLiner: string; readonly dossier: WireDossier };
-
-const EMPTY_DETAIL: Detail = { name: "", oneLiner: "", dossier: {} };
+const EMPTY_DETAIL: Detail = { name: "", oneLiner: "" };
 
 const fetchDetail = async (slug: string): Promise<Detail> => {
   const response = await fetch(apiPath(`/api/bundles/${encodeURIComponent(slug)}`));
   if (!response.ok) throw new Error(`bundle: ${response.status}`);
-  const body = (await response.json()) as { bundle?: { name?: unknown; oneLiner?: unknown }; dossier?: WireDossier };
+  const body = (await response.json()) as { bundle?: { name?: unknown; oneLiner?: unknown } };
   return {
     name: typeof body.bundle?.name === "string" ? body.bundle.name : slug,
     oneLiner: typeof body.bundle?.oneLiner === "string" ? body.bundle.oneLiner : "",
-    dossier: body.dossier ?? {},
   };
 };
 
@@ -108,62 +97,31 @@ type Slot = {
   readonly source: string;
 };
 
-const slotsFrom = (detail: Detail): ReadonlyArray<Slot> => {
-  const d = detail.dossier;
-  const contexts = d.contexts ?? [];
-  return [
-    {
-      piece: "Job",
-      lead: "It",
-      value: d.job ?? (detail.oneLiner === "" ? null : detail.oneLiner),
-      gap: "what it does",
-      question: "One line: what does this skill do?",
-      source: "dossier.md",
-    },
-    {
-      piece: "Job",
-      lead: "Don't use it to",
-      value: d.outOfScope ?? null,
-      gap: "what it must not be used for",
-      question: "Paired with Job (Model Cards): what should this explicitly NOT be used for?",
-      source: "dossier.md",
-    },
-    {
-      piece: "Job",
-      lead: "It runs",
-      value: contexts.length === 0 ? null : contexts.map((c) => c.name ?? "unnamed").join(", "),
-      gap: "where it actually gets used",
-      question: "Walk the last real time this ran: what came right before it, and what happened right after?",
-      source: "dossier.md",
-    },
-    {
-      piece: "Method",
-      lead: "It's built on",
-      value: d.basis ?? null,
-      gap: "whose method it follows",
-      question:
-        "A named framework, or someone's way of doing it — record who, so an ambiguous case has a source of truth to ask.",
-      source: "dossier.md",
-    },
-    {
-      piece: "Evals",
-      lead: "Evidence",
-      value: d.evidence ?? null,
-      gap: "whether performance data exists",
-      question: "Does performance data exist? Where does it live? Do we have permission to use it?",
-      source: "dossier.md",
-    },
-    {
-      piece: "Evals",
-      lead: "You'd know it worked if",
-      value: d.fitCriterion ?? null,
-      gap: "the one pass/fail test",
-      question:
-        "If you had to write one pass/fail test today, what would it check? The answer seeds the first fixture's answer key.",
-      source: "dossier.md",
-    },
-  ];
-};
+const slotsFrom = (detail: Detail): ReadonlyArray<Slot> => [
+  {
+    piece: "Job",
+    lead: "It",
+    value: detail.oneLiner === "" ? null : detail.oneLiner,
+    gap: "what it does",
+    question: "One line: what does this skill do?",
+    source: "bundle.json",
+  },
+];
+
+/*
+ * FIVE SENTENCES USED TO LIVE HERE and no longer can. "Don't use it to…",
+ * "It runs…", "It's built on…", "Evidence…", "You'd know it worked if…"
+ * all read from `dossier.md`, which was expunged on 2026-08-08 (#212) --
+ * parser, scaffold, CLI command and server field, all removed.
+ *
+ * They are deleted rather than left rendering permanent blanks, because a
+ * blank is supposed to be an OFFER and these are offers the product can no
+ * longer accept: there is nowhere to write the answer. Six questions became
+ * one, and the Job piece is now a single sentence from bundle.json.
+ *
+ * That hole is the honest state of the model, recorded as
+ * OPEN_JOB_HAS_NO_HOME in pieces.ts.
+ */
 
 // ------------------------------------------------------------- the files
 

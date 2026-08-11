@@ -43,13 +43,14 @@ interface StartOverrides {
   readonly onUpdate?: (update: unknown) => void;
   readonly ask?: (request: { readonly params: unknown }) => Promise<ChatPermissionAnswer | "cancelled">;
   readonly onAdapterExit?: (code: number | null) => void;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 const start = async (overrides: StartOverrides = {}): Promise<ChatSessionHandle> => {
   const options: ChatSessionOptions = {
     command: ["node", FAKE_ADAPTER],
     cwd: projectDir,
-    env: { FAKE_CHAT_STATE_DIR: stateDir },
+    env: { FAKE_CHAT_STATE_DIR: stateDir, ...(overrides.env ?? {}) },
     onUpdate: overrides.onUpdate ?? (() => {}),
     permissionPolicy: makeChatPermissionPolicy(
       projectDir,
@@ -228,6 +229,64 @@ describe("startChatSession", () => {
     const result = await hanging;
     expect(result.stopReason).toBe("cancelled");
     expect(handle.busy()).toBe(false);
+  });
+
+  test("steer() bypasses the busy guard: a mid-turn prompt goes onto the wire while the primary turn hangs (issue #191)", async () => {
+    const updates: unknown[] = [];
+    const handle = await start({ onUpdate: (u) => updates.push(u) });
+    expect(handle.promptQueueing).toBe(false); // default fake: no advertisement
+    const hanging = Effect.runPromise(handle.prompt("HANG"));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(handle.busy()).toBe(true);
+
+    // The default fake answers a mid-turn prompt as its own immediate turn.
+    const steered = await handle.steer("redirect: check the other folder");
+    expect(steered.stopReason).toBe("end_turn");
+    expect(agentText(updates)).toContain("redirect: check the other folder");
+    // The primary turn is untouched by the steer.
+    expect(handle.busy()).toBe(true);
+    handle.cancel();
+    expect((await hanging).stopReason).toBe("cancelled");
+  });
+
+  test("steer() against a promptQueueing adapter (claude-agent-acp shape): held adapter-side, answered as its own turn after the running one, in order", async () => {
+    const updates: unknown[] = [];
+    const handle = await start({
+      env: { FAKE_CHAT_PROMPT_QUEUEING: "1" },
+      onUpdate: (u) => updates.push(u),
+    });
+    expect(handle.promptQueueing).toBe(true);
+    const hanging = Effect.runPromise(handle.prompt("HANG"));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const first = handle.steer("first steer");
+    const second = handle.steer("second steer");
+    // Held until the hanging turn resolves -- nothing streamed yet.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(agentText(updates)).not.toContain("first steer");
+
+    handle.cancel();
+    expect((await hanging).stopReason).toBe("cancelled");
+    expect((await first).stopReason).toBe("end_turn");
+    expect((await second).stopReason).toBe("end_turn");
+    const text = agentText(updates);
+    expect(text.indexOf("turn 1: first steer")).toBeGreaterThan(-1);
+    expect(text.indexOf("turn 2: second steer")).toBeGreaterThan(text.indexOf("turn 1: first steer"));
+  });
+
+  test("steer() rejection (an adapter refusing mid-turn prompts) surfaces as a rejected promise, not a hang", async () => {
+    const handle = await start();
+    const hanging = Effect.runPromise(handle.prompt("HANG"));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await expect(handle.steer("REJECT-MIDTURN please")).rejects.toThrow();
+    handle.cancel();
+    expect((await hanging).stopReason).toBe("cancelled");
+  });
+
+  test("steer() after close rejects with ChatClosedError", async () => {
+    const handle = await start();
+    await handle.close();
+    await expect(handle.steer("late")).rejects.toMatchObject({ _tag: "ChatClosedError" });
   });
 
   test("prompting after close fails with ChatClosedError", async () => {

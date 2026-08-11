@@ -17,8 +17,7 @@ journal.
 | Flag | Meaning |
 |---|---|
 | `--class <class>` | One of `golden \| refusal \| empty \| rerun \| hard-case \| trigger`; defaults to `golden` |
-| `--risks <ids>` | Comma-separated risk-map ids this case buys coverage for, e.g. `IN-1,RE-2` |
-| `--context <name>` | Names a `dossier.md` Contexts entry this case exercises; optional, unvalidated |
+| `--risks <ids>` | Comma-separated claim ids this case buys coverage for, e.g. `IN-1,RE-2` — from the bundle's claims source (a root `evals.json`'s failure hypotheses, or legacy risk-map rows) |
 | `--json` | Emit machine-readable JSON instead of text |
 
 ## Output

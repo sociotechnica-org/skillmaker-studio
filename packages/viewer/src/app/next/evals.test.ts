@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  fixtureBodyText,
+  fixtureHasLiveRun,
   fixturePurpose,
   buildGapTodoPayload,
   bundleModels,
@@ -9,6 +11,11 @@ import {
   groupClaimsByFamily,
   modelChipsForClaim,
   promptSummary,
+  READ_ONLY_ORIENTATION,
+  readOnlyProofCaseEntries,
+  readOnlyProofCaseLabels,
+  RUNNING_STALE_MS,
+  readOnlyStatusLabel,
   RESPONSE_SETTLE_MS,
   runAllButtonLabel,
   runsForFixture,
@@ -193,21 +200,20 @@ describe("promptSummary", () => {
     );
   });
 
-  test("falls back to legacy prompt, then context; null when nothing is authored", () => {
-    expect(promptSummary({ promptMd: null, legacyPrompt: "Legacy ask.", context: "ctx" })).toBe("Legacy ask.");
-    expect(promptSummary({ promptMd: null, legacyPrompt: null, context: "Some context." })).toBe("Some context.");
-    expect(promptSummary({ promptMd: null, legacyPrompt: null, context: null })).toBeNull();
+  test("falls back to legacy prompt; null when nothing is authored", () => {
+    expect(promptSummary({ promptMd: null, legacyPrompt: "Legacy ask." })).toBe("Legacy ask.");
+    expect(promptSummary({ promptMd: null, legacyPrompt: null })).toBeNull();
   });
 
   test("long lines are capped at 160 characters with an ellipsis", () => {
-    const summary = promptSummary({ promptMd: "y".repeat(300), legacyPrompt: null, context: null });
+    const summary = promptSummary({ promptMd: "y".repeat(300), legacyPrompt: null });
     expect(summary?.length).toBe(160);
     expect(summary?.endsWith("…")).toBe(true);
   });
 
   test("authoring comments never leak into the summary — the task prose shows", () => {
     const promptMd = "<!-- trigger-basic: does NOT name the skill by slug.\n     Covers risk IN-2. -->\n\nI've got a design.md file sitting here.";
-    expect(promptSummary({ promptMd, legacyPrompt: null, context: null })).toBe("I've got a design.md file sitting here.");
+    expect(promptSummary({ promptMd, legacyPrompt: null })).toBe("I've got a design.md file sitting here.");
   });
 });
 
@@ -229,6 +235,48 @@ describe("fixturePurpose", () => {
     const purpose = fixturePurpose(`<!-- ${"z".repeat(400)} -->`);
     expect(purpose?.length).toBe(240);
     expect(purpose?.endsWith("…")).toBe(true);
+  });
+});
+
+describe("fixtureBodyText", () => {
+  test("the full prompt body, with only the LEADING purpose comment stripped (the purpose line shows it)", () => {
+    const promptMd = "<!-- trigger-basic: covers IN-2. -->\n\n# Task\n\nDo the thing.\n<!-- a mid-body comment stays -->\nMore.";
+    expect(fixtureBodyText({ promptMd, legacyPrompt: null })).toBe(
+      "# Task\n\nDo the thing.\n<!-- a mid-body comment stays -->\nMore.",
+    );
+  });
+
+  test("falls back to the legacy case.json prompt; null when nothing (or only a comment) is authored", () => {
+    expect(fixtureBodyText({ promptMd: null, legacyPrompt: "Legacy ask." })).toBe("Legacy ask.");
+    expect(fixtureBodyText({ promptMd: null, legacyPrompt: null })).toBeNull();
+    expect(fixtureBodyText({ promptMd: "<!-- only a purpose -->\n  ", legacyPrompt: null })).toBeNull();
+  });
+});
+
+describe("fixtureHasLiveRun", () => {
+  const now = Date.parse("2026-08-11T12:00:00Z");
+  const startedAgo = (ms: number): string => new Date(now - ms).toISOString();
+
+  test("a recent running run lights the indicator; other fixtures' runs don't", () => {
+    const runs = [run({ id: "r1", status: "running", startedAt: startedAgo(30_000) })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(true);
+    expect(fixtureHasLiveRun(runs, "other", now)).toBe(false);
+  });
+
+  test("terminal runs never light it", () => {
+    const runs = [run({ id: "r1", status: "completed", startedAt: startedAgo(1000) })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(false);
+  });
+
+  test("an orphaned 'running' record past the staleness window stops counting", () => {
+    const runs = [run({ id: "r1", status: "running", startedAt: startedAgo(RUNNING_STALE_MS + 1) })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(false);
+    expect(fixtureHasLiveRun([run({ id: "r2", status: "running", startedAt: startedAgo(RUNNING_STALE_MS) })], "case-a", now)).toBe(true);
+  });
+
+  test("an unparseable startedAt never counts -- nothing honest to age it by", () => {
+    const runs = [run({ id: "r1", status: "running", startedAt: "not-a-date" })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(false);
   });
 });
 
@@ -291,5 +339,52 @@ describe("shouldSettleMissingResponse", () => {
   test("a terminal run with an unparseable startedAt settles -- nothing to wait on", () => {
     expect(shouldSettleMissingResponse({ status: "completed", startedAt: "not-a-date" }, now)).toBe(true);
     expect(shouldSettleMissingResponse({ status: "running", startedAt: "not-a-date" }, now)).toBe(false);
+  });
+});
+
+// The read-only Eval tab (director ruling 2026-08-08): Method-stage evals
+// render as a reading surface -- claims + proof-case intentions, honest
+// status words, no run/grade/mint affordances.
+describe("readOnlyStatusLabel", () => {
+  test("gap reads as planned; everything else keeps its name", () => {
+    expect(readOnlyStatusLabel("gap")).toBe("planned");
+    expect(readOnlyStatusLabel("partial")).toBe("partial");
+    expect(readOnlyStatusLabel("unmeasured")).toBe("unmeasured");
+    expect(readOnlyStatusLabel("proven")).toBe("proven");
+  });
+});
+
+describe("readOnlyProofCaseEntries", () => {
+  test("realized cases are inspectable (planned: false); unrealized intentions are planned", () => {
+    expect(
+      readOnlyProofCaseEntries({ fixtureCases: ["refusal-thin-input"], proofCases: ["refusal-thin-input", "adv-injection"] }),
+    ).toEqual([
+      { name: "refusal-thin-input", planned: false },
+      { name: "adv-injection", planned: true },
+    ]);
+  });
+
+  test("a risk-map-sourced claim (no proofCases) falls back to its fixture join, all realized", () => {
+    expect(readOnlyProofCaseEntries({ fixtureCases: ["golden-basic"] })).toEqual([{ name: "golden-basic", planned: false }]);
+  });
+});
+
+describe("readOnlyProofCaseLabels", () => {
+  test("proof-case intentions render, unrealized ones marked (planned)", () => {
+    expect(
+      readOnlyProofCaseLabels({ fixtureCases: ["refusal-thin-input"], proofCases: ["refusal-thin-input", "adv-injection"] }),
+    ).toEqual(["refusal-thin-input", "adv-injection (planned)"]);
+  });
+
+  test("a risk-map-sourced claim (no proofCases) falls back to its fixture join", () => {
+    expect(readOnlyProofCaseLabels({ fixtureCases: ["golden-basic"] })).toEqual(["golden-basic"]);
+  });
+
+  test("nothing authored -> empty (the row says so instead)", () => {
+    expect(readOnlyProofCaseLabels({ fixtureCases: [], proofCases: [] })).toEqual([]);
+  });
+
+  test("the orientation line exists and stays quiet prose", () => {
+    expect(READ_ONLY_ORIENTATION).toBe("Authored during design — runnable once a draft exists.");
   });
 });

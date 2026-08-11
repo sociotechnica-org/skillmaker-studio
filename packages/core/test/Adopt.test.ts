@@ -4,7 +4,6 @@ import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { createHash } from "node:crypto";
 import { AdoptMarker, adoptWorkspace, parseFrontmatter } from "../src/Adopt.ts";
-import { parseDossier } from "../src/Dossier.ts";
 import type { IntakeRegistry } from "../src/Receive.ts";
 import { ADOPT_EXCLUDED_NAMES, computeBundleHashes, hashOutputTree } from "../src/Versions.ts";
 import { withTempDir } from "./support/TestLayer.ts";
@@ -106,12 +105,6 @@ describe("adoptWorkspace: discovery", () => {
         const markerExists = yield* fs.exists(path.join(dir, "browse", ".skillmaker-adopt.json"));
         expect(bundleJsonExists).toBe(true);
         expect(markerExists).toBe(true);
-
-        // dossier.md (issue #94): the ONE write path (`adoptDirectoryInPlace`)
-        // scaffolds it for every adopted skill too, same as `createBundle`.
-        const dossierScan = yield* parseDossier(path.join(dir, "browse", "dossier.md"));
-        expect(dossierScan.warnings).toEqual([]);
-        expect(dossierScan.sections).toEqual({ contexts: [] });
       }),
     );
   });

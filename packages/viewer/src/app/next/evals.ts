@@ -188,15 +188,13 @@ export const buildGapTodoPayload = (input: {
 /**
  * A fixture's one-line prompt summary for the accordion: the first
  * non-heading line of `prompt.md`, falling back to the scaffold-era
- * `case.json` prompt, then `context`. `null` = no prompt authored yet, an
- * honest gap.
+ * `case.json` prompt. `null` = no prompt authored yet, an honest gap.
  */
 export const promptSummary = (detail: {
   readonly promptMd: string | null;
   readonly legacyPrompt: string | null;
-  readonly context: string | null;
 }): string | null => {
-  const raw = detail.promptMd ?? detail.legacyPrompt ?? detail.context;
+  const raw = detail.promptMd ?? detail.legacyPrompt;
   if (raw === null) return null;
   // Authoring comments are the fixture's PURPOSE (fixturePurpose renders
   // them as their own line) -- the summary is the task prose the agent sees.
@@ -224,6 +222,89 @@ export const fixturePurpose = (promptMd: string | null): string | null => {
   if (text.length === 0) return null;
   return text.length > 240 ? `${text.slice(0, 239).trimEnd()}…` : text;
 };
+
+/**
+ * A fixture's full inspectable body for the inline fold (2026-08-11: the
+ * director drafted fixtures via chat and could not look at what was
+ * created). The whole `prompt.md` minus its leading authoring comment --
+ * that comment IS the purpose line (`fixturePurpose`), shown separately,
+ * never duplicated into the body. Falls back to the scaffold-era
+ * `case.json` prompt; `null` = nothing authored.
+ */
+export const fixtureBodyText = (detail: {
+  readonly promptMd: string | null;
+  readonly legacyPrompt: string | null;
+}): string | null => {
+  const raw = detail.promptMd ?? detail.legacyPrompt;
+  if (raw === null) return null;
+  const text = raw.replace(/^\s*<!--[\s\S]*?-->\s*/, "").trim();
+  return text.length === 0 ? null : text;
+};
+
+/**
+ * How old a `status: "running"` run.json can be and still light the
+ * per-fixture running indicator. A crashed server leaves orphaned
+ * "running" records (that's `skillmaker run repair`'s job); past this
+ * window the indicator stops trusting them. Matches RunDispatch.ts's
+ * stale-eviction timeout (15 min, comfortably past RunEngine's 5-minute
+ * session timeout plus sandbox setup).
+ */
+export const RUNNING_STALE_MS = 15 * 60_000;
+
+/**
+ * Is a run for this fixture executing RIGHT NOW, as far as the recorded
+ * run.json state says? Drives the fixture row's pulse for runs dispatched
+ * anywhere (CLI, chat, another browser) -- the viewer's own dispatch poll
+ * (`useRunDispatch.activeFixtures`) only knows server-dispatched runs.
+ * An unparseable `startedAt` never counts (nothing honest to age it by).
+ */
+export const fixtureHasLiveRun = (
+  runs: ReadonlyArray<EvalRun>,
+  caseName: string,
+  nowMs: number,
+): boolean =>
+  runs.some((r) => {
+    if (r.fixtureCase !== caseName || r.status !== "running") return false;
+    const started = Date.parse(r.startedAt);
+    return !Number.isNaN(started) && nowMs - started <= RUNNING_STALE_MS;
+  });
+
+/**
+ * The read-only Eval tab's one line of orientation (director ruling
+ * 2026-08-08: Method-stage evals are a reading surface -- claims + proof
+ * cases are born at design time; fixtures/runs belong to evaluating).
+ */
+export const READ_ONLY_ORIENTATION = "Authored during design — runnable once a draft exists.";
+
+/**
+ * The read-only mode's honest status word: an authored `gap` at design time
+ * is not a failure, it is a proof case that hasn't been built yet --
+ * `planned`. Every other status keeps its name.
+ */
+export const readOnlyStatusLabel = (status: ClaimStatus): string => (status === "gap" ? "planned" : status);
+
+/**
+ * The read-only claim row's proof cases, structured: the claim's proof-case
+ * intentions (evals.json's `proofSpecs[].name`, falling back to the fixture
+ * join for risk-map-sourced claims). `planned` = no fixture realizes it yet
+ * -- a realized case has a body to inspect, a planned one is just a name.
+ * Empty when nothing is authored at all.
+ */
+export const readOnlyProofCaseEntries = (claim: {
+  readonly fixtureCases: ReadonlyArray<string>;
+  readonly proofCases?: ReadonlyArray<string>;
+}): ReadonlyArray<{ readonly name: string; readonly planned: boolean }> => {
+  const realized = new Set(claim.fixtureCases);
+  const intentions = claim.proofCases ?? claim.fixtureCases;
+  return intentions.map((name) => ({ name, planned: !realized.has(name) }));
+};
+
+/** The entries as display strings, unrealized ones marked `(planned)`. */
+export const readOnlyProofCaseLabels = (claim: {
+  readonly fixtureCases: ReadonlyArray<string>;
+  readonly proofCases?: ReadonlyArray<string>;
+}): ReadonlyArray<string> =>
+  readOnlyProofCaseEntries(claim).map((entry) => (entry.planned ? `${entry.name} (planned)` : entry.name));
 
 /** Claims grouped by family in first-appearance order (rule 1: grouped by Input / Reasoning / Output / Adversarial / Chain). */
 export const groupClaimsByFamily = (

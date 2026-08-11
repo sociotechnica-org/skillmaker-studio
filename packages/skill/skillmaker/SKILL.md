@@ -74,13 +74,21 @@ next steps) this skill would otherwise have to reconstruct.
   `skillmaker grade <slug> <runId> --verdict pass|fail|partial [--notes <text>]`
 
 - **Ship a recorded version** (`/skillmaker ship`):
-  `skillmaker ship <slug> --to <destination> [--purpose <text>] [--version <hash>]`
+  `skillmaker ship <slug> --to <destination> --purpose <text> [--version <hash>]`
   (needs a recorded version first: `skillmaker version record <slug>`)
 
-- **Publish to a configured target** (`/skillmaker publish`):
-  `skillmaker publish <slug> [--target <id>]`
+- **Publish to an install target** (`/skillmaker publish`):
+  `skillmaker publish <slug> --to user|project [--version <hash>]`
+  Installs the selected version's `output/` where an agent actually reads
+  it — `user` means all my agents (`~/.claude/skills/<slug>`), `project`
+  means this project's agents (`.claude/skills/<slug>`). The choice is
+  remembered in `bundle.json` (`publishTargets`), so a later bare
+  `skillmaker publish <slug>` re-publishes to the remembered target(s);
+  `--version <hash>` re-publishes an older recorded snapshot. Workspaces
+  with configured `publishTargets` in `skillmaker.config.json` can still
+  use the legacy door: `skillmaker publish <slug> --target <id>`.
 
-- **Everything else** -- `list`, `status <slug>`, `dossier <slug>`,
+- **Everything else** -- `list`, `status <slug>`,
   `measurements <slug>`, `review request|resolve`, `advance`,
   `version record`, `book build`, `todo add|list|done|start|drop|reopen`,
   `receive`, `route` -- maps 1:1 the same way. Run `skillmaker --help` for
@@ -99,6 +107,14 @@ next steps) this skill would otherwise have to reconstruct.
   state. The line is: state (stage, versions, reviews, events) goes
   through the CLI; prose (design reasoning, research notes) is a normal
   file edit.
+- **Eval claims live in a bundle-root `evals.json`** (authored at design
+  time, so it's yours to write): a `failureHypotheses` array of
+  `{id, failure, proofSpecs: [{name, setup, expectedBehavior}]}` entries,
+  where each `id` bands into a risk family (IN/RE/OUT/ADV/CHN) and each
+  proof-spec `name` is the kebab-case fixture case meant to prove it.
+  When `evals.json` exists and parses, it is the bundle's claims source;
+  the legacy `evals/risk-map.md` is only a fallback -- one source wins,
+  never a merge.
 - If a command fails, show the user the actual error text and stop --
   don't retry with guessed flags, and don't paper over a usage error by
   inventing a workaround.

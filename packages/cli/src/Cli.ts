@@ -7,7 +7,6 @@ import { type CliResult, ok, usageError } from "./CliResult.ts";
 import { runAdopt, runAdoptFromManifest, runAdoptTriage } from "./commands/Adopt.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runBookBuild } from "./commands/BookBuild.ts";
-import { runDossier } from "./commands/Dossier.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
 import { runFixtureHarvest } from "./commands/FixtureHarvest.ts";
 import { runGrade } from "./commands/Grade.ts";
@@ -47,7 +46,6 @@ Commands:
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
   fixture harvest <slug> <case>   Turn a skill.field_report event into a Lab fixture (--from-report <event-id> required, issue #68)
-  dossier <slug>    Print a bundle's dossier.md: job, contexts, out-of-scope, basis, evidence, fit criterion -- honest gaps shown as "unrecorded" (issue #94)
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
   run repair <slug> [runId]   Terminal-state stuck "running" run(s) whose process is gone, so their transcripts become gradeable
   station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
@@ -124,7 +122,6 @@ Options:
   --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
                     (fixture harvest) same enum; defaults to hard-case
   --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
-  --context <name>  (fixture add) names a dossier.md Contexts entry this case exercises; optional, unvalidated (issue #94)
   --from-report <id>   (fixture harvest) the skill.field_report event id to harvest (required)
                     (todo add) the skill.field_report event id to seed the todo from (optional, issue #81); defaults --bundle/--kind/--detail from the report
   --from-run <id>   (todo add) the run id whose findings this todo tracks (2026-07-21 simplification, D5); stamps origin {kind: "run", runId} and defaults --bundle/--detail from the run
@@ -169,7 +166,6 @@ const VALUE_FLAGS = new Set([
   "--label",
   "--class",
   "--risks",
-  "--context",
   "--from-report",
   "--from-run",
   "--fixture",
@@ -315,8 +311,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         const [slug, caseName] = twoPositionalsAfter(argv, 2);
         const klass = flagValue(argv, "--class");
         const risks = flagValue(argv, "--risks");
-        const context = flagValue(argv, "--context");
-        return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks, context });
+        return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
       }
       if (subcommand === "harvest") {
         const [slug, caseName] = twoPositionalsAfter(argv, 2);
@@ -481,10 +476,6 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
       const stage = flagValue(argv, "--stage");
       const reason = flagValue(argv, "--reason");
       return yield* runRoute(cwd, intake, { json, as, bundle, parent, name, stage, reason });
-    }
-    case "dossier": {
-      const slug = positionalAfterCommand(argv);
-      return yield* runDossier(cwd, slug, { json });
     }
     case "book": {
       const subcommand = argv[1];

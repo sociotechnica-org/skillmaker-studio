@@ -16,6 +16,18 @@ if one already exists). Follow these steps in order.
    to research. Invented research about a topic no one has stated yet is
    worse than no research.
 
+   **Chat-mode exception (record, don't bounce):** if you are in a
+   conversation with the director and they HAVE stated the skill's job in
+   this conversation (the first message usually is the topic), the topic
+   exists — it just hasn't been recorded. Do not stop and assign the
+   director homework. Instead: restate their stated job as a one-liner,
+   confirm it in one short question if there is any ambiguity (skip the
+   question when it's plain), then record it yourself — set
+   `bundle.json`'s `oneLiner` via the `skillmaker` CLI if a command
+   exists for it, else edit `bundle.json` directly — and proceed to
+   research. The hard stop above is for a topic NOBODY has stated,
+   not for an unrecorded one.
+
 2. **Check your prompt for a "REVISE NOTES:" section.**
 
    If present, a human reviewer already looked at a previous

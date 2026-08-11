@@ -98,6 +98,12 @@ William’s own skill-drafting. See <a href="/concepts/skill-bundle/">The Skill 
 (<code dir="auto">stations.json</code>) and the build log.</li>
 <li><strong>Publishing</strong> — <a href="/cli/publish/"><code dir="auto">skillmaker publish</code></a>, git-dir and
 marketplace targets.</li>
+<li><strong>The two-audience publish door, in the viewer too.</strong> <code dir="auto">skillmaker publish &#x3C;slug> --to user|project</code> installs a recorded version’s
+<code dir="auto">output/</code> where an agent actually reads it (<code dir="auto">~/.claude/skills/</code> or the
+project’s <code dir="auto">.claude/skills/</code>), remembers the audience in <code dir="auto">bundle.json</code>,
+and supports revert to an older snapshot via <code dir="auto">--version &#x3C;hash></code>. The
+viewer’s Publish tab drives the same core through live Publish/Revert
+buttons — they are no longer disabled.</li>
 <li><strong>The skillbook</strong> — <a href="/cli/book-build/"><code dir="auto">skillmaker book build</code></a>, and
 <a href="/concepts/publishing-and-the-skillbook/">Publishing and the skillbook</a>
 for how the two relate.</li>
@@ -122,8 +128,8 @@ New-project dialog (browse, create, and auto-init a directory). See
 ships prebuilt binaries for macOS arm64/x64, Linux x64, and Windows x64
 (Windows is new and lightly tested). See <a href="/getting-started/install/">Install</a>.</li>
 <li><strong>William ships inside the product.</strong> Station skills
-(<code dir="auto">william-research-a-skill</code>, <code dir="auto">william-draft-skill-md</code>) are packaged with
-the CLI and resolve as a fallback when the workspace has no copy of its
+(<code dir="auto">william-research-a-skill</code>, <code dir="auto">design-skill</code>, <code dir="auto">william-draft-skill-md</code>)
+are packaged with the CLI and resolve as a fallback when the workspace has no copy of its
 own — no more hand-carrying the William bundles into every workspace.
 See <a href="/concepts/skill-bundle/#stationsjson--per-bundle-work-config">The Skill Bundle</a>.</li>
 <li><strong>Version content snapshots.</strong> <code dir="auto">skillmaker version record</code> snapshots the
@@ -153,10 +159,6 @@ four platforms via npm, but the desktop shell doesn’t), along with
 updating the shell’s per-workspace picker/claim logic for the
 machine-level project registry and an in-app reconnect for the
 “attached-but-dead server” limitation noted there.</li>
-<li><strong>The viewer’s Publish tab.</strong> The Publish tab’s Publish/Revert buttons
-are intentionally disabled while the UI publish flow is redesigned
-around the version snapshot store; <a href="/cli/publish/"><code dir="auto">skillmaker publish</code></a>
-is the working door today.</li>
 <li><strong>Iteration ergonomics: a <code dir="auto">runs list</code> command and grading at volume.</strong>
 Story 6’s friction log found real pain grading 8+ runs in a row: no
 <code dir="auto">skillmaker runs list</code> (run ids currently live only in dir names, and

@@ -6,14 +6,14 @@
  * (TopBarSkillControls, rendered by NextShell). Every tab is a lens on
  * the selected draft ("Current draft" = the unversioned working state).
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownContent } from "../components/Markdown.tsx";
 import { fetchBundleFile, postPublish, useApiData } from "./api.ts";
 import { EvalsSection } from "./EvalsSection.tsx";
 import { AdvanceControls, ReviewSurface } from "./ReviewSurface.tsx";
 import type { SkillPage as SkillPageData, SkillVersion } from "./types.ts";
 
-type CenterTab = "overview" | "research" | "eval" | "publish";
+type CenterTab = "overview" | "research" | "prompt" | "eval" | "publish";
 
 const TAB_ACTIVE =
   "relative z-10 -mb-px cursor-pointer rounded-t-lg border border-b-0 border-neutral-900/50 bg-well px-3 pb-1.5 pt-2 font-mono text-[11px] uppercase text-ink";
@@ -34,6 +34,7 @@ export function SkillPageView({
   pinned,
   onOpenFile,
   rightInset = false,
+  tabRequest = null,
 }: {
   readonly slug: string;
   readonly page: SkillPageData;
@@ -41,8 +42,19 @@ export function SkillPageView({
   readonly onOpenFile: (path: string) => void;
   /** True while the overview card floats over the right edge: CONTENT makes room, but the full-bleed surface + separator keep painting beneath the card. */
   readonly rightInset?: boolean;
+  /** A chat-link navigation request: switch to this tab (nonce distinguishes repeats). */
+  readonly tabRequest?: { readonly tab: "overview" | "research" | "prompt" | "eval" | "publish"; readonly n: number } | null;
 }) {
   const [tab, setTab] = useState<CenterTab>("overview");
+  // Chat-transcript links navigate the CENTER to the artifact's home tab —
+  // the conversation never gets displaced (2026-08-08 invariant + ruling).
+  const lastTabRequest = useRef(0);
+  useEffect(() => {
+    if (tabRequest != null && tabRequest.n !== lastTabRequest.current) {
+      lastTabRequest.current = tabRequest.n;
+      setTab(tabRequest.tab);
+    }
+  }, [tabRequest]);
 
   // Unread dots: the newest event of each family, compared to a per-skill
   // "last seen" stamp (localStorage). Eval listens to run traffic; Research
@@ -83,13 +95,25 @@ export function SkillPageView({
       <div className="w-full px-6 pt-4 transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 268 : 24 }}>
         <div className="mx-auto max-w-3xl">
           {page.loop !== null && <ReviewSurface loop={page.loop} />}
+        </div>
+      </div>
 
+      {/* STICKY tab bar: pins to the top of the scroll context so long tab
+          content (uncapped research notes) never scrolls the tabs away. The
+          separator line is this bar's border-b (not the surface's border-t)
+          so the active tab's -mb-px notch keeps working while stuck. */}
+      <div
+        className="sticky top-0 z-20 w-full border-b border-neutral-900/50 bg-canvas px-6 pt-2 transition-[padding] duration-200 ease-out"
+        style={{ paddingRight: rightInset ? 268 : 24 }}
+      >
+        <div className="mx-auto max-w-3xl">
           {/* folder tabs, sitting on the full-width separator below */}
           <div className="flex items-end gap-1">
             {(
               [
                 { id: "overview", label: "Overview", onClick: () => setTab("overview"), dot: false },
                 { id: "research", label: "Research", onClick: () => { setTab("research"); markSeen("research", researchStamp); }, dot: showResearchDot },
+                { id: "prompt", label: "Prompt", onClick: () => setTab("prompt"), dot: false },
                 { id: "eval", label: "Eval", onClick: () => { setTab("eval"); markSeen("eval", runStamp); }, dot: showEvalDot },
                 { id: "publish", label: "Publish", onClick: () => setTab("publish"), dot: false },
               ] as const
@@ -103,13 +127,14 @@ export function SkillPageView({
         </div>
       </div>
 
-      {/* full-bleed tab surface: separator line + tinted ground to the
-          bottom. The inset is padding INSIDE this layer so the well and its
-          separator keep painting under the floating overview card. */}
-      <div className="flex-1 border-t border-neutral-900/50 bg-well transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 244 : 0 }}>
+      {/* full-bleed tab surface: tinted ground to the bottom (the separator
+          line lives on the sticky tab bar above). The inset is padding INSIDE
+          this layer so the well keeps painting under the floating card. */}
+      <div className="flex-1 bg-well transition-[padding] duration-200 ease-out" style={{ paddingRight: rightInset ? 244 : 0 }}>
         <div className="mx-auto max-w-3xl px-6 py-5">
           {tab === "overview" && <OverviewTab page={page} pinned={pinned} onOpenFile={onOpenFile} />}
           {tab === "research" && <ResearchTab slug={slug} onOpenFile={onOpenFile} />}
+          {tab === "prompt" && <PromptTab page={page} onOpenFile={onOpenFile} />}
           {tab === "eval" && <EvalsSection page={page} />}
           {tab === "publish" && <PublishTab slug={slug} page={page} pinned={pinned} />}
         </div>
@@ -273,6 +298,27 @@ function VersionMenuRow({
 
 // ------------------------------------------------------------------- tabs
 
+/** The full SKILL.md, unabridged — the artifact itself gets its own tab
+    (director ruling 2026-08-08: Overview was awkwardly truncating it;
+    Overview will be repurposed separately). */
+function PromptTab({ page, onOpenFile }: { readonly page: SkillPageData; readonly onOpenFile: (path: string) => void }) {
+  if (page.instructions === null || page.instructions.length === 0) {
+    return <p className="text-sm text-ink-muted">No SKILL.md yet — it arrives when the draft is written.</p>;
+  }
+  return (
+    <div className="text-sm">
+      <button
+        type="button"
+        className="mb-3 cursor-pointer rounded border border-border bg-canvas px-2.5 py-1 font-display text-xs text-ink-muted shadow-sm hover:bg-surface hover:text-ink"
+        onClick={() => onOpenFile("output/SKILL.md")}
+      >
+        Open in Files
+      </button>
+      <MarkdownContent markdown={page.instructions} />
+    </div>
+  );
+}
+
 function OverviewTab({
   page,
   pinned,
@@ -320,7 +366,10 @@ function firstSection(markdown: string): string {
   return out.join("\n").trim();
 }
 
-const RESEARCH_FILES = ["research/notes.md", "research/decisions.md"] as const;
+/** Researching's artifacts, in pipeline order — design.md included per the
+    2026-08-08 ruling: researching covers notes AND the design; the tab is
+    the whole thinking record. (Danvers floats renaming this tab "Method".) */
+const RESEARCH_FILES = ["research/notes.md", "design.md", "research/decisions.md"] as const;
 
 function ResearchTab({
   slug,
@@ -342,6 +391,28 @@ function ResearchTab({
   }, [slug]);
   const files = useApiData(fetcher, null);
 
+  // Fold state persists per skill (localStorage): the director shouldn't
+  // have to re-fold notes/design on every visit. Absent key = the default
+  // (notes.md + design.md open).
+  const foldsKey = `sm-research-folds-${slug}`;
+  const [folds, setFolds] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(window.localStorage.getItem(foldsKey) ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const isOpen = (path: string): boolean =>
+    folds[path] ?? (path.endsWith("notes.md") || path === "design.md");
+  const setFold = (path: string, open: boolean) => {
+    const next = { ...folds, [path]: open };
+    setFolds(next);
+    try {
+      window.localStorage.setItem(foldsKey, JSON.stringify(next));
+    } catch {}
+  };
+
   return (
     <div className="text-sm">
       {files === null && <p className="text-ink-muted">Loading research…</p>}
@@ -350,7 +421,12 @@ function ResearchTab({
       )}
       {files !== null &&
         files.map((f) => (
-          <details key={f.path} open={f.path.endsWith("notes.md")} className="mb-3">
+          <details
+            key={f.path}
+            open={isOpen(f.path)}
+            onToggle={(e) => setFold(f.path, (e.currentTarget as HTMLDetailsElement).open)}
+            className="mb-3"
+          >
             <summary className="cursor-pointer font-display text-xs uppercase text-ink-muted hover:text-ink">
               {f.path.replace("research/", "")}
               <button
@@ -364,7 +440,10 @@ function ResearchTab({
                 open in Files
               </button>
             </summary>
-            <div className="max-h-96 overflow-y-auto pt-1">
+            {/* Full height — the page scrolls. A 384px scroll-box made long
+                research notes read as "truncated" (mystery from the 7/30
+                walk, solved 2026-08-08: it was this cap, not a fetch race). */}
+            <div className="pt-1">
               <MarkdownContent markdown={f.content} />
             </div>
           </details>

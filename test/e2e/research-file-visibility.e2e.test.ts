@@ -81,7 +81,8 @@ describe("research file visibility over HTTP", () => {
     // evals/ joined the reviewable allowlist for the next shell's Files tab
     // (ui/shell-blockout); the scaffolded risk-map.md now rides along after
     // the design -> research -> output pipeline ordering.
-    expect(body.files).toEqual(["design.md", "research/notes.md", "output/SKILL.md", "evals/risk-map.md"]);
+    // risk-map.md is no longer scaffolded (deprecated 2026-08-08; claims live in root evals.json)
+    expect(body.files).toEqual(["design.md", "research/notes.md", "output/SKILL.md"]);
     expect(body.files).not.toContain("research/.gitkeep");
     expect(body.files).not.toContain("evals/fixtures/.gitkeep");
   });

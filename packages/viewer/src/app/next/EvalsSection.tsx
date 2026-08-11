@@ -21,8 +21,12 @@ import {
   buildGapTodoPayload,
   bundleModels,
   claimStatusInScope,
+  fixtureHasLiveRun,
   groupClaimsByFamily,
   modelChipsForClaim,
+  READ_ONLY_ORIENTATION,
+  readOnlyProofCaseEntries,
+  readOnlyStatusLabel,
   runAllButtonLabel,
   runsForFixture,
   shouldSettleMissingResponse,
@@ -103,6 +107,63 @@ function InvokedChip({ glance }: { readonly glance: Lazy<RunGlance> | undefined 
   );
 }
 
+/** The per-fixture in-flight signal: a pulsing dot + "running…", amber like the run-all label. */
+function RunningPulse() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-amber-100 px-1 text-[10px] text-amber-800" title="A run for this fixture is executing">
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-600" aria-hidden="true" />
+      running…
+    </span>
+  );
+}
+
+/**
+ * The fixture's inspectable body, inline (2026-08-11: fixtures drafted via
+ * chat were unreadable from the Eval tab). Renders the full prompt (purpose
+ * comment stripped -- the purpose line shows it) plus the authored grading
+ * (answer key + checks), off the same lazily-fetched glance the fixture
+ * line uses. Nested inline like run detail -- never a modal.
+ */
+function FixtureBodyPanel({ glance }: { readonly glance: Lazy<FixtureGlance> | undefined }) {
+  if (glance === undefined || glance.state === "loading") {
+    return <p className="pt-1 text-[11px] text-ink-muted">Loading fixture…</p>;
+  }
+  if (glance.state === "error") {
+    return <p className="pt-1 text-[11px] text-rose-700">fixture unreadable</p>;
+  }
+  const value = glance.value;
+  return (
+    <div className="mt-1 rounded border border-border bg-paper p-2">
+      {value.body === null ? (
+        <p className="text-[11px] text-ink-muted">No prompt authored yet.</p>
+      ) : (
+        <FileContentView
+          path="prompt.md"
+          content={value.body}
+          preClassName="max-h-60 overflow-auto rounded bg-surface p-2 font-mono text-[11px]"
+          renderedClassName="max-h-60 overflow-auto rounded border border-border bg-surface p-2"
+        />
+      )}
+      {value.answerKey !== null && (
+        <div className="pt-2">
+          <div className="font-display text-[10px] uppercase text-ink-muted">Answer key</div>
+          <div className="whitespace-pre-wrap text-[11px]">{value.answerKey}</div>
+        </div>
+      )}
+      {value.checks.length > 0 && (
+        <div className="pt-2">
+          <div className="font-display text-[10px] uppercase text-ink-muted">Checks</div>
+          <ul className="list-disc pl-4 text-[11px]">
+            {value.checks.map((check) => (
+              <li key={check}>{check}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const shortHash = (hash: string): string => hash.replace(/^sha256:/, "").slice(0, 8);
 
 const runStartedLabel = (startedAt: string): string => {
@@ -111,6 +172,108 @@ const runStartedLabel = (startedAt: string): string => {
     ? startedAt
     : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 };
+
+/**
+ * The read-only Eval tab (director ruling 2026-08-08): while the bundle has
+ * no draft to run against (`page.evalsRunnable === false`, server-informed
+ * off the same artifact probe as `instructionsPath`), the authored axis is
+ * a clean reading surface -- claims grouped by family with their sentences
+ * and proof-case intentions, coverage shown honestly (`gap` reads as
+ * `planned`). NO run/grade/mint affordances; one quiet orientation line
+ * instead.
+ */
+function ReadOnlyEvals({ page }: { readonly page: SkillPage }) {
+  // Fixture bodies are inspectable here too (2026-08-11: the director
+  // drafted fixtures via chat and couldn't look at what was created) --
+  // a realized proof case expands to its body, lazily fetched. `null`
+  // slug = placeholders (no server): names stay inert text, never broken.
+  const slug = page.evals?.slug ?? null;
+  return (
+    <section>
+      <p className="text-xs text-ink-muted">{READ_ONLY_ORIENTATION}</p>
+      <div className="mt-1 space-y-2">
+        {groupClaimsByFamily(page.claims).map((group) => (
+          <div key={group.family}>
+            <div className="pt-1 font-display text-[10px] uppercase tracking-wide text-ink-muted">{group.family}</div>
+            <div className="mt-1 space-y-1">
+              {group.claims.map((claim) => {
+                const proofCases = readOnlyProofCaseEntries(claim);
+                const statusLabel = readOnlyStatusLabel(claim.status);
+                return (
+                  <div key={claim.id} className="rounded border border-border bg-surface px-3 py-2 shadow-sm">
+                    <div className="flex items-start gap-2 text-sm">
+                      <span title={statusLabel}>{CLAIM_DOT[claim.status]}</span>
+                      <span className="min-w-0 flex-1">{claim.sentence}</span>
+                      <span className="font-mono text-[10px] text-ink-muted">{claim.id}</span>
+                      <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted dark:bg-neutral-800">{statusLabel}</span>
+                    </div>
+                    <div className="pl-6 text-xs text-ink-muted">
+                      {proofCases.length === 0 ? (
+                        "No proof cases authored yet."
+                      ) : (
+                        <>
+                          <span>Proof case{proofCases.length === 1 ? "" : "s"}:</span>
+                          <div className="mt-0.5 space-y-0.5">
+                            {proofCases.map((entry) =>
+                              entry.planned || slug === null ? (
+                                <div key={entry.name} className="font-mono">
+                                  {entry.name}
+                                  {entry.planned && <span className="pl-1 font-sans">(planned)</span>}
+                                </div>
+                              ) : (
+                                <ReadOnlyFixtureFold key={entry.name} slug={slug} caseName={entry.name} />
+                              ),
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One realized proof case in the read-only tab: the case name is a fold --
+ * expand to read the fixture's body (prompt + grading), fetched lazily on
+ * first open via the same glance the runnable accordion uses.
+ */
+function ReadOnlyFixtureFold({ slug, caseName }: { readonly slug: string; readonly caseName: string }) {
+  const [open, setOpen] = useState(false);
+  const [glance, setGlance] = useState<Lazy<FixtureGlance> | undefined>(undefined);
+  const toggle = () => {
+    if (!open && (glance === undefined || glance.state === "error")) {
+      setGlance({ state: "loading" });
+      fetchFixtureGlance(slug, caseName).then(
+        (value) => setGlance({ state: "ready", value }),
+        () => setGlance({ state: "error" }),
+      );
+    }
+    setOpen(!open);
+  };
+  return (
+    <div>
+      <button type="button" onClick={toggle} className="hover:text-ink" title="Read this fixture's body">
+        <span className="pr-1">{open ? "▾" : "▸"}</span>
+        <span className="font-mono">{caseName}</span>
+      </button>
+      {open && (
+        <>
+          {glance !== undefined && glance.state === "ready" && glance.value.purpose !== null && (
+            <div className="text-[11px] italic text-ink-muted/90">{glance.value.purpose}</div>
+          )}
+          <FixtureBodyPanel glance={glance} />
+        </>
+      )}
+    </div>
+  );
+}
 
 export function EvalsSection({ page }: { readonly page: SkillPage }) {
   const evals = page.evals;
@@ -269,6 +432,12 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
       );
   };
 
+  // The mode switch, AFTER every hook (rules of hooks): no draft to run
+  // against -> the authored axis renders read-only, full stop.
+  if (!page.evalsRunnable) {
+    return <ReadOnlyEvals page={page} />;
+  }
+
   return (
     <section>
       <div className="flex items-center justify-between gap-2">
@@ -331,6 +500,15 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
                       });
                 const status = evals === null ? claim.status : claimStatusInScope(claim.status, chips);
                 const expanded = expandedClaims.has(claim.id);
+                // A fixture is "running" if the viewer's own dispatch poll
+                // says so (server-dispatched runs) OR a live run.json says
+                // so (runs started via CLI/chat -- the page data refreshes
+                // on SSE ticks). The claim row echoes it so the signal is
+                // visible even while the accordion is collapsed.
+                const runningCase = (caseName: string): boolean =>
+                  runs.activeFixtures.has(caseName) ||
+                  (evals !== null && fixtureHasLiveRun(evals.runs, caseName, Date.now()));
+                const claimRunning = claim.fixtureCases.some(runningCase);
                 return (
                   <div key={claim.id} className="rounded border border-border bg-surface px-3 py-2 shadow-sm">
                     {/* items-start + wrapping sentence: a claim must be readable
@@ -338,6 +516,7 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
                     <div className="flex items-start gap-2 text-sm">
                       <span title={status}>{CLAIM_DOT[status]}</span>
                       <span className="min-w-0 flex-1">{claim.sentence}</span>
+                      {claimRunning && <RunningPulse />}
                       {chips.length > 0 && <ModelChips chips={chips} />}
                       <span className="font-mono text-[10px] text-ink-muted">{claim.id}</span>
                       <span className="rounded bg-neutral-100 px-1.5 text-[10px] text-ink-muted dark:bg-neutral-800">{status}</span>
@@ -376,7 +555,7 @@ export function EvalsSection({ page }: { readonly page: SkillPage }) {
                           <FixtureBlock
                             key={caseName}
                             caseName={caseName}
-                            running={runs.activeFixtures.has(caseName)}
+                            running={runningCase(caseName)}
                             onRun={() => runs.runFixture(caseName)}
                             glance={fixtureGlances[caseName]}
                             runs={runsForFixture(evals.runs, caseName)}
@@ -429,12 +608,15 @@ function FixtureBlock({
 }) {
   const shown = runs.slice(0, RUN_CAP);
   const older = runs.length - shown.length;
+  // The inline body fold: the fixture's full content (prompt + grading),
+  // rendered from the SAME glance the summary line already fetched.
+  const [bodyOpen, setBodyOpen] = useState(false);
   return (
     <div>
       <div className="flex items-center gap-2 text-xs">
         <span className="font-mono text-ink">{caseName}</span>
         {running ? (
-          <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-800">running…</span>
+          <RunningPulse />
         ) : (
           <button
             type="button"
@@ -469,6 +651,14 @@ function FixtureBlock({
         {glance !== undefined && glance.state === "error" && (
           <span className="text-[10px] text-rose-700">fixture unreadable</span>
         )}
+        <button
+          type="button"
+          onClick={() => setBodyOpen(!bodyOpen)}
+          title="Read this fixture's full body (prompt + grading)"
+          className="text-[10px] text-ink-muted underline hover:text-ink"
+        >
+          {bodyOpen ? "hide fixture ▾" : "view fixture ▸"}
+        </button>
       </div>
       {/* The authored purpose (prompt.md's leading comment): why this
           fixture exists and what grading asks — its own line, never leaked
@@ -483,6 +673,7 @@ function FixtureBlock({
             ? ""
             : glance.value.summary ?? "(no prompt authored)"}
       </div>
+      {bodyOpen && <FixtureBodyPanel glance={glance} />}
 
       {shown.length === 0 ? (
         <p className="pt-1 text-[11px] text-ink-muted">No runs yet.</p>

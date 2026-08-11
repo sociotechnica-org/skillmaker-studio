@@ -34,6 +34,10 @@
 
 export type PieceName = "Job" | "Method" | "Prompt" | "Evals";
 
+/* The dossier.md offer was removed 2026-08-08: `skillmaker dossier` no
+   longer exists and nothing scaffolds the file, so offering to make it
+   would be offering work the product can't do. */
+
 export type Offer = {
   /** The file this offer would bring into being. Also its identity. */
   readonly path: string;
@@ -58,15 +62,6 @@ export type Offer = {
 };
 
 export const OFFERS: ReadonlyArray<Offer> = [
-  {
-    path: "dossier.md",
-    piece: "Job",
-    why: "Context of use — job, out-of-scope, basis, evidence, fit criterion.",
-    how: "Run skillmaker dossier to scaffold it, then answer as much as you know.",
-    needs: [],
-    needsBecause: null,
-    station: null,
-  },
   {
     path: "design.md",
     piece: "Method",

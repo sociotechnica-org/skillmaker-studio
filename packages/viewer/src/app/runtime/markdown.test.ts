@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isMarkdownPath, parseInline, parseMarkdown, safeHref, stripHiddenMarkdown, type InlineNode } from "./markdown.ts";
+import { isMarkdownPath, parseInline, parseMarkdown, safeHref, stripHiddenMarkdown, type InlineNode, type ListItem, type MarkdownBlock } from "./markdown.ts";
 
 const textOf = (nodes: ReadonlyArray<InlineNode>): string =>
   nodes
@@ -51,6 +51,9 @@ describe("safeHref", () => {
   });
 });
 
+const itemsOf = (block: MarkdownBlock | undefined): ReadonlyArray<ListItem> =>
+  block?.kind === "list" ? block.items : [];
+
 describe("parseMarkdown blocks", () => {
   test("headings at each level", () => {
     const blocks = parseMarkdown("# One\n\n### Three\n\n###### Six");
@@ -89,12 +92,12 @@ describe("parseMarkdown blocks", () => {
     const blocks = parseMarkdown(source);
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toMatchObject({ kind: "list", ordered: false });
-    const items = (blocks[0] as { items: ReadonlyArray<ReadonlyArray<InlineNode>> }).items;
+    const items = itemsOf(blocks[0]);
     expect(items).toHaveLength(2);
-    expect(textOf(items[0] ?? [])).toBe(
+    expect(textOf(items[0]?.children ?? [])).toBe(
       "Evidence hierarchy: primary sources (GitHub's own docs) outrank secondary write-ups; every claim in the notes cites at least one primary source.",
     );
-    expect(textOf(items[1] ?? [])).toBe(
+    expect(textOf(items[1]?.children ?? [])).toBe(
       "Failure cases: a README that documents the wrong install path is worse than no README.",
     );
   });
@@ -102,8 +105,7 @@ describe("parseMarkdown blocks", () => {
   test("ordered list continuation lines join their item too", () => {
     const blocks = parseMarkdown("1. first line\n   wraps here\n2. second");
     expect(blocks).toHaveLength(1);
-    const items = (blocks[0] as { items: ReadonlyArray<ReadonlyArray<InlineNode>> }).items;
-    expect(items.map(textOf)).toEqual(["first line wraps here", "second"]);
+    expect(itemsOf(blocks[0]).map((item) => textOf(item.children))).toEqual(["first line wraps here", "second"]);
   });
 
   test("an UNINDENTED line after a list still ends it (paragraph, not continuation)", () => {
@@ -117,6 +119,46 @@ describe("parseMarkdown blocks", () => {
     const blocks = parseMarkdown("  just indented text");
     expect(blocks).toHaveLength(1);
     expect(blocks[0]?.kind).toBe("paragraph");
+  });
+
+  test("blank lines between ordered items keep ONE list (SKILL.md numbering bug)", () => {
+    // The Prompt tab regression: numbered steps separated by blank lines
+    // rendered as separate <ol>s, each restarting at 1.
+    const blocks = parseMarkdown("1. first\n\n2. second\n\n3. third");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ kind: "list", ordered: true, start: 1 });
+    expect(itemsOf(blocks[0]).map((item) => textOf(item.children))).toEqual(["first", "second", "third"]);
+  });
+
+  test("a multi-paragraph ordered item keeps its extra paragraph inside the item", () => {
+    const blocks = parseMarkdown("1. **Gather context.** Read the request.\n\n   Ask clarifying questions.\n\n2. Draft.");
+    expect(blocks).toHaveLength(1);
+    const items = itemsOf(blocks[0]);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.blocks).toHaveLength(1);
+    expect(items[0]?.blocks[0]).toMatchObject({ kind: "paragraph" });
+    expect(textOf((items[0]?.blocks[0] as { children: ReadonlyArray<InlineNode> }).children)).toBe(
+      "Ask clarifying questions.",
+    );
+    expect(textOf(items[1]?.children ?? [])).toBe("Draft.");
+  });
+
+  test("nested bullets under a numbered step stay inside the step (no ol split)", () => {
+    const blocks = parseMarkdown("1. plan\n   - keep it short\n   - cite sources\n2. ship");
+    expect(blocks).toHaveLength(1);
+    const items = itemsOf(blocks[0]);
+    expect(items).toHaveLength(2);
+    const nested = items[0]?.blocks[0];
+    expect(nested).toMatchObject({ kind: "list", ordered: false });
+    expect(itemsOf(nested).map((item) => textOf(item.children))).toEqual(["keep it short", "cite sources"]);
+    expect(textOf(items[1]?.children ?? [])).toBe("ship");
+  });
+
+  test("a list a fence genuinely interrupts resumes at its source number via `start`", () => {
+    const blocks = parseMarkdown("1. one\n2. two\n\n```\ncode\n```\n\n3. three");
+    expect(blocks.map((b) => b.kind)).toEqual(["list", "code", "list"]);
+    expect(blocks[0]).toMatchObject({ kind: "list", start: 1 });
+    expect(blocks[2]).toMatchObject({ kind: "list", start: 3 });
   });
 
   test("fenced code keeps content verbatim, records language", () => {

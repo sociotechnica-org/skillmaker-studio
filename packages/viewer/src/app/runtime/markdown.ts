@@ -11,8 +11,9 @@
  * and `<iframe>` payloads can never execute. Rendering to React happens in
  * `components/Markdown.tsx`.
  *
- * Supported subset: ATX headings, paragraphs, unordered/ordered lists,
- * fenced code, pipe tables, blockquotes; inline code/strong/emphasis/links
+ * Supported subset: ATX headings, paragraphs, unordered/ordered lists
+ * (nested and loose: blank-separated items, multi-paragraph items, ordered
+ * `start` numbers), fenced code, pipe tables, blockquotes; inline code/strong/emphasis/links
  * (links only with an allowlisted scheme -- everything else stays text).
  * Leading YAML frontmatter and HTML comments are hidden from rendered
  * output (`stripHiddenMarkdown`); raw views show the original untouched.
@@ -25,10 +26,17 @@ export type InlineNode =
   | { readonly kind: "em"; readonly children: ReadonlyArray<InlineNode> }
   | { readonly kind: "link"; readonly href: string; readonly children: ReadonlyArray<InlineNode> };
 
+export type ListItem = {
+  /** Inline content of the item's own text (first paragraph). */
+  readonly children: ReadonlyArray<InlineNode>;
+  /** Nested content: sub-lists and the extra paragraphs of loose items. */
+  readonly blocks: ReadonlyArray<MarkdownBlock>;
+};
+
 export type MarkdownBlock =
   | { readonly kind: "heading"; readonly level: 1 | 2 | 3 | 4 | 5 | 6; readonly children: ReadonlyArray<InlineNode> }
   | { readonly kind: "paragraph"; readonly children: ReadonlyArray<InlineNode> }
-  | { readonly kind: "list"; readonly ordered: boolean; readonly items: ReadonlyArray<ReadonlyArray<InlineNode>> }
+  | { readonly kind: "list"; readonly ordered: boolean; readonly start: number; readonly items: ReadonlyArray<ListItem> }
   | { readonly kind: "code"; readonly text: string; readonly lang: string | undefined }
   | {
       readonly kind: "table";
@@ -214,6 +222,138 @@ export const stripHiddenMarkdown = (markdown: string): string => {
   return out.join("\n");
 };
 
+// ---------------------------------------------------------------------------
+// List parsing
+// ---------------------------------------------------------------------------
+
+const LIST_ITEM = /^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$/;
+
+type ItemLineMatch = {
+  readonly indent: number;
+  readonly ordered: boolean;
+  /** The source marker's number (`3.` -> 3); 1 for bullets. */
+  readonly value: number;
+  readonly text: string;
+};
+
+const indentWidth = (ws: string): number => {
+  let width = 0;
+  for (const ch of ws) width += ch === "\t" ? 4 : 1;
+  return width;
+};
+
+const leadingIndent = (line: string): number => indentWidth(/^\s*/.exec(line)?.[0] ?? "");
+
+const matchListItem = (line: string): ItemLineMatch | null => {
+  const match = LIST_ITEM.exec(line);
+  if (match === null) return null;
+  const ordered = match[2] === undefined;
+  return {
+    indent: indentWidth(match[1] ?? ""),
+    ordered,
+    value: ordered ? Number.parseInt(match[3] ?? "1", 10) : 1,
+    text: match[4] ?? "",
+  };
+};
+
+/**
+ * Parse one list starting at `lines[startIndex]` (which the caller verified
+ * is an item line). Owns everything CommonMark keeps inside a list so
+ * ordered numbering stays continuous (the director's SKILL.md numbering
+ * bug): blank lines between items no longer split the list, items indented
+ * two-plus columns deeper become a NESTED list inside the current item, and
+ * blank-separated indented paragraphs become extra paragraphs of their item.
+ * The first marker's number is kept as `start`, so even a list a fence or
+ * paragraph genuinely interrupts resumes at its source number instead of 1.
+ * Stops (without consuming) at fences, shallower/other-marker items, and
+ * unindented non-item lines.
+ */
+const parseList = (
+  lines: ReadonlyArray<string>,
+  startIndex: number,
+): { readonly block: MarkdownBlock; readonly next: number } => {
+  const first = matchListItem(lines[startIndex] ?? "");
+  const baseIndent = first?.indent ?? 0;
+  const ordered = first?.ordered ?? false;
+  const start = first?.value ?? 1;
+
+  const items: Array<ListItem> = [];
+  let lead: Array<string> = [];
+  let itemBlocks: Array<MarkdownBlock> = [];
+  let para: Array<string> = [];
+  let open = false;
+
+  const flushPara = (): void => {
+    if (para.length > 0) {
+      itemBlocks.push({ kind: "paragraph", children: parseInline(para.join(" ")) });
+      para = [];
+    }
+  };
+  const flushItem = (): void => {
+    if (open) {
+      flushPara();
+      items.push({ children: parseInline(lead.join(" ")), blocks: itemBlocks });
+      lead = [];
+      itemBlocks = [];
+      open = false;
+    }
+  };
+
+  let i = startIndex;
+  let pendingBlank = false;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+
+    if (line.trim().length === 0) {
+      pendingBlank = true;
+      i += 1;
+      continue;
+    }
+    if (line.trim().startsWith("```")) break; // fences belong to the outer parser
+
+    const item = matchListItem(line);
+    if (item !== null) {
+      if (item.indent >= baseIndent + 2) {
+        // Deeper item: a nested list inside the current item.
+        flushPara();
+        const nested = parseList(lines, i);
+        itemBlocks.push(nested.block);
+        i = nested.next;
+        pendingBlank = false;
+        continue;
+      }
+      if (item.indent < baseIndent || item.ordered !== ordered) break; // a different list
+      flushItem();
+      open = true;
+      lead = [item.text];
+      pendingBlank = false;
+      i += 1;
+      continue;
+    }
+
+    // Indented non-item line: the current item's continuation -- joined text
+    // when unbroken, a fresh paragraph after a blank line (loose item).
+    if (open && leadingIndent(line) > baseIndent) {
+      if (pendingBlank) {
+        flushPara();
+        para.push(line.trim());
+      } else if (para.length > 0) {
+        para.push(line.trim());
+      } else {
+        lead.push(line.trim());
+      }
+      pendingBlank = false;
+      i += 1;
+      continue;
+    }
+
+    break; // unindented content: the list is over
+  }
+
+  flushItem();
+  return { block: { kind: "list", ordered, start, items }, next: i };
+};
+
 const splitTableRow = (line: string): ReadonlyArray<string> => {
   let row = line.trim();
   if (row.startsWith("|")) row = row.slice(1);
@@ -229,10 +369,6 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
   let inCode = false;
   let codeLang: string | undefined = undefined;
   let codeLines: Array<string> = [];
-  // Raw item texts, parsed at flush time so indented continuation lines
-  // (CommonMark wrapped list items) can join their item before inline parsing.
-  let listItems: Array<string> = [];
-  let listOrdered = false;
   let paragraphLines: Array<string> = [];
   let quoteLines: Array<string> = [];
 
@@ -240,12 +376,6 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
     if (paragraphLines.length > 0) {
       blocks.push({ kind: "paragraph", children: parseInline(paragraphLines.join(" ")) });
       paragraphLines = [];
-    }
-  };
-  const flushList = (): void => {
-    if (listItems.length > 0) {
-      blocks.push({ kind: "list", ordered: listOrdered, items: listItems.map(parseInline) });
-      listItems = [];
     }
   };
   const flushQuote = (): void => {
@@ -256,7 +386,6 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
   };
   const flushAll = (): void => {
     flushParagraph();
-    flushList();
     flushQuote();
   };
 
@@ -312,22 +441,16 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
     const quoteMatch = /^>\s?(.*)$/.exec(line.trim());
     if (quoteMatch !== null) {
       flushParagraph();
-      flushList();
       quoteLines.push(quoteMatch[1] ?? "");
       lineIndex += 1;
       continue;
     }
 
-    const unorderedMatch = /^\s*[-*+]\s+(.*)$/.exec(line);
-    const orderedMatch = /^\s*\d+[.)]\s+(.*)$/.exec(line);
-    if (unorderedMatch !== null || orderedMatch !== null) {
-      flushParagraph();
-      flushQuote();
-      const ordered = unorderedMatch === null;
-      if (listItems.length > 0 && ordered !== listOrdered) flushList();
-      listOrdered = ordered;
-      listItems.push((unorderedMatch?.[1] ?? orderedMatch?.[1]) ?? "");
-      lineIndex += 1;
+    if (matchListItem(line) !== null) {
+      flushAll();
+      const { block, next } = parseList(lines, lineIndex);
+      blocks.push(block);
+      lineIndex = next;
       continue;
     }
 
@@ -337,17 +460,6 @@ export const parseMarkdown = (markdown: string): ReadonlyArray<MarkdownBlock> =>
       continue;
     }
 
-    // CommonMark list continuation: while a list is open, an INDENTED
-    // non-blank line is the previous item's wrapped text -- it joins that
-    // item instead of flushing the list and leaking out as a root
-    // paragraph (walk-verified breakage, e2e-readiness log 2026-07-29).
-    if (listItems.length > 0 && /^\s/.test(line)) {
-      listItems[listItems.length - 1] += ` ${line.trim()}`;
-      lineIndex += 1;
-      continue;
-    }
-
-    flushList();
     flushQuote();
     paragraphLines.push(line.trim());
     lineIndex += 1;

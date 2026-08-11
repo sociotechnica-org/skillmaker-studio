@@ -60,7 +60,7 @@ the exact four-column table header, no results column), and against
 `packages/core/src/RiskMap.ts` (`parseRiskMap`, `checkCoverage`,
 `COVERAGE_VALUES = ["covered", "partial", "gap", "n/a"]`).
 
-## RULED DIRECTION (NOT SHIPPED): CLAIMS MOVE TO STRUCTURED JSON
+## RULED DIRECTION, PARTIALLY SHIPPED: CLAIMS MOVE TO STRUCTURED JSON
 
 Director rulings from the from-scratch walk
 (`docs/friction/e2e-readiness.md`, "Claims storage ruling forming",
@@ -71,8 +71,18 @@ direction: claims (risks) move to a bundle-level structured source;
 fixtures reference claim ids; any markdown view is a **render, not the
 source**. Invariant to preserve in the restructure: gap claims (a risk
 with no fixture) need the bundle-level home — per-fixture files cannot be
-the only store. The CLI door also buys journal events for every claim
-mutation (dots, activity, provenance, and chat-path visibility for free)
-— part of the converging "structured data behind CLI doors, prose as
-render, events as witness" architecture. This card's HOW stays accurate
-until that restructure ships; nothing here is built yet.
+the only store.
+
+**The READ side shipped** (PR #211, 2026-08-08):
+`packages/core/src/EvalsJson.ts` parses a bundle-root `evals.json`
+(`failureHypotheses[{id, failure, proofSpecs[]}]`, the design-skill
+output contract) and projects it into the same claim/risk row shape this
+card's `RiskRow` describes, with coverage DERIVED from proof-spec names
+matched against actual fixture cases. Precedence is `CLAIMS_SOURCES =
+["evals.json", "risk-map"]`: when `evals.json` exists and parses it wins
+and the risk map is ignored — one source, never a merge; a missing or
+unusable `evals.json` falls back to the legacy risk map. `skillmaker new`
+stopped scaffolding `evals/risk-map.md` (2026-08-08). Still ahead: the
+WRITE side (CLI doors for claim mutation, with journal events for every
+change) — this card's HOW stays accurate for legacy bundles, where
+`risk-map.md` remains the fallback claims source.
