@@ -64,8 +64,10 @@ type Standing = {
   /** Short hash of the version last published there. */
   readonly publishedVersion: string | null;
   readonly liveDrift: Live;
-  /** Short hash of the latest recorded version; null = none recorded. */
-  readonly latestVersion: string | null;
+  /** How many versions have ever been recorded. 0 = never stamped. */
+  readonly versionCount: number;
+  /** When the most recent one was recorded. */
+  readonly lastRecordedAt: string | null;
   /** Models with at least one passing graded run. */
   readonly provenOn: ReadonlyArray<string>;
   readonly claimsCovered: number;
@@ -79,7 +81,7 @@ const fetchStanding = async (slug: string, project: Project): Promise<Standing> 
   if (!response.ok) throw new Error(`bundle: ${response.status}`);
   const b = (await response.json()) as {
     bundle?: { drift?: unknown };
-    versions?: ReadonlyArray<{ hash?: unknown }>;
+    versions?: ReadonlyArray<{ hash?: unknown; recordedAt?: unknown }>;
     riskCoverage?: ReadonlyArray<{ coverage?: unknown }>;
     measurements?: ReadonlyArray<{ model?: unknown; passes?: unknown }>;
     publish?: {
@@ -93,6 +95,8 @@ const fetchStanding = async (slug: string, project: Project): Promise<Standing> 
   };
 
   const short = (h: unknown) => (typeof h === "string" ? h.replace(/^sha256:/, "").slice(0, 8) : null);
+  const day = (iso: string) =>
+    new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const remembered = (b.publish?.targets ?? []).filter((t) => t.remembered === true);
   const first = remembered[0];
   const coverage = b.riskCoverage ?? [];
@@ -104,7 +108,9 @@ const fetchStanding = async (slug: string, project: Project): Promise<Standing> 
     installedDrift: (first?.installedDrift ?? null) as Installed,
     publishedVersion: short(first?.lastPublished?.versionHash),
     liveDrift: (b.bundle?.drift ?? null) as Live,
-    latestVersion: short((b.versions ?? [])[0]?.hash),
+    versionCount: (b.versions ?? []).length,
+    lastRecordedAt:
+      typeof (b.versions ?? [])[0]?.recordedAt === "string" ? day((b.versions ?? [])[0]!.recordedAt as string) : null,
     provenOn: [
       ...new Set(
         (b.measurements ?? [])
@@ -182,7 +188,7 @@ export function ProtoStatus({ onOpenSkill }: { readonly onOpenSkill: (project: P
             {/* EVIDENCE — honestly empty when there is none */}
             <span className="w-44 shrink-0">
               {r.provenOn.length === 0 ? (
-                <span className="text-[12px] text-ink-muted">not measured</span>
+                <Dash />
               ) : (
                 <span className="block truncate text-[12px] text-ink">{r.provenOn.join(", ")}</span>
               )}
@@ -198,16 +204,16 @@ export function ProtoStatus({ onOpenSkill }: { readonly onOpenSkill: (project: P
         {rows.length === 0 && <p className="px-3 py-3 text-[13px] text-ink-muted">Nothing to report yet.</p>}
       </div>
 
-      {/* the hole, drawn rather than filled */}
-      <div className="mt-3 max-w-2xl rounded border border-dashed border-border bg-canvas/40 p-3">
-        <p className={LABEL}>Not here yet</p>
-        <p className="pt-1 text-[13px] leading-relaxed text-ink">
-          How it&rsquo;s <em>doing</em> out there — which evals are live where, and whether they&rsquo;re passing. Those results live
-          in the playground we don&rsquo;t run, so this surface can say where a skill is and whether it&rsquo;s current, but not yet
-          how it&rsquo;s performing.
-        </p>
-      </div>
     </div>
+  );
+}
+
+/** Nothing to say. The house glyph for an empty table cell. */
+function Dash() {
+  return (
+    <span className="text-[13px] text-ink-muted" aria-label="none">
+      —
+    </span>
   );
 }
 
@@ -216,7 +222,7 @@ function OutThere({ row }: { readonly row: Standing }) {
     // "not live" rather than "never published": a bundle can sit at stage
     // `published` having never been installed anywhere, and this column is
     // about the world, not the ladder.
-    return <span className="text-[12px] text-ink-muted">not live</span>;
+    return <Dash />;
   }
   const tone =
     row.installedDrift === "installed-edited"
@@ -242,19 +248,28 @@ function OutThere({ row }: { readonly row: Standing }) {
 }
 
 function Here({ row }: { readonly row: Standing }) {
-  const label: Record<NonNullable<Live>, string> = {
-    "no-version": "never stamped",
-    "in-sync": "matches",
+  // The column is about the HISTORY, not one hash. A single short hash was
+  // useless here -- the latest version is reachable from the skill page's
+  // own pivot, so repeating it bought nothing. What a portfolio view can
+  // say that a skill page can't: how much history exists, how stale it is,
+  // and whether the working copy has moved on since.
+  if (row.versionCount === 0) return <Dash />;
+
+  const moved = row.liveDrift !== null && row.liveDrift !== "in-sync" && row.liveDrift !== "no-version";
+  const movedWord: Record<string, string> = {
     "design-changed": "design moved since",
     "output-hand-edited": "prompt moved since",
     both: "design + prompt moved since",
   };
-  if (row.liveDrift === null) return <span className="text-[12px] text-ink-muted">—</span>;
-  const moved = row.liveDrift !== "in-sync";
   return (
     <>
-      <span className={`block text-[12px] ${moved ? "text-amber-800" : "text-emerald-700"}`}>{label[row.liveDrift]}</span>
-      {row.latestVersion !== null && <span className={`block ${CODE} text-[11px] text-ink-muted`}>{row.latestVersion}</span>}
+      <span className="block text-[12px] text-ink">
+        {row.versionCount} version{row.versionCount === 1 ? "" : "s"}
+      </span>
+      <span className="block text-[11px] text-ink-muted">
+        last {row.lastRecordedAt ?? "—"}
+        {moved && <span className="text-amber-800"> · {movedWord[row.liveDrift as string] ?? "moved since"}</span>}
+      </span>
     </>
   );
 }
