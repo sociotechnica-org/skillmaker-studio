@@ -47,9 +47,11 @@ import {
   removeMachineProject,
   resolveSkillVersion,
   bundleMarkerExistsSync,
-  parseSkillJson,
+  parseSkillJsonSync,
   readBundleStructuredState,
   resolveCaseDirSync,
+  DEFAULT_EXPECTED_FILENAME,
+  type SkillJsonCase,
   runFixture,
   runStation,
   shortHash,
@@ -1927,6 +1929,30 @@ const handleVersionSnapshotFile = async (
  * malformed `case.json` fields become honest nulls + a warning line, never
  * a hard failure -- the card shows what's wrong instead of going blank.
  */
+/**
+ * One case's metadata answer under THE MERGE precedence (matching
+ * `readBundleStructuredState`): when skill.json parses it answers
+ * WHOLESALE — a case it lists is `"skill-json"`, a case it does NOT list is
+ * `"skill-json-absent"` (the case does not exist; stale legacy case.json
+ * files are never consulted). Only when there is no usable skill.json does
+ * `"legacy"` send the caller to the per-case case.json. Sync on purpose —
+ * a per-request read with no Effect runtime. (Follow-up, noted: serve this
+ * from the SQLite index instead of re-reading disk per request.)
+ */
+type CaseMetadataAnswer =
+  | { readonly kind: "skill-json"; readonly entry: SkillJsonCase }
+  | { readonly kind: "skill-json-absent" }
+  | { readonly kind: "legacy" };
+
+const lookupCaseMetadata = (bundleDir: string, caseName: string): CaseMetadataAnswer => {
+  const scan = parseSkillJsonSync(join(bundleDir, SKILL_JSON_FILENAME));
+  if (scan.status !== "parsed") {
+    return { kind: "legacy" };
+  }
+  const entry = scan.cases.find((caseEntry) => caseEntry.name === caseName);
+  return entry !== undefined ? { kind: "skill-json", entry } : { kind: "skill-json-absent" };
+};
+
 const handleFixtureDetail = async (
   root: string,
   config: WorkspaceConfig,
@@ -1942,36 +1968,32 @@ const handleFixtureDetail = async (
   const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
   const caseDir = resolveCaseDirSync(bundleDir, caseName);
 
-  // THE MERGE: a migrated bundle's case metadata lives in skill.json's
-  // `evals.cases`, not in a per-case `case.json`. When skill.json names
-  // the case, it answers; the legacy per-case file is the fallback.
-  const skillJsonPath = join(bundleDir, SKILL_JSON_FILENAME);
-  if (existsSync(skillJsonPath)) {
-    const skillScan = await Effect.runPromise(
-      parseSkillJson(skillJsonPath).pipe(Effect.provide(BunServices.layer)),
-    );
-    const caseEntry =
-      skillScan.status === "parsed" ? skillScan.cases.find((entry) => entry.name === caseName) : undefined;
-    if (caseEntry !== undefined) {
-      const promptMdPath = join(caseDir, "prompt.md");
-      const promptMd =
-        existsSync(promptMdPath) && statSync(promptMdPath).isFile() ? readFileSync(promptMdPath, "utf8") : null;
-      const expectedRel = caseEntry.expected ?? "expected.md";
-      return jsonResponse({
-        caseName,
-        class: caseEntry.class ?? null,
-        // schemaVersion 2 has no risks[] on cases -- the hypothesis→case
-        // edge lives on the claims (`proofCases`), already in the payload.
-        risks: [],
-        promptMd,
-        legacyPrompt: null,
-        grading: {
-          answerKey: existsSync(join(caseDir, expectedRel)) ? expectedRel : null,
-          checks: caseEntry.checks ?? [],
-        },
-        warnings: [],
-      });
-    }
+  const answer = lookupCaseMetadata(bundleDir, caseName);
+  if (answer.kind === "skill-json-absent") {
+    // skill.json answers WHOLESALE: a case it doesn't list does not exist,
+    // even if a stale legacy case.json is still sitting on disk.
+    return jsonResponse({ error: `no such fixture "${caseName}"` }, 404);
+  }
+  if (answer.kind === "skill-json") {
+    const caseEntry = answer.entry;
+    const promptMdPath = join(caseDir, "prompt.md");
+    const promptMd =
+      existsSync(promptMdPath) && statSync(promptMdPath).isFile() ? readFileSync(promptMdPath, "utf8") : null;
+    const expectedRel = caseEntry.expected ?? DEFAULT_EXPECTED_FILENAME;
+    return jsonResponse({
+      caseName,
+      class: caseEntry.class ?? null,
+      // schemaVersion 2 has no risks[] on cases -- the hypothesis→case
+      // edge lives on the claims (`proofCases`), already in the payload.
+      risks: [],
+      promptMd,
+      legacyPrompt: null,
+      grading: {
+        answerKey: existsSync(join(caseDir, expectedRel)) ? expectedRel : null,
+        checks: caseEntry.checks ?? [],
+      },
+      warnings: [],
+    });
   }
 
   const caseJsonPath = join(caseDir, "case.json");
@@ -2179,29 +2201,18 @@ const handleRunDetail = async (
   let activated: boolean | null = null;
   const runRecord = run as { readonly fixtureCase?: unknown; readonly skillInvoked?: unknown };
   if (typeof runRecord.fixtureCase === "string") {
-    // THE MERGE: a migrated bundle's case metadata (checks, class) lives in
-    // skill.json's `evals.cases`; the legacy per-case `case.json` is the
-    // fallback for unmigrated bundles.
-    const skillJsonPath = join(bundleDir, SKILL_JSON_FILENAME);
-    let answered = false;
-    if (existsSync(skillJsonPath)) {
-      const skillScan = await Effect.runPromise(
-        parseSkillJson(skillJsonPath).pipe(Effect.provide(BunServices.layer)),
-      );
-      const caseEntry =
-        skillScan.status === "parsed"
-          ? skillScan.cases.find((entry) => entry.name === runRecord.fixtureCase)
-          : undefined;
-      if (caseEntry !== undefined) {
-        answered = true;
-        checks = caseEntry.checks ?? [];
-        if (caseEntry.class === "trigger") {
-          activated = didSkillActivate(transcript, slug);
-        }
+    // THE MERGE precedence, shared with handleFixtureDetail: when
+    // skill.json parses it answers wholesale (an unlisted case yields no
+    // checks -- stale legacy case.json is never consulted).
+    const answer = lookupCaseMetadata(bundleDir, runRecord.fixtureCase);
+    if (answer.kind === "skill-json") {
+      checks = answer.entry.checks ?? [];
+      if (answer.entry.class === "trigger") {
+        activated = didSkillActivate(transcript, slug);
       }
     }
     const caseJsonPath = join(resolveCaseDirSync(bundleDir, runRecord.fixtureCase), "case.json");
-    if (!answered && existsSync(caseJsonPath)) {
+    if (answer.kind === "legacy" && existsSync(caseJsonPath)) {
       try {
         const parsed = JSON.parse(readFileSync(caseJsonPath, "utf8")) as {
           readonly class?: unknown;

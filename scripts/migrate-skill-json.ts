@@ -11,8 +11,11 @@
  *
  * Per bundle (one bundle = one clean git diff):
  *   1. Reads bundle.json + root evals.json + evals/fixtures/*\/case.json +
- *      evals/risk-map.md (+ the journal, for the declared stage) and builds
- *      skill.json:
+ *      evals/risk-map.md (+ the journal, for the declared stage) — through
+ *      the SHIPPED core readers (`parseEvalsJson`, `parseRiskMap`,
+ *      `Journal` + `foldBundleStates`), never hand-rolled forks: migration
+ *      deletes the originals after reading, so the read must be the real
+ *      one — and builds skill.json:
  *        - `skill`  ← bundle.json (targets → harnesses) + declared stage
  *        - `design` ← evals.json failureHypotheses (proofSpecs → `cases`
  *          pointers; each proofSpec's setup/expectedBehavior moves onto the
@@ -20,9 +23,9 @@
  *          evals.json; case.json `risks` edges are REVERSED onto the
  *          matching hypotheses (hypothesis→case is the only edge in v2)
  *        - `evals.cases` ← proofSpecs ∪ case dirs, merged with each
- *          case.json's {class, setup→setupFiles, grading, source}
+ *          case.json's {class, setup→sandbox, grading, source}
  *        - `publish.targets` ← bundle.json publishTargets, verbatim
- *        - NO stations section — the production line is code now
+ *        - NO stations section — the production line is code
  *   2. Renames evals/fixtures/ → evals/cases/ and each case's
  *      expected/answer-key.md → expected.md.
  *   3. Deletes bundle.json, evals.json, stations.json, evals/risk-map.md,
@@ -33,6 +36,18 @@
  *
  * The pure transform (`buildSkillJsonDocument`) is exported for tests.
  */
+import {
+  foldBundleStates,
+  Journal,
+  JournalLayer,
+  parseEvalsJson,
+  parseRiskMap,
+  type EvalsFailureHypothesis,
+  type RiskRow,
+} from "@skillmaker/core";
+import { BunServices } from "@effect/platform-bun";
+import { Effect, Layer } from "effect";
+import type { FileSystem } from "effect/FileSystem";
 import {
   existsSync,
   mkdirSync,
@@ -45,6 +60,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+
+/** Runs one core reader with the real platform services. */
+const runCore = <A, E>(effect: Effect.Effect<A, E, FileSystem>): Promise<A> =>
+  Effect.runPromise(effect.pipe(Effect.provide(BunServices.layer)));
 
 // ---------------------------------------------------------------------------
 // The pure transform
@@ -59,21 +78,14 @@ const asString = (value: unknown): string | undefined =>
 const stringArray = (value: unknown): ReadonlyArray<string> =>
   Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 
-/** One risk-map row, pre-parsed by the caller (only what the transform needs). */
-export interface RiskMapRowInput {
-  readonly riskId: string;
-  readonly description: string;
-  readonly fixtureCase?: string;
-}
-
-/** Everything the pure transform consumes — plain parsed JSON, no I/O. */
+/** Everything the pure transform consumes — outputs of the SHIPPED core readers plus raw case.json objects, no I/O. */
 export interface LegacyBundleSnapshot {
   /** Parsed bundle.json (raw object — unknown fields noted, not carried). */
   readonly bundleJson: Record<string, unknown>;
-  /** Parsed root evals.json, when one exists. */
-  readonly evalsJson?: unknown;
-  /** Risk-map rows, when evals/risk-map.md exists (the claims fallback). */
-  readonly riskMapRows?: ReadonlyArray<RiskMapRowInput>;
+  /** `parseEvalsJson`'s hypotheses, when the root evals.json parsed. */
+  readonly evalsHypotheses?: ReadonlyArray<EvalsFailureHypothesis>;
+  /** `parseRiskMap`'s rows, when evals/risk-map.md exists (the claims fallback). Coverage is dropped on purpose — it's DERIVED in v2. */
+  readonly riskMapRows?: ReadonlyArray<Pick<RiskRow, "riskId" | "description" | "fixtureCase">>;
   /** `evals/fixtures/<dir>/case.json` contents by directory name (undefined value = dir without a case.json). */
   readonly caseJsons: ReadonlyMap<string, unknown>;
   /** Declared stage folded from the journal; defaults to "idea". */
@@ -103,7 +115,7 @@ interface MutableCase {
   expectedBehavior?: string;
   expected?: string;
   checks?: ReadonlyArray<string>;
-  setupFiles?: Record<string, unknown>;
+  sandbox?: Record<string, unknown>;
   source?: unknown;
 }
 
@@ -111,9 +123,9 @@ interface MutableCase {
 const LEGACY_ANSWER_KEY = "expected/answer-key.md";
 
 /**
- * Pure: legacy parsed files in, skill.json (schemaVersion 2) document out.
- * Never throws on defective input — it migrates what it can and notes the
- * rest (the tolerant reader on the other side warns about anything odd).
+ * Pure: the core readers' outputs in, skill.json (schemaVersion 2) document
+ * out. Never throws on defective input — it migrates what it can and notes
+ * the rest (the tolerant reader on the other side warns about anything odd).
  */
 export const buildSkillJsonDocument = (snapshot: LegacyBundleSnapshot): BuildResult => {
   const notes: string[] = [];
@@ -147,48 +159,30 @@ export const buildSkillJsonDocument = (snapshot: LegacyBundleSnapshot): BuildRes
     }
   };
 
-  const evalsEnvelope = isRecord(snapshot.evalsJson) ? snapshot.evalsJson : undefined;
-  const rawHypotheses = evalsEnvelope !== undefined ? evalsEnvelope.failureHypotheses : undefined;
-  if (Array.isArray(rawHypotheses)) {
-    for (const entry of rawHypotheses) {
-      if (!isRecord(entry)) {
-        notes.push("evals.json: non-object failure hypothesis dropped");
-        continue;
-      }
-      const id = asString(entry.id);
-      if (id === undefined) {
-        notes.push("evals.json: failure hypothesis without an id dropped");
-        continue;
-      }
+  if (snapshot.evalsHypotheses !== undefined) {
+    for (const entry of snapshot.evalsHypotheses) {
       const hypothesis: MutableHypothesis = {
-        id,
-        failure: typeof entry.failure === "string" ? entry.failure : "",
-        ...(asString(entry.probability) !== undefined ? { probability: asString(entry.probability) } : {}),
-        ...(asString(entry.impact) !== undefined ? { impact: asString(entry.impact) } : {}),
-        ...(asString(entry.mustNever) !== undefined ? { mustNever: asString(entry.mustNever) } : {}),
+        id: entry.id,
+        failure: entry.failure,
+        ...(entry.probability !== undefined ? { probability: entry.probability } : {}),
+        ...(entry.impact !== undefined ? { impact: entry.impact } : {}),
+        ...(entry.mustNever !== undefined ? { mustNever: entry.mustNever } : {}),
         cases: [],
       };
-      if (Array.isArray(entry.proofSpecs)) {
-        for (const spec of entry.proofSpecs) {
-          if (!isRecord(spec)) continue;
-          const name = asString(spec.case) ?? asString(spec.name);
-          if (name === undefined) continue;
-          if (!hypothesis.cases.includes(name)) {
-            hypothesis.cases.push(name);
-          }
-          rememberCase(name);
-          if (!proseByCase.has(name)) {
-            proseByCase.set(name, {
-              ...(asString(spec.setup) !== undefined ? { setup: asString(spec.setup) } : {}),
-              ...(asString(spec.expectedBehavior) !== undefined
-                ? { expectedBehavior: asString(spec.expectedBehavior) }
-                : {}),
-            });
-          }
+      for (const spec of entry.proofSpecs) {
+        if (!hypothesis.cases.includes(spec.name)) {
+          hypothesis.cases.push(spec.name);
+        }
+        rememberCase(spec.name);
+        if (!proseByCase.has(spec.name)) {
+          proseByCase.set(spec.name, {
+            ...(spec.setup !== undefined ? { setup: spec.setup } : {}),
+            ...(spec.expectedBehavior !== undefined ? { expectedBehavior: spec.expectedBehavior } : {}),
+          });
         }
       }
       hypotheses.push(hypothesis);
-      hypothesisById.set(id, hypothesis);
+      hypothesisById.set(entry.id, hypothesis);
     }
   } else if (snapshot.riskMapRows !== undefined) {
     // No evals.json: the legacy risk-map's rows ARE the claims — absorbed
@@ -240,12 +234,12 @@ export const buildSkillJsonDocument = (snapshot: LegacyBundleSnapshot): BuildRes
         }
       }
 
-      // Old setup {files, env} → setupFiles (v2's `setup` is prose).
+      // Old setup {files, env} → sandbox (v2's `setup` is prose).
       if (isRecord(rawCaseJson.setup)) {
-        const setupFiles: Record<string, unknown> = {};
-        if (asString(rawCaseJson.setup.files) !== undefined) setupFiles.files = rawCaseJson.setup.files;
-        if (isRecord(rawCaseJson.setup.env)) setupFiles.env = rawCaseJson.setup.env;
-        if (Object.keys(setupFiles).length > 0) caseEntry.setupFiles = setupFiles;
+        const sandbox: Record<string, unknown> = {};
+        if (asString(rawCaseJson.setup.files) !== undefined) sandbox.files = rawCaseJson.setup.files;
+        if (isRecord(rawCaseJson.setup.env)) sandbox.env = rawCaseJson.setup.env;
+        if (Object.keys(sandbox).length > 0) caseEntry.sandbox = sandbox;
       }
 
       if (isRecord(rawCaseJson.grading)) {
@@ -288,7 +282,7 @@ export const buildSkillJsonDocument = (snapshot: LegacyBundleSnapshot): BuildRes
 };
 
 // ---------------------------------------------------------------------------
-// Impure driver — gather, plan, execute
+// Impure driver — gather (through the core readers), plan, execute
 // ---------------------------------------------------------------------------
 
 interface PlannedAction {
@@ -313,33 +307,8 @@ const readJson = (path: string): unknown => {
   }
 };
 
-/** Minimal risk-map table read (| Risk | Description | Coverage | Fixture |) — enough for the claims fallback; the shipped tolerant parser stays in core. */
-const readRiskMapRows = (path: string): ReadonlyArray<RiskMapRowInput> | undefined => {
-  if (!existsSync(path)) return undefined;
-  const rows: RiskMapRowInput[] = [];
-  const emptyFixtureCells = new Set(["", "-", "—", "–", "n/a"]);
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
-    const cells = trimmed.split("|").map((cell) => cell.trim());
-    // ["", riskId, description, coverage, fixture, ""]
-    const riskId = cells[1] ?? "";
-    if (riskId === "" || riskId.toLowerCase() === "risk" || /^-+$/.test(riskId.replaceAll(":", "").trim())) {
-      continue;
-    }
-    const description = cells[2] ?? "";
-    const fixtureRaw = (cells[4] ?? "").trim();
-    rows.push({
-      riskId,
-      description,
-      ...(emptyFixtureCells.has(fixtureRaw.toLowerCase()) ? {} : { fixtureCase: fixtureRaw }),
-    });
-  }
-  return rows;
-};
-
-/** The declared stage: last `bundle.stage_changed` for the slug in the project journal above `bundleDir` (found via skillmaker.config.json), default "idea". */
-const readDeclaredStage = (bundleDir: string, slug: string): string | undefined => {
+/** The declared stage: `foldBundleStates` over the project journal above `bundleDir` (found via skillmaker.config.json), default "idea" (applied by the transform). */
+const readDeclaredStage = async (bundleDir: string, slug: string): Promise<string | undefined> => {
   let dir = resolve(bundleDir);
   for (let i = 0; i < 10; i += 1) {
     if (existsSync(join(dir, "skillmaker.config.json"))) break;
@@ -349,25 +318,16 @@ const readDeclaredStage = (bundleDir: string, slug: string): string | undefined 
   }
   const journalPath = join(dir, ".skillmaker", "events.jsonl");
   if (!existsSync(journalPath)) return undefined;
-  let stage: string | undefined;
-  for (const line of readFileSync(journalPath, "utf8").split("\n")) {
-    if (line.trim().length === 0) continue;
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!isRecord(event) || !isRecord(event.payload)) continue;
-    if (event.type === "bundle.stage_changed" && event.payload.bundle === slug) {
-      const to = event.payload.to;
-      if (typeof to === "string") stage = to;
-    }
-  }
-  return stage;
+  const events = await Effect.runPromise(
+    Effect.gen(function* () {
+      const journal = yield* Journal;
+      return yield* journal.readAll();
+    }).pipe(Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)), Effect.provide(BunServices.layer)),
+  );
+  return foldBundleStates(events).get(slug)?.stage;
 };
 
-export const planBundleMigration = (bundleDirInput: string): BundleMigrationPlan => {
+export const planBundleMigration = async (bundleDirInput: string): Promise<BundleMigrationPlan> => {
   const bundleDir = resolve(bundleDirInput);
   if (existsSync(join(bundleDir, "skill.json"))) {
     return { bundleDir, status: "already-migrated", actions: [], notes: [] };
@@ -399,13 +359,20 @@ export const planBundleMigration = (bundleDirInput: string): BundleMigrationPlan
     }
   }
 
+  // The SHIPPED tolerant readers gather the claims sources — the same code
+  // paths the index reads through, so nothing weaker sits in front of the
+  // deletions below.
+  const evalsScan = await runCore(parseEvalsJson(join(bundleDir, "evals.json")));
+  const riskMapPath = join(bundleDir, "evals", "risk-map.md");
+  const riskMapScan = existsSync(riskMapPath) ? await runCore(parseRiskMap(riskMapPath)) : undefined;
+
   const slug = asString(bundleJsonRaw.slug) ?? basename(bundleDir);
   const { doc, notes } = buildSkillJsonDocument({
     bundleJson: bundleJsonRaw,
-    evalsJson: existsSync(join(bundleDir, "evals.json")) ? readJson(join(bundleDir, "evals.json")) : undefined,
-    riskMapRows: readRiskMapRows(join(bundleDir, "evals", "risk-map.md")),
+    ...(evalsScan.status === "parsed" ? { evalsHypotheses: evalsScan.hypotheses } : {}),
+    ...(riskMapScan !== undefined ? { riskMapRows: riskMapScan.rows } : {}),
     caseJsons,
-    stage: readDeclaredStage(bundleDir, slug),
+    stage: await readDeclaredStage(bundleDir, slug),
   });
 
   const actions: PlannedAction[] = [];
@@ -485,7 +452,7 @@ const describe = (plan: BundleMigrationPlan): string => {
   return lines.join("\n");
 };
 
-const main = (): void => {
+const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const all = args.includes("--all");
@@ -523,7 +490,7 @@ const main = (): void => {
   }
 
   for (const dir of bundleDirs) {
-    const plan = planBundleMigration(dir);
+    const plan = await planBundleMigration(dir);
     if (plan.status === "already-migrated") {
       console.log(`${plan.bundleDir}: already migrated (skill.json exists) — nothing to do`);
       continue;
@@ -543,5 +510,5 @@ const main = (): void => {
 };
 
 if (import.meta.main) {
-  main();
+  await main();
 }

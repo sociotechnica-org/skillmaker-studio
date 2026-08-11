@@ -36,6 +36,7 @@ import {
   parseSkillJson,
   readBundleStructuredState,
   SKILL_JSON_FILENAME,
+  type ParseSkillJsonResult,
 } from "./SkillJson.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
 import { latestGrade, readGradeLanes } from "./Grades.ts";
@@ -935,12 +936,13 @@ export const layer = (
       const scanBundleIdentities = Effect.fn("IndexService.scanBundleIdentities")(function* () {
         const identities = new Map<string, BundleIdentityLocation>();
         const warnings: WarningRecord[] = [];
+        const skillJsonScans = new Map<string, ParseSkillJsonResult>();
 
         const rootExists = yield* fs
           .exists(workspaceRoot)
           .pipe(Effect.mapError(toIndexError(`could not check ${workspaceRoot}`)));
         if (!rootExists) {
-          return { identities, warnings };
+          return { identities, warnings, skillJsonScans };
         }
 
         const stack: string[] = [workspaceRoot];
@@ -1030,6 +1032,7 @@ export const layer = (
           // exists, and a directory with no usable identity at all is warned
           // and skipped, exactly as a malformed bundle.json always was.
           let identity: BundleIdentity | undefined;
+          let dirSkillScan: ParseSkillJsonResult | undefined;
           if (hasSkillJson) {
             const skillJsonPath = join(dir, SKILL_JSON_FILENAME);
             const skillLabel = relative(workspaceRoot, skillJsonPath).split(sep).join("/");
@@ -1037,6 +1040,7 @@ export const layer = (
               Effect.provideService(FileSystem, fs),
               Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not read ${skillJsonPath}`)(cause)),
             );
+            dirSkillScan = skillScan;
             identity = skillScan.status === "parsed" ? identityFromSkillJson(skillScan) : undefined;
             if (identity === undefined) {
               warnings.push({
@@ -1118,9 +1122,15 @@ export const layer = (
             ...(upstream !== undefined ? { upstream } : {}),
             ...(forkOf !== undefined ? { forkOf } : {}),
           });
+          // One rebuild parses each bundle's skill.json exactly once: the
+          // scan this walk already ran is handed to the structured-state
+          // read below via `RebuildResult`'s slug keying.
+          if (dirSkillScan !== undefined) {
+            skillJsonScans.set(identity.slug, dirSkillScan);
+          }
         }
 
-        return { identities, warnings };
+        return { identities, warnings, skillJsonScans };
       });
 
       const buildTodoRecords = (todos: ReadonlyMap<string, Todo>, now: Date): TodoRecord[] =>
@@ -1308,7 +1318,7 @@ export const layer = (
       };
 
       const rebuild = Effect.fn("IndexService.rebuild")(function* () {
-        const { identities, warnings } = yield* scanBundleIdentities();
+        const { identities, warnings, skillJsonScans } = yield* scanBundleIdentities();
         const events = yield* journal.readAll();
         const states = foldBundleStates(events);
         const todos = foldTodos(events);
@@ -1409,7 +1419,11 @@ export const layer = (
 
           const versions = versionsBySlug.get(slug);
           for (const version of versions ?? []) {
-            const triple = `${slug} ${version.hash} ${version.designHash}`;
+            // NUL-separated dedupe key (as an ESCAPE, never a literal byte --
+            // raw NULs in source made file(1)/grep treat this file as binary):
+            // no slug or hash can contain U+0000, so the triple can never
+            // collide across fields.
+            const triple = `${slug}\u0000${version.hash}\u0000${version.designHash}`;
             if (seenVersionTriples.has(triple)) {
               warnings.push({
                 bundle: slug,
@@ -1454,7 +1468,11 @@ export const layer = (
           // `evals/risk-map.md`). One source wins, never merged; every
           // defect degrades to a warning (ruling I), and `claimsSources`
           // records which source won so the payload can say.
-          const structured = yield* readBundleStructuredState(bundleDir).pipe(
+          const cachedScan = skillJsonScans.get(slug);
+          const structured = yield* readBundleStructuredState(
+            bundleDir,
+            cachedScan !== undefined ? { skillJsonScan: cachedScan } : undefined,
+          ).pipe(
             Effect.provideService(FileSystem, fs),
             Effect.mapError((cause: WorkspaceIOError) =>
               toIndexError(`could not read structured state for "${slug}"`)(cause),

@@ -33,24 +33,22 @@ describe("buildSkillJsonDocument (pure transform)", () => {
         targets: ["claude-code"],
         publishTargets: ["user"],
       },
-      evalsJson: {
-        failureHypotheses: [
-          {
-            id: "OUT-3",
-            failure: "Invents suggestions to meet a quota.",
-            probability: "Medium",
-            impact: "Medium",
-            mustNever: "The skill must never invent or pad suggestions.",
-            proofSpecs: [
-              {
-                name: "nothing-worth-writing",
-                setup: "Provide transcripts with no distinctive insight.",
-                expectedBehavior: "Explicitly returns no suggestions.",
-              },
-            ],
-          },
-        ],
-      },
+      evalsHypotheses: [
+        {
+          id: "OUT-3",
+          failure: "Invents suggestions to meet a quota.",
+          probability: "Medium",
+          impact: "Medium",
+          mustNever: "The skill must never invent or pad suggestions.",
+          proofSpecs: [
+            {
+              name: "nothing-worth-writing",
+              setup: "Provide transcripts with no distinctive insight.",
+              expectedBehavior: "Explicitly returns no suggestions.",
+            },
+          ],
+        },
+      ],
       caseJsons: new Map<string, unknown>([
         [
           "nothing-worth-writing",
@@ -97,7 +95,7 @@ describe("buildSkillJsonDocument (pure transform)", () => {
           setup: "Provide transcripts with no distinctive insight.",
           expectedBehavior: "Explicitly returns no suggestions.",
           class: "empty",
-          setupFiles: { files: "files/", env: { A: "1" } },
+          sandbox: { files: "files/", env: { A: "1" } },
           checks: ["says no suggestions"],
           // answerKey was the conventional expected/answer-key.md -> becomes
           // the v2 default (expected.md, moved on disk), so no field.
@@ -227,7 +225,7 @@ bundle: william-shaped
     try {
       scaffoldLegacyBundle(dir);
 
-      const plan = planBundleMigration(dir);
+      const plan = await planBundleMigration(dir);
       expect(plan.status).toBe("ready");
       executePlan(plan);
 
@@ -257,7 +255,7 @@ bundle: william-shaped
       expect(state.warnings).toEqual([]);
 
       // Idempotent: running again is a no-op with a message, not a rewrite.
-      const again = planBundleMigration(dir);
+      const again = await planBundleMigration(dir);
       expect(again.status).toBe("already-migrated");
       expect(again.actions).toEqual([]);
     } finally {

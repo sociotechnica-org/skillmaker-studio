@@ -8,7 +8,7 @@
  *   "schemaVersion": 2,
  *   "skill":   { "slug", "name", "oneLiner", "tags", "created",
  *                "harnesses": ["claude-code"],   // renamed from bundle.json "targets"
- *                "stage": "evaluating" },        // declared; journal still rules live stage
+ *                "stage": "evaluating" },        // declared stage (see SkillJsonSkill.stage)
  *   "design":  { "failureHypotheses": [
  *     { "id": "IN-1", "failure": "...", "mustNever?": "...",
  *       "probability?": "High", "impact?": "Medium",
@@ -20,7 +20,7 @@
  *       "setup?": "prose...", "expectedBehavior?": "prose...",
  *       "expected?": "expected.md",              // grading material path (default expected.md)
  *       "checks?": ["..."],
- *       "setupFiles?": { "files?": "files/", "env?": {} },  // old setup{files,env}
+ *       "sandbox?": { "files?": "files/", "env?": {} },  // old setup{files,env}
  *       "source?": { "kind": "field-report", "eventId": "..." } }
  *   ], "configs": [ { "id": "cc-default", "provider": "claude-code", "model": "..." } ] },
  *   "publish": { "targets": ["user"] }           // absorbs bundle.json publishTargets verbatim
@@ -34,7 +34,9 @@
  * file is `absent` (fine, no warning); a file that is not a JSON object is
  * `unusable` (warned; callers fall back to the legacy stores); a parsed
  * envelope degrades per-item — every defective entry becomes a warning and
- * is skipped, never a whole-file failure.
+ * is skipped, never a whole-file failure. The envelope trichotomy, the
+ * named-entry walk, the per-hypothesis core, and the claim-row derivation
+ * are all shared implementations (`TolerantJson.ts`, `EvalsJson.ts`).
  *
  * Coverage is DERIVED, never authored: a hypothesis is `covered` when every
  * case it points at is REALIZED (its `evals/cases/<name>/` materials dir
@@ -43,35 +45,49 @@
  *
  * `readBundleStructuredState` is the SINGLE entry point for a bundle's
  * structured claims/cases state: when skill.json exists (and is usable) it
- * WINS; otherwise the legacy chain (evals/fixtures case.json scan + root
- * evals.json, else evals/risk-map.md) answers — one source wins, never a
- * merge.
+ * WINS — wholesale, including for individual cases (a case it doesn't list
+ * is absent, never served from stale legacy files); otherwise the legacy
+ * chain (evals/fixtures case.json scan + root evals.json, else
+ * evals/risk-map.md) answers — one source wins, never a merge.
  */
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BundleIdentity } from "./Bundle.ts";
+import { BundleIdentity, isInstallAudience } from "./Bundle.ts";
 import { WorkspaceIOError } from "./Errors.ts";
-import { claimRowsFromEvals, parseEvalsJson, type ClaimsSource } from "./EvalsJson.ts";
+import {
+  claimRowsFromEvals,
+  deriveClaimRow,
+  parseEvalsJson,
+  parseHypothesisCore,
+  type ClaimsSource,
+} from "./EvalsJson.ts";
 import {
   FIXTURE_CLASSES,
-  isKnownRiskFamily,
-  RISK_FAMILIES,
-  riskFamily,
+  parseFixtureSource,
   scanFixtures,
   type FixtureCaseRecord,
   type FixtureSourceRecord,
 } from "./Fixtures.ts";
 import { checkCoverage, parseRiskMap, type RiskRow } from "./RiskMap.ts";
+import {
+  asOptionalString,
+  isRecord,
+  parseNamedArray,
+  readJsonEnvelope,
+  readJsonEnvelopeSync,
+  stringArray,
+  type JsonEnvelope,
+} from "./TolerantJson.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
 export const SKILL_JSON_FILENAME = "skill.json";
 export const SKILL_JSON_SCHEMA_VERSION = 2;
 /** The post-merge case-materials directory (`evals/cases/<name>/`); `evals/fixtures/` is the pre-merge name. */
-export const CASES_DIRNAME = "cases";
-export const LEGACY_FIXTURES_DIRNAME = "fixtures";
+const CASES_DIRNAME = "cases";
+const LEGACY_FIXTURES_DIRNAME = "fixtures";
 /** The default grading-material file inside a case dir (renamed from `expected/answer-key.md` at migration). */
 export const DEFAULT_EXPECTED_FILENAME = "expected.md";
 
@@ -88,7 +104,12 @@ export interface SkillJsonSkill {
   readonly created: string;
   /** Agent platforms the skill is written for (bundle.json's old `targets`). */
   readonly harnesses: ReadonlyArray<string>;
-  /** The DECLARED stage — a portable fact of the record; the journal still rules the live stage. */
+  /**
+   * The declared stage. INTERIM (tranche 1 is read-side): nothing writes
+   * this field yet, so readers keep trusting the journal fold for the live
+   * stage. The write-side tranche makes stage transitions write it — file
+   * = record, journal event = liveness, the same pattern grade files use.
+   */
   readonly stage?: string;
 }
 
@@ -103,8 +124,8 @@ export interface SkillJsonHypothesis {
   readonly cases: ReadonlyArray<string>;
 }
 
-/** The old per-case `setup {files, env}` semantics, preserved under a distinct key so prose `setup` and file-materialization never collide. */
-export interface SkillJsonSetupFiles {
+/** The old per-case `setup {files, env}` semantics — what gets materialized into the run sandbox — under a distinct key so prose `setup` and file-materialization never collide. */
+export interface SkillJsonSandbox {
   readonly files?: string;
   readonly env?: Readonly<Record<string, string>>;
 }
@@ -121,17 +142,17 @@ export interface SkillJsonCase {
   /** Grading-material path relative to the case dir; defaults to `expected.md` when absent. */
   readonly expected?: string;
   readonly checks?: ReadonlyArray<string>;
-  readonly setupFiles?: SkillJsonSetupFiles;
+  readonly sandbox?: SkillJsonSandbox;
   /** Harvest provenance, preserved verbatim (`Fixtures.FixtureSourceRecord`). */
   readonly source?: FixtureSourceRecord;
 }
 
-/** A named model-and-harness setup (smevals' Config) — completes the measurement key. */
-export interface SkillJsonConfig {
-  readonly id: string;
-  readonly provider: string;
-  readonly model: string;
-}
+/** A named model-and-harness setup (smevals' Config) — completes the measurement key. Rigid on purpose: strict per-entry decode, defective entries warned and skipped. */
+export class SkillJsonConfig extends Schema.Class<SkillJsonConfig>("SkillJsonConfig")({
+  id: Schema.String,
+  provider: Schema.String,
+  model: Schema.String,
+}) {}
 
 export type SkillJsonStatus = "absent" | "unusable" | "parsed";
 
@@ -147,16 +168,9 @@ export interface ParseSkillJsonResult {
   readonly warnings: ReadonlyArray<string>;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const asOptionalString = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim().length > 0 ? value : undefined;
-
-const ALLOWED_LEVELS = new Set(["High", "Medium", "Low"]);
-
-const stringArray = (value: unknown): ReadonlyArray<string> =>
-  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+// ---------------------------------------------------------------------------
+// Section parsers
+// ---------------------------------------------------------------------------
 
 const parseSkillSection = (raw: unknown, warnings: string[]): SkillJsonSkill | undefined => {
   if (raw === undefined) {
@@ -208,116 +222,57 @@ const parseHypotheses = (raw: unknown, warnings: string[]): ReadonlyArray<SkillJ
     warnings.push("skill.json: design.failureHypotheses is not an array; ignored");
     return [];
   }
-  const hypotheses: SkillJsonHypothesis[] = [];
-  const seenIds = new Set<string>();
-  for (const entry of rawHypotheses) {
-    if (!isRecord(entry)) {
-      warnings.push("skill.json: non-object failure hypothesis skipped");
-      continue;
-    }
-    if (typeof entry.id !== "string" || entry.id.trim().length === 0) {
-      warnings.push("skill.json: failure hypothesis without a string id skipped");
-      continue;
-    }
-    const id = entry.id.trim();
-    if (seenIds.has(id)) {
-      warnings.push(`skill.json: duplicate failure hypothesis id "${id}"; later entry skipped`);
-      continue;
-    }
-    seenIds.add(id);
-
-    if (!isKnownRiskFamily(riskFamily(id))) {
-      warnings.push(
-        `skill.json: hypothesis id "${id}" does not band into a known family (expected ${RISK_FAMILIES.join("|")} prefix)`,
-      );
-    }
-
-    let failure = "";
-    if (typeof entry.failure === "string" && entry.failure.trim().length > 0) {
-      failure = entry.failure.trim();
-    } else {
-      warnings.push(`skill.json: hypothesis "${id}" has no failure description`);
-    }
-
-    for (const level of ["probability", "impact"] as const) {
-      const value = entry[level];
-      if (typeof value === "string" && !ALLOWED_LEVELS.has(value)) {
-        warnings.push(`skill.json: hypothesis "${id}" has unexpected ${level} "${value}" (expected High|Medium|Low)`);
+  return parseNamedArray<SkillJsonHypothesis>(rawHypotheses, warnings, {
+    prefix: "skill.json",
+    label: "failure hypothesis",
+    keyField: "id",
+    parseEntry: (record, id) => {
+      if (record.proofSpecs !== undefined) {
+        warnings.push(
+          `skill.json: hypothesis "${id}" carries a legacy "proofSpecs" field (schemaVersion 2 points at cases via "cases"); ignored`,
+        );
       }
-    }
 
-    if (entry.proofSpecs !== undefined) {
-      warnings.push(
-        `skill.json: hypothesis "${id}" carries a legacy "proofSpecs" field (schemaVersion 2 points at cases via "cases"); ignored`,
-      );
-    }
-
-    const cases: string[] = [];
-    const rawCases = entry.cases;
-    // An empty `cases: []` is an HONEST gap (a claim not yet proven), never
-    // warned; only a structurally missing/mistyped field is.
-    if (rawCases === undefined) {
-      warnings.push(`skill.json: hypothesis "${id}" has no "cases" field`);
-    } else if (!Array.isArray(rawCases)) {
-      warnings.push(`skill.json: hypothesis "${id}" has a non-array "cases" field; ignored`);
-    } else {
-      const seen = new Set<string>();
-      for (const name of rawCases) {
-        if (typeof name !== "string" || name.trim().length === 0) {
-          warnings.push(`skill.json: hypothesis "${id}" has a non-string case pointer; skipped`);
-          continue;
+      const cases: string[] = [];
+      const rawCases = record.cases;
+      // An empty `cases: []` is an HONEST gap (a claim not yet proven),
+      // never warned; only a structurally missing/mistyped field is.
+      if (rawCases === undefined) {
+        warnings.push(`skill.json: hypothesis "${id}" has no "cases" field`);
+      } else if (!Array.isArray(rawCases)) {
+        warnings.push(`skill.json: hypothesis "${id}" has a non-array "cases" field; ignored`);
+      } else {
+        const seen = new Set<string>();
+        for (const name of rawCases) {
+          if (typeof name !== "string" || name.trim().length === 0) {
+            warnings.push(`skill.json: hypothesis "${id}" has a non-string case pointer; skipped`);
+            continue;
+          }
+          const trimmed = name.trim();
+          if (seen.has(trimmed)) {
+            warnings.push(`skill.json: hypothesis "${id}" repeats case "${trimmed}"; duplicate skipped`);
+            continue;
+          }
+          seen.add(trimmed);
+          cases.push(trimmed);
         }
-        const trimmed = name.trim();
-        if (seen.has(trimmed)) {
-          warnings.push(`skill.json: hypothesis "${id}" repeats case "${trimmed}"; duplicate skipped`);
-          continue;
-        }
-        seen.add(trimmed);
-        cases.push(trimmed);
       }
-    }
 
-    const probability = asOptionalString(entry.probability);
-    const impact = asOptionalString(entry.impact);
-    const mustNever = asOptionalString(entry.mustNever);
-    hypotheses.push({
-      id,
-      failure,
-      ...(probability !== undefined ? { probability } : {}),
-      ...(impact !== undefined ? { impact } : {}),
-      ...(mustNever !== undefined ? { mustNever } : {}),
-      cases,
-    });
-  }
-  return hypotheses;
+      return {
+        id,
+        ...parseHypothesisCore(record, id, "skill.json", warnings),
+        cases,
+      };
+    },
+  });
 };
 
-const parseSource = (raw: unknown, caseName: string, warnings: string[]): FixtureSourceRecord | undefined => {
-  if (raw === undefined) {
-    return undefined;
-  }
-  if (isRecord(raw) && raw.kind === "field-report" && typeof raw.eventId === "string") {
-    return {
-      kind: "field-report",
-      eventId: raw.eventId,
-      ...(typeof raw.destination === "string" ? { destination: raw.destination } : {}),
-    };
-  }
-  if (isRecord(raw) && raw.kind === "intake" && typeof raw.intake === "string") {
-    return { kind: "intake", intake: raw.intake };
-  }
-  warnings.push(
-    `skill.json: case "${caseName}" has a malformed "source" field (expected {kind: "field-report", eventId: string} or {kind: "intake", intake: string}); dropped`,
-  );
-  return undefined;
-};
-
-const parseSetupFiles = (raw: unknown, caseName: string, warnings: string[]): SkillJsonSetupFiles | undefined => {
+const parseSandbox = (raw: unknown, caseName: string, warnings: string[]): SkillJsonSandbox | undefined => {
   if (raw === undefined) {
     return undefined;
   }
   if (!isRecord(raw)) {
-    warnings.push(`skill.json: case "${caseName}" has a non-object setupFiles field; ignored`);
+    warnings.push(`skill.json: case "${caseName}" has a non-object sandbox field; ignored`);
     return undefined;
   }
   const files = asOptionalString(raw.files);
@@ -329,7 +284,7 @@ const parseSetupFiles = (raw: unknown, caseName: string, warnings: string[]): Sk
       );
       env = Object.fromEntries(entries);
     } else {
-      warnings.push(`skill.json: case "${caseName}" has a non-object setupFiles.env; ignored`);
+      warnings.push(`skill.json: case "${caseName}" has a non-object sandbox.env; ignored`);
     }
   }
   if (files === undefined && env === undefined) {
@@ -338,37 +293,19 @@ const parseSetupFiles = (raw: unknown, caseName: string, warnings: string[]): Sk
   return { ...(files !== undefined ? { files } : {}), ...(env !== undefined ? { env } : {}) };
 };
 
-const parseCases = (raw: unknown, warnings: string[]): { cases: ReadonlyArray<SkillJsonCase>; configs: ReadonlyArray<SkillJsonConfig> } => {
+const parseCases = (raw: unknown, warnings: string[]): ReadonlyArray<SkillJsonCase> => {
   if (raw === undefined) {
-    return { cases: [], configs: [] };
+    return [];
   }
-  if (!isRecord(raw)) {
-    warnings.push('skill.json: "evals" section is not an object; ignored');
-    return { cases: [], configs: [] };
-  }
-
-  const cases: SkillJsonCase[] = [];
-  const rawCases = raw.cases;
-  if (rawCases !== undefined && !Array.isArray(rawCases)) {
+  if (!Array.isArray(raw)) {
     warnings.push("skill.json: evals.cases is not an array; ignored");
-  } else if (Array.isArray(rawCases)) {
-    const seen = new Set<string>();
-    for (const entry of rawCases) {
-      if (!isRecord(entry)) {
-        warnings.push("skill.json: non-object eval case skipped");
-        continue;
-      }
-      if (typeof entry.name !== "string" || entry.name.trim().length === 0) {
-        warnings.push("skill.json: eval case without a name skipped");
-        continue;
-      }
-      const name = entry.name.trim();
-      if (seen.has(name)) {
-        warnings.push(`skill.json: duplicate eval case "${name}"; later entry skipped`);
-        continue;
-      }
-      seen.add(name);
-
+    return [];
+  }
+  return parseNamedArray<SkillJsonCase>(raw, warnings, {
+    prefix: "skill.json",
+    label: "eval case",
+    keyField: "name",
+    parseEntry: (entry, name) => {
       const klass = asOptionalString(entry.class);
       if (klass !== undefined && !(FIXTURE_CLASSES as ReadonlyArray<string>).includes(klass)) {
         warnings.push(
@@ -384,17 +321,17 @@ const parseCases = (raw: unknown, warnings: string[]): { cases: ReadonlyArray<Sk
 
       // `setup` is PROSE in schemaVersion 2. The old `setup {files, env}`
       // object landing here is a migration-shaped mistake — captured into
-      // `setupFiles` (nothing lost) with a warning.
+      // `sandbox` (nothing lost) with a warning.
       let setup: string | undefined;
-      let setupFiles = parseSetupFiles(entry.setupFiles, name, warnings);
+      let sandbox = parseSandbox(entry.sandbox, name, warnings);
       if (entry.setup !== undefined) {
         if (typeof entry.setup === "string") {
           setup = asOptionalString(entry.setup);
-        } else if (isRecord(entry.setup) && setupFiles === undefined) {
+        } else if (isRecord(entry.setup) && sandbox === undefined) {
           warnings.push(
-            `skill.json: case "${name}" has an object "setup" (the old files/env shape) — schemaVersion 2 keeps that under "setupFiles"; captured there`,
+            `skill.json: case "${name}" has an object "setup" (the old files/env shape) — schemaVersion 2 keeps that under "sandbox"; captured there`,
           );
-          setupFiles = parseSetupFiles(entry.setup, name, warnings);
+          sandbox = parseSandbox(entry.setup, name, warnings);
         } else {
           warnings.push(`skill.json: case "${name}" has a non-string setup; ignored`);
         }
@@ -415,42 +352,45 @@ const parseCases = (raw: unknown, warnings: string[]): { cases: ReadonlyArray<Sk
 
       const expectedBehavior = asOptionalString(entry.expectedBehavior);
       const expected = asOptionalString(entry.expected);
-      const source = parseSource(entry.source, name, warnings);
+      const source = parseFixtureSource(entry.source, `skill.json: case "${name}"`, warnings);
 
-      cases.push({
+      return {
         name,
         ...(klass !== undefined ? { class: klass } : {}),
         ...(setup !== undefined ? { setup } : {}),
         ...(expectedBehavior !== undefined ? { expectedBehavior } : {}),
         ...(expected !== undefined ? { expected } : {}),
         ...(checks !== undefined ? { checks } : {}),
-        ...(setupFiles !== undefined ? { setupFiles } : {}),
+        ...(sandbox !== undefined ? { sandbox } : {}),
         ...(source !== undefined ? { source } : {}),
-      });
-    }
-  }
+      };
+    },
+  });
+};
 
-  const configs: SkillJsonConfig[] = [];
-  const rawConfigs = raw.configs;
-  if (rawConfigs !== undefined && !Array.isArray(rawConfigs)) {
+const parseConfigs = (raw: unknown, warnings: string[]): ReadonlyArray<SkillJsonConfig> => {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
     warnings.push("skill.json: evals.configs is not an array; ignored");
-  } else if (Array.isArray(rawConfigs)) {
-    const seen = new Set<string>();
-    for (const entry of rawConfigs) {
-      if (!isRecord(entry) || typeof entry.id !== "string" || typeof entry.provider !== "string" || typeof entry.model !== "string") {
-        warnings.push("skill.json: eval config without string id/provider/model skipped");
-        continue;
-      }
-      if (seen.has(entry.id)) {
-        warnings.push(`skill.json: duplicate eval config id "${entry.id}"; later entry skipped`);
-        continue;
-      }
-      seen.add(entry.id);
-      configs.push({ id: entry.id, provider: entry.provider, model: entry.model });
-    }
+    return [];
   }
-
-  return { cases, configs };
+  return parseNamedArray<SkillJsonConfig>(raw, warnings, {
+    prefix: "skill.json",
+    label: "eval config",
+    keyField: "id",
+    parseEntry: (entry, id) => {
+      // Configs are rigid enough for a strict per-entry decode — a
+      // defective entry is warned and skipped, never a whole-file failure.
+      try {
+        return Schema.decodeUnknownSync(SkillJsonConfig)(entry);
+      } catch {
+        warnings.push(`skill.json: eval config "${id}" is malformed (expected string id/provider/model); skipped`);
+        return undefined;
+      }
+    },
+  });
 };
 
 const parsePublishTargets = (raw: unknown, warnings: string[]): ReadonlyArray<unknown> => {
@@ -471,43 +411,20 @@ const parsePublishTargets = (raw: unknown, warnings: string[]): ReadonlyArray<un
   return raw.targets;
 };
 
-/**
- * Parses a bundle-root `skill.json` (schemaVersion 2). Missing file →
- * `absent`, no warning. Not a JSON object → `unusable` + a warning (callers
- * fall back to the legacy pre-merge stores). Otherwise `parsed`, with
- * per-section, per-item tolerance — defects degrade to warnings, never
- * hard failures.
- */
-export const parseSkillJson = Effect.fn("SkillJson.parseSkillJson")(function* (skillJsonPath: string) {
-  const fs = yield* FileSystem;
-  const warnings: string[] = [];
-  const empty = { hypotheses: [], cases: [], configs: [], publishTargets: [] } as const;
+// ---------------------------------------------------------------------------
+// The reader (Effect + sync twins over one shared section walk)
+// ---------------------------------------------------------------------------
 
-  const exists = yield* fs.exists(skillJsonPath).pipe(Effect.mapError(toIOError(`could not check ${skillJsonPath}`)));
-  if (!exists) {
-    const absent: ParseSkillJsonResult = { status: "absent", ...empty, warnings };
-    return absent;
-  }
+const EMPTY_SECTIONS = { hypotheses: [], cases: [], configs: [], publishTargets: [] } as const;
 
-  const content = yield* fs
-    .readFileString(skillJsonPath)
-    .pipe(Effect.mapError(toIOError(`could not read ${skillJsonPath}`)));
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (cause) {
-    warnings.push(
-      `skill.json: not valid JSON (${cause instanceof Error ? cause.message : String(cause)}); falling back to the legacy pre-merge files`,
-    );
-    const unusable: ParseSkillJsonResult = { status: "unusable", ...empty, warnings };
-    return unusable;
+const fromEnvelope = (envelope: JsonEnvelope, warnings: string[]): ParseSkillJsonResult => {
+  if (envelope.status === "absent") {
+    return { status: "absent", ...EMPTY_SECTIONS, warnings };
   }
-  if (!isRecord(parsed)) {
-    warnings.push("skill.json: top level is not an object; falling back to the legacy pre-merge files");
-    const unusable: ParseSkillJsonResult = { status: "unusable", ...empty, warnings };
-    return unusable;
+  if (envelope.status === "unusable" || envelope.record === undefined) {
+    return { status: "unusable", ...EMPTY_SECTIONS, warnings };
   }
+  const parsed = envelope.record;
 
   if (parsed.schemaVersion !== SKILL_JSON_SCHEMA_VERSION) {
     warnings.push(
@@ -516,16 +433,21 @@ export const parseSkillJson = Effect.fn("SkillJson.parseSkillJson")(function* (s
   }
   if (parsed.stations !== undefined) {
     warnings.push(
-      "skill.json: carries a \"stations\" section — the production line is code now (stations.json died with THE MERGE); ignored",
+      'skill.json: carries a "stations" section — the production line is code now (stations.json died with THE MERGE); ignored',
     );
   }
 
   const skill = parseSkillSection(parsed.skill, warnings);
   const hypotheses = parseHypotheses(parsed.design, warnings);
-  const { cases, configs } = parseCases(parsed.evals, warnings);
+  const evalsSection = isRecord(parsed.evals) ? parsed.evals : undefined;
+  if (parsed.evals !== undefined && evalsSection === undefined) {
+    warnings.push('skill.json: "evals" section is not an object; ignored');
+  }
+  const cases = parseCases(evalsSection?.cases, warnings);
+  const configs = parseConfigs(evalsSection?.configs, warnings);
   const publishTargets = parsePublishTargets(parsed.publish, warnings);
 
-  const result: ParseSkillJsonResult = {
+  return {
     status: "parsed",
     ...(skill !== undefined ? { skill } : {}),
     hypotheses,
@@ -534,15 +456,40 @@ export const parseSkillJson = Effect.fn("SkillJson.parseSkillJson")(function* (s
     publishTargets,
     warnings,
   };
-  return result;
+};
+
+const ENVELOPE_OPTIONS = {
+  label: "skill.json",
+  fallbackHint: "falling back to the legacy pre-merge files",
+} as const;
+
+/**
+ * Parses a bundle-root `skill.json` (schemaVersion 2). Missing file →
+ * `absent`, no warning. Not a JSON object → `unusable` + a warning (callers
+ * fall back to the legacy pre-merge stores). Otherwise `parsed`, with
+ * per-section, per-item tolerance — defects degrade to warnings, never
+ * hard failures.
+ */
+export const parseSkillJson = Effect.fn("SkillJson.parseSkillJson")(function* (skillJsonPath: string) {
+  const warnings: string[] = [];
+  const envelope = yield* readJsonEnvelope(skillJsonPath, warnings, ENVELOPE_OPTIONS);
+  return fromEnvelope(envelope, warnings);
 });
+
+/**
+ * Sync twin of `parseSkillJson` for the node-fs call sites (server request
+ * handlers, chat preamble) — same trichotomy, same warnings, no per-request
+ * Effect runtime.
+ */
+export const parseSkillJsonSync = (skillJsonPath: string): ParseSkillJsonResult => {
+  const warnings: string[] = [];
+  const envelope = readJsonEnvelopeSync(skillJsonPath, warnings, ENVELOPE_OPTIONS);
+  return fromEnvelope(envelope, warnings);
+};
 
 // ---------------------------------------------------------------------------
 // Identity bridge
 // ---------------------------------------------------------------------------
-
-const isInstallAudienceString = (value: unknown): value is "user" | "project" =>
-  value === "user" || value === "project";
 
 /**
  * Projects a parsed skill.json's `skill` section into the SAME
@@ -555,7 +502,7 @@ export const identityFromSkillJson = (parsed: ParseSkillJsonResult): BundleIdent
   if (parsed.skill === undefined) {
     return undefined;
   }
-  const audiences = parsed.publishTargets.filter(isInstallAudienceString);
+  const audiences = parsed.publishTargets.filter(isInstallAudience);
   return BundleIdentity.make({
     schemaVersion: 1,
     slug: parsed.skill.slug,
@@ -566,6 +513,44 @@ export const identityFromSkillJson = (parsed: ParseSkillJsonResult): BundleIdent
     targets: parsed.skill.harnesses,
     ...(audiences.length > 0 ? { publishTargets: audiences } : {}),
   });
+};
+
+/**
+ * One bundle's identity, sync and tolerant, with THE MERGE precedence:
+ * `skill.json` first (it wins when present and usable), `bundle.json` as
+ * the legacy fallback. `undefined` when neither yields a usable identity —
+ * callers degrade (e.g. the chat preamble drops its one-liner clause).
+ */
+export const readBundleIdentitySync = (bundleDir: string): BundleIdentity | undefined => {
+  const skillScan = parseSkillJsonSync(join(bundleDir, SKILL_JSON_FILENAME));
+  const fromSkill = identityFromSkillJson(skillScan);
+  if (fromSkill !== undefined) {
+    return fromSkill;
+  }
+  // bundle.json fallback, tolerant BY FIELD (not a strict decode): callers
+  // of this helper degrade rather than gate — a hand-written bundle.json
+  // missing e.g. `tags` must still yield its one-liner.
+  try {
+    const raw: unknown = JSON.parse(readFileSync(join(bundleDir, "bundle.json"), "utf8"));
+    if (!isRecord(raw)) {
+      return undefined;
+    }
+    const slug = asOptionalString(raw.slug);
+    if (slug === undefined) {
+      return undefined;
+    }
+    return BundleIdentity.make({
+      schemaVersion: 1,
+      slug,
+      name: typeof raw.name === "string" ? raw.name : "",
+      oneLiner: typeof raw.oneLiner === "string" ? raw.oneLiner : "",
+      tags: stringArray(raw.tags),
+      created: typeof raw.created === "string" ? raw.created : "",
+      targets: stringArray(raw.targets),
+    });
+  } catch {
+    return undefined;
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -634,28 +619,21 @@ export interface BundleStructuredState {
 }
 
 /**
- * Coverage derivation over skill.json (THE MERGE ruling): a hypothesis is
- * `covered` when every case it points at is realized, `partial` when some
- * are, `gap` when none (or it points at nothing). Exported for the reader's
- * tests; `realized` is the set of case names whose materials dir exists.
+ * Coverage derivation over skill.json — `EvalsJson.deriveClaimRow` (the one
+ * shared implementation) applied to hypothesis→case pointers. Exported for
+ * the reader's tests; `realized` is the set of case names whose materials
+ * dir exists.
  */
 export const claimRowsFromSkillJson = (
   hypotheses: ReadonlyArray<SkillJsonHypothesis>,
   realized: ReadonlySet<string>,
 ): ReadonlyArray<RiskRow & { readonly proofCases: ReadonlyArray<string> }> =>
-  hypotheses.map((hypothesis) => {
-    const realizedCases = hypothesis.cases.filter((name) => realized.has(name));
-    const coverage =
-      realizedCases.length === 0 ? "gap" : realizedCases.length === hypothesis.cases.length ? "covered" : "partial";
-    return {
-      riskId: hypothesis.id,
-      family: riskFamily(hypothesis.id),
-      description: hypothesis.failure,
-      coverage,
-      ...(realizedCases[0] !== undefined ? { fixtureCase: realizedCases[0] } : {}),
-      proofCases: hypothesis.cases,
-    };
-  });
+  hypotheses.map((hypothesis) => deriveClaimRow(hypothesis.id, hypothesis.failure, hypothesis.cases, realized));
+
+export interface ReadBundleStructuredStateOptions {
+  /** A skill.json parse this rebuild already ran (IndexService's catalog scan) — passed so one rebuild parses each bundle's skill.json exactly once. */
+  readonly skillJsonScan?: ParseSkillJsonResult;
+}
 
 /**
  * THE single entry point for a bundle's structured claims/cases state.
@@ -673,28 +651,55 @@ export const claimRowsFromSkillJson = (
  */
 export const readBundleStructuredState = Effect.fn("SkillJson.readBundleStructuredState")(function* (
   bundleDir: string,
+  options?: ReadBundleStructuredStateOptions,
 ) {
   const fs = yield* FileSystem;
   const warnings: BundleStateWarning[] = [];
 
-  const skillJsonScan = yield* parseSkillJson(join(bundleDir, SKILL_JSON_FILENAME));
+  const skillJsonScan =
+    options?.skillJsonScan ?? (yield* parseSkillJson(join(bundleDir, SKILL_JSON_FILENAME)));
   for (const warning of skillJsonScan.warnings) {
     warnings.push({ source: "skill.json", message: warning });
   }
 
   if (skillJsonScan.status === "parsed") {
-    const root = yield* casesRoot(bundleDir);
-    const rootRel = `evals/${root.endsWith(CASES_DIRNAME) ? CASES_DIRNAME : LEGACY_FIXTURES_DIRNAME}`;
+    // One directory listing drives BOTH realization (which cases have
+    // materials dirs) and the name==dir enforcement (dirs no case entry
+    // names), instead of per-case exists() probes.
+    const casesDir = join(bundleDir, "evals", CASES_DIRNAME);
+    const casesDirExists = yield* fs
+      .exists(casesDir)
+      .pipe(Effect.mapError(toIOError(`could not check ${casesDir}`)));
+    const root = casesDirExists ? casesDir : join(bundleDir, "evals", LEGACY_FIXTURES_DIRNAME);
+    const rootRel = `evals/${casesDirExists ? CASES_DIRNAME : LEGACY_FIXTURES_DIRNAME}`;
+    const rootExists =
+      casesDirExists ||
+      (yield* fs.exists(root).pipe(Effect.mapError(toIOError(`could not check ${root}`))));
 
+    const materialDirs = new Set<string>();
+    if (rootExists) {
+      const entries = yield* fs.readDirectory(root).pipe(Effect.mapError(toIOError(`could not list ${root}`)));
+      for (const entry of entries.slice().sort()) {
+        if (entry.startsWith(".")) {
+          continue;
+        }
+        const info = yield* fs
+          .stat(join(root, entry))
+          .pipe(Effect.mapError(toIOError(`could not stat ${join(root, entry)}`)));
+        if (info.type === "Directory") {
+          materialDirs.add(entry);
+        }
+      }
+    }
+
+    const listed = new Set(skillJsonScan.cases.map((entry) => entry.name));
     const realized = new Set<string>();
     const cases: FixtureCaseRecord[] = [];
     for (const caseEntry of skillJsonScan.cases) {
-      const caseDir = join(root, caseEntry.name);
-      const dirExists = yield* fs.exists(caseDir).pipe(Effect.mapError(toIOError(`could not check ${caseDir}`)));
       let hasPromptMd = false;
-      if (dirExists) {
+      if (materialDirs.has(caseEntry.name)) {
         realized.add(caseEntry.name);
-        const promptPath = join(caseDir, "prompt.md");
+        const promptPath = join(root, caseEntry.name, "prompt.md");
         hasPromptMd = yield* fs.exists(promptPath).pipe(Effect.mapError(toIOError(`could not check ${promptPath}`)));
         if (!hasPromptMd) {
           warnings.push({ source: "fixtures", message: `${rootRel}/${caseEntry.name}/prompt.md is missing` });
@@ -714,29 +719,17 @@ export const readBundleStructuredState = Effect.fn("SkillJson.readBundleStructur
 
     // The name==dir contract, tolerantly enforced from the other side: a
     // materials directory no case entry names is warned, never adopted.
-    const rootExists = yield* fs.exists(root).pipe(Effect.mapError(toIOError(`could not check ${root}`)));
-    if (rootExists) {
-      const listed = new Set(skillJsonScan.cases.map((entry) => entry.name));
-      const entries = yield* fs.readDirectory(root).pipe(Effect.mapError(toIOError(`could not list ${root}`)));
-      for (const entry of entries.slice().sort()) {
-        if (entry.startsWith(".") || listed.has(entry)) {
-          continue;
-        }
-        const info = yield* fs
-          .stat(join(root, entry))
-          .pipe(Effect.mapError(toIOError(`could not stat ${join(root, entry)}`)));
-        if (info.type === "Directory") {
-          warnings.push({
-            source: "skill.json",
-            message: `${rootRel}/${entry}/ has no matching case entry in skill.json (case name must equal its directory name)`,
-          });
-        }
+    for (const dirName of materialDirs) {
+      if (!listed.has(dirName)) {
+        warnings.push({
+          source: "skill.json",
+          message: `${rootRel}/${dirName}/ has no matching case entry in skill.json (case name must equal its directory name)`,
+        });
       }
     }
 
     // Dangling case pointers: a hypothesis naming a case that has no
     // evals.cases entry at all (not merely unrealized) is a broken edge.
-    const listed = new Set(skillJsonScan.cases.map((entry) => entry.name));
     for (const hypothesis of skillJsonScan.hypotheses) {
       for (const name of hypothesis.cases) {
         if (!listed.has(name)) {

@@ -25,6 +25,7 @@ import { Effect, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { join } from "node:path";
 import { WorkspaceIOError } from "./Errors.ts";
+import { isRecord } from "./TolerantJson.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
@@ -127,6 +128,40 @@ export type FixtureSourceRecord =
   | { readonly kind: "intake"; readonly intake: string };
 
 /**
+ * Tolerantly reads a `source` provenance value — THE one implementation
+ * (per the `FixtureSourceRecord` rule above: no structurally-compatible
+ * hand copies). A valid shape for either kind is captured silently (it's
+ * expected on a harvested case), a present-but-malformed shape is warned
+ * (prefixed with `label`, e.g. `evals/fixtures/x/case.json` or
+ * `skill.json: case "x"`) and dropped, and `undefined` is silently fine.
+ */
+export const parseFixtureSource = (
+  raw: unknown,
+  label: string,
+  warnings: string[],
+): FixtureSourceRecord | undefined => {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (isRecord(raw)) {
+    if (raw.kind === "field-report" && typeof raw.eventId === "string") {
+      return {
+        kind: "field-report",
+        eventId: raw.eventId,
+        ...(typeof raw.destination === "string" ? { destination: raw.destination } : {}),
+      };
+    }
+    if (raw.kind === "intake" && typeof raw.intake === "string") {
+      return { kind: "intake", intake: raw.intake };
+    }
+  }
+  warnings.push(
+    `${label} has a malformed "source" field (expected {kind: "field-report", eventId: string} or {kind: "intake", intake: string})`,
+  );
+  return undefined;
+};
+
+/**
  * The documented `case.json` shape (data-model.md §2.5, PROMPT.MD CHANGE).
  * `prompt` is a legacy field, kept here ONLY so a strict decode can still
  * recognize and report it -- the current model has no `prompt` field, the
@@ -166,8 +201,6 @@ export interface ScanFixturesResult {
   readonly warnings: ReadonlyArray<string>;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * Scans `evals/fixtures/*\/case.json` under a bundle directory, tolerating
@@ -270,28 +303,8 @@ export const scanFixtures = Effect.fn("Fixtures.scanFixtures")(function* (bundle
     }
 
     // `source` (issue #68's `field-report`, issue #91's `intake`):
-    // tolerantly read, same as every other field here -- a valid shape for
-    // either kind is captured silently (no warning, it's expected on a
-    // harvested fixture), a present-but-malformed shape is reported and
-    // dropped, and an absent `source` (every hand-scaffolded fixture) is
-    // silently fine.
-    const sourceRaw = parsed.source;
-    let source: FixtureCaseRecord["source"];
-    if (sourceRaw !== undefined) {
-      if (isRecord(sourceRaw) && sourceRaw.kind === "field-report" && typeof sourceRaw.eventId === "string") {
-        source = {
-          kind: "field-report",
-          eventId: sourceRaw.eventId,
-          ...(typeof sourceRaw.destination === "string" ? { destination: sourceRaw.destination } : {}),
-        };
-      } else if (isRecord(sourceRaw) && sourceRaw.kind === "intake" && typeof sourceRaw.intake === "string") {
-        source = { kind: "intake", intake: sourceRaw.intake };
-      } else {
-        warnings.push(
-          `evals/fixtures/${entry}/case.json has a malformed "source" field (expected {kind: "field-report", eventId: string} or {kind: "intake", intake: string})`,
-        );
-      }
-    }
+    // tolerantly read through the ONE shared parser (`parseFixtureSource`).
+    const source = parseFixtureSource(parsed.source, `evals/fixtures/${entry}/case.json`, warnings);
 
     const promptMdPath = join(caseDir, "prompt.md");
     const promptMdExists = yield* fs

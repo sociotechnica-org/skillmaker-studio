@@ -154,7 +154,7 @@ describe("parseSkillJson", () => {
     );
   });
 
-  test("legacy risks[] on a case is warned and ignored; old setup object is captured into setupFiles", async () => {
+  test("legacy risks[] on a case is warned and ignored; old setup object is captured into sandbox", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {
         const file = yield* writeFile(
@@ -175,7 +175,7 @@ describe("parseSkillJson", () => {
         expect(result.warnings.some((w) => w.includes('"with-risks" carries a legacy "risks" field'))).toBe(true);
         const oldSetup = result.cases.find((c) => c.name === "old-setup");
         expect(oldSetup?.setup).toBeUndefined();
-        expect(oldSetup?.setupFiles).toEqual({ files: "files/", env: { A: "1" } });
+        expect(oldSetup?.sandbox).toEqual({ files: "files/", env: { A: "1" } });
       }),
     );
   });

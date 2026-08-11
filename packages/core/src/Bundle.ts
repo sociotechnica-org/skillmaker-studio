@@ -26,6 +26,19 @@ export const BundleSubstate = Schema.Literals(["working", "awaiting-review"]);
 export type BundleSubstate = typeof BundleSubstate.Type;
 
 /**
+ * The install-door audiences (director rulings 2026-08-03) — the ONE owner
+ * of the vocabulary. Lives here (the identity leaf) rather than
+ * InstallPublish.ts so both the publish door and the skill.json reader
+ * (`publish.targets`) share it without an import cycle; InstallPublish
+ * re-exports for its callers.
+ */
+export const INSTALL_AUDIENCES = ["user", "project"] as const;
+export type InstallAudience = (typeof INSTALL_AUDIENCES)[number];
+
+export const isInstallAudience = (value: unknown): value is InstallAudience =>
+  (INSTALL_AUDIENCES as ReadonlyArray<unknown>).includes(value);
+
+/**
  * `skills/<slug>/bundle.json` — identity only, append-slowly (data-model.md
  * §2.3). Nothing mutable-in-anger lives here: no stage, no ready, no status
  * (those are journal replay). The slug is immutable — it keys the journal.

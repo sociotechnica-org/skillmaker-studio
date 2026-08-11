@@ -329,9 +329,7 @@ export const createRunDispatchHandlers = (options: {
       return jsonResponse({ error: `no such fixture "${fixture}" in bundle "${slug}"` }, 404);
     }
     const caseDir = resolveCaseDirSync(bundleDir, fixture);
-    // A migrated (skill.json) bundle's case dir has no per-case case.json --
-    // the directory itself is the realized-case marker there.
-    if (!existsSync(join(caseDir, "case.json")) && !existsSync(caseDir)) {
+    if (!existsSync(caseDir)) {
       return jsonResponse({ error: `no such fixture "${fixture}" in bundle "${slug}"` }, 404);
     }
     if (!existsSync(join(caseDir, "prompt.md"))) {

@@ -50,6 +50,7 @@ import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import type { Actor } from "./Actor.ts";
+import { isInstallAudience, type InstallAudience } from "./Bundle.ts";
 import {
   InstallSnapshotMissingError,
   InstallTargetError,
@@ -63,7 +64,8 @@ import { layer as IndexServiceLayer, IndexService } from "./IndexService.ts";
 import { Journal } from "./JournalService.ts";
 import { CLAUDE_CODE_CONFIG_DIR_ENV_VAR } from "./ProviderProfile.ts";
 import { checkPublishable } from "./Publish.ts";
-import { SKILL_JSON_FILENAME } from "./SkillJson.ts";
+import { parseSkillJson, SKILL_JSON_FILENAME } from "./SkillJson.ts";
+import { isRecord } from "./TolerantJson.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
   collectOutputFiles,
@@ -85,11 +87,9 @@ const sha256Hex = (data: string | Uint8Array): string => createHash("sha256").up
 // Audiences + target resolution
 // ---------------------------------------------------------------------------
 
-export const INSTALL_AUDIENCES = ["user", "project"] as const;
-export type InstallAudience = (typeof INSTALL_AUDIENCES)[number];
-
-export const isInstallAudience = (value: unknown): value is InstallAudience =>
-  value === "user" || value === "project";
+// The audience vocabulary moved to Bundle.ts (the identity leaf) so the
+// skill.json reader can share it cycle-free; re-exported here for callers.
+export { INSTALL_AUDIENCES, isInstallAudience, type InstallAudience } from "./Bundle.ts";
 
 /** An install publish's destination word: one of the two audiences, or the D4c passthrough for adopted in-place bundles. */
 export type InstallTargetKind = InstallAudience | "in-place";
@@ -239,29 +239,22 @@ const gatherEvidence = (workspaceRoot: string, bundle: string, versionHash: stri
 // ---------------------------------------------------------------------------
 
 /**
- * Reads the remembered install audiences -- from `skill.json`'s
- * `publish.targets` on a migrated bundle (THE MERGE: it absorbed
- * bundle.json's `publishTargets` verbatim), else from
- * `<bundleDir>/bundle.json`. Tolerant: a missing/malformed file or field
- * reads as "nothing remembered".
+ * Reads the remembered install audiences with THE MERGE precedence
+ * (matching `SkillJson.readBundleStructuredState`): a PARSING `skill.json`
+ * answers from its `publish.targets` (it absorbed bundle.json's
+ * `publishTargets` verbatim); an absent OR unusable skill.json falls back
+ * to `<bundleDir>/bundle.json`. Tolerant: a missing/malformed file or
+ * field reads as "nothing remembered".
  */
 export const readRememberedInstallTargets = Effect.fn("InstallPublish.readRememberedInstallTargets")(
   function* (bundleDir: string) {
     const fs = yield* FileSystem;
     const path = yield* Path;
-    const skillJsonPath = path.join(bundleDir, SKILL_JSON_FILENAME);
-    const skillJsonExists = yield* fs.exists(skillJsonPath).pipe(Effect.orElseSucceed(() => false));
-    if (skillJsonExists) {
-      const raw = yield* fs.readFileString(skillJsonPath).pipe(Effect.orElseSucceed(() => ""));
-      try {
-        const parsed = JSON.parse(raw) as { readonly publish?: { readonly targets?: unknown } };
-        const field = parsed.publish?.targets;
-        return Array.isArray(field)
-          ? field.filter(isInstallAudience)
-          : ([] as ReadonlyArray<InstallAudience>);
-      } catch {
-        return [] as ReadonlyArray<InstallAudience>;
-      }
+    const skillScan = yield* parseSkillJson(path.join(bundleDir, SKILL_JSON_FILENAME)).pipe(
+      Effect.orElseSucceed(() => undefined),
+    );
+    if (skillScan !== undefined && skillScan.status === "parsed") {
+      return skillScan.publishTargets.filter(isInstallAudience);
     }
     const bundleJsonPath = path.join(bundleDir, "bundle.json");
     const exists = yield* fs
@@ -269,14 +262,16 @@ export const readRememberedInstallTargets = Effect.fn("InstallPublish.readRememb
       .pipe(Effect.orElseSucceed(() => false));
     if (!exists) return [] as ReadonlyArray<InstallAudience>;
     const raw = yield* fs.readFileString(bundleJsonPath).pipe(Effect.orElseSucceed(() => ""));
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(raw) as { readonly publishTargets?: unknown };
-      const field = parsed.publishTargets;
-      if (!Array.isArray(field)) return [] as ReadonlyArray<InstallAudience>;
-      return field.filter(isInstallAudience);
+      parsed = JSON.parse(raw);
     } catch {
       return [] as ReadonlyArray<InstallAudience>;
     }
+    if (!isRecord(parsed) || !Array.isArray(parsed.publishTargets)) {
+      return [] as ReadonlyArray<InstallAudience>;
+    }
+    return parsed.publishTargets.filter(isInstallAudience);
   },
 );
 
@@ -308,13 +303,10 @@ export const rememberInstallTargets = Effect.fn("InstallPublish.rememberInstallT
     } catch {
       return false;
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
-    const record = parsed as Record<string, unknown>;
+    if (!isRecord(parsed)) return false;
+    const record = parsed;
     const publishRaw = record["publish"];
-    const publish: Record<string, unknown> =
-      typeof publishRaw === "object" && publishRaw !== null && !Array.isArray(publishRaw)
-        ? (publishRaw as Record<string, unknown>)
-        : {};
+    const publish: Record<string, unknown> = isRecord(publishRaw) ? publishRaw : {};
     const existingRaw = publish["targets"];
     const existingVerbatim: ReadonlyArray<unknown> = Array.isArray(existingRaw) ? existingRaw : [];
     const existing = existingVerbatim.filter(isInstallAudience);
@@ -339,8 +331,8 @@ export const rememberInstallTargets = Effect.fn("InstallPublish.rememberInstallT
   } catch {
     return false;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
-  const record = parsed as Record<string, unknown>;
+  if (!isRecord(parsed)) return false;
+  const record = parsed;
   const existingRaw = record["publishTargets"];
   const existing = Array.isArray(existingRaw) ? existingRaw.filter(isInstallAudience) : [];
   const merged = [...existing, ...audiences.filter((a) => !existing.includes(a))];
