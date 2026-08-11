@@ -28,9 +28,10 @@
  *
  * Traveled receipts (a crate's own claims -- `skill.received.claimedVersionHash`/
  * `notes` -- or a `skill.shipped` snapshot) never clear the badge: neither
- * is a `run.graded` event, so neither ever reaches `computeMeasurements`'s
+ * is a grade, so neither ever reaches `computeMeasurements`'s
  * input in the first place (`IndexService.rebuild`'s `runRecords` are
- * scanned from `runs/<id>/run.json` + folded `run.graded` events only).
+ * scanned from `runs/<id>/run.json` + that run's grade files / folded
+ * `run.graded` events only -- Grades.ts).
  * This falls out of the existing pipeline rather than needing a filter
  * here -- asserted by test, not enforced by code, since there is no code
  * path where it could leak in.

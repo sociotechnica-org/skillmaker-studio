@@ -20,7 +20,9 @@ import {
   foldSkillVersions,
   foldTodos,
   gatherIntakeRegistry,
+  GradeRecord,
   guardStatus,
+  HUMAN_GRADER,
   hashReceivedCrate,
   isIdentityGrantingDisposition,
   isInstallAudience,
@@ -34,6 +36,7 @@ import {
   listUndisposedCrates,
   publishBundle,
   publishToInstallTargets,
+  readGradeLanes,
   readMachineConfig,
   readRememberedInstallTargets,
   resolveInstallDir,
@@ -48,6 +51,7 @@ import {
   versionSnapshotDir,
   walk,
   Workspace,
+  writeGradeFile,
   WorkspaceLayer,
   type Actor,
   type BundleLayout,
@@ -1071,6 +1075,29 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
         409,
       );
     }
+    // Git-visible grade FILE first, journal event second (director ruling
+    // 2026-08-11, Grades.ts): the event is the liveness signal that makes
+    // readers look, so the file must already be on disk when they do.
+    try {
+      writeGradeFile(
+        location.runDir,
+        GradeRecord.make({
+          schemaVersion: 1,
+          runId: eventInput.payload.id,
+          grader: HUMAN_GRADER,
+          verdict: eventInput.payload.verdict,
+          ...(eventInput.payload.checks !== undefined ? { checks: eventInput.payload.checks } : {}),
+          ...(eventInput.payload.notes !== undefined ? { notes: eventInput.payload.notes } : {}),
+          gradedAt: new Date().toISOString(),
+          actor,
+        }),
+      );
+    } catch (cause) {
+      return jsonResponse(
+        { error: `could not write grade file for run "${eventInput.payload.id}": ${String(cause)}` },
+        500,
+      );
+    }
   }
 
   if (eventInput.type === "review.resolved") {
@@ -2076,6 +2103,37 @@ const handleRunDetail = async (
     .slice()
     .reverse();
 
+  // Grade lanes (director ruling 2026-08-11, Grades.ts): one lane per
+  // grader, from the git-visible grade files -- `latest` plus archived
+  // `history` (newest first). A run graded only through the journal
+  // (pre-grade-files) gets a synthesized "human" lane from its
+  // `gradingHistory`, so the lanes read uniformly either way. The viewer
+  // renders `gradingHistory` today; `grades` is the multi-lane surface it
+  // can grow into.
+  let grades = readGradeLanes(runDir).lanes;
+  if (grades.length === 0 && gradingHistory.length > 0) {
+    const fromEvents: GradeRecord[] = [];
+    for (const event of gradingHistory) {
+      if (event.type !== "run.graded") continue;
+      fromEvents.push(
+        GradeRecord.make({
+          schemaVersion: 1,
+          runId,
+          grader: HUMAN_GRADER,
+          verdict: event.payload.verdict,
+          ...(event.payload.checks !== undefined ? { checks: event.payload.checks } : {}),
+          ...(event.payload.notes !== undefined ? { notes: event.payload.notes } : {}),
+          gradedAt: event.at,
+          actor: event.actor,
+        }),
+      );
+    }
+    const [latest, ...history] = fromEvents;
+    if (latest !== undefined) {
+      grades = [{ grader: HUMAN_GRADER, latest, history }];
+    }
+  }
+
   // The fixture's grading.checks (case.json), for the checklist UI -- read
   // directly and defensively (ruling I: malformed content is tolerated, not
   // a hard failure) rather than via `scanFixtures`, whose tolerant
@@ -2117,7 +2175,7 @@ const handleRunDetail = async (
   const skillInvoked =
     typeof runRecord.skillInvoked === "boolean" ? runRecord.skillInvoked : didSkillActivate(transcript, slug);
 
-  return jsonResponse({ run, transcript, artifacts, gradingHistory, checks, activated, skillInvoked });
+  return jsonResponse({ run, transcript, artifacts, gradingHistory, grades, checks, activated, skillInvoked });
 };
 
 interface TriggerRunRequestBody {

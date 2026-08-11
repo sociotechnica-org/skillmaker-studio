@@ -3,9 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Actor } from "../src/Actor.ts";
+import { GradeRecord, HUMAN_GRADER, writeGradeFile } from "../src/Grades.ts";
 import { layer as IndexServiceLayer, IndexService } from "../src/IndexService.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
 import { layer as WorkspaceLayer, Workspace } from "../src/WorkspaceService.ts";
@@ -1085,6 +1086,175 @@ describe("IndexService.listMeasurements", () => {
           const measurements = yield* index.listMeasurements("example-skill");
           expect(measurements).toHaveLength(1);
           expect(measurements[0]).toMatchObject({ n: 1, passes: 0, passRate: 0 });
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  // Git-visible grade files (director ruling 2026-08-11, Grades.ts): the
+  // index resolves grades from `runs/<id>/grades/<grader>/grade.json` when
+  // present, falling back to folded `run.graded` events for runs graded
+  // before grade files existed.
+  const writeGrade = (
+    dir: string,
+    slug: string,
+    runId: string,
+    verdict: "pass" | "fail" | "partial",
+    gradedAt: string,
+  ): void => {
+    writeGradeFile(
+      join(dir, "skills", slug, "runs", runId),
+      GradeRecord.make({
+        schemaVersion: 1,
+        runId,
+        grader: HUMAN_GRADER,
+        verdict,
+        gradedAt,
+        actor: Actor.make({ kind: "user", name: "file-grader" }),
+      }),
+    );
+  };
+
+  test("grade FILES win over journal events when present; journal-only runs still resolve (pre-grade-file fallback)", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "example-skill" });
+        writeRunJson(dir, "example-skill", { id: "run-file" });
+        writeRunJson(dir, "example-skill", { id: "run-journal" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          // run-file: an older journal grade says fail, but the grade FILE
+          // says pass -- the file wins regardless of event order.
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "run-file", verdict: "fail" } });
+          // run-journal: journal-only (graded before grade files existed).
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "run-journal", verdict: "pass" } });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        writeGrade(dir, "example-skill", "run-file", "pass", "2026-08-11T00:00:00.000Z");
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const runs = yield* index.listRuns("example-skill");
+          const fileRun = runs.find((run) => run.id === "run-file");
+          const journalRun = runs.find((run) => run.id === "run-journal");
+          expect(fileRun?.verdict).toBe("pass");
+          expect(fileRun?.gradedAt).toBe("2026-08-11T00:00:00.000Z");
+          expect(fileRun?.gradedBy).toMatchObject({ kind: "user", name: "file-grader" });
+          expect(journalRun?.verdict).toBe("pass");
+          expect(journalRun?.gradedBy).toMatchObject({ kind: "user", name: "test-user" });
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("a file regrade appends history and the latest grade.json wins in the index and measurements", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "example-skill" });
+        writeRunJson(dir, "example-skill", { id: "run-1" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "run-1", verdict: "pass" } });
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "run-1", verdict: "fail" } });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        writeGrade(dir, "example-skill", "run-1", "pass", "2026-08-11T00:00:00.000Z");
+        writeGrade(dir, "example-skill", "run-1", "fail", "2026-08-11T01:00:00.000Z");
+
+        // The regrade archived the first file grade as history.
+        expect(
+          existsSync(join(dir, "skills", "example-skill", "runs", "run-1", "grades", "human", "grade.1.json")),
+        ).toBe(true);
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const measurements = yield* index.listMeasurements("example-skill");
+          expect(measurements).toHaveLength(1);
+          expect(measurements[0]).toMatchObject({ n: 1, passes: 0, passRate: 0 });
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("measurements are identical across file-graded and event-graded runs", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "file-graded" });
+        yield* workspace.createBundle(dir, { slug: "event-graded" });
+
+        // Same run shapes in both bundles, graded pass/fail -- one bundle
+        // through grade files, the other through journal events only.
+        for (const slug of ["file-graded", "event-graded"]) {
+          writeRunJson(dir, slug, { id: `${slug}-run-1` });
+          writeRunJson(dir, slug, { id: `${slug}-run-2` });
+        }
+        writeGrade(dir, "file-graded", "file-graded-run-1", "pass", "2026-08-11T00:00:00.000Z");
+        writeGrade(dir, "file-graded", "file-graded-run-2", "fail", "2026-08-11T00:00:00.000Z");
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "event-graded-run-1", verdict: "pass" } });
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "event-graded-run-2", verdict: "fail" } });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const fromFiles = yield* index.listMeasurements("file-graded");
+          const fromEvents = yield* index.listMeasurements("event-graded");
+          expect(fromFiles).toHaveLength(1);
+          expect(fromFiles[0]).toMatchObject({ n: 2, passes: 1, passRate: 0.5 });
+          // Identical math: strip the bundle column and the two agree exactly.
+          const strip = (records: ReadonlyArray<{ readonly bundle: string }>) =>
+            records.map(({ bundle: _bundle, ...rest }) => rest);
+          expect(strip(fromFiles)).toEqual(strip(fromEvents));
+        }).pipe(Effect.provide(IndexServiceLayer(dir)));
+      }).pipe(Effect.provide(WorkspaceLayer)),
+    );
+  });
+
+  test("a malformed grade file degrades to a warning and falls back to the journal grade", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const workspace = yield* Workspace;
+        yield* workspace.init(dir);
+        yield* workspace.createBundle(dir, { slug: "example-skill" });
+        writeRunJson(dir, "example-skill", { id: "run-1" });
+
+        const journalPath = join(dir, ".skillmaker", "events.jsonl");
+        yield* Effect.gen(function* () {
+          const journal = yield* Journal;
+          yield* journal.append({ type: "run.graded", actor, payload: { id: "run-1", verdict: "partial" } });
+        }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        const graderDir = join(dir, "skills", "example-skill", "runs", "run-1", "grades", "human");
+        mkdirSync(graderDir, { recursive: true });
+        writeFileSync(join(graderDir, "grade.json"), "{ not json");
+
+        yield* Effect.gen(function* () {
+          const index = yield* IndexService;
+          yield* index.rebuild();
+          const runs = yield* index.listRuns("example-skill");
+          expect(runs.find((run) => run.id === "run-1")?.verdict).toBe("partial");
+          const warnings = yield* index.listWarnings("example-skill");
+          expect(
+            warnings.some(
+              (warning) => warning.source === "grades" && warning.message.includes("grades/human/grade.json"),
+            ),
+          ).toBe(true);
         }).pipe(Effect.provide(IndexServiceLayer(dir)));
       }).pipe(Effect.provide(WorkspaceLayer)),
     );
