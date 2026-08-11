@@ -42,6 +42,23 @@ describe("MarkdownContent sanitization", () => {
     expect(html).toContain("<table");
     expect(html).toContain("<pre");
   });
+
+  test("numbered steps with blank lines and nested bullets stay ONE <ol> (Prompt tab numbering)", () => {
+    const skill = ["1. gather", "", "   more detail", "", "2. plan", "   - short", "   - cited", "", "3. ship"].join("\n");
+    const html = renderToStaticMarkup(<MarkdownContent markdown={skill} />);
+    // One continuous ordered list, nested bullets inside their <li>.
+    expect(html.match(/<ol/g)).toHaveLength(1);
+    expect(html.match(/<\/li>/g)).toHaveLength(5); // 3 steps + 2 nested bullets
+    expect(html).toContain("<ul");
+    expect(html.indexOf("<ul")).toBeGreaterThan(html.indexOf("<ol"));
+    expect(html.indexOf("</ol>")).toBeGreaterThan(html.indexOf("</ul>"));
+    expect(html).toContain("more detail");
+  });
+
+  test("an interrupted ordered list resumes with a start attribute, not at 1", () => {
+    const html = renderToStaticMarkup(<MarkdownContent markdown={"1. one\n\n```\ncode\n```\n\n2. two"} />);
+    expect(html).toContain('start="2"');
+  });
 });
 
 describe("FileContentView", () => {
