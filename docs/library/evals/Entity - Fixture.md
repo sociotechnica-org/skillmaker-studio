@@ -13,7 +13,6 @@ links:
     - "./Reference - Untrusted-Input Rule"
     - "./Reference - Measurements Bind To Version"
     - "../outputs/Entity - Field Report"
-    - "../authoring/Entity - Dossier"
 ---
 
 ## WHAT
@@ -76,11 +75,12 @@ in `files/`.
 
 Verified: `packages/core/src/Fixtures.ts` — `FixtureCase` schema
 (`schemaVersion`, `case`, `class`, `risks`, `setup?`, `grading?`, legacy
-`prompt?`, `source?`, `context?`) and `scanFixtures`'s field-by-field
-tolerant parsing, including the "case.json has a legacy prompt field",
-"prompt.md is missing", "case.json has a malformed source field", and
-"case.json has a malformed context field" warnings; `FixtureAdd.ts`'s
-`--context` flag and `IndexService.ts`'s `fixtures.context` column.
+`prompt?`, `source?`, and a tolerated-but-ignored `context?`) and
+`scanFixtures`'s field-by-field tolerant parsing, including the
+"case.json has a legacy prompt field", "prompt.md is missing", and
+"case.json has a malformed source field" warnings. (`FixtureAdd.ts`'s
+`--context` flag, `IndexService.ts`'s `fixtures.context` column, and the
+malformed-context warning were expunged with the dossier, 2026-08-08.)
 
 ## RULED DIRECTION (NOT SHIPPED): `case.json` → `evals.json`
 

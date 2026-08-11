@@ -32,8 +32,8 @@ through the exact same state machine every other bundle goes through.
 
 ## HOW
 
-As of this writing, William has **two real, shipped skills**, one per
-default station he covers:
+As of this writing, William has **three real, shipped skills** — one per
+default station he covers, plus the design station's skill (PR #182):
 
 - `skills/william-draft-skill-md/` — wired into the `drafting` station of
   the default stations template (`packages/core/src/Stations.ts`,
@@ -54,6 +54,17 @@ default station he covers:
   `research/notes.md` — facts/conventions, edge cases framed as "must
   handle"/"must never", and named open questions — and stops there,
   leaving `design.md` and `output/SKILL.md` to the `drafting` station.
+- `skills/design-skill/` — the design station's skill (PR #182,
+  2026-08-08). Given a bundle's initial `design.md` and
+  `research/notes.md`, it makes the design decision-complete and
+  produces the evaluation design — a refined `design.md` and the
+  bundle-root `evals.json` claims artifact
+  (`failureHypotheses`/`proofSpecs`, the design-step output contract in
+  `../authoring/Entity - Design Doc.md`) — and explicitly does NOT
+  draft the target skill's `SKILL.md`. Unlike the other two it is not
+  wired into `DEFAULT_STATIONS_TEMPLATE` (which has only `researching`
+  and `drafting` stations); it reaches bundles through the chat path
+  and packaged-skill resolution.
 
 Both stations therefore have a real agent (William) behind them today —
 there is no longer a placeholder skill slug in the default template. The
@@ -81,13 +92,14 @@ bundle into `awaiting-review`; a human resolves it in the viewer.
 **William now ships inside the product** (D6, delivered 2026-07-27 via
 PR #171 after the from-scratch walk found every workspace had to
 hand-carry his bundles — `docs/friction/fresh-skill.md` entry 1): packaged
-copies of both bundles live in `packages/cli/skills/` and ship in the npm
-tarball and desktop sidecar; station-skill resolution is workspace-wins
-with a packaged fallback ([[../production/Mechanism - Packaged Station
-Skills]]), so hacking on William locally still overrides the shipped
-copy. His guidance also reaches the **chat** path: chat sessions install
-both William skills into the provider's agent home before the session
-starts ([[../runs/Mechanism - Agent-Home Injection]]).
+copies of all three bundles live in `packages/cli/skills/` and ship in
+the npm tarball and desktop sidecar; station-skill resolution is
+workspace-wins with a packaged fallback ([[../production/Mechanism -
+Packaged Station Skills]]), so hacking on William locally still
+overrides the shipped copy. His guidance also reaches the **chat** path:
+chat sessions install all three helper skills into the provider's agent
+home before the session starts ([[../runs/Mechanism - Agent-Home
+Injection]]).
 
 Verified: `packages/core/src/Stations.ts` (`DEFAULT_STATIONS_TEMPLATE`,
 both `researching.skill: "william-research-a-skill"` and
@@ -98,7 +110,12 @@ both `researching.skill: "william-research-a-skill"` and
 research-a-skill/evals/risk-map.md` (honest-gaps section on the ungraded
 `golden-basic` fixture); `packages/core/src/StationEngine.ts`
 (`runStation`, the skill-install + prompt + `review.requested` flow).
-Packaged-distribution claims re-verified 2026-08-03:
-`packages/cli/src/PackagedSkills.ts` (locator, doc comment citing D6) and
-`packages/cli/src/server/ChatSessions.ts` (`HELPER_SKILL_SLUGS` is exactly
-`["william-research-a-skill", "william-draft-skill-md"]`).
+Packaged-distribution claims re-verified 2026-08-11:
+`packages/cli/src/PackagedSkills.ts` (locator, doc comment citing D6),
+`packages/cli/skills/` (packaged copies of all three bundles, including
+`design-skill`), and `packages/cli/src/server/ChatSessions.ts`
+(`HELPER_SKILL_SLUGS` is exactly `["william-research-a-skill",
+"design-skill", "william-draft-skill-md"]`); design-skill's contract
+verified against `skills/design-skill/output/SKILL.md` (refuses without
+`design.md`, writes the refined design + root `evals.json`, never drafts
+the target `SKILL.md`).

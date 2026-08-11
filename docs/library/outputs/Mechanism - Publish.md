@@ -50,47 +50,65 @@ the polysemy.
 
 ## HOW
 
-Guard (`checkPublishable` in `packages/core/src/Publish.ts`): a bundle
-must be at journal-folded stage `"published"` (reached only via an
-approved publish-gate decision, `bundle.gate_decided`), *and* must have
-at least one recorded `skill.version_recorded` version whose drift
-(`computeDrift`, see `Mechanism - Drift Hint`) against the live
-`design.md`/`output/` content is exactly `"in-sync"` — otherwise
-`PublishGuardError` fails the publish with a reason string ("has never
-had a version recorded" / "content has drifted... record a new version
-before publishing").
+Two doors behind one command (`packages/cli/src/commands/Publish.ts`,
+`runPublish`):
 
-`publishBundle` then, for each selected target (`skillmaker publish
-<slug> [--target <id>]`, default: every configured target):
-copies/writes per `target.kind` (see `Reference - Publish Target`), then
-appends `skill.published` with
-`idempotencyKey: "skill.published:<bundle>:<versionHash>:<target.id>"` —
-re-publishing the same version to the same target is a journal no-op
-(status `already_published`), though the underlying file writes still
-run because git-dir copies and manifest merges are themselves
-idempotent.
+**The install door** (`packages/core/src/InstallPublish.ts`,
+`publishToInstallTargets` — the primary door): `skillmaker publish
+<slug> --to user|project [--version <hash>]` writes the selected
+version's `output/` to an install target an agent actually reads —
+`user` → `~/.claude/skills/<slug>/` ("all my agents", honoring
+`$CLAUDE_CONFIG_DIR`), `project` → `<workspace-root>/.claude/skills/
+<slug>/` ("this project's agents"). Exactly two audiences, no picker
+beyond them. The chosen audience is REMEMBERED per-bundle in
+`bundle.json`'s `publishTargets` field, so a later bare `skillmaker
+publish <slug>` re-publishes to the remembered target(s); `--version
+<hash>` is a revert-shaped publish from the version snapshot store
+(`.skillmaker/versions/<hash>/`), which deliberately skips the
+live-drift check. A plain publish keeps the full `checkPublishable`
+guard (stage `"published"`, latest version recorded, live content
+in-sync). Each real write appends `skill.published` carrying version
+hash, target, and the bundle's `evidence` state, and stamps a
+provenance comment atop the installed `SKILL.md` (below YAML
+frontmatter — [[Mechanism - Provenance Stamp]]); a same-content
+re-publish writes nothing and journals nothing.
 
-Verified: `packages/core/src/Publish.ts` (`checkPublishable`,
-`publishBundle`, `publishToTarget`) and
-`packages/cli/src/commands/Publish.ts` (`runPublish` — CLI entry,
-rejects if `publishTargets` is empty before even attempting the guard).
-The shipped code implements three target kinds
-(`git-dir`/`claude-marketplace`/`codex-marketplace`), materially more
-than data-model.md §2.2's single `git-dir` example — a real extension
-beyond the doc, described in `Reference - Publish Target` rather than
-silently treated as the doc's ground truth.
+D4c carve-out: ADOPTED in-place bundles publish to their own live
+directory (target kind `"in-place"`; `--to` is rejected for them) and
+get NO provenance stamp — their `SKILL.md` is simultaneously the
+bundle's own recorded content, and stamping it would register as output
+drift against the very version just published. Their `bundle.json`
+memory is also left alone (the layout itself is the memory).
 
-## IN FLIGHT (PR #185): THE PUBLISH DOOR
+One core function, three doors: the CLI, the server's
+`POST /api/bundles/:slug/publish`, and the viewer's Publish tab's live
+Publish/Revert buttons.
+
+**The legacy targets door** (`publishBundle` in
+`packages/core/src/Publish.ts`): `skillmaker publish <slug> --target
+<id>` (or a bare publish in a workspace with configured
+`publishTargets` and no remembered install audience) runs the
+workspace-level targets from `skillmaker.config.json`, unchanged —
+copies/writes per `target.kind` (see `Reference - Publish Target`),
+then appends `skill.published` with `idempotencyKey:
+"skill.published:<bundle>:<versionHash>:<target.id>"`. Three target
+kinds ship (`git-dir`/`claude-marketplace`/`codex-marketplace`),
+materially more than data-model.md §2.2's single `git-dir` example.
+
+Verified: `packages/core/src/InstallPublish.ts`
+(`publishToInstallTargets`, `resolveInstallDir`,
+`rememberInstallTargets`/`readRememberedInstallTargets`, the in-place
+branch with `stamped: false`), `packages/core/src/Publish.ts`
+(`checkPublishable`, `publishBundle`), and
+`packages/cli/src/commands/Publish.ts` (`runPublish` door selection: an
+explicit `--target` means the legacy door; `--to`/`--version`/a
+remembered audience mean the install door).
+
+## SHIPPED (PRs #185/#193): THE PUBLISH DOOR
 
 The E2E walk flagged "Publish step has no UI" as a blocker
-(`docs/friction/e2e-readiness.md`); the director ruled the fix 2026-08-03
-and PR #185 builds it: one core function behind three doors (CLI
-`skillmaker publish <slug> --to user|project`, server
-`POST .../publish`, and the Publish tab's now-live buttons), publishing
-the selected version's `output/` to exactly two audiences — all my agents
-(`user`) or this project's agents (`project`) — with a provenance stamp
-written atop the installed `SKILL.md` and an `evidence` field added to
-`skill.published` ([[Mechanism - Provenance Stamp]]). Revert to a
-recorded version's snapshot rides the same doors. This card's HOW
-(guard, `publishBundle`, workspace-level targets) describes what is
-merged today; the two-audience door is in flight, not shipped.
+(`docs/friction/e2e-readiness.md`); the director ruled the fix
+2026-08-03 and PRs #185/#193 shipped it — the two-audience install door
+described in HOW above, including the viewer Publish tab's now-live
+Publish/Revert buttons, the `evidence` field on `skill.published`, and
+snapshot-store revert. The Publish tab buttons are no longer disabled.

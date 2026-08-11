@@ -31,11 +31,16 @@ skills/<slug>/
   stations.json
   research/.gitkeep
   evals/
-    risk-map.md
     fixtures/.gitkeep
   output/.gitkeep
   runs/.gitkeep
 ```
+
+`evals/risk-map.md` is no longer scaffolded (deprecated 2026-08-08):
+claims are born in a bundle-root `evals.json` at design time, and the
+index prefers that file when present. Legacy bundles that already have a
+risk map keep working via the read fallback — see
+[Fixtures and risk maps](/evals/fixtures-and-risk-maps/).
 
 ## Output
 

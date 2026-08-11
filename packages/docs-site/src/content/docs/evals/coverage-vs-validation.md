@@ -6,17 +6,23 @@ description: The two-axis honesty law and how to measure it (k=5/30/100).
 Skillmaker Studio treats two facts about an eval as permanently separate,
 never allowed to merge into one number:
 
-- **Coverage** — a fixture exists for a given risk. This is authored, sits
-  in `evals/risk-map.md` (see [Fixtures and risk maps](/evals/fixtures-and-risk-maps/)),
-  and requires no runs at all.
+- **Coverage** — a fixture exists for a given risk. It requires no runs
+  at all, and comes from the bundle's claims source (see
+  [Fixtures and risk maps](/evals/fixtures-and-risk-maps/)): with a
+  bundle-root `evals.json`, coverage is **derived** — each hypothesis's
+  proof-spec names are matched against the actual fixture case
+  directories (all realized → covered, some → partial, none → gap); with
+  a legacy `evals/risk-map.md`, coverage is an authored table column.
+  One source wins per bundle, never merged.
 - **Validation** — the skill actually passes that fixture at a measured
   rate. This requires real runs, and until they exist, validation reads
   honestly as **"not yet measured"** rather than defaulting to a false
   positive or a blank.
 
-A risk map with every row `● covered` tells you the skill's designer
-*thought about* every failure mode — it tells you nothing about whether the
-skill actually handles any of them. Only graded runs answer that.
+A claims table with every row `● covered` tells you the skill's designer
+*thought about* every failure mode and wrote a fixture for each — it
+tells you nothing about whether the skill actually handles any of them.
+Only graded runs answer that.
 
 ## Never pooled
 
@@ -45,8 +51,8 @@ current run history.
 
 ## Where this shows up today
 
-Both halves of the axis are built. Coverage authoring — risk maps and
-fixtures — is covered in
+Both halves of the axis are built. Coverage authoring — `evals.json`
+claims, legacy risk maps, and fixtures — is covered in
 [Fixtures and risk maps](/evals/fixtures-and-risk-maps/). The **measured**
 half — running fixtures, grading the runs, and the read-out surface that
 joins coverage × validation per provider/model — is covered in
