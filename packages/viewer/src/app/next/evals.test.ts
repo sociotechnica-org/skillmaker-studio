@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  fixtureBodyText,
+  fixtureHasLiveRun,
   fixturePurpose,
   buildGapTodoPayload,
   bundleModels,
@@ -10,7 +12,9 @@ import {
   modelChipsForClaim,
   promptSummary,
   READ_ONLY_ORIENTATION,
+  readOnlyProofCaseEntries,
   readOnlyProofCaseLabels,
+  RUNNING_STALE_MS,
   readOnlyStatusLabel,
   RESPONSE_SETTLE_MS,
   runAllButtonLabel,
@@ -234,6 +238,48 @@ describe("fixturePurpose", () => {
   });
 });
 
+describe("fixtureBodyText", () => {
+  test("the full prompt body, with only the LEADING purpose comment stripped (the purpose line shows it)", () => {
+    const promptMd = "<!-- trigger-basic: covers IN-2. -->\n\n# Task\n\nDo the thing.\n<!-- a mid-body comment stays -->\nMore.";
+    expect(fixtureBodyText({ promptMd, legacyPrompt: null })).toBe(
+      "# Task\n\nDo the thing.\n<!-- a mid-body comment stays -->\nMore.",
+    );
+  });
+
+  test("falls back to the legacy case.json prompt; null when nothing (or only a comment) is authored", () => {
+    expect(fixtureBodyText({ promptMd: null, legacyPrompt: "Legacy ask." })).toBe("Legacy ask.");
+    expect(fixtureBodyText({ promptMd: null, legacyPrompt: null })).toBeNull();
+    expect(fixtureBodyText({ promptMd: "<!-- only a purpose -->\n  ", legacyPrompt: null })).toBeNull();
+  });
+});
+
+describe("fixtureHasLiveRun", () => {
+  const now = Date.parse("2026-08-11T12:00:00Z");
+  const startedAgo = (ms: number): string => new Date(now - ms).toISOString();
+
+  test("a recent running run lights the indicator; other fixtures' runs don't", () => {
+    const runs = [run({ id: "r1", status: "running", startedAt: startedAgo(30_000) })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(true);
+    expect(fixtureHasLiveRun(runs, "other", now)).toBe(false);
+  });
+
+  test("terminal runs never light it", () => {
+    const runs = [run({ id: "r1", status: "completed", startedAt: startedAgo(1000) })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(false);
+  });
+
+  test("an orphaned 'running' record past the staleness window stops counting", () => {
+    const runs = [run({ id: "r1", status: "running", startedAt: startedAgo(RUNNING_STALE_MS + 1) })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(false);
+    expect(fixtureHasLiveRun([run({ id: "r2", status: "running", startedAt: startedAgo(RUNNING_STALE_MS) })], "case-a", now)).toBe(true);
+  });
+
+  test("an unparseable startedAt never counts -- nothing honest to age it by", () => {
+    const runs = [run({ id: "r1", status: "running", startedAt: "not-a-date" })];
+    expect(fixtureHasLiveRun(runs, "case-a", now)).toBe(false);
+  });
+});
+
 describe("groupClaimsByFamily", () => {
   test("groups in first-appearance order", () => {
     const claim = (id: string, family: string): Claim => ({
@@ -305,6 +351,21 @@ describe("readOnlyStatusLabel", () => {
     expect(readOnlyStatusLabel("partial")).toBe("partial");
     expect(readOnlyStatusLabel("unmeasured")).toBe("unmeasured");
     expect(readOnlyStatusLabel("proven")).toBe("proven");
+  });
+});
+
+describe("readOnlyProofCaseEntries", () => {
+  test("realized cases are inspectable (planned: false); unrealized intentions are planned", () => {
+    expect(
+      readOnlyProofCaseEntries({ fixtureCases: ["refusal-thin-input"], proofCases: ["refusal-thin-input", "adv-injection"] }),
+    ).toEqual([
+      { name: "refusal-thin-input", planned: false },
+      { name: "adv-injection", planned: true },
+    ]);
+  });
+
+  test("a risk-map-sourced claim (no proofCases) falls back to its fixture join, all realized", () => {
+    expect(readOnlyProofCaseEntries({ fixtureCases: ["golden-basic"] })).toEqual([{ name: "golden-basic", planned: false }]);
   });
 });
 
