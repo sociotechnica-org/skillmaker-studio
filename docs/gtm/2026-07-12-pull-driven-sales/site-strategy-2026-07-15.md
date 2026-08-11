@@ -285,6 +285,15 @@ payoffs: quality today, ownership tomorrow. This pass touches §3 row
 one, §4, §5, §6, and §8; the hero, credibility bar, and CTA structure
 are deliberately untouched — the felt symptom still opens the page.
 
+**Mapping to the live page.** The promoted infomercial (`/`, since
+2026-07-16) compresses this spine, so the pass lands there as: the
+lineup already carries the model suspects (§3's job); THE SECRET gains
+the GitHub grammar and the renting kicker (§4's job — the doc already
+ruled the secret is the compressed insight); the growth-program door
+already carries graduation (§5's job); the felt model-market symptoms
+land as a new objection, "We're all-in on one model anyway" (§8's
+job). Round 12 in `index.astro`'s header records the same.
+
 Rulings:
 
 1. **GitHub is grammar, not category.** "GitHub gave code custody"
