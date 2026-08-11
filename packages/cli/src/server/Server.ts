@@ -46,9 +46,14 @@ import {
   recordSkillVersion,
   removeMachineProject,
   resolveSkillVersion,
+  bundleMarkerExistsSync,
+  parseSkillJsonSync,
+  readBundleStructuredState,
+  resolveCaseDirSync,
+  DEFAULT_EXPECTED_FILENAME,
+  type SkillJsonCase,
   runFixture,
   runStation,
-  scanFixtures,
   shortHash,
   slugify,
   versionSnapshotDir,
@@ -56,6 +61,8 @@ import {
   Workspace,
   writeGradeFile,
   WorkspaceLayer,
+  DEFAULT_STATIONS_TEMPLATE,
+  SKILL_JSON_FILENAME,
   type Actor,
   type BundleLayout,
   type BundleLocation,
@@ -243,7 +250,7 @@ const resolveBundleDirs = async (
   const unresolved: string[] = [];
   for (const slug of slugs) {
     const conventionalDir = join(root, config.skillsDir, slug);
-    if (existsSync(join(conventionalDir, "bundle.json"))) {
+    if (bundleMarkerExistsSync(conventionalDir)) {
       dirs.set(slug, conventionalDir);
     } else {
       unresolved.push(slug);
@@ -378,8 +385,13 @@ const handleFieldReports = async (root: string, config: WorkspaceConfig): Promis
     Effect.gen(function* () {
       const byBundle = new Map<string, ReadonlyArray<FixtureCaseRecord>>();
       for (const bundle of reportedBundles) {
-        const scanned = yield* scanFixtures(bundleDirs.get(bundle) ?? join(root, config.skillsDir, bundle));
-        byBundle.set(bundle, scanned.cases);
+        // THE unified structured-state reader (THE MERGE): skill.json's
+        // `evals.cases` (which preserve harvest `source` verbatim) when the
+        // bundle is migrated, the legacy `case.json` scan otherwise.
+        const structured = yield* readBundleStructuredState(
+          bundleDirs.get(bundle) ?? join(root, config.skillsDir, bundle),
+        );
+        byBundle.set(bundle, structured.cases);
       }
       return byBundle;
     }).pipe(Effect.provide(BunServices.layer)),
@@ -1135,36 +1147,22 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
 };
 
 /**
- * The current stage's agent station, if the bundle has `stations.json` and
- * that stage has a `doer: "agent"` station configured -- what the viewer's
- * "Run station" button (OverviewTab) gates on. Deliberately lenient (returns
- * `null` on any missing/malformed input rather than failing the whole bundle
- * detail response): this is availability info for a button, not a
- * precondition check -- `StationEngine.runStation` re-validates for real
- * when the button is actually pressed. Takes the bundle's ACTUAL directory
- * (seam pass over #108/#109): `stations.json` is per-bundle-dir, and an
- * in-place-adopted bundle does not live at `<skillsDir>/<slug>`.
+ * The current stage's agent station, if the DEFAULT production line has a
+ * `doer: "agent"` station with a skill configured for it -- what the
+ * viewer's "Run station" button (OverviewTab) gates on. THE MERGE
+ * (2026-08-11 ruling): stations.json died; the production line is code
+ * (`Stations.DEFAULT_STATIONS_TEMPLATE`), so this no longer reads any
+ * per-bundle file. `StationEngine.runStation` re-validates for real when
+ * the button is actually pressed.
  */
 const readCurrentStageStation = (
-  bundleDir: string,
   stage: string,
 ): { readonly state: string; readonly skill: string } | null => {
-  try {
-    const stationsJsonPath = join(bundleDir, "stations.json");
-    if (!existsSync(stationsJsonPath)) {
-      return null;
-    }
-    const parsed = JSON.parse(readFileSync(stationsJsonPath, "utf8")) as {
-      readonly stations?: Record<string, { readonly doer?: unknown; readonly skill?: unknown }>;
-    };
-    const station = parsed.stations?.[stage];
-    if (station === undefined || station.doer !== "agent" || typeof station.skill !== "string") {
-      return null;
-    }
-    return { state: stage, skill: station.skill };
-  } catch {
+  const station = DEFAULT_STATIONS_TEMPLATE.stations[stage];
+  if (station === undefined || station.doer !== "agent" || typeof station.skill !== "string") {
     return null;
   }
+  return { state: stage, skill: station.skill };
 };
 
 /**
@@ -1251,7 +1249,7 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
   const bundleDir = detail.location?.dir ?? join(root, config.skillsDir, slug);
   const layout: BundleLayout = detail.location?.layout ?? "output-dir";
 
-  const station = readCurrentStageStation(bundleDir, bundle.stage);
+  const station = readCurrentStageStation(bundle.stage);
 
   // Lineage (issue #109): chain of custody replayed from the journal (the
   // SAME full `events` read above -- uncapped, unlike `recentEvents`) plus
@@ -1687,8 +1685,8 @@ const handleAdoptCandidates = async (root: string): Promise<Response> => {
     const candidates: Array<{ path: string; slug: string }> = [];
     for (const skillMdPath of result.skillMdFiles) {
       const dir = dirname(skillMdPath);
-      if (existsSync(join(dir, "bundle.json"))) {
-        continue; // already adopted
+      if (bundleMarkerExistsSync(dir)) {
+        continue; // already adopted (legacy bundle.json or merged skill.json)
       }
       const base = slugify(basename(dir));
       let slug = base;
@@ -1931,6 +1929,30 @@ const handleVersionSnapshotFile = async (
  * malformed `case.json` fields become honest nulls + a warning line, never
  * a hard failure -- the card shows what's wrong instead of going blank.
  */
+/**
+ * One case's metadata answer under THE MERGE precedence (matching
+ * `readBundleStructuredState`): when skill.json parses it answers
+ * WHOLESALE — a case it lists is `"skill-json"`, a case it does NOT list is
+ * `"skill-json-absent"` (the case does not exist; stale legacy case.json
+ * files are never consulted). Only when there is no usable skill.json does
+ * `"legacy"` send the caller to the per-case case.json. Sync on purpose —
+ * a per-request read with no Effect runtime. (Follow-up, noted: serve this
+ * from the SQLite index instead of re-reading disk per request.)
+ */
+type CaseMetadataAnswer =
+  | { readonly kind: "skill-json"; readonly entry: SkillJsonCase }
+  | { readonly kind: "skill-json-absent" }
+  | { readonly kind: "legacy" };
+
+const lookupCaseMetadata = (bundleDir: string, caseName: string): CaseMetadataAnswer => {
+  const scan = parseSkillJsonSync(join(bundleDir, SKILL_JSON_FILENAME));
+  if (scan.status !== "parsed") {
+    return { kind: "legacy" };
+  }
+  const entry = scan.cases.find((caseEntry) => caseEntry.name === caseName);
+  return entry !== undefined ? { kind: "skill-json", entry } : { kind: "skill-json-absent" };
+};
+
 const handleFixtureDetail = async (
   root: string,
   config: WorkspaceConfig,
@@ -1944,7 +1966,36 @@ const handleFixtureDetail = async (
   }
 
   const bundleDir = resolvePath(await resolveBundleDir(root, config, slug));
-  const caseDir = join(bundleDir, "evals", "fixtures", caseName);
+  const caseDir = resolveCaseDirSync(bundleDir, caseName);
+
+  const answer = lookupCaseMetadata(bundleDir, caseName);
+  if (answer.kind === "skill-json-absent") {
+    // skill.json answers WHOLESALE: a case it doesn't list does not exist,
+    // even if a stale legacy case.json is still sitting on disk.
+    return jsonResponse({ error: `no such fixture "${caseName}"` }, 404);
+  }
+  if (answer.kind === "skill-json") {
+    const caseEntry = answer.entry;
+    const promptMdPath = join(caseDir, "prompt.md");
+    const promptMd =
+      existsSync(promptMdPath) && statSync(promptMdPath).isFile() ? readFileSync(promptMdPath, "utf8") : null;
+    const expectedRel = caseEntry.expected ?? DEFAULT_EXPECTED_FILENAME;
+    return jsonResponse({
+      caseName,
+      class: caseEntry.class ?? null,
+      // schemaVersion 2 has no risks[] on cases -- the hypothesis→case
+      // edge lives on the claims (`proofCases`), already in the payload.
+      risks: [],
+      promptMd,
+      legacyPrompt: null,
+      grading: {
+        answerKey: existsSync(join(caseDir, expectedRel)) ? expectedRel : null,
+        checks: caseEntry.checks ?? [],
+      },
+      warnings: [],
+    });
+  }
+
   const caseJsonPath = join(caseDir, "case.json");
   if (!existsSync(caseJsonPath) || !statSync(caseJsonPath).isFile()) {
     return jsonResponse({ error: `no such fixture "${caseName}"` }, 404);
@@ -2150,8 +2201,18 @@ const handleRunDetail = async (
   let activated: boolean | null = null;
   const runRecord = run as { readonly fixtureCase?: unknown; readonly skillInvoked?: unknown };
   if (typeof runRecord.fixtureCase === "string") {
-    const caseJsonPath = join(bundleDir, "evals", "fixtures", runRecord.fixtureCase, "case.json");
-    if (existsSync(caseJsonPath)) {
+    // THE MERGE precedence, shared with handleFixtureDetail: when
+    // skill.json parses it answers wholesale (an unlisted case yields no
+    // checks -- stale legacy case.json is never consulted).
+    const answer = lookupCaseMetadata(bundleDir, runRecord.fixtureCase);
+    if (answer.kind === "skill-json") {
+      checks = answer.entry.checks ?? [];
+      if (answer.entry.class === "trigger") {
+        activated = didSkillActivate(transcript, slug);
+      }
+    }
+    const caseJsonPath = join(resolveCaseDirSync(bundleDir, runRecord.fixtureCase), "case.json");
+    if (answer.kind === "legacy" && existsSync(caseJsonPath)) {
       try {
         const parsed = JSON.parse(readFileSync(caseJsonPath, "utf8")) as {
           readonly class?: unknown;
@@ -2214,10 +2275,10 @@ const handleTriggerRun = async (
   // (`Effect.ignore`) -- a silent no-op, strictly worse. The two prechecks
   // must move together with the engine.
   const bundleDir = join(root, config.skillsDir, slug);
-  if (!existsSync(join(bundleDir, "bundle.json"))) {
+  if (!bundleMarkerExistsSync(bundleDir)) {
     return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
   }
-  const caseDir = join(bundleDir, "evals", "fixtures", caseName);
+  const caseDir = resolveCaseDirSync(bundleDir, caseName);
   if (!existsSync(join(caseDir, "prompt.md"))) {
     return jsonResponse({ error: `fixture "${caseName}" has no prompt.md (bundle "${slug}")` }, 409);
   }
@@ -2317,7 +2378,7 @@ const handleTriggerStationRun = async (
   // above -- `StationEngine.runStation` resolves `<skillsDir>/<slug>`
   // itself; this precheck moves when the engine does.
   const bundleDir = join(root, config.skillsDir, slug);
-  if (!existsSync(join(bundleDir, "bundle.json"))) {
+  if (!bundleMarkerExistsSync(bundleDir)) {
     return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
   }
 

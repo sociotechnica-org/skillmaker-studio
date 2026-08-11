@@ -24,6 +24,7 @@ import {
   Workspace,
   type FieldReportOutcome,
   type RecordFieldReportResult,
+  bundleMarkerExists,
 } from "@skillmaker/core";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
@@ -81,7 +82,7 @@ export const runReport = Effect.fn("runReport")(function* (
   const path = yield* Path;
   const bundleDir = path.join(resolved.root, resolved.config.skillsDir, slug);
 
-  const bundleExists = yield* fs.exists(path.join(bundleDir, "bundle.json"));
+  const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
     return expectedFailure(`skillmaker report: no such bundle "${slug}"\n`);
   }

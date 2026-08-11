@@ -338,8 +338,8 @@ export class BundleDetailResponse extends Schema.Class<BundleDetailResponse>(
   versions: Schema.Array(VersionRecord),
   fixtures: Schema.Array(FixtureRecord),
   riskCoverage: Schema.Array(RiskCoverageRecord),
-  /** Which source `riskCoverage` came from (evals.json read-side bridge): root `evals.json` when it exists and parses, else the legacy risk-map. Optional: absent on pre-bridge servers. */
-  claimsSource: Schema.optionalKey(Schema.Literals(["evals.json", "risk-map"])),
+  /** Which source `riskCoverage` came from: the merged `skill.json` (THE MERGE, schemaVersion 2) when present, else root `evals.json`, else the legacy risk-map. Optional: absent on pre-bridge servers. */
+  claimsSource: Schema.optionalKey(Schema.Literals(["skill.json", "evals.json", "risk-map"])),
   warnings: Schema.Array(WarningRecord),
   runs: Schema.Array(RunRecord),
   measurements: Schema.Array(MeasurementRecord),

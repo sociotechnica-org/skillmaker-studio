@@ -84,10 +84,14 @@ describe("Workspace.init / resolve / createBundle", () => {
         expect(first.status).toBe("created");
 
         const bundleDir = path.join(dir, "skills", "my-first-skill");
-        for (const relative of ["bundle.json", "stations.json", "design.md"]) {
+        for (const relative of ["bundle.json", "design.md"]) {
           const exists = yield* fs.exists(path.join(bundleDir, relative));
           expect(exists).toBe(true);
         }
+        // stations.json is no longer scaffolded (THE MERGE, 2026-08-11):
+        // the production line is code.
+        const stationsExists = yield* fs.exists(path.join(bundleDir, "stations.json"));
+        expect(stationsExists).toBe(false);
         for (const relative of ["research", "evals/fixtures", "output", "runs"]) {
           const exists = yield* fs.exists(path.join(bundleDir, relative, ".gitkeep"));
           expect(exists).toBe(true);

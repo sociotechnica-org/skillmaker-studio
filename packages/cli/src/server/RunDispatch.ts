@@ -36,13 +36,15 @@
  * fiber is lost.
  */
 import {
+  bundleMarkerExistsSync,
   JournalLayer,
   machineHome,
+  readBundleStructuredState,
   readMachineSettings,
+  resolveCaseDirSync,
   resolveRunChoices,
   type ResolvedRunChoices,
   runFixture,
-  scanFixtures,
   type WorkspaceConfig,
 } from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
@@ -309,7 +311,7 @@ export const createRunDispatchHandlers = (options: {
 
   const handleRun = async (slug: string, request: Request): Promise<Response> => {
     const bundleDir = bundleDirOf(slug);
-    if (!existsSync(join(bundleDir, "bundle.json"))) {
+    if (!bundleMarkerExistsSync(bundleDir)) {
       return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
     }
     const parsed = await parseBody(request);
@@ -326,8 +328,8 @@ export const createRunDispatchHandlers = (options: {
     if (/[/\\]/.test(fixture) || fixture.startsWith(".")) {
       return jsonResponse({ error: `no such fixture "${fixture}" in bundle "${slug}"` }, 404);
     }
-    const caseDir = join(bundleDir, "evals", "fixtures", fixture);
-    if (!existsSync(join(caseDir, "case.json"))) {
+    const caseDir = resolveCaseDirSync(bundleDir, fixture);
+    if (!existsSync(caseDir)) {
       return jsonResponse({ error: `no such fixture "${fixture}" in bundle "${slug}"` }, 404);
     }
     if (!existsSync(join(caseDir, "prompt.md"))) {
@@ -351,7 +353,7 @@ export const createRunDispatchHandlers = (options: {
 
   const handleRunAll = async (slug: string, request: Request): Promise<Response> => {
     const bundleDir = bundleDirOf(slug);
-    if (!existsSync(join(bundleDir, "bundle.json"))) {
+    if (!bundleMarkerExistsSync(bundleDir)) {
       return jsonResponse({ error: `no such bundle "${slug}"` }, 404);
     }
     const parsed = await parseBody(request);
@@ -361,9 +363,13 @@ export const createRunDispatchHandlers = (options: {
     const settings = validateProviderAndModel(parsed.body);
     if (settings instanceof Response) return settings;
 
-    // Fixture order = scanFixtures order (sorted directory names), the same
-    // enumeration the index and CLI use. Only promptable fixtures run.
-    const scanned = await Effect.runPromise(scanFixtures(bundleDir).pipe(Effect.provide(BunServices.layer)));
+    // Case order = the unified structured-state reader's order (skill.json's
+    // evals.cases for a migrated bundle, sorted case.json directories for a
+    // legacy one) -- the same enumeration the index uses. Only promptable
+    // cases run.
+    const scanned = await Effect.runPromise(
+      readBundleStructuredState(bundleDir).pipe(Effect.provide(BunServices.layer)),
+    );
     const fixtures = scanned.cases.filter((c) => c.hasPromptMd).map((c) => c.caseName);
     if (fixtures.length === 0) {
       return jsonResponse({ error: `bundle "${slug}" has no runnable fixtures (none with prompt.md)` }, 409);

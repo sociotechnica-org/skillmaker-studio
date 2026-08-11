@@ -1,7 +1,11 @@
 /**
- * `skills/<slug>/stations.json` — per-bundle work config (source class),
- * copied — not referenced — from an app-level template at `skillmaker new`
- * (data-model.md §2.13).
+ * The production line — IN CODE (THE MERGE, director ruling 2026-08-11:
+ * per-bundle `stations.json` died; nothing reads or writes it anymore, and
+ * the migration script deletes leftovers). `DEFAULT_STATIONS_TEMPLATE` is
+ * the one line every bundle runs; which helper skill serves which CHAT
+ * stage lives separately in ChatSessions.ts's HELPER_SKILL_SLUGS. The
+ * `StationsFile` schema survives only as the historical shape of the dead
+ * file (the migration script tolerates and removes it).
  */
 import { Schema } from "effect";
 

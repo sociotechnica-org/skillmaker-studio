@@ -86,6 +86,7 @@ export {
 } from "./Measurements.ts";
 export {
   scanFixtures,
+  parseFixtureSource,
   writeFixtureScaffold,
   FIXTURE_CLASSES,
   FixtureClass,
@@ -117,13 +118,47 @@ export {
 export {
   parseEvalsJson,
   claimRowsFromEvals,
+  deriveClaimRow,
+  parseHypothesisCore,
   CLAIMS_SOURCES,
   type ClaimsSource,
   type EvalsProofSpec,
   type EvalsFailureHypothesis,
+  type HypothesisCoreFields,
   type EvalsJsonStatus,
   type ParseEvalsJsonResult,
 } from "./EvalsJson.ts";
+export {
+  buildSkillJsonDocument,
+  type LegacyBundleSnapshot,
+  type BuildResult,
+} from "./SkillJsonMigration.ts";
+export {
+  parseSkillJson,
+  parseSkillJsonSync,
+  readBundleStructuredState,
+  readBundleIdentitySync,
+  claimRowsFromSkillJson,
+  identityFromSkillJson,
+  casesRoot,
+  casesRootSync,
+  resolveCaseDirSync,
+  bundleMarkerExists,
+  bundleMarkerExistsSync,
+  SKILL_JSON_FILENAME,
+  SKILL_JSON_SCHEMA_VERSION,
+  DEFAULT_EXPECTED_FILENAME,
+  SkillJsonConfig,
+  type SkillJsonSkill,
+  type SkillJsonHypothesis,
+  type SkillJsonCase,
+  type SkillJsonSandbox,
+  type SkillJsonStatus,
+  type ParseSkillJsonResult,
+  type ReadBundleStructuredStateOptions,
+  type BundleStateWarning,
+  type BundleStructuredState,
+} from "./SkillJson.ts";
 export {
   hashFile,
   hashOutputTree,

@@ -27,12 +27,17 @@ import { BundleIdentity } from "./Bundle.ts";
 import type { BundleStage, BundleSubstate } from "./Bundle.ts";
 import { BundleState } from "./Bundle.ts";
 import { IndexError, JournalReadError, WorkspaceIOError } from "./Errors.ts";
-import { checkCoverage, COVERAGE_VALUES, parseRiskMap } from "./RiskMap.ts";
+import { COVERAGE_VALUES } from "./RiskMap.ts";
 import type { CoverageValue } from "./RiskMap.ts";
-import { claimRowsFromEvals, parseEvalsJson } from "./EvalsJson.ts";
 import type { ClaimsSource } from "./EvalsJson.ts";
-import { scanFixtures } from "./Fixtures.ts";
 import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
+import {
+  identityFromSkillJson,
+  parseSkillJson,
+  readBundleStructuredState,
+  SKILL_JSON_FILENAME,
+  type ParseSkillJsonResult,
+} from "./SkillJson.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
 import { latestGrade, readGradeLanes } from "./Grades.ts";
 import { compareTodos, foldTodos, isSwept } from "./FoldTodos.ts";
@@ -931,12 +936,13 @@ export const layer = (
       const scanBundleIdentities = Effect.fn("IndexService.scanBundleIdentities")(function* () {
         const identities = new Map<string, BundleIdentityLocation>();
         const warnings: WarningRecord[] = [];
+        const skillJsonScans = new Map<string, ParseSkillJsonResult>();
 
         const rootExists = yield* fs
           .exists(workspaceRoot)
           .pipe(Effect.mapError(toIndexError(`could not check ${workspaceRoot}`)));
         if (!rootExists) {
-          return { identities, warnings };
+          return { identities, warnings, skillJsonScans };
         }
 
         const stack: string[] = [workspaceRoot];
@@ -972,6 +978,7 @@ export const layer = (
           // subtrees pruned below.
           const subdirectories: string[] = [];
           let hasBundleJson = false;
+          let hasSkillJson = false;
           for (const entry of sortedEntries) {
             const full = join(dir, entry);
             const info = yield* fs.stat(full).pipe(Effect.mapError(toIndexError(`could not stat ${full}`)));
@@ -985,7 +992,13 @@ export const layer = (
             if (info.type === "File" && entry === "bundle.json") {
               hasBundleJson = true;
             }
+            // THE MERGE: `skill.json` (schemaVersion 2) marks a bundle root
+            // exactly as `bundle.json` did -- a migrated bundle has ONLY it.
+            if (info.type === "File" && entry === SKILL_JSON_FILENAME) {
+              hasSkillJson = true;
+            }
           }
+          const hasBundleMarker = hasBundleJson || hasSkillJson;
           for (const entry of subdirectories) {
             // Appendix fault #2 (2026-07-20 proposal): a bundle's own
             // `evals/` and `runs/` trees hold PROPS and CAPTURES -- a
@@ -1002,38 +1015,66 @@ export const layer = (
             // #118's first-class fixtures are unaffected: they surface via
             // `scanFixtures` + `GET /api/bundles/:slug/fixtures/:case`,
             // never via this catalog scan.
-            if (hasBundleJson && BUNDLE_INTERNAL_SKIP_DIR_NAMES.has(entry)) {
+            if (hasBundleMarker && BUNDLE_INTERNAL_SKIP_DIR_NAMES.has(entry)) {
               continue;
             }
             stack.push(join(dir, entry));
           }
 
-          if (!hasBundleJson) {
+          if (!hasBundleMarker) {
             continue;
           }
 
-          const bundleJsonPath = join(dir, "bundle.json");
-          const relativeLabel = relative(workspaceRoot, bundleJsonPath).split(sep).join("/");
+          // THE MERGE: identity from `skill.json`'s `skill` section when the
+          // merged file is present (it WINS over a stray legacy bundle.json),
+          // else from `bundle.json`. Defects fall through tolerantly: an
+          // unusable skill.json identity falls back to bundle.json when one
+          // exists, and a directory with no usable identity at all is warned
+          // and skipped, exactly as a malformed bundle.json always was.
+          let identity: BundleIdentity | undefined;
+          let dirSkillScan: ParseSkillJsonResult | undefined;
+          if (hasSkillJson) {
+            const skillJsonPath = join(dir, SKILL_JSON_FILENAME);
+            const skillLabel = relative(workspaceRoot, skillJsonPath).split(sep).join("/");
+            const skillScan = yield* parseSkillJson(skillJsonPath).pipe(
+              Effect.provideService(FileSystem, fs),
+              Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not read ${skillJsonPath}`)(cause)),
+            );
+            dirSkillScan = skillScan;
+            identity = skillScan.status === "parsed" ? identityFromSkillJson(skillScan) : undefined;
+            if (identity === undefined) {
+              warnings.push({
+                source: "skill.json",
+                message: `${skillLabel} has no usable identity${hasBundleJson ? "; falling back to bundle.json" : " and was skipped"}`,
+              });
+            }
+          }
+          if (identity === undefined && hasBundleJson) {
+            const bundleJsonPath = join(dir, "bundle.json");
+            const relativeLabel = relative(workspaceRoot, bundleJsonPath).split(sep).join("/");
 
-          const attempt = Effect.gen(function* () {
-            const raw = yield* fs.readFileString(bundleJsonPath);
-            const parsed = yield* Effect.try({
-              try: () => JSON.parse(raw) as unknown,
-              catch: (cause) => cause,
+            const attempt = Effect.gen(function* () {
+              const raw = yield* fs.readFileString(bundleJsonPath);
+              const parsed = yield* Effect.try({
+                try: () => JSON.parse(raw) as unknown,
+                catch: (cause) => cause,
+              });
+              return yield* Schema.decodeUnknownEffect(BundleIdentity)(parsed);
             });
-            return yield* Schema.decodeUnknownEffect(BundleIdentity)(parsed);
-          });
 
-          const outcome = yield* Effect.result(attempt);
-          if (outcome._tag === "Failure") {
-            warnings.push({
-              source: "bundle.json",
-              message: `${relativeLabel} is malformed and was skipped: ${String(outcome.failure)}`,
-            });
+            const outcome = yield* Effect.result(attempt);
+            if (outcome._tag === "Failure") {
+              warnings.push({
+                source: "bundle.json",
+                message: `${relativeLabel} is malformed and was skipped: ${String(outcome.failure)}`,
+              });
+            } else {
+              identity = outcome.success;
+            }
+          }
+          if (identity === undefined) {
             continue;
           }
-
-          const identity = outcome.success;
           const markerPath = join(dir, ADOPT_MARKER_FILENAME);
           const markerExists = yield* fs
             .exists(markerPath)
@@ -1070,7 +1111,7 @@ export const layer = (
             warnings.push({
               bundle: identity.slug,
               source: "bundle.json",
-              message: `duplicate bundle.json for slug "${identity.slug}" at ${relativeLabel} (already found at ${relative(workspaceRoot, existing.dir).split(sep).join("/")}) was skipped`,
+              message: `duplicate bundle identity for slug "${identity.slug}" at ${relative(workspaceRoot, dir).split(sep).join("/")} (already found at ${relative(workspaceRoot, existing.dir).split(sep).join("/")}) was skipped`,
             });
             continue;
           }
@@ -1081,9 +1122,15 @@ export const layer = (
             ...(upstream !== undefined ? { upstream } : {}),
             ...(forkOf !== undefined ? { forkOf } : {}),
           });
+          // One rebuild parses each bundle's skill.json exactly once: the
+          // scan this walk already ran is handed to the structured-state
+          // read below via `RebuildResult`'s slug keying.
+          if (dirSkillScan !== undefined) {
+            skillJsonScans.set(identity.slug, dirSkillScan);
+          }
         }
 
-        return { identities, warnings };
+        return { identities, warnings, skillJsonScans };
       });
 
       const buildTodoRecords = (todos: ReadonlyMap<string, Todo>, now: Date): TodoRecord[] =>
@@ -1271,7 +1318,7 @@ export const layer = (
       };
 
       const rebuild = Effect.fn("IndexService.rebuild")(function* () {
-        const { identities, warnings } = yield* scanBundleIdentities();
+        const { identities, warnings, skillJsonScans } = yield* scanBundleIdentities();
         const events = yield* journal.readAll();
         const states = foldBundleStates(events);
         const todos = foldTodos(events);
@@ -1372,7 +1419,11 @@ export const layer = (
 
           const versions = versionsBySlug.get(slug);
           for (const version of versions ?? []) {
-            const triple = `${slug} ${version.hash} ${version.designHash}`;
+            // NUL-separated dedupe key (as an ESCAPE, never a literal byte --
+            // raw NULs in source made file(1)/grep treat this file as binary):
+            // no slug or hash can contain U+0000, so the triple can never
+            // collide across fields.
+            const triple = `${slug}\u0000${version.hash}\u0000${version.designHash}`;
             if (seenVersionTriples.has(triple)) {
               warnings.push({
                 bundle: slug,
@@ -1407,57 +1458,35 @@ export const layer = (
           );
           const drift = computeDrift(hashes, latest);
 
-          // Fixtures + risk-map: the honesty layer (data-model.md §2.5/§2.6,
-          // plan.md Phase 7). Both tolerate missing directories/files (an
-          // "idea"-stage or journal-only ghost bundle has neither) and
-          // report defects as warnings, never failures (ruling I).
-          const fixtureScan = yield* scanFixtures(bundleDir).pipe(
+          // Fixtures + claims: the honesty layer (data-model.md §2.5/§2.6),
+          // read through THE single structured-state entry point (THE MERGE,
+          // SkillJson.readBundleStructuredState): a bundle-root `skill.json`
+          // WINS when present (cases from `evals.cases`, claims from
+          // `design.failureHypotheses`, coverage derived from which pointed
+          // cases are realized on disk); otherwise the legacy chain answers
+          // (`evals/fixtures/*/case.json` scan + root `evals.json`, else
+          // `evals/risk-map.md`). One source wins, never merged; every
+          // defect degrades to a warning (ruling I), and `claimsSources`
+          // records which source won so the payload can say.
+          const cachedScan = skillJsonScans.get(slug);
+          const structured = yield* readBundleStructuredState(
+            bundleDir,
+            cachedScan !== undefined ? { skillJsonScan: cachedScan } : undefined,
+          ).pipe(
             Effect.provideService(FileSystem, fs),
-            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not scan fixtures for "${slug}"`)(cause)),
+            Effect.mapError((cause: WorkspaceIOError) =>
+              toIndexError(`could not read structured state for "${slug}"`)(cause),
+            ),
           );
-          for (const warning of fixtureScan.warnings) {
-            warnings.push({ bundle: slug, source: "fixtures", message: warning });
+          for (const warning of structured.warnings) {
+            warnings.push({ bundle: slug, source: warning.source, message: warning.message });
           }
-          for (const fixtureCase of fixtureScan.cases) {
+          for (const fixtureCase of structured.cases) {
             fixtureRecords.push({ bundle: slug, ...fixtureCase });
           }
-
-          // Claims precedence (evals.json read-side bridge, director ruling
-          // in docs/friction/e2e-readiness.md): a bundle-root `evals.json`
-          // that exists and parses IS the claims source; `evals/risk-map.md`
-          // is the legacy fallback. Never merged — one source wins, and
-          // `claimsSources` records which so the payload can say.
-          const evalsScan = yield* parseEvalsJson(join(bundleDir, "evals.json")).pipe(
-            Effect.provideService(FileSystem, fs),
-            Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not parse evals.json for "${slug}"`)(cause)),
-          );
-          for (const warning of evalsScan.warnings) {
-            warnings.push({ bundle: slug, source: "evals.json", message: warning });
-          }
-          if (evalsScan.status === "parsed") {
-            claimsSources.set(slug, "evals.json");
-            const caseNames = fixtureScan.cases.map((fixtureCase) => fixtureCase.caseName);
-            for (const row of claimRowsFromEvals(evalsScan.hypotheses, caseNames)) {
-              riskCoverageRecords.push({ bundle: slug, ...row });
-            }
-            // No `checkCoverage` here: `claimRowsFromEvals` only links
-            // fixture cases that actually exist (unrealized proof specs
-            // stay intentions in `proofCases`, honestly `gap`/`partial`).
-          } else {
-            claimsSources.set(slug, "risk-map");
-            const riskMapScan = yield* parseRiskMap(join(bundleDir, "evals", "risk-map.md")).pipe(
-              Effect.provideService(FileSystem, fs),
-              Effect.mapError((cause: WorkspaceIOError) => toIndexError(`could not parse risk-map for "${slug}"`)(cause)),
-            );
-            for (const warning of riskMapScan.warnings) {
-              warnings.push({ bundle: slug, source: "risk-map", message: warning });
-            }
-            for (const row of riskMapScan.rows) {
-              riskCoverageRecords.push({ bundle: slug, ...row });
-            }
-            for (const warning of checkCoverage(riskMapScan.rows, fixtureScan.cases)) {
-              warnings.push({ bundle: slug, source: "risk-map", message: warning });
-            }
+          claimsSources.set(slug, structured.claimsSource);
+          for (const row of structured.claims) {
+            riskCoverageRecords.push({ bundle: slug, ...row });
           }
 
           // Runs: scan `runs/<id>/run.json` files (data-model.md §2.8,

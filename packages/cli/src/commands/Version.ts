@@ -28,6 +28,7 @@ import {
   resolveSkillVersion,
   shortHash,
   Workspace,
+  bundleMarkerExists,
 } from "@skillmaker/core";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
@@ -71,7 +72,7 @@ export const runVersionRecord = Effect.fn("runVersionRecord")(function* (
   const path = yield* Path;
   const bundleDir = path.join(resolved.root, resolved.config.skillsDir, slug);
 
-  const bundleExists = yield* fs.exists(path.join(bundleDir, "bundle.json"));
+  const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
     return expectedFailure(`skillmaker version record: no such bundle "${slug}"\n`);
   }
@@ -141,7 +142,7 @@ export const runVersionShow = Effect.fn("runVersionShow")(function* (
   // resolve the real directory.)
   const bundleDir = path.join(resolved.root, resolved.config.skillsDir, slug);
 
-  const bundleExists = yield* fs.exists(path.join(bundleDir, "bundle.json"));
+  const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
     return expectedFailure(`skillmaker version show: no such bundle "${slug}"\n`);
   }

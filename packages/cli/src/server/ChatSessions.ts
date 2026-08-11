@@ -35,7 +35,9 @@
  */
 import {
   AcpClient,
+  casesRootSync,
   composeModelId,
+  readBundleIdentitySync,
   fallbackCatalogEntry,
   makeChatPermissionPolicy,
   mapProviderCatalog,
@@ -299,7 +301,8 @@ const hasFixtures = (fixturesDir: string): boolean => {
  * design.md is LATE researching, never auto-drafting); nothing yet -> idea.
  */
 export const deriveArtifactStage = (bundleDir: string): PreambleStage => {
-  if (hasFixtures(join(bundleDir, "evals", "fixtures"))) return "published";
+  // Layout-aware (THE MERGE): evals/cases/ post-merge, evals/fixtures/ legacy.
+  if (hasFixtures(casesRootSync(bundleDir))) return "published";
   if (existsSync(join(bundleDir, "output", "SKILL.md"))) return "evaluating";
   if (designHasContent(join(bundleDir, "design.md"))) return "researching";
   if (existsSync(join(bundleDir, "research", "notes.md"))) return "researching";
@@ -321,13 +324,10 @@ export const readPreambleContext = (
   slug: string,
   installedHelpers: ReadonlyArray<string>,
 ): PreambleContext => {
-  let oneLiner = "";
-  try {
-    const identity: unknown = JSON.parse(readFileSync(join(root, skillsDir, slug, "bundle.json"), "utf8"));
-    if (isRecord(identity) && typeof identity.oneLiner === "string") oneLiner = identity.oneLiner;
-  } catch {
-    // No bundle.json (or malformed): the preamble drops the one-liner clause.
-  }
+  // Identity with THE MERGE precedence (skill.json first, bundle.json
+  // fallback); no usable identity degrades to an empty one-liner and the
+  // preamble drops its clause.
+  const oneLiner = readBundleIdentitySync(join(root, skillsDir, slug))?.oneLiner ?? "";
   let stage: PreambleStage = "idea";
   try {
     const lines = readFileSync(join(root, ".skillmaker", "events.jsonl"), "utf8").split("\n");

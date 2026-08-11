@@ -27,6 +27,7 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import { BundleIdentity } from "./Bundle.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { classifyIntakeEvidence, type IntakeEvidence, type IntakeRegistry } from "./Receive.ts";
+import { bundleMarkerExists } from "./SkillJson.ts";
 import { ADOPT_EXCLUDED_NAMES, ADOPT_MARKER_FILENAME, hashOutputTree, isNestedGitCheckout, WORKSPACE_SCAN_SKIP_DIR_NAMES } from "./Versions.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -582,11 +583,9 @@ export const adoptWorkspace = Effect.fn("Adopt.adoptWorkspace")(function* (
   for (const skillMdPath of skillMdFiles) {
     const dir = dirname(skillMdPath);
     const relativePath = relative(root, dir);
-    const bundleJsonPath = join(dir, "bundle.json");
 
-    const alreadyAdopted = yield* fs
-      .exists(bundleJsonPath)
-      .pipe(Effect.mapError(toIOError(`could not check ${bundleJsonPath}`)));
+    // Legacy bundle.json OR merged skill.json (THE MERGE) both mean adopted.
+    const alreadyAdopted = yield* bundleMarkerExists(dir);
     if (alreadyAdopted) {
       skipped.push({ relativePath, reason: "already-adopted" });
       continue;
