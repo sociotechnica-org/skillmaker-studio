@@ -36,6 +36,7 @@ import type { Actor } from "./Actor.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
+import { bundleMarkerExists } from "./SkillJson.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
@@ -103,10 +104,7 @@ export const repairRuns = Effect.fn("RunRepair.repairRuns")(function* (input: Ru
   const journal = yield* Journal;
 
   const bundleDir = path.join(input.root, input.config.skillsDir, input.bundle);
-  const bundleJsonPath = path.join(bundleDir, "bundle.json");
-  const bundleExists = yield* fs
-    .exists(bundleJsonPath)
-    .pipe(Effect.mapError(toIOError(`could not check ${bundleJsonPath}`)));
+  const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
     return yield* Effect.fail(
       RunRepairNotFoundError.make({ message: `no such bundle "${input.bundle}"` }),

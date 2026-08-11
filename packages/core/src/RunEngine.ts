@@ -31,6 +31,7 @@ import type { Actor } from "./Actor.ts";
 import { WorkspaceIOError } from "./Errors.ts";
 import { Journal } from "./JournalService.ts";
 import type { RunStatus } from "./Run.ts";
+import { bundleMarkerExists, casesRoot } from "./SkillJson.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
   computeBundleHashes,
@@ -123,17 +124,18 @@ export const runFixture = Effect.fn("RunEngine.runFixture")(function* (input: Ru
   const journal = yield* Journal;
 
   const bundleDir = path.join(input.root, input.config.skillsDir, input.bundle);
-  const bundleJsonPath = path.join(bundleDir, "bundle.json");
-  const bundleExists = yield* fs
-    .exists(bundleJsonPath)
-    .pipe(Effect.mapError(toIOError(`could not check ${bundleJsonPath}`)));
+  // THE MERGE: `skill.json` (schemaVersion 2) marks a migrated bundle root;
+  // `bundle.json` marks a legacy one. Either counts.
+  const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
     return yield* Effect.fail(
       RunPreconditionError.make({ message: `no such bundle "${input.bundle}"` }),
     );
   }
 
-  const caseDir = path.join(bundleDir, "evals", "fixtures", input.fixtureCase);
+  // Layout-aware case materials: `evals/cases/<name>/` post-merge,
+  // `evals/fixtures/<name>/` legacy.
+  const caseDir = path.join(yield* casesRoot(bundleDir), input.fixtureCase);
   const promptPath = path.join(caseDir, "prompt.md");
   const promptExists = yield* fs
     .exists(promptPath)

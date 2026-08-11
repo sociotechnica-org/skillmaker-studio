@@ -150,11 +150,16 @@ beforeAll(() => {
   // The station's skill: a bundle in the SAME workspace whose output/ gets
   // installed into the sandbox. Its own content doesn't matter here -- the
   // fake adapter does the "work" -- only that it exists with an output/.
-  expect(runCli(["new", "fake-station-skill", "--json"], scratchDir).exitCode).toBe(0);
-  skillBundleDir = join(scratchDir, "skills", "fake-station-skill");
+  // THE MERGE (2026-08-11): the production line is code, so the drafting
+  // station's skill slug is fixed ("william-draft-skill-md"); the WORKSPACE
+  // copy of that slug wins over the packaged one (resolveStationSkillDir),
+  // which is exactly how this test injects its stand-in now that per-bundle
+  // stations.json no longer exists.
+  expect(runCli(["new", "william-draft-skill-md", "--json"], scratchDir).exitCode).toBe(0);
+  skillBundleDir = join(scratchDir, "skills", "william-draft-skill-md");
   writeFileSync(
     join(skillBundleDir, "output", "SKILL.md"),
-    "---\nname: fake-station-skill\ndescription: test-only stand-in for william-draft-skill-md.\n---\n\nDo the thing.\n",
+    "---\nname: william-draft-skill-md\ndescription: test-only stand-in for william-draft-skill-md.\n---\n\nDo the thing.\n",
   );
 
   // The bundle under production. Advance it to "drafting" via --override so
@@ -162,15 +167,6 @@ beforeAll(() => {
   expect(runCli(["new", "example-skill", "--json"], scratchDir).exitCode).toBe(0);
   bundleDir = join(scratchDir, "skills", "example-skill");
   writeFileSync(join(bundleDir, "design.md"), "# Example Skill\n\nInitial design notes.\n");
-
-  // Point the bundle's drafting station at our fake skill bundle.
-  const stationsPath = join(bundleDir, "stations.json");
-  const stations = JSON.parse(readFileSync(stationsPath, "utf8")) as {
-    stations: Record<string, { skill?: string }>;
-  };
-  const drafting = stations.stations.drafting;
-  if (drafting !== undefined) drafting.skill = "fake-station-skill";
-  writeFileSync(stationsPath, `${JSON.stringify(stations, null, 2)}\n`);
 
   expect(
     runCli(["advance", "example-skill", "--to", "researching", "--override", "--json"], scratchDir).exitCode,
@@ -196,7 +192,7 @@ describe("skillmaker station run: the drafting station, mocked", () => {
     expect(result.exitCode).toBe(0);
     expect(json?.status).toBe("completed");
     expect(json?.state).toBe("drafting");
-    expect(json?.skill).toBe("fake-station-skill");
+    expect(json?.skill).toBe("william-draft-skill-md");
     expect(json?.changedPaths).toContain("design.md");
     expect(json?.changedPaths).toContain("output/SKILL.md");
     expect(json?.reviewRequested).toBe(true);

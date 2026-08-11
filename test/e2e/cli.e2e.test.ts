@@ -79,7 +79,9 @@ describe("skillmaker CLI end-to-end", () => {
 
     const bundleDir = join(scratchDir, "skills", "my-first-skill");
     expect(existsSync(join(bundleDir, "bundle.json"))).toBe(true);
-    expect(existsSync(join(bundleDir, "stations.json"))).toBe(true);
+    // stations.json is no longer scaffolded (THE MERGE, 2026-08-11): the
+    // production line is code.
+    expect(existsSync(join(bundleDir, "stations.json"))).toBe(false);
     expect(existsSync(join(bundleDir, "design.md"))).toBe(true);
     for (const relative of ["research", "evals/fixtures", "output", "runs"]) {
       expect(existsSync(join(bundleDir, relative, ".gitkeep"))).toBe(true);

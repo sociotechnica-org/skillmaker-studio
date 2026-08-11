@@ -63,6 +63,7 @@ import { layer as IndexServiceLayer, IndexService } from "./IndexService.ts";
 import { Journal } from "./JournalService.ts";
 import { CLAUDE_CODE_CONFIG_DIR_ENV_VAR } from "./ProviderProfile.ts";
 import { checkPublishable } from "./Publish.ts";
+import { SKILL_JSON_FILENAME } from "./SkillJson.ts";
 import {
   ADOPT_EXCLUDED_NAMES,
   collectOutputFiles,
@@ -237,11 +238,31 @@ const gatherEvidence = (workspaceRoot: string, bundle: string, versionHash: stri
 // Remembered targets (bundle.json `publishTargets`)
 // ---------------------------------------------------------------------------
 
-/** Reads the remembered install audiences from `<bundleDir>/bundle.json` -- tolerant: a missing/malformed file or field reads as "nothing remembered". */
+/**
+ * Reads the remembered install audiences -- from `skill.json`'s
+ * `publish.targets` on a migrated bundle (THE MERGE: it absorbed
+ * bundle.json's `publishTargets` verbatim), else from
+ * `<bundleDir>/bundle.json`. Tolerant: a missing/malformed file or field
+ * reads as "nothing remembered".
+ */
 export const readRememberedInstallTargets = Effect.fn("InstallPublish.readRememberedInstallTargets")(
   function* (bundleDir: string) {
     const fs = yield* FileSystem;
     const path = yield* Path;
+    const skillJsonPath = path.join(bundleDir, SKILL_JSON_FILENAME);
+    const skillJsonExists = yield* fs.exists(skillJsonPath).pipe(Effect.orElseSucceed(() => false));
+    if (skillJsonExists) {
+      const raw = yield* fs.readFileString(skillJsonPath).pipe(Effect.orElseSucceed(() => ""));
+      try {
+        const parsed = JSON.parse(raw) as { readonly publish?: { readonly targets?: unknown } };
+        const field = parsed.publish?.targets;
+        return Array.isArray(field)
+          ? field.filter(isInstallAudience)
+          : ([] as ReadonlyArray<InstallAudience>);
+      } catch {
+        return [] as ReadonlyArray<InstallAudience>;
+      }
+    }
     const bundleJsonPath = path.join(bundleDir, "bundle.json");
     const exists = yield* fs
       .exists(bundleJsonPath)
@@ -274,6 +295,41 @@ export const rememberInstallTargets = Effect.fn("InstallPublish.rememberInstallT
 ) {
   const fs = yield* FileSystem;
   const path = yield* Path;
+
+  // THE MERGE: a migrated bundle remembers audiences in `skill.json`'s
+  // `publish.targets` (same lossless raw-JSON merge -- every other field,
+  // known or not, survives verbatim). Legacy bundles keep bundle.json.
+  const skillJsonPath = path.join(bundleDir, SKILL_JSON_FILENAME);
+  const skillJsonRaw = yield* fs.readFileString(skillJsonPath).pipe(Effect.orElseSucceed(() => undefined));
+  if (skillJsonRaw !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(skillJsonRaw);
+    } catch {
+      return false;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
+    const record = parsed as Record<string, unknown>;
+    const publishRaw = record["publish"];
+    const publish: Record<string, unknown> =
+      typeof publishRaw === "object" && publishRaw !== null && !Array.isArray(publishRaw)
+        ? (publishRaw as Record<string, unknown>)
+        : {};
+    const existingRaw = publish["targets"];
+    const existingVerbatim: ReadonlyArray<unknown> = Array.isArray(existingRaw) ? existingRaw : [];
+    const existing = existingVerbatim.filter(isInstallAudience);
+    const toAdd = audiences.filter((a) => !existing.includes(a));
+    if (toAdd.length === 0) {
+      return false;
+    }
+    publish["targets"] = [...existingVerbatim, ...toAdd];
+    record["publish"] = publish;
+    yield* fs
+      .writeFileString(skillJsonPath, `${JSON.stringify(record, undefined, 2)}\n`)
+      .pipe(Effect.mapError(toIOError(`could not write ${skillJsonPath}`)));
+    return true;
+  }
+
   const bundleJsonPath = path.join(bundleDir, "bundle.json");
   const raw = yield* fs.readFileString(bundleJsonPath).pipe(Effect.orElseSucceed(() => undefined));
   if (raw === undefined) return false;

@@ -1,7 +1,9 @@
 /**
  * The station engine — `runStation()` drives one production-state-machine
- * station's work end to end (data-model.md §2.13, plan.md Phase 10): read
- * the bundle's `stations.json` for a state, resolve the station's `skill`
+ * station's work end to end (data-model.md §2.13, plan.md Phase 10): look
+ * up the state's station on the ONE hardcoded production line
+ * (`Stations.DEFAULT_STATIONS_TEMPLATE` — THE MERGE ruling 2026-08-11:
+ * stations.json died, the line is code), resolve the station's `skill`
  * (a bundle slug -- the workspace's own copy wins, else the product-packaged
  * copy, see `resolveStationSkillDir` -- whose `output/` is installed into the
  * sandbox as the skill), build the station prompt (station instructions +
@@ -46,7 +48,8 @@ import { Journal } from "./JournalService.ts";
 import { resolveProviderProfile } from "./ProviderProfile.ts";
 import { RunRecord, type RunStatus } from "./Run.ts";
 import { didSkillActivate } from "./SkillActivation.ts";
-import { Station, StationsFile } from "./Stations.ts";
+import { bundleMarkerExists } from "./SkillJson.ts";
+import { DEFAULT_STATIONS_TEMPLATE, Station } from "./Stations.ts";
 import { ADOPT_EXCLUDED_NAMES, detectBundleLayout } from "./Versions.ts";
 import type { WorkspaceConfig } from "./Workspace.ts";
 
@@ -427,18 +430,14 @@ export const resolveStationSkillDir = Effect.fn("StationEngine.resolveStationSki
   const path = yield* Path;
 
   const workspaceDir = path.join(input.root, input.skillsDir, input.slug);
-  const workspaceExists = yield* fs
-    .exists(path.join(workspaceDir, "bundle.json"))
-    .pipe(Effect.mapError(toIOError(`could not check ${workspaceDir}`)));
+  const workspaceExists = yield* bundleMarkerExists(workspaceDir);
   if (workspaceExists) {
     return { dir: workspaceDir, source: "workspace" } as ResolvedStationSkill;
   }
 
   if (input.packagedSkillsDir !== undefined) {
     const packagedDir = path.join(input.packagedSkillsDir, input.slug);
-    const packagedExists = yield* fs
-      .exists(path.join(packagedDir, "bundle.json"))
-      .pipe(Effect.mapError(toIOError(`could not check ${packagedDir}`)));
+    const packagedExists = yield* bundleMarkerExists(packagedDir);
     if (packagedExists) {
       return { dir: packagedDir, source: "packaged" } as ResolvedStationSkill;
     }
@@ -457,10 +456,9 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
   const journal = yield* Journal;
 
   const bundleDir = path.join(input.root, input.config.skillsDir, input.bundle);
-  const bundleJsonPath = path.join(bundleDir, "bundle.json");
-  const bundleExists = yield* fs
-    .exists(bundleJsonPath)
-    .pipe(Effect.mapError(toIOError(`could not check ${bundleJsonPath}`)));
+  // THE MERGE: `skill.json` (schemaVersion 2) marks a migrated bundle root;
+  // `bundle.json` marks a legacy one. Either counts.
+  const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
     return yield* Effect.fail(
       StationPreconditionError.make({ message: `no such bundle "${input.bundle}"` }),
@@ -470,31 +468,11 @@ export const runStation = Effect.fn("StationEngine.runStation")(function* (input
   const events = yield* journal.readAll();
   const state: BundleStage = input.state ?? foldBundleStates(events).get(input.bundle)?.stage ?? "idea";
 
-  const stationsJsonPath = path.join(bundleDir, "stations.json");
-  const stationsJsonExists = yield* fs
-    .exists(stationsJsonPath)
-    .pipe(Effect.mapError(toIOError(`could not check ${stationsJsonPath}`)));
-  if (!stationsJsonExists) {
-    return yield* Effect.fail(
-      StationPreconditionError.make({
-        message: `bundle "${input.bundle}" has no stations.json`,
-      }),
-    );
-  }
-  const stationsRaw = yield* fs
-    .readFileString(stationsJsonPath)
-    .pipe(Effect.mapError(toIOError(`could not read ${stationsJsonPath}`)));
-  const stationsParsed = yield* Effect.try({
-    try: () => JSON.parse(stationsRaw) as unknown,
-    catch: toIOError(`invalid JSON in ${stationsJsonPath}`),
-  });
-  const stationsFile = yield* Schema.decodeUnknownEffect(StationsFile)(stationsParsed).pipe(
-    Effect.mapError((cause) =>
-      StationPreconditionError.make({ message: `invalid stations.json for "${input.bundle}": ${String(cause)}` }),
-    ),
-  );
-
-  const station = stationsFile.stations[state];
+  // THE MERGE (director ruling 2026-08-11): stations.json died -- the
+  // production line is code. Every bundle runs the one default template
+  // (`Stations.DEFAULT_STATIONS_TEMPLATE`); which helper skill serves which
+  // chat stage stays in ChatSessions.ts's HELPER_SKILL_SLUGS.
+  const station = DEFAULT_STATIONS_TEMPLATE.stations[state];
   if (station === undefined) {
     return yield* Effect.fail(
       StationPreconditionError.make({

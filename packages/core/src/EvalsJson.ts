@@ -38,8 +38,8 @@ import type { RiskRow } from "./RiskMap.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
-/** Which source a bundle's claim rows came from — one wins, never merged. */
-export const CLAIMS_SOURCES = ["evals.json", "risk-map"] as const;
+/** Which source a bundle's claim rows came from — one wins, never merged. `"skill.json"` (THE MERGE, schemaVersion 2) beats root `"evals.json"`, which beats the legacy `"risk-map"` (`SkillJson.readBundleStructuredState` owns the precedence). */
+export const CLAIMS_SOURCES = ["skill.json", "evals.json", "risk-map"] as const;
 export type ClaimsSource = (typeof CLAIMS_SOURCES)[number];
 
 /** One proof-case intention nested under a hypothesis (contract: `proofSpecs`). */

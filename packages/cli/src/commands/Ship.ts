@@ -16,6 +16,7 @@ import {
   JournalLayer,
   Workspace,
   type ShipBundleResult,
+  bundleMarkerExists,
 } from "@skillmaker/core";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
@@ -61,7 +62,7 @@ export const runShip = Effect.fn("runShip")(function* (
   const path = yield* Path;
   const bundleDir = path.join(resolved.root, resolved.config.skillsDir, slug);
 
-  const bundleExists = yield* fs.exists(path.join(bundleDir, "bundle.json"));
+  const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
     return expectedFailure(`skillmaker ship: no such bundle "${slug}"\n`);
   }

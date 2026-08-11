@@ -7,7 +7,6 @@ import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { BundleIdentity } from "./Bundle.ts";
 import { BundleExistsError, InvalidSlugError, WorkspaceIOError, WorkspaceNotFoundError } from "./Errors.ts";
-import { DEFAULT_STATIONS_TEMPLATE, StationsFile } from "./Stations.ts";
 import {
   DEFAULT_CONFIG_FILENAME,
   ResolvedWorkspace,
@@ -209,13 +208,9 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
         )
         .pipe(Effect.mapError(toIOError("could not write bundle.json")));
 
-      const stations = StationsFile.make(DEFAULT_STATIONS_TEMPLATE);
-      yield* fs
-        .writeFileString(
-          path.join(bundleDir, "stations.json"),
-          `${JSON.stringify(stations, null, 2)}\n`,
-        )
-        .pipe(Effect.mapError(toIOError("could not write stations.json")));
+      // stations.json is no longer scaffolded (THE MERGE, director ruling
+      // 2026-08-11): the production line is code -- every bundle runs
+      // `Stations.DEFAULT_STATIONS_TEMPLATE` directly.
 
       yield* fs
         .writeFileString(path.join(bundleDir, "design.md"), designMdSkeleton(input.slug))

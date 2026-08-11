@@ -37,6 +37,7 @@ import {
 import { appendDerivedEntryStageChange, computeMechanicalReading, deriveEntryStage } from "./EntryStage.ts";
 import { DEFAULT_PRIORITY_BY_KIND } from "./FoldTodos.ts";
 import { scanFixtures } from "./Fixtures.ts";
+import { bundleMarkerExists } from "./SkillJson.ts";
 import { IntakeStakes, type IntakeRights } from "./Journal.ts";
 import { Journal } from "./JournalService.ts";
 import { cellByName, collectTableLines, knownColumnLookup, resolveColumns, splitTableCells } from "./MarkdownTable.ts";
@@ -278,11 +279,9 @@ export const triageWorkspace = Effect.fn("Triage.triageWorkspace")(function* (
   for (const skillMdPath of skillMdFiles) {
     const dir = dirname(skillMdPath);
     const path = toPortablePath(workspaceRoot, dir);
-    const bundleJsonPath = join(dir, "bundle.json");
 
-    const alreadyAdopted = yield* fs
-      .exists(bundleJsonPath)
-      .pipe(Effect.mapError(toIOError(`could not check ${bundleJsonPath}`)));
+    // Legacy bundle.json OR merged skill.json (THE MERGE) both mean adopted.
+    const alreadyAdopted = yield* bundleMarkerExists(dir);
     if (alreadyAdopted) {
       skipped.push({ path, reason: "already-adopted" });
       continue;
@@ -635,10 +634,8 @@ export const executeManifestRow = Effect.fn("Triage.executeManifestRow")(functio
     } satisfies ExecuteManifestRowResult;
   }
 
-  const bundleJsonPath = join(dir, "bundle.json");
-  const alreadyAdopted = yield* fs
-    .exists(bundleJsonPath)
-    .pipe(Effect.mapError(toIOError(`could not check ${bundleJsonPath}`)));
+  // Legacy bundle.json OR merged skill.json (THE MERGE) both mean adopted.
+  const alreadyAdopted = yield* bundleMarkerExists(dir);
 
   if (row.decision === "archive" || row.whose === "mine") {
     if (alreadyAdopted) {

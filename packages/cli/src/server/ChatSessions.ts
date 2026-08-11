@@ -299,6 +299,9 @@ const hasFixtures = (fixturesDir: string): boolean => {
  * design.md is LATE researching, never auto-drafting); nothing yet -> idea.
  */
 export const deriveArtifactStage = (bundleDir: string): PreambleStage => {
+  // Both case-material layouts count: evals/cases/ (THE MERGE) and the
+  // legacy evals/fixtures/.
+  if (hasFixtures(join(bundleDir, "evals", "cases"))) return "published";
   if (hasFixtures(join(bundleDir, "evals", "fixtures"))) return "published";
   if (existsSync(join(bundleDir, "output", "SKILL.md"))) return "evaluating";
   if (designHasContent(join(bundleDir, "design.md"))) return "researching";
@@ -326,7 +329,16 @@ export const readPreambleContext = (
     const identity: unknown = JSON.parse(readFileSync(join(root, skillsDir, slug, "bundle.json"), "utf8"));
     if (isRecord(identity) && typeof identity.oneLiner === "string") oneLiner = identity.oneLiner;
   } catch {
-    // No bundle.json (or malformed): the preamble drops the one-liner clause.
+    // No bundle.json: a migrated bundle carries skill.json instead (THE
+    // MERGE) -- same tolerant read, same degrade-to-empty on any defect.
+    try {
+      const merged: unknown = JSON.parse(readFileSync(join(root, skillsDir, slug, "skill.json"), "utf8"));
+      if (isRecord(merged) && isRecord(merged.skill) && typeof merged.skill.oneLiner === "string") {
+        oneLiner = merged.skill.oneLiner;
+      }
+    } catch {
+      // Neither file (or malformed): the preamble drops the one-liner clause.
+    }
   }
   let stage: PreambleStage = "idea";
   try {
