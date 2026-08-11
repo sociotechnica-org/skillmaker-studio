@@ -35,7 +35,16 @@
  * promise somehow never settles, so the guard frees itself even if a run
  * fiber is lost.
  */
-import { JournalLayer, runFixture, scanFixtures, type WorkspaceConfig } from "@skillmaker/core";
+import {
+  JournalLayer,
+  machineHome,
+  readMachineSettings,
+  resolveRunChoices,
+  type ResolvedRunChoices,
+  runFixture,
+  scanFixtures,
+  type WorkspaceConfig,
+} from "@skillmaker/core";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
 import { existsSync } from "node:fs";
@@ -240,7 +249,7 @@ export const createRunDispatchHandlers = (options: {
 
   /** One detached run through the SAME engine path as `skillmaker run` -- sandbox default permission policy, never permissive. */
   const startRun =
-    (slug: string, fixture: string, provider: string, model: string | undefined, runId: string) =>
+    (slug: string, fixture: string, choices: ResolvedRunChoices, runId: string) =>
     async (): Promise<unknown> => {
       const actor = await Effect.runPromise(resolveUserActor());
       return Effect.runPromise(
@@ -249,10 +258,11 @@ export const createRunDispatchHandlers = (options: {
           config,
           bundle: slug,
           fixtureCase: fixture,
-          provider,
+          provider: choices.provider,
           actor,
           runId,
-          ...(model !== undefined ? { model } : {}),
+          ...(choices.model !== undefined ? { model: choices.model } : {}),
+          ...(choices.timeoutMs !== undefined ? { timeoutMs: choices.timeoutMs } : {}),
         }).pipe(
           Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
           Effect.provide(BunServices.layer),
@@ -264,23 +274,37 @@ export const createRunDispatchHandlers = (options: {
       );
     };
 
-  const validateProviderAndModel = (
-    body: Record<string, unknown>,
-  ): { readonly provider: string; readonly model: string | undefined } | Response => {
+  const validateProviderAndModel = (body: Record<string, unknown>): ResolvedRunChoices | Response => {
     const rawProvider = (body as RunRequestBody).provider;
     if (rawProvider !== undefined && typeof rawProvider !== "string") {
       return jsonResponse({ error: "provider must be a string" }, 400);
-    }
-    const provider = typeof rawProvider === "string" ? rawProvider : "claude-code";
-    if (config.providers[provider] === undefined) {
-      return jsonResponse({ error: `provider "${provider}" is not configured in skillmaker.config.json` }, 400);
     }
     const rawModel = (body as RunRequestBody).model;
     if (rawModel !== undefined && typeof rawModel !== "string") {
       return jsonResponse({ error: "model must be a string" }, 400);
     }
+    // Machine-level defaults (R9): explicit body fields win, then
+    // ~/.skillmaker-studio/settings.json defaults, then built-ins. Read per
+    // dispatch (same per-request style as the registry) so edits apply
+    // without a server restart; a malformed file only warns.
+    const machineSettings = readMachineSettings(machineHome());
+    for (const warning of machineSettings.warnings) {
+      console.warn(`skillmaker serve: WARNING: ${warning}`);
+    }
     const model = typeof rawModel === "string" && rawModel.length > 0 ? rawModel : undefined;
-    return { provider, model };
+    const choices = resolveRunChoices(machineSettings.defaults, {
+      ...(typeof rawProvider === "string" ? { provider: rawProvider } : {}),
+      ...(model !== undefined ? { model } : {}),
+    });
+    // The resolved provider -- explicit, machine default, or built-in -- must
+    // exist in the workspace config, same check as before.
+    if (config.providers[choices.provider] === undefined) {
+      return jsonResponse(
+        { error: `provider "${choices.provider}" is not configured in skillmaker.config.json` },
+        400,
+      );
+    }
+    return choices;
   };
 
   const handleRun = async (slug: string, request: Request): Promise<Response> => {
@@ -317,7 +341,7 @@ export const createRunDispatchHandlers = (options: {
       runId,
       slug,
       fixture,
-      start: startRun(slug, fixture, settings.provider, settings.model, runId),
+      start: startRun(slug, fixture, settings, runId),
     });
     if (!outcome.ok) {
       return jsonResponse({ error: `fixture "${fixture}" already has a run in progress (bundle "${slug}")` }, 409);
@@ -361,7 +385,7 @@ export const createRunDispatchHandlers = (options: {
             runId,
             slug,
             fixture,
-            start: startRun(slug, fixture, settings.provider, settings.model, runId),
+            start: startRun(slug, fixture, settings, runId),
           });
           if (outcome.ok) {
             await outcome.done;
