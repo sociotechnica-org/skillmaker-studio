@@ -100,7 +100,12 @@ beforeAll(async () => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
-  expect(runCli(["new", "demo-skill", "--json"], scratchDir).exitCode).toBe(0);
+  // Birth intent up front: the idea -> researching gate (THE MERGE ruled
+  // table) requires a non-empty oneLiner.
+  expect(
+    runCli(["new", "demo-skill", "--one-liner", "A demo skill for the Phase 11 e2e suite.", "--json"], scratchDir)
+      .exitCode,
+  ).toBe(0);
 
   bundleDir = join(scratchDir, "skills", "demo-skill");
   writeFileSync(join(bundleDir, "design.md"), "# Demo Skill\n\nA demo skill for the Phase 11 e2e suite.\n");

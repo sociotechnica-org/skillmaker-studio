@@ -24,7 +24,7 @@
  * (no browser-level e2e harness exists in this repo).
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startE2eRegistryServer } from "./support/server.ts";
@@ -473,22 +473,21 @@ describe("card-fidelity simplify pass: GET /api/bundles/:slug instructionsPath f
 
 describe("card-fidelity round 2: GET /api/bundles/:slug/fixtures/:case for an output-dir bundle", () => {
   test("serves the parsed case + prompt.md content; an unknown case 404s", async () => {
-    const caseDir = join(scratchDir, "skills", "gizmo", "evals", "fixtures", "harness-golden");
+    // THE MERGE write side: gizmo is a skill.json bundle, so the case entry
+    // (and its checks) live in skill.json and the materials in evals/cases/.
+    const gizmoDir = join(scratchDir, "skills", "gizmo");
+    const skillJsonPath = join(gizmoDir, "skill.json");
+    const skillJson = JSON.parse(readFileSync(skillJsonPath, "utf8")) as {
+      evals: { cases: Array<Record<string, unknown>> };
+    };
+    skillJson.evals.cases.push({
+      name: "harness-golden",
+      class: "golden",
+      checks: ["output mentions the gizmo"],
+    });
+    writeFileSync(skillJsonPath, `${JSON.stringify(skillJson, null, 2)}\n`);
+    const caseDir = join(gizmoDir, "evals", "cases", "harness-golden");
     mkdirSync(caseDir, { recursive: true });
-    writeFileSync(
-      join(caseDir, "case.json"),
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          case: "harness-golden",
-          class: "golden",
-          risks: ["OUT-1"],
-          grading: { checks: ["output mentions the gizmo"] },
-        },
-        null,
-        2,
-      )}\n`,
-    );
     writeFileSync(join(caseDir, "prompt.md"), "Do the gizmo task for the harness.\n");
 
     const response = await fetch(`${projectUrl}/bundles/gizmo/fixtures/harness-golden`);

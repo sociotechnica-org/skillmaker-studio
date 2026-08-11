@@ -8,6 +8,7 @@ import {
   addMachineProject,
   adoptWorkspace,
   bundleForEvent,
+  checkStageGateSync,
   checkTransition,
   computeBundleHashes,
   computeInstalledDrift,
@@ -62,7 +63,10 @@ import {
   writeGradeFile,
   WorkspaceLayer,
   DEFAULT_STATIONS_TEMPLATE,
+  nextStageReadinessSync,
   SKILL_JSON_FILENAME,
+  STAGES,
+  writeSkillJsonStageSync,
   type Actor,
   type BundleLayout,
   type BundleLocation,
@@ -1031,11 +1035,42 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
   // regenerates them; this dry-decode only proved the payload valid.
   const { id: _id, at: _at, schemaVersion: _schemaVersion, ...eventInput } = decodeOutcome.success;
 
+  // Soft-gate warnings collected on a stage change (the ruled publish
+  // gate: "publishing unmeasured" warns, never blocks) -- carried onto the
+  // success response so the caller can surface them.
+  let stageWarnings: ReadonlyArray<string> = [];
   if (eventInput.type === "bundle.stage_changed") {
     const events = await readJournalEvents(root);
     const verdict = checkTransition(events, eventInput.payload);
     if (!verdict.allowed) {
       return jsonResponse({ error: verdict.reason }, 409);
+    }
+
+    const { bundle, from, to } = eventInput.payload;
+    const override = eventInput.payload.override === true;
+    // Locate the bundle's actual directory (in-place adoptees included);
+    // a journal-only ghost bundle has no files to gate or write.
+    let bundleDir: string | undefined;
+    try {
+      bundleDir = (await fetchBundleLocations(root)).get(bundle)?.dir;
+    } catch {
+      bundleDir = undefined;
+    }
+    if (bundleDir !== undefined) {
+      // The ruled artifact gates (StageGates.ts), forward non-override
+      // moves only -- the same table the CLI `advance` door enforces.
+      if (!override && STAGES.indexOf(to) > STAGES.indexOf(from)) {
+        const gate = checkStageGateSync(bundleDir, to, events);
+        if (!gate.allowed) {
+          return jsonResponse({ error: gate.reason }, 409);
+        }
+        stageWarnings = gate.warnings;
+      }
+      // File = record, event = liveness (the grade-files ordering): the
+      // declared stage lands in skill.json BEFORE the journal append below.
+      // Legacy bundles (no skill.json) skip the write; their journal stays
+      // the record.
+      writeSkillJsonStageSync(bundleDir, to);
     }
   }
 
@@ -1140,7 +1175,11 @@ const handlePostEvent = async (root: string, request: Request): Promise<Response
         return yield* journal.append(eventInput);
       }),
     );
-    return jsonResponse({ status: result.status, event: result.event });
+    return jsonResponse({
+      status: result.status,
+      event: result.event,
+      ...(stageWarnings.length > 0 ? { warnings: stageWarnings } : {}),
+    });
   } catch (cause) {
     return jsonResponse({ error: `could not append event: ${String(cause)}` }, 500);
   }
@@ -1335,6 +1374,11 @@ const handleBundleDetail = async (root: string, config: WorkspaceConfig, slug: s
     },
     bundle,
     guardStatus: guardStatus(events, slug),
+    // Derived readiness (THE MERGE gate ruling): the next forward stage's
+    // gate checks, answered continuously -- the same `StageGates` table the
+    // transition doors enforce, so the UI can show ready/not-ready without
+    // a second implementation. `null` at the top of the ladder.
+    readiness: nextStageReadinessSync(bundleDir, bundle.stage, events),
     events: recentEvents,
     // `snapshot`: whether this version's content was kept
     // (`<bundle>/.skillmaker/versions/<bare-hash>/`, Versions.ts). Receipts

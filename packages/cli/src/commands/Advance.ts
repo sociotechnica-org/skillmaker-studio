@@ -1,18 +1,29 @@
 /**
  * `skillmaker advance <slug> [--to <stage>] [--back <stage> --reason <text>]
  * [--override]` -- runs `checkTransition` (the same guard the server runs
- * for `POST /api/events`) against the bundle's current journal, then either
- * appends `bundle.stage_changed` or prints the rejection reason and exits 1.
- * One contract (`@skillmaker/core`'s `Machine`), two doors (this command and
- * the server).
+ * for `POST /api/events`) against the bundle's current journal, then the
+ * ruled stage-gate table (`StageGates.checkStageGateSync`, THE MERGE
+ * 2026-08-11) against the bundle's files: hard gates refuse forward moves
+ * cleanly (exit 1 with the reason); the publish gate is SOFT -- it warns
+ * "publishing unmeasured" and never blocks. `--override` bypasses both
+ * guard layers (journaled), backward moves need only their reason.
+ *
+ * On an allowed transition, a skill.json bundle gets its declared stage
+ * written FIRST (`writeSkillJsonStageSync`: file = record) and the journal
+ * `bundle.stage_changed` appended second (event = liveness) -- the
+ * grade-files ordering. Legacy bundles skip the file write; their journal
+ * stays the record. One contract (`@skillmaker/core`'s `Machine` +
+ * `StageGates`), two doors (this command and the server).
  */
 import {
+  checkStageGateSync,
   checkTransition,
   foldBundleStates,
   Journal,
   JournalLayer,
   STAGES,
   Workspace,
+  writeSkillJsonStageSync,
 } from "@skillmaker/core";
 import type { BundleStage } from "@skillmaker/core";
 import { Effect } from "effect";
@@ -30,7 +41,12 @@ export interface AdvanceOptions {
 }
 
 type AdvanceOutcome =
-  | { readonly kind: "advanced"; readonly from: BundleStage; readonly to: BundleStage }
+  | {
+      readonly kind: "advanced";
+      readonly from: BundleStage;
+      readonly to: BundleStage;
+      readonly warnings: ReadonlyArray<string>;
+    }
   | { readonly kind: "rejected"; readonly reason: string };
 
 export const runAdvance = Effect.fn("runAdvance")(function* (
@@ -73,6 +89,7 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
 
   const path = yield* Path;
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
+  const bundleDir = path.join(resolved.root, resolved.config.skillsDir, slug);
   const actor = yield* resolveUserActor();
 
   const outcome: AdvanceOutcome = yield* Effect.gen(function* () {
@@ -107,6 +124,25 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
       return { kind: "rejected" as const, reason: verdict.reason };
     }
 
+    // The ruled artifact gates (StageGates.ts), on forward non-override
+    // moves only: hard gates refuse with a clean reason; the publish gate
+    // is soft and at most warns. Gates read the conventionally-located
+    // bundle directory -- same resolution `fixture add` uses.
+    let warnings: ReadonlyArray<string> = [];
+    const forward = STAGES.indexOf(to) > STAGES.indexOf(from);
+    if (forward && !options.override) {
+      const gate = checkStageGateSync(bundleDir, to, events);
+      if (!gate.allowed) {
+        return { kind: "rejected" as const, reason: gate.reason };
+      }
+      warnings = gate.warnings;
+    }
+
+    // File = record, event = liveness (the grade-files ordering): the
+    // declared stage lands in skill.json BEFORE the journal event that
+    // makes readers look. Legacy bundles (no skill.json) skip this write.
+    writeSkillJsonStageSync(bundleDir, to);
+
     yield* journal.append({
       type: "bundle.stage_changed",
       actor,
@@ -119,7 +155,7 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
       },
     });
 
-    return { kind: "advanced" as const, from, to };
+    return { kind: "advanced" as const, from, to, warnings };
   }).pipe(Effect.provide(JournalLayer(journalPath)));
 
   if (outcome.kind === "rejected") {
@@ -131,8 +167,15 @@ export const runAdvance = Effect.fn("runAdvance")(function* (
 
   if (options.json) {
     return ok(
-      `${JSON.stringify({ status: "advanced", slug, from: outcome.from, to: outcome.to })}\n`,
+      `${JSON.stringify({
+        status: "advanced",
+        slug,
+        from: outcome.from,
+        to: outcome.to,
+        ...(outcome.warnings.length > 0 ? { warnings: outcome.warnings } : {}),
+      })}\n`,
     );
   }
-  return ok(`skillmaker: ${slug} moved from "${outcome.from}" to "${outcome.to}"\n`);
+  const warningLines = outcome.warnings.map((warning) => `skillmaker: warning: ${warning}\n`).join("");
+  return ok(`skillmaker: ${slug} moved from "${outcome.from}" to "${outcome.to}"\n${warningLines}`);
 });

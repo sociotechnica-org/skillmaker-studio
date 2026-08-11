@@ -71,7 +71,7 @@ beforeAll(async () => {
 
   bundleDir = join(scratchDir, "skills", "alpha");
   expect(runCli(["fixture", "add", "alpha", "golden-basic", "--json"], scratchDir).exitCode).toBe(0);
-  writeFileSync(join(bundleDir, "evals", "fixtures", "golden-basic", "prompt.md"), "Do the thing.\n");
+  writeFileSync(join(bundleDir, "evals", "cases", "golden-basic", "prompt.md"), "Do the thing.\n");
   expect(runCli(["version", "record", "alpha", "--json"], scratchDir).exitCode).toBe(0);
 
   const server = await startE2eRegistryServer({

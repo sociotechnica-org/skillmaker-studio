@@ -149,10 +149,11 @@ beforeAll(async () => {
 
   // A second bundle for the agent-speaks-first (orient) test, with a real
   // one-liner so the preamble's mission clause is observable.
-  expect(runCli(["new", ORIENT_SKILL, "--json"], scratchDir).exitCode).toBe(0);
-  const orientBundlePath = join(scratchDir, "skills", ORIENT_SKILL, "bundle.json");
-  const orientBundle = JSON.parse(readFileSync(orientBundlePath, "utf8")) as Record<string, unknown>;
-  writeFileSync(orientBundlePath, `${JSON.stringify({ ...orientBundle, oneLiner: "orients the director" }, null, 2)}\n`);
+  // THE MERGE write side: `new` accepts the birth intent directly, and it
+  // lands in skill.json's skill.oneLiner.
+  expect(
+    runCli(["new", ORIENT_SKILL, "--one-liner", "orients the director", "--json"], scratchDir).exitCode,
+  ).toBe(0);
 
   // Point the claude-code provider at the fake chat adapter.
   const configPath = join(scratchDir, "skillmaker.config.json");

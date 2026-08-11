@@ -84,15 +84,31 @@ describe("Workspace.init / resolve / createBundle", () => {
         expect(first.status).toBe("created");
 
         const bundleDir = path.join(dir, "skills", "my-first-skill");
-        for (const relative of ["bundle.json", "design.md"]) {
+        for (const relative of ["skill.json", "design.md"]) {
           const exists = yield* fs.exists(path.join(bundleDir, relative));
           expect(exists).toBe(true);
         }
-        // stations.json is no longer scaffolded (THE MERGE, 2026-08-11):
-        // the production line is code.
-        const stationsExists = yield* fs.exists(path.join(bundleDir, "stations.json"));
-        expect(stationsExists).toBe(false);
-        for (const relative of ["research", "evals/fixtures", "output", "runs"]) {
+        // THE MERGE write-side tranche (2026-08-11): new bundles are born
+        // migrated -- skill.json, no legacy bundle.json, no stations.json.
+        for (const legacy of ["bundle.json", "stations.json"]) {
+          const exists = yield* fs.exists(path.join(bundleDir, legacy));
+          expect(exists).toBe(false);
+        }
+        const raw = yield* fs.readFileString(path.join(bundleDir, "skill.json"));
+        const skillJson = JSON.parse(raw) as {
+          schemaVersion: number;
+          skill: { slug: string; name: string; stage: string; harnesses: ReadonlyArray<string> };
+          design: { failureHypotheses: ReadonlyArray<unknown> };
+          evals: { cases: ReadonlyArray<unknown>; configs: ReadonlyArray<unknown> };
+        };
+        expect(skillJson.schemaVersion).toBe(2);
+        expect(skillJson.skill.slug).toBe("my-first-skill");
+        expect(skillJson.skill.name).toBe("My First Skill");
+        expect(skillJson.skill.stage).toBe("idea");
+        expect(skillJson.skill.harnesses).toEqual(["claude-code"]);
+        expect(skillJson.design.failureHypotheses).toEqual([]);
+        expect(skillJson.evals.cases).toEqual([]);
+        for (const relative of ["research", "evals/cases", "output", "runs"]) {
           const exists = yield* fs.exists(path.join(bundleDir, relative, ".gitkeep"));
           expect(exists).toBe(true);
         }

@@ -142,14 +142,19 @@ beforeAll(async () => {
   writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Graded Skill\n\nv1.\n");
 
   expect(runCli(["fixture", "add", "graded-skill", "golden-basic", "--json"], scratchDir).exitCode).toBe(0);
-  writeFileSync(join(bundleDir, "evals", "fixtures", "golden-basic", "prompt.md"), "Do the thing.\n");
+  writeFileSync(join(bundleDir, "evals", "cases", "golden-basic", "prompt.md"), "Do the thing.\n");
 
-  // Author grading.checks on the fixture -- the checklist the grading
-  // panel/history carries (data-model.md §2.5, §2.9).
-  const caseJsonPath = join(bundleDir, "evals", "fixtures", "golden-basic", "case.json");
-  const caseJson = JSON.parse(readFileSync(caseJsonPath, "utf8")) as Record<string, unknown>;
-  caseJson.grading = { checks: ["output file exists", "content is on-topic"] };
-  writeFileSync(caseJsonPath, `${JSON.stringify(caseJson, null, 2)}\n`);
+  // Author checks on the case -- the checklist the grading panel/history
+  // carries. THE MERGE write side: this is a skill.json bundle, so the
+  // case entry (and its checks) live in skill.json, not case.json.
+  const skillJsonPath = join(bundleDir, "skill.json");
+  const skillJson = JSON.parse(readFileSync(skillJsonPath, "utf8")) as {
+    evals: { cases: Array<{ name: string; checks?: ReadonlyArray<string> }> };
+  };
+  const caseEntry = skillJson.evals.cases.find((entry) => entry.name === "golden-basic");
+  if (caseEntry === undefined) throw new Error("skill.json has no golden-basic case entry");
+  caseEntry.checks = ["output file exists", "content is on-topic"];
+  writeFileSync(skillJsonPath, `${JSON.stringify(skillJson, null, 2)}\n`);
 }, 60000);
 
 afterAll(async () => {

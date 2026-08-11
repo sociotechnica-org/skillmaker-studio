@@ -1407,7 +1407,7 @@ export const layer = (
             warnings.push({
               bundle: slug,
               source: "journal",
-              message: `bundle "${slug}" is recorded in the journal but has no ${skillsDirName}/${slug}/bundle.json on disk`,
+              message: `bundle "${slug}" is recorded in the journal but has no ${skillsDirName}/${slug}/skill.json (or legacy bundle.json) on disk`,
             });
           }
           const state = states.get(slug) ?? BundleState.make({
@@ -1595,13 +1595,22 @@ export const layer = (
             }
           }
 
+          // The declared stage wins on a skill.json bundle (write-side
+          // tranche: transitions now WRITE skill.json.stage, so the file is
+          // the record and the journal event is liveness -- the grade-files
+          // pattern). A missing/invalid declared stage falls back to the
+          // journal fold, which also remains the record for legacy bundles.
+          const declaredStage = cachedScan?.skill?.stage;
+          const stage =
+            declaredStage !== undefined && isBundleStage(declaredStage) ? declaredStage : state.stage;
+
           records.push({
             slug,
             name: identity?.name ?? slug,
             oneLiner: identity?.oneLiner ?? "",
             tags: identity?.tags ?? [],
             created: identity?.created ?? "",
-            stage: state.stage,
+            stage,
             substate: state.substate,
             archived: state.archived,
             designHash: hashes.designHash,

@@ -7,13 +7,16 @@
  * `bundle.stage_changed` when the verdict says `allowed: true`. One
  * contract, two doors.
  *
- * Guard table (data-model.md §2.13):
+ * Guard table (data-model.md §2.13; publish-gate ruling 2026-08-11):
  *   - forward one state:        `review.resolved: approve` for the current
  *                                state's work, recorded after the last
  *                                `bundle.stage_changed` for the bundle.
- *   - evaluating -> published:  additionally `bundle.gate_decided: approved`
- *                                (the publish gate), recorded after the last
- *                                `bundle.stage_changed`.
+ *   - evaluating -> published:  NO additional hard gate. The old
+ *                                `bundle.gate_decided: approved` requirement
+ *                                was REPLACED by the ruled SOFT gate
+ *                                (`StageGates.ts`): the doors warn
+ *                                "publishing unmeasured" when no realized
+ *                                case has a graded run, and never block.
  *   - backward (any -> earlier): always legal, but must be journaled with a
  *                                non-empty reason -- regression is a modeled
  *                                fact, not an embarrassment.
@@ -171,16 +174,11 @@ export const checkTransition = (
     };
   }
 
-  if (input.from === "evaluating" && input.to === "published") {
-    const gateApproved = hasApprovedGateAfter(events, input.bundle, lastChangeIndex);
-    if (!gateApproved) {
-      return {
-        allowed: false,
-        reason: `publishing requires an approved publish gate decision ("bundle.gate_decided" with gate "publish", decision "approved") recorded since the last stage change`,
-      };
-    }
-  }
-
+  // evaluating -> published carries NO extra hard requirement here anymore:
+  // the old `bundle.gate_decided: approved` gate was replaced by the ruled
+  // SOFT gate (StageGates.checkStageGateSync warns "publishing unmeasured",
+  // never blocks). `bundle.gate_decided` events remain recordable facts;
+  // `guardStatus.gateApproved` still reports them.
   return { allowed: true };
 };
 

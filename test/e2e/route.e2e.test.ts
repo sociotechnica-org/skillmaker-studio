@@ -315,9 +315,17 @@ describe("skillmaker route: route salvage -> fixture harvested from the crate ca
     const json = JSON.parse(result.stdout) as { source: { kind: string; intake: string } };
     expect(json.source).toEqual({ kind: "intake", intake });
 
-    const caseJsonPath = join(scratchDir, "skills", "demo-skill", "evals", "fixtures", "salvaged-case-1", "case.json");
-    const caseJson = JSON.parse(readFileSync(caseJsonPath, "utf8")) as { source: unknown };
-    expect(caseJson.source).toEqual({ kind: "intake", intake });
+    // THE MERGE write side: demo-skill is a skill.json bundle, so the case
+    // entry (with its intake provenance) lives in skill.json, not case.json.
+    const skillJsonPath = join(scratchDir, "skills", "demo-skill", "skill.json");
+    const skillJson = JSON.parse(readFileSync(skillJsonPath, "utf8")) as {
+      evals: { cases: ReadonlyArray<{ name: string; source?: unknown }> };
+    };
+    const entry = skillJson.evals.cases.find((c) => c.name === "salvaged-case-1");
+    expect(entry?.source).toEqual({ kind: "intake", intake });
+    expect(
+      existsSync(join(scratchDir, "skills", "demo-skill", "evals", "cases", "salvaged-case-1", "prompt.md")),
+    ).toBe(true);
   });
 
   test("todo add --from-intake mines the crate into a todo carrying intake provenance", () => {

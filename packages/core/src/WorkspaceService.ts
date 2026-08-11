@@ -5,8 +5,9 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { BundleIdentity } from "./Bundle.ts";
 import { BundleExistsError, InvalidSlugError, WorkspaceIOError, WorkspaceNotFoundError } from "./Errors.ts";
+import { SKILL_JSON_FILENAME } from "./SkillJson.ts";
+import { newSkillJsonDocument } from "./SkillJsonWrite.ts";
 import {
   DEFAULT_CONFIG_FILENAME,
   ResolvedWorkspace,
@@ -187,14 +188,17 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
         return { status: "already_exists" as const, slug: input.slug };
       }
 
-      const identity = BundleIdentity.make({
-        schemaVersion: 1,
+      // THE MERGE write-side tranche (2026-08-11): new bundles are born
+      // migrated -- one `skill.json` (schemaVersion 2) instead of the legacy
+      // bundle.json. Identity lives in its `skill` section (with the
+      // declared `stage: "idea"`); the empty design/evals sections make the
+      // shape self-documenting. The tolerant read chain keeps serving old
+      // bundle.json bundles untouched.
+      const skillJson = newSkillJsonDocument({
         slug: input.slug,
         name: input.name ?? titleCaseFromSlug(input.slug),
         oneLiner: input.oneLiner ?? "",
-        tags: [],
         created: todayIsoDate(),
-        targets: ["claude-code"],
       });
 
       yield* fs
@@ -203,10 +207,10 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
 
       yield* fs
         .writeFileString(
-          path.join(bundleDir, "bundle.json"),
-          `${JSON.stringify(identity, null, 2)}\n`,
+          path.join(bundleDir, SKILL_JSON_FILENAME),
+          `${JSON.stringify(skillJson, null, 2)}\n`,
         )
-        .pipe(Effect.mapError(toIOError("could not write bundle.json")));
+        .pipe(Effect.mapError(toIOError(`could not write ${SKILL_JSON_FILENAME}`)));
 
       // stations.json is no longer scaffolded (THE MERGE, director ruling
       // 2026-08-11): the production line is code -- every bundle runs
@@ -218,7 +222,10 @@ export const layer: Layer.Layer<Workspace, never, FileSystem | Path> = Layer.eff
 
       const dirsWithGitkeep = [
         "research",
-        path.join("evals", "fixtures"),
+        // `evals/cases/` -- the post-merge case-materials home (R8: the
+        // unit is "case"); `evals/fixtures/` is the legacy name the read
+        // chain still tolerates on old bundles.
+        path.join("evals", "cases"),
         "output",
         "runs",
       ];

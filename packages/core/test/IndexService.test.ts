@@ -9,10 +9,47 @@ import { Actor } from "../src/Actor.ts";
 import { GradeRecord, HUMAN_GRADER, writeGradeFile } from "../src/Grades.ts";
 import { layer as IndexServiceLayer, IndexService } from "../src/IndexService.ts";
 import { layer as JournalLayer, Journal } from "../src/JournalService.ts";
+import { writeSkillJsonStageSync } from "../src/SkillJsonWrite.ts";
 import { layer as WorkspaceLayer, Workspace } from "../src/WorkspaceService.ts";
 import { withTempDir } from "./support/TestLayer.ts";
 
 const actor = Actor.make({ kind: "user", name: "test-user" });
+
+/**
+ * Scaffolds a LEGACY (pre-merge) bundle by hand: bundle.json +
+ * evals/fixtures/ + the usual dirs, NO skill.json. `Workspace.createBundle`
+ * now births skill.json bundles (THE MERGE write-side tranche), so tests
+ * exercising the legacy read chain (case.json scan, root evals.json,
+ * risk-map fallback) scaffold their own legacy shape here -- that chain
+ * must keep working for old bundles.
+ */
+const scaffoldLegacyBundle = (dir: string, slug: string): string => {
+  const bundleDir = join(dir, "skills", slug);
+  for (const sub of ["research", join("evals", "fixtures"), "output", "runs"]) {
+    mkdirSync(join(bundleDir, sub), { recursive: true });
+  }
+  writeFileSync(
+    join(bundleDir, "bundle.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        slug,
+        name: slug
+          .split("-")
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" "),
+        oneLiner: "",
+        tags: [],
+        created: "2026-01-01",
+        targets: ["claude-code"],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(join(bundleDir, "design.md"), `# Design — ${slug}\n`);
+  return bundleDir;
+};
 
 describe("IndexService.rebuild", () => {
   test("scans skills/*/bundle.json and folds the journal into the bundles table", async () => {
@@ -49,6 +86,11 @@ describe("IndexService.rebuild", () => {
             payload: { bundle: "alpha", state: "researching" },
           });
         }).pipe(Effect.provide(JournalLayer(journalPath)));
+
+        // The transition doors write skill.json.stage alongside the journal
+        // event (file = record, event = liveness); mirror that here so the
+        // declared stage the index now prefers agrees with the fold.
+        writeSkillJsonStageSync(join(dir, "skills", "alpha"), "researching");
 
         yield* Effect.gen(function* () {
           const index = yield* IndexService;
@@ -179,7 +221,7 @@ describe("IndexService.rebuild", () => {
       Effect.gen(function* () {
         const workspace = yield* Workspace;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "broken" });
+        scaffoldLegacyBundle(dir, "broken");
 
         const fs = yield* FileSystem;
         const path = yield* Path;
@@ -417,7 +459,7 @@ describe("IndexService.rebuild", () => {
         const fs = yield* FileSystem;
         const path = yield* Path;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "frame-the-problem" });
+        scaffoldLegacyBundle(dir, "frame-the-problem");
 
         const bundleDir = path.join(dir, "skills", "frame-the-problem");
         const caseDir = path.join(bundleDir, "evals", "fixtures", "refusal-thin-input");
@@ -498,7 +540,7 @@ bundle: frame-the-problem
         const fs = yield* FileSystem;
         const path = yield* Path;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "designed" });
+        scaffoldLegacyBundle(dir, "designed");
 
         const bundleDir = path.join(dir, "skills", "designed");
         const caseDir = path.join(bundleDir, "evals", "fixtures", "refusal-thin-input");
@@ -579,7 +621,7 @@ bundle: frame-the-problem
         const fs = yield* FileSystem;
         const path = yield* Path;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "broken-evals" });
+        scaffoldLegacyBundle(dir, "broken-evals");
 
         const bundleDir = path.join(dir, "skills", "broken-evals");
         yield* fs.writeFileString(path.join(bundleDir, "evals.json"), "{ not json");
@@ -625,7 +667,7 @@ bundle: frame-the-problem
         const fs = yield* FileSystem;
         const path = yield* Path;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "context-demo" });
+        scaffoldLegacyBundle(dir, "context-demo");
 
         const bundleDir = path.join(dir, "skills", "context-demo");
         yield* fs.writeFileString(
@@ -669,7 +711,7 @@ bundle: frame-the-problem
         const fs = yield* FileSystem;
         const path = yield* Path;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "flaky" });
+        scaffoldLegacyBundle(dir, "flaky");
 
         const caseDir = path.join(dir, "skills", "flaky", "evals", "fixtures", "broken-case");
         yield* fs.makeDirectory(caseDir, { recursive: true });
@@ -703,7 +745,7 @@ bundle: frame-the-problem
         const fs = yield* FileSystem;
         const path = yield* Path;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "gappy" });
+        scaffoldLegacyBundle(dir, "gappy");
 
         yield* fs.writeFileString(
           path.join(dir, "skills", "gappy", "evals", "risk-map.md"),
@@ -733,7 +775,7 @@ bundle: frame-the-problem
         const fs = yield* FileSystem;
         const path = yield* Path;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "claims" });
+        scaffoldLegacyBundle(dir, "claims");
 
         yield* fs.writeFileString(
           path.join(dir, "skills", "claims", "evals", "risk-map.md"),
@@ -799,7 +841,9 @@ bundle: frame-the-problem
       Effect.gen(function* () {
         const workspace = yield* Workspace;
         yield* workspace.init(dir);
-        yield* workspace.createBundle(dir, { slug: "alpha" });
+        // Legacy shape on purpose: the leak this guards against is a prop
+        // bundle.json inside a LEGACY fixture tree.
+        scaffoldLegacyBundle(dir, "alpha");
 
         // A golden fixture whose staged workspace carries a whole prop
         // bundle.json -- exactly william-research-a-skill's golden-basic

@@ -88,7 +88,7 @@ beforeAll(() => {
   writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Example Skill\n\nDoes a thing.\n");
 
   expect(runCli(["fixture", "add", "example-skill", "golden-basic", "--json"], scratchDir).exitCode).toBe(0);
-  writeFileSync(join(bundleDir, "evals", "fixtures", "golden-basic", "prompt.md"), "Do the thing.\n");
+  writeFileSync(join(bundleDir, "evals", "cases", "golden-basic", "prompt.md"), "Do the thing.\n");
 
   setCodexProviderCommand(["node", fakeAdapterCodex]);
 }, 30000);

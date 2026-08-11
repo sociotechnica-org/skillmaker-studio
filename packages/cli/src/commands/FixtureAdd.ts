@@ -1,26 +1,35 @@
 /**
  * `skillmaker fixture add <slug> <case> [--class ...] [--risks IN-1,RE-2]`
- * — scaffolds `evals/fixtures/<case>/` for an existing
- * bundle: `case.json`, `prompt.md` (the PROMPT.MD CHANGE — the task prompt
- * lives here, not in `case.json`, data-model.md §2.5), `files/.gitkeep`, and
- * `expected/answer-key.md` skeleton, via the shared `writeFixtureScaffold`
- * (`@skillmaker/core`, `Fixtures.ts`) -- `fixture harvest` (`FixtureHarvest.ts`,
- * issue #68) writes the same shape from a field report, through the same
- * function. Fixtures are files, not journal events — nothing is appended to
- * the journal here (plan.md Phase 7).
+ * (alias: `skillmaker case add`, the ruled vocabulary) — scaffolds one eval
+ * case for an existing bundle, generation-aware through the ONE core door
+ * (`@skillmaker/core`'s `scaffoldCaseForBundle`, which `fixture harvest`
+ * writes through too):
+ *
+ * - On a skill.json bundle (THE MERGE write side): appends the case entry
+ *   to `skill.json`'s `evals.cases` and scaffolds `evals/cases/<case>/`
+ *   (prompt.md, files/, expected.md). `--risks` ids MUST exist in
+ *   `design.failureHypotheses` — a dangling id is a clean refusal — and
+ *   each named claim gains the hypothesis→case pointer (the model's only
+ *   edge). Realizing a case skill.json already lists (a planned proof
+ *   spec) is the designed order, not a collision.
+ * - On a legacy bundle: exactly today's behavior — `evals/fixtures/<case>/`
+ *   with `case.json` (risks unvalidated, as before). The write side
+ *   follows migration, never forces it.
+ *
+ * Fixtures are files, not journal events — nothing is appended to the
+ * journal here (plan.md Phase 7).
  */
 import {
   FIXTURE_CLASSES,
   isFixtureClass,
   isKnownRiskFamily,
   riskFamily,
+  scaffoldCaseForBundle,
   Workspace,
-  writeFixtureScaffold,
   type FixtureClass,
   bundleMarkerExists,
 } from "@skillmaker/core";
 import { Effect } from "effect";
-import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { type CliResult, expectedFailure, ok, usageError } from "../CliResult.ts";
 
@@ -28,6 +37,8 @@ export interface FixtureAddOptions {
   readonly json: boolean;
   readonly klass?: string;
   readonly risks?: string;
+  /** How the command was invoked (`fixture add` or its `case add` alias) — used verbatim in messages. */
+  readonly commandLabel?: string;
 }
 
 export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
@@ -36,16 +47,17 @@ export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
   caseName: string | undefined,
   options: FixtureAddOptions,
 ) {
+  const label = options.commandLabel ?? "fixture add";
   if (slug === undefined || caseName === undefined) {
     return usageError(
-      `skillmaker fixture add: missing <slug> <case>\n\nUsage: skillmaker fixture add <slug> <case> [--class ${FIXTURE_CLASSES.join("|")}] [--risks IN-1,RE-2]\n`,
+      `skillmaker ${label}: missing <slug> <case>\n\nUsage: skillmaker ${label} <slug> <case> [--class ${FIXTURE_CLASSES.join("|")}] [--risks IN-1,RE-2]\n`,
     );
   }
 
   const klass = options.klass ?? "golden";
   if (!isFixtureClass(klass)) {
     return usageError(
-      `skillmaker fixture add: invalid --class "${klass}" (expected ${FIXTURE_CLASSES.join("|")})\n`,
+      `skillmaker ${label}: invalid --class "${klass}" (expected ${FIXTURE_CLASSES.join("|")})\n`,
     );
   }
 
@@ -57,7 +69,7 @@ export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
     const family = riskFamily(riskId);
     if (!isKnownRiskFamily(family)) {
       return usageError(
-        `skillmaker fixture add: risk id "${riskId}" does not band into a known family (expected IN|RE|OUT|ADV|CHN prefix)\n`,
+        `skillmaker ${label}: risk id "${riskId}" does not band into a known family (expected IN|RE|OUT|ADV|CHN prefix)\n`,
       );
     }
   }
@@ -69,46 +81,56 @@ export const runFixtureAdd = Effect.fn("runFixtureAdd")(function* (
 
   if (resolved === undefined) {
     return expectedFailure(
-      "skillmaker fixture add: no skillmaker workspace found (run `skillmaker init` first)\n",
+      `skillmaker ${label}: no skillmaker workspace found (run \`skillmaker init\` first)\n`,
     );
   }
 
-  const fs = yield* FileSystem;
   const path = yield* Path;
   const bundleDir = path.join(resolved.root, resolved.config.skillsDir, slug);
 
   const bundleExists = yield* bundleMarkerExists(bundleDir);
   if (!bundleExists) {
-    return expectedFailure(`skillmaker fixture add: no such bundle "${slug}"\n`);
+    return expectedFailure(`skillmaker ${label}: no such bundle "${slug}"\n`);
   }
 
-  const caseDir = path.join(bundleDir, "evals", "fixtures", caseName);
-  const caseDirExists = yield* fs.exists(caseDir);
-  if (caseDirExists) {
-    return expectedFailure(
-      `skillmaker fixture add: evals/fixtures/${caseName}/ already exists for "${slug}"\n`,
-    );
+  const outcome = yield* scaffoldCaseForBundle(bundleDir, { caseName, klass, risks });
+
+  switch (outcome.kind) {
+    case "case-dir-exists":
+      return expectedFailure(
+        `skillmaker ${label}: ${outcome.caseDirRel}/ already exists for "${slug}"\n`,
+      );
+    case "dangling-risks":
+      return expectedFailure(
+        `skillmaker ${label}: unknown claim id(s) ${outcome.missing.join(", ")} -- ids must exist in skill.json's design.failureHypotheses (add the claim first: skillmaker claims add ${slug} --id ${outcome.missing[0]} --failure "...")\n`,
+      );
+    case "unusable-skill-json":
+      return expectedFailure(
+        `skillmaker ${label}: ${slug}/skill.json is not a usable JSON object; fix it before adding cases\n`,
+      );
+    case "created":
+    case "realized":
+      return summarize(label, slug, caseName, klass, risks, outcome.kind, outcome.caseDirRel, options.json);
   }
-
-  yield* writeFixtureScaffold({
-    caseDir,
-    caseName,
-    class: klass,
-    risks,
-  });
-
-  return summarize(slug, caseName, klass, risks, options.json);
 });
 
 const summarize = (
+  label: string,
   slug: string,
   caseName: string,
   klass: FixtureClass,
   risks: ReadonlyArray<string>,
+  kind: "created" | "realized",
+  caseDirRel: string,
   json: boolean,
 ): CliResult => {
   if (json) {
-    return ok(`${JSON.stringify({ status: "created", bundle: slug, case: caseName, class: klass, risks })}\n`);
+    return ok(
+      `${JSON.stringify({ status: kind, bundle: slug, case: caseName, class: klass, risks, caseDir: caseDirRel })}\n`,
+    );
   }
-  return ok(`skillmaker: created fixture ${slug}/evals/fixtures/${caseName}/ (class: ${klass})\n`);
+  // Legacy bundles keep the pre-merge wording exactly ("created fixture").
+  const noun = caseDirRel.includes("fixtures") ? "fixture" : "case";
+  const verb = kind === "realized" ? `realized planned ${noun}` : `created ${noun}`;
+  return ok(`skillmaker: ${verb} ${slug}/${caseDirRel}/ (class: ${klass})\n`);
 };

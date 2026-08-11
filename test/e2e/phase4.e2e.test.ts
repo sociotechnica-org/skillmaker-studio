@@ -7,7 +7,7 @@
  * cross-checked against `skillmaker list --json` at each step.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startE2eRegistryServer } from "./support/server.ts";
@@ -97,7 +97,18 @@ beforeAll(async () => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"], scratchDir).exitCode).toBe(0);
-  expect(runCli(["new", "gamma", "--json"], scratchDir).exitCode).toBe(0);
+  // Birth intent + stage artifacts up front: the ruled gate table (THE
+  // MERGE, StageGates.ts) requires oneLiner for researching, design.md for
+  // drafting (scaffolded non-empty by `new`), and output/SKILL.md for
+  // evaluating. This suite is about the JOURNAL guards, so satisfy the
+  // artifact gates once here.
+  expect(
+    runCli(["new", "gamma", "--one-liner", "Walks the guarded state machine.", "--json"], scratchDir).exitCode,
+  ).toBe(0);
+  writeFileSync(
+    join(scratchDir, "skills", "gamma", "output", "SKILL.md"),
+    "---\nname: gamma\ndescription: phase4 walker.\n---\n\nDo the gamma thing.\n",
+  );
 
   const server = await startE2eRegistryServer({
     command: (port) => ["bun", cliEntry, "start", "--port", String(port), "--no-open"],
@@ -182,7 +193,7 @@ describe("skillmaker CLI end-to-end: Phase 4 (guarded state machine over HTTP)",
     expect(listStages().gamma).toBe("evaluating");
   });
 
-  test("attempting to publish without an approved publish gate is rejected with 409", async () => {
+  test("the publish gate is SOFT (ruled 2026-08-11): an unmeasured publish succeeds with the 'publishing unmeasured' warning -- no gate_decided required", async () => {
     await requestAndApproveReview("gamma", "evaluating");
 
     const detail = await fetch(`${projectUrl}/bundles/gamma`);
@@ -190,6 +201,7 @@ describe("skillmaker CLI end-to-end: Phase 4 (guarded state machine over HTTP)",
       guardStatus: { approvedForForward: boolean; gateApproved: boolean };
     };
     expect(detailBody.guardStatus.approvedForForward).toBe(true);
+    // gate_decided events are still reportable facts, but no longer guards.
     expect(detailBody.guardStatus.gateApproved).toBe(false);
 
     const publish = await postEvent("bundle.stage_changed", {
@@ -197,11 +209,14 @@ describe("skillmaker CLI end-to-end: Phase 4 (guarded state machine over HTTP)",
       from: "evaluating",
       to: "published",
     });
-    expect(publish.status).toBe(409);
-    expect(listStages().gamma).toBe("evaluating");
+    expect(publish.status).toBe(200);
+    const warnings = publish.body.warnings;
+    expect(Array.isArray(warnings)).toBe(true);
+    expect(String((warnings as unknown[])[0])).toContain("publishing unmeasured");
+    expect(listStages().gamma).toBe("published");
   });
 
-  test("bundle.gate_decided(approved) then stage_changed publishes successfully", async () => {
+  test("bundle.gate_decided remains a recordable fact (200), just not a gate", async () => {
     const gate = await postEvent("bundle.gate_decided", {
       bundle: "gamma",
       gate: "publish",
@@ -209,14 +224,6 @@ describe("skillmaker CLI end-to-end: Phase 4 (guarded state machine over HTTP)",
       basis: "manually verified in e2e test",
     });
     expect(gate.status).toBe(200);
-
-    const publish = await postEvent("bundle.stage_changed", {
-      bundle: "gamma",
-      from: "evaluating",
-      to: "published",
-    });
-    expect(publish.status).toBe(200);
-    expect(listStages().gamma).toBe("published");
   });
 
   test("moving back to drafting with a reason succeeds", async () => {

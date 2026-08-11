@@ -7,6 +7,7 @@ import { type CliResult, ok, usageError } from "./CliResult.ts";
 import { runAdopt, runAdoptFromManifest, runAdoptTriage } from "./commands/Adopt.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runBookBuild } from "./commands/BookBuild.ts";
+import { runClaimsAdd } from "./commands/ClaimsAdd.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
 import { runFixtureHarvest } from "./commands/FixtureHarvest.ts";
 import { runGrade } from "./commands/Grade.ts";
@@ -44,8 +45,9 @@ Commands:
   list              List Skill Bundles by stage/substate (rebuilds the index first)
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
-  fixture add <slug> <case>   Scaffold evals/fixtures/<case>/ for a bundle
-  fixture harvest <slug> <case>   Turn a skill.field_report event into a Lab fixture (--from-report <event-id> required, issue #68)
+  case add <slug> <case>      Scaffold one eval case (skill.json bundles: entry in skill.json + evals/cases/<case>/; legacy bundles: evals/fixtures/<case>/). Alias: fixture add
+  case harvest <slug> <case>  Turn a skill.field_report event into an eval case (--from-report <event-id> required, issue #68). Alias: fixture harvest
+  claims add <slug>           Add a failure hypothesis (a claim) to a skill.json bundle's design.failureHypotheses (--id and --failure required)
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
   run repair <slug> [runId]   Terminal-state stuck "running" run(s) whose process is gone, so their transcripts become gradeable
   station run <slug>     Run an agent station for a bundle (data-model.md §2.13)
@@ -76,6 +78,7 @@ Commands:
 Options:
   --json            Emit machine-readable JSON instead of text
   --name <name>     (new) Display name for the bundle; defaults to a title-cased slug
+  --one-liner <text>   (new) Birth intent: what the skill is for, in one line (the idea -> researching gate requires it)
                     (route) --as new/fork: display-name override; --as upgrade: version label override
   --port <n>        (start) Port to serve on; defaults to 4323
   --no-open         (start) Do not open a browser on startup
@@ -119,9 +122,14 @@ Options:
   --priority <n>    (todo add) lower = more urgent; defaults by kind
   --pin             (todo add) pin the todo (exempt from the sweep)
   --all             (todo list) include swept todos
-  --class <class>   (fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
-                    (fixture harvest) same enum; defaults to hard-case
-  --risks <ids>     (fixture add) comma-separated risk-map ids, e.g. IN-1,RE-2
+  --class <class>   (case/fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
+                    (case/fixture harvest) same enum; defaults to hard-case
+  --risks <ids>     (case/fixture add) comma-separated claim ids, e.g. IN-1,RE-2; on a skill.json bundle each id must exist in design.failureHypotheses
+  --id <id>         (claims add) the claim id, e.g. IN-1 (required; IN|RE|OUT|ADV|CHN family prefix)
+  --failure <text>  (claims add) the observable failure sentence (required)
+  --must-never <text>  (claims add) the invariant the skill must never break; optional
+  --probability <p> (claims add) e.g. Low | Medium | High; optional
+  --impact <i>      (claims add) e.g. Low | Medium | High; optional
   --from-report <id>   (fixture harvest) the skill.field_report event id to harvest (required)
                     (todo add) the skill.field_report event id to seed the todo from (optional, issue #81); defaults --bundle/--kind/--detail from the report
   --from-run <id>   (todo add) the run id whose findings this todo tracks (2026-07-21 simplification, D5); stamps origin {kind: "run", runId} and defaults --bundle/--detail from the run
@@ -153,6 +161,12 @@ const flagValue = (argv: ReadonlyArray<string>, flag: string): string | undefine
 /** Flags across every command that consume the following argv slot as a value. */
 const VALUE_FLAGS = new Set([
   "--name",
+  "--one-liner",
+  "--id",
+  "--failure",
+  "--must-never",
+  "--probability",
+  "--impact",
   "--port",
   "--question",
   "--decision",
@@ -276,7 +290,8 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     case "new": {
       const slug = positionalAfterCommand(argv);
       const name = flagValue(argv, "--name");
-      return yield* runNew(cwd, slug, { json, name });
+      const oneLiner = flagValue(argv, "--one-liner");
+      return yield* runNew(cwd, slug, { json, name, oneLiner });
     }
     case "adopt": {
       const targetPath = positionalAfterCommand(argv);
@@ -305,13 +320,21 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
     }
     case "reindex":
       return yield* runReindex(cwd, { json });
+    // `case` is the ruled vocabulary (THE MERGE R8: the unit is "case");
+    // `fixture` remains as the long-standing alias -- same handlers.
+    case "case":
     case "fixture": {
       const subcommand = argv[1];
       if (subcommand === "add") {
         const [slug, caseName] = twoPositionalsAfter(argv, 2);
         const klass = flagValue(argv, "--class");
         const risks = flagValue(argv, "--risks");
-        return yield* runFixtureAdd(cwd, slug, caseName, { json, klass, risks });
+        return yield* runFixtureAdd(cwd, slug, caseName, {
+          json,
+          klass,
+          risks,
+          commandLabel: `${command} add`,
+        });
       }
       if (subcommand === "harvest") {
         const [slug, caseName] = twoPositionalsAfter(argv, 2);
@@ -321,7 +344,24 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         return yield* runFixtureHarvest(cwd, slug, caseName, { json, klass, fromReport, fromIntake });
       }
       return usageError(
-        `skillmaker: unknown "fixture" subcommand "${String(subcommand)}"\n\nUsage: skillmaker fixture add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker fixture harvest <slug> <case> (--from-report <event-id> | --from-intake <intake-id>) [--class <class>]\n`,
+        `skillmaker: unknown "${command}" subcommand "${String(subcommand)}"\n\nUsage: skillmaker ${command} add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker ${command} harvest <slug> <case> (--from-report <event-id> | --from-intake <intake-id>) [--class <class>]\n`,
+      );
+    }
+    case "claims": {
+      const subcommand = argv[1];
+      if (subcommand === "add") {
+        const slug = positionalAfter(argv, 2);
+        return yield* runClaimsAdd(cwd, slug, {
+          json,
+          id: flagValue(argv, "--id"),
+          failure: flagValue(argv, "--failure"),
+          mustNever: flagValue(argv, "--must-never"),
+          probability: flagValue(argv, "--probability"),
+          impact: flagValue(argv, "--impact"),
+        });
+      }
+      return usageError(
+        `skillmaker: unknown "claims" subcommand "${String(subcommand)}"\n\nUsage: skillmaker claims add <slug> --id <id> --failure <text> [--must-never <text>] [--probability <p>] [--impact <i>]\n`,
       );
     }
     case "run": {

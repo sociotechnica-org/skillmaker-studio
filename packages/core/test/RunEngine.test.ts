@@ -65,7 +65,7 @@ describe("runFixture sandbox isolation (Fix F6: an isolated CLAUDE_CONFIG_DIR re
           const resolved = yield* workspace.resolve(dir);
           const bundleDir = join(initResult.root, resolved.config.skillsDir, "demo");
           writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Demo Skill\n\nSome instructions.\n");
-          const caseDir = join(bundleDir, "evals", "fixtures", "golden-basic");
+          const caseDir = join(bundleDir, "evals", "cases", "golden-basic");
           mkdirSync(caseDir, { recursive: true });
           writeFileSync(join(caseDir, "prompt.md"), "Do the thing.\n");
 
@@ -167,7 +167,7 @@ describe("runFixture skillInvoked (Fix F7: didSkillActivate's signal is computed
         const resolved = yield* workspace.resolve(dir);
         const bundleDir = join(initResult.root, resolved.config.skillsDir, "demo");
         writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Demo Skill\n\nSome instructions.\n");
-        const caseDir = join(bundleDir, "evals", "fixtures", "golden-basic");
+        const caseDir = join(bundleDir, "evals", "cases", "golden-basic");
         mkdirSync(caseDir, { recursive: true });
         writeFileSync(join(caseDir, "prompt.md"), "Do the thing.\n");
 

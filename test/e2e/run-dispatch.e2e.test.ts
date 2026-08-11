@@ -105,11 +105,11 @@ beforeAll(async () => {
   writeFileSync(join(bundleDir, "output", "SKILL.md"), "# Example Skill\n\nDoes a thing.\n");
   for (const fixture of FIXTURES) {
     expect(runCli(["fixture", "add", SKILL, fixture, "--json"], scratchDir).exitCode).toBe(0);
-    writeFileSync(join(bundleDir, "evals", "fixtures", fixture, "prompt.md"), `Do the ${fixture} thing.\n`);
+    writeFileSync(join(bundleDir, "evals", "cases", fixture, "prompt.md"), `Do the ${fixture} thing.\n`);
   }
   // A fixture with case.json but NO prompt.md -- the 409 precheck case.
   expect(runCli(["fixture", "add", SKILL, "no-prompt", "--json"], scratchDir).exitCode).toBe(0);
-  unlinkSync(join(bundleDir, "evals", "fixtures", "no-prompt", "prompt.md"));
+  unlinkSync(join(bundleDir, "evals", "cases", "no-prompt", "prompt.md"));
 
   // Point the claude-code provider at the gate-controlled fake adapter.
   const configPath = join(scratchDir, "skillmaker.config.json");

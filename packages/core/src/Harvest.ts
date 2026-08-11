@@ -1,8 +1,12 @@
 /**
  * `fixture harvest` (issue #68, `Vision - Board Lab Ship Receive.md` §WHY:
  * "a skill that fails in production *is* a new fixture"): turns one
- * `skill.field_report` event into one hand-reviewed `evals/fixtures/<case>/`
- * directory. Mirrors `FieldReport.ts`'s core-function-plus-thin-CLI layering,
+ * `skill.field_report` event into one hand-reviewed eval case — on a
+ * skill.json bundle a `skill.json` case entry + `evals/cases/<case>/`
+ * materials, on a legacy bundle the pre-merge `evals/fixtures/<case>/`
+ * shape (THE MERGE write-side tranche; `SkillJsonWrite.
+ * scaffoldCaseForBundle` is the one generation-aware door).
+ * Mirrors `FieldReport.ts`'s core-function-plus-thin-CLI layering,
  * but is the *files* side of that pair -- fixtures stay files, not events
  * (`FixtureAdd.ts`'s rule), so harvesting never touches the journal beyond
  * reading it to find the named report.
@@ -13,7 +17,6 @@
  * report's `report` prose -- the wild's own words, not a paraphrase.
  */
 import { Effect } from "effect";
-import { FileSystem } from "effect/FileSystem";
 import { join } from "node:path";
 import {
   HarvestCaseExistsError,
@@ -23,31 +26,48 @@ import {
   HarvestWrongBundleError,
   WorkspaceIOError,
 } from "./Errors.ts";
-import { type FixtureClass, type FixtureSourceRecord, writeFixtureScaffold } from "./Fixtures.ts";
+import { type FixtureClass, type FixtureSourceRecord } from "./Fixtures.ts";
 import { Journal } from "./JournalService.ts";
 import { findReceivedEvent } from "./Receive.ts";
+import { scaffoldCaseForBundle, type ScaffoldCaseInput } from "./SkillJsonWrite.ts";
 
 const toIOError = (message: string) => (cause: unknown) => WorkspaceIOError.make({ message, cause });
 
 /**
- * The case-directory-collision guard both `harvestFixture` and
- * `harvestFixtureFromIntake` need identically (issue #91): resolves and
- * returns the target `evals/fixtures/<case>/` directory, or fails
- * `HarvestCaseExistsError` if it already exists -- one place instead of two
- * copies of the same check.
+ * The one scaffold call both harvest doors share (write-side tranche):
+ * generation-aware via `scaffoldCaseForBundle` -- on a skill.json bundle
+ * the case entry (with its `source` provenance) lands in `skill.json` and
+ * the materials in `evals/cases/<name>/`; on a legacy bundle, today's
+ * `evals/fixtures/<name>/case.json` shape, exactly as before. Maps the
+ * directory collision onto `HarvestCaseExistsError` (same rule
+ * `fixture add` enforces, its own door phrases it as a usage error).
  */
-const guardCaseAvailable = Effect.fn("Harvest.guardCaseAvailable")(function* (
+const scaffoldHarvestedCase = Effect.fn("Harvest.scaffoldHarvestedCase")(function* (
   bundle: string,
   bundleDir: string,
-  caseName: string,
+  input: ScaffoldCaseInput,
 ) {
-  const fs = yield* FileSystem;
-  const caseDir = join(bundleDir, "evals", "fixtures", caseName);
-  const caseDirExists = yield* fs.exists(caseDir).pipe(Effect.mapError(toIOError(`could not check ${caseDir}`)));
-  if (caseDirExists) {
-    return yield* Effect.fail(HarvestCaseExistsError.make({ bundle, caseName }));
+  const outcome = yield* scaffoldCaseForBundle(bundleDir, input);
+  if (outcome.kind === "case-dir-exists") {
+    return yield* Effect.fail(HarvestCaseExistsError.make({ bundle, caseName: input.caseName }));
   }
-  return caseDir;
+  if (outcome.kind === "dangling-risks") {
+    return yield* Effect.fail(
+      WorkspaceIOError.make({
+        message: `harvest named claim ids with no skill.json hypothesis: ${outcome.missing.join(", ")}`,
+        cause: undefined,
+      }),
+    );
+  }
+  if (outcome.kind === "unusable-skill-json") {
+    return yield* Effect.fail(
+      WorkspaceIOError.make({
+        message: `${join(bundleDir, "skill.json")} is not a usable JSON object; fix it before harvesting`,
+        cause: undefined,
+      }),
+    );
+  }
+  return outcome;
 });
 
 export interface HarvestFixtureInput {
@@ -65,6 +85,8 @@ export interface HarvestFixtureResult {
   readonly caseName: string;
   readonly class: FixtureClass;
   readonly source: Extract<FixtureSourceRecord, { readonly kind: "field-report" }>;
+  /** Bundle-relative case directory the scaffold landed in (`evals/cases/<name>` on a skill.json bundle, `evals/fixtures/<name>` legacy). */
+  readonly caseDirRel: string;
 }
 
 /**
@@ -101,18 +123,15 @@ export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (inp
     );
   }
 
-  const caseDir = yield* guardCaseAvailable(input.bundle, input.bundleDir, input.caseName);
-
   const source: HarvestFixtureResult["source"] = {
     kind: "field-report",
     eventId: input.eventId,
     ...(event.payload.destination !== undefined ? { destination: event.payload.destination } : {}),
   };
 
-  yield* writeFixtureScaffold({
-    caseDir,
+  const scaffolded = yield* scaffoldHarvestedCase(input.bundle, input.bundleDir, {
     caseName: input.caseName,
-    class: input.klass,
+    klass: input.klass,
     risks: [],
     promptText: `${event.payload.report}\n`,
     source,
@@ -122,6 +141,7 @@ export const harvestFixture = Effect.fn("Harvest.harvestFixture")(function* (inp
     caseName: input.caseName,
     class: input.klass,
     source,
+    caseDirRel: scaffolded.caseDirRel,
   };
   return result;
 });
@@ -141,6 +161,8 @@ export interface HarvestFixtureFromIntakeResult {
   readonly caseName: string;
   readonly class: FixtureClass;
   readonly source: Extract<FixtureSourceRecord, { readonly kind: "intake" }>;
+  /** Bundle-relative case directory the scaffold landed in (`evals/cases/<name>` on a skill.json bundle, `evals/fixtures/<name>` legacy). */
+  readonly caseDirRel: string;
 }
 
 /**
@@ -173,14 +195,11 @@ export const harvestFixtureFromIntake = Effect.fn("Harvest.harvestFixtureFromInt
     return yield* Effect.fail(HarvestIntakeNotFoundError.make({ intake: input.intake }));
   }
 
-  const caseDir = yield* guardCaseAvailable(input.bundle, input.bundleDir, input.caseName);
-
   const source: HarvestFixtureFromIntakeResult["source"] = { kind: "intake", intake: input.intake };
 
-  yield* writeFixtureScaffold({
-    caseDir,
+  const scaffolded = yield* scaffoldHarvestedCase(input.bundle, input.bundleDir, {
     caseName: input.caseName,
-    class: input.klass,
+    klass: input.klass,
     risks: [],
     source,
   });
@@ -189,6 +208,7 @@ export const harvestFixtureFromIntake = Effect.fn("Harvest.harvestFixtureFromInt
     caseName: input.caseName,
     class: input.klass,
     source,
+    caseDirRel: scaffolded.caseDirRel,
   };
   return result;
 });

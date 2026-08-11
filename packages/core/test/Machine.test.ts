@@ -155,7 +155,7 @@ describe("checkTransition", () => {
     expect(verdict).toEqual({ allowed: true });
   });
 
-  test("evaluating -> published requires both an approved review and an approved gate", () => {
+  test("evaluating -> published requires only an approved review -- the old hard gate_decided requirement is gone (soft-gate ruling 2026-08-11)", () => {
     const events = [
       created("demo"),
       staged("demo", "idea", "researching"),
@@ -165,28 +165,24 @@ describe("checkTransition", () => {
       staged("demo", "drafting", "evaluating"),
     ];
 
-    // Neither review nor gate yet.
+    // No review yet: still guard-blocked, like every forward move.
     const noneVerdict = checkTransition(events, { bundle: "demo", from: "evaluating", to: "published" });
     expect(noneVerdict.allowed).toBe(false);
 
-    // Review approved, no gate.
+    // Review approved: that alone now suffices -- the publish gate is SOFT
+    // (StageGates warns "publishing unmeasured", never blocks) and lives at
+    // the doors, not in this pure journal guard.
     const reviewOnly = [...events, reviewResolved("demo", "evaluating", "approve")];
     const reviewOnlyVerdict = checkTransition(reviewOnly, { bundle: "demo", from: "evaluating", to: "published" });
-    expect(reviewOnlyVerdict.allowed).toBe(false);
-    expect(reviewOnlyVerdict.allowed === false && reviewOnlyVerdict.reason).toMatch(/publish gate/);
+    expect(reviewOnlyVerdict).toEqual({ allowed: true });
 
-    // Gate approved, no review.
+    // A gate_decided event alone does not replace the review requirement.
     const gateOnly = [...events, gateDecided("demo", "approved")];
     const gateOnlyVerdict = checkTransition(gateOnly, { bundle: "demo", from: "evaluating", to: "published" });
     expect(gateOnlyVerdict.allowed).toBe(false);
-
-    // Both.
-    const both = [...events, reviewResolved("demo", "evaluating", "approve"), gateDecided("demo", "approved")];
-    const bothVerdict = checkTransition(both, { bundle: "demo", from: "evaluating", to: "published" });
-    expect(bothVerdict).toEqual({ allowed: true });
   });
 
-  test("a declined gate decision does not satisfy the publish gate", () => {
+  test("a declined gate decision no longer blocks publishing -- gate_decided events are recorded facts, not guards", () => {
     const events = [
       created("demo"),
       staged("demo", "idea", "researching"),
@@ -196,7 +192,7 @@ describe("checkTransition", () => {
       gateDecided("demo", "declined", "not ready"),
     ];
     const verdict = checkTransition(events, { bundle: "demo", from: "evaluating", to: "published" });
-    expect(verdict.allowed).toBe(false);
+    expect(verdict).toEqual({ allowed: true });
   });
 
   test("an approval that predates the last stage change is stale and does not count", () => {

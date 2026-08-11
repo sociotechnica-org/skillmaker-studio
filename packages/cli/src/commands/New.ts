@@ -11,6 +11,8 @@ import { type CliResult, expectedFailure, ok, usageError } from "../CliResult.ts
 export interface NewOptions {
   readonly json: boolean;
   readonly name?: string;
+  /** Birth intent (`--one-liner`) — lands in skill.json's `skill.oneLiner`; the idea → researching gate requires it non-empty. */
+  readonly oneLiner?: string;
 }
 
 export const runNew = Effect.fn("runNew")(function* (
@@ -19,7 +21,9 @@ export const runNew = Effect.fn("runNew")(function* (
   options: NewOptions,
 ) {
   if (slug === undefined) {
-    return usageError("skillmaker new: missing <slug>\n\nUsage: skillmaker new <slug> [--name <name>]\n");
+    return usageError(
+      "skillmaker new: missing <slug>\n\nUsage: skillmaker new <slug> [--name <name>] [--one-liner <text>]\n",
+    );
   }
 
   const workspace = yield* Workspace;
@@ -35,7 +39,9 @@ export const runNew = Effect.fn("runNew")(function* (
     );
   }
 
-  const created = yield* workspace.createBundle(resolved.root, { slug, name: options.name }).pipe(
+  const created = yield* workspace
+    .createBundle(resolved.root, { slug, name: options.name, oneLiner: options.oneLiner })
+    .pipe(
     Effect.catchTag("InvalidSlugError", (error) =>
       Effect.succeed({ status: "invalid_slug" as const, slug: error.slug }),
     ),

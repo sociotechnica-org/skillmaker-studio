@@ -57,7 +57,9 @@ beforeAll(() => {
   Bun.spawnSync(["git", "config", "user.email", "e2e@example.com"], { cwd: scratchDir });
 
   expect(runCli(["init", "--json"]).exitCode).toBe(0);
-  expect(runCli(["new", "solo-skill", "--json"]).exitCode).toBe(0);
+  // Birth intent up front: the idea -> researching gate (THE MERGE ruled
+  // table) requires a non-empty oneLiner.
+  expect(runCli(["new", "solo-skill", "--one-liner", "Solo review loop walker.", "--json"]).exitCode).toBe(0);
 });
 
 afterAll(() => {
