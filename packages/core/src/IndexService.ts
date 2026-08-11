@@ -34,6 +34,7 @@ import type { ClaimsSource } from "./EvalsJson.ts";
 import { scanFixtures } from "./Fixtures.ts";
 import type { FixtureCaseRecord, FixtureSourceRecord } from "./Fixtures.ts";
 import { bundleForEvent, foldBundleStates } from "./Fold.ts";
+import { latestGrade, readGradeLanes } from "./Grades.ts";
 import { compareTodos, foldTodos, isSwept } from "./FoldTodos.ts";
 import { layer as JournalLayer, Journal } from "./JournalService.ts";
 import type { Actor } from "./Actor.ts";
@@ -226,9 +227,10 @@ export interface RiskCoverageRecord {
 
 /**
  * A materialized `runs/<id>/run.json` row (data-model.md §2.8, §2.11),
- * joined with the latest `run.graded` journal event for that run id (if
- * any) -- `verdict`/`gradedAt`/`gradedBy` are the grading columns, filled by
- * Phase 9's grading UI; created now so the schema is stable across phases.
+ * joined with the run's latest grade -- from its git-visible grade files
+ * (`runs/<id>/grades/<grader>/grade.json`, Grades.ts) when present, else
+ * the latest `run.graded` journal event (runs graded before grade files
+ * existed) -- `verdict`/`gradedAt`/`gradedBy` are the grading columns.
  */
 export interface RunIndexRecord {
   readonly id: string;
@@ -1505,7 +1507,41 @@ export const layer = (
                 continue;
               }
               const runRecord = outcome.success;
-              const grade = gradeByRunId.get(runRecord.id);
+              // Grade resolution (director ruling 2026-08-11, Grades.ts):
+              // git-visible grade FILES (`runs/<id>/grades/<grader>/
+              // grade.json`) win when present; the folded `run.graded`
+              // journal events are the fallback for runs graded before
+              // grade files existed. Latest-wins semantics are unchanged
+              // either way. Malformed grade files degrade to warnings
+              // (ruling I) and fall back to the journal.
+              const laneOutcome = yield* Effect.result(
+                Effect.try({
+                  try: () => readGradeLanes(runEntryDir),
+                  catch: (cause) => cause,
+                }),
+              );
+              if (laneOutcome._tag === "Failure") {
+                warnings.push({
+                  bundle: slug,
+                  source: "grades",
+                  message: `runs/${runEntry}/grades could not be read: ${String(laneOutcome.failure)}`,
+                });
+              } else {
+                for (const warning of laneOutcome.success.warnings) {
+                  warnings.push({ bundle: slug, source: "grades", message: `runs/${runEntry}/${warning}` });
+                }
+              }
+              const fileGrade =
+                laneOutcome._tag === "Success" ? latestGrade(laneOutcome.success.lanes) : undefined;
+              const grade =
+                fileGrade !== undefined
+                  ? {
+                      verdict: fileGrade.verdict,
+                      gradedAt: fileGrade.gradedAt,
+                      gradedBy: fileGrade.actor,
+                      checks: fileGrade.checks,
+                    }
+                  : gradeByRunId.get(runRecord.id);
               if (grade?.checks !== undefined && grade.checks.length > 0 && runRecord.fixtureCase !== undefined) {
                 gradedRunsForSelfCritique.push({
                   bundle: slug,

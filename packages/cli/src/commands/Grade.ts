@@ -1,13 +1,22 @@
 /**
  * `skillmaker grade <slug> <runId> --verdict pass|fail|partial [--notes <text>]`
  * -- the CLI door onto the same journal the viewer's grading panel writes
- * through ("two doors, one journal"): appends `run.graded` (data-model.md
- * §2.9). No `idempotencyKey` -- a regrade is a genuinely new event, latest
- * wins at fold time (IndexService.ts's `gradeByRunId` map). Grading a run
- * that is not `status: "completed"` (infra-error/running) is refused: those
- * runs carry no task-level verdict to grade.
+ * through ("two doors, one journal"): writes the git-visible grade FILE
+ * (`runs/<runId>/grades/human/grade.json`, director ruling 2026-08-11 --
+ * Grades.ts) and appends `run.graded` (data-model.md §2.9, kept for UI
+ * liveness). No `idempotencyKey` -- a regrade is a genuinely new event,
+ * latest wins at fold time (IndexService.ts's grade resolution). Grading a
+ * run that is not `status: "completed"` (infra-error/running) is refused:
+ * those runs carry no task-level verdict to grade.
  */
-import { Journal, JournalLayer, Workspace } from "@skillmaker/core";
+import {
+  GradeRecord,
+  HUMAN_GRADER,
+  Journal,
+  JournalLayer,
+  Workspace,
+  writeGradeFile,
+} from "@skillmaker/core";
 import { Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
@@ -75,6 +84,32 @@ export const runGrade = Effect.fn("runGrade")(function* (
 
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
   const actor = yield* resolveUserActor();
+
+  // Grade FILE first, journal event second: the event is the liveness
+  // signal that makes readers look, so the git-visible record must already
+  // be on disk when they do.
+  const runDir = path.dirname(runJsonPath);
+  const writeOutcome = yield* Effect.result(
+    Effect.try(() =>
+      writeGradeFile(
+        runDir,
+        GradeRecord.make({
+          schemaVersion: 1,
+          runId,
+          grader: HUMAN_GRADER,
+          verdict,
+          ...(options.notes !== undefined ? { notes: options.notes } : {}),
+          gradedAt: new Date().toISOString(),
+          actor,
+        }),
+      ),
+    ),
+  );
+  if (writeOutcome._tag === "Failure") {
+    return expectedFailure(
+      `skillmaker grade: could not write grade file for run "${runId}": ${String(writeOutcome.failure)}\n`,
+    );
+  }
 
   const result = yield* Journal.pipe(
     Effect.flatMap((journal) =>

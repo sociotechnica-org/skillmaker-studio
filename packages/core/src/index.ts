@@ -12,6 +12,16 @@ export * from "./Actor.ts";
 export * from "./Bundle.ts";
 export * from "./Stations.ts";
 export * from "./Run.ts";
+export {
+  GradeRecord,
+  HUMAN_GRADER,
+  writeGradeFile,
+  readGradeLanes,
+  latestGrade,
+  type GradeLane,
+  type GradeWriteResult,
+  type ReadGradeLanesResult,
+} from "./Grades.ts";
 export * from "./Todo.ts";
 export * from "./Journal.ts";
 export * from "./Workspace.ts";
