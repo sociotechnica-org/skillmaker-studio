@@ -21,7 +21,7 @@ import { useJournalTick, type TickScope } from "./liveRefresh.ts";
 import { modelDisplayName } from "../runtime/cardGlance.ts";
 import { latestReviewOutcome, pendingReview } from "../runtime/reviewPanel.ts";
 import type { BundleDetailResponse, BundleStage, CatalogEntry, StateResponse, TodoRecord } from "../runtime/schemas.ts";
-import { claimFixtureCases, fixturePurpose, promptSummary, unclaimedFixtureCases } from "./evals.ts";
+import { claimFixtureCases, fixtureBodyText, fixturePurpose, promptSummary, unclaimedFixtureCases } from "./evals.ts";
 import type { BundleFile, Claim, ClaimStatus, Project, Skill, SkillLoop, SkillPage, Stage, Task, WireStage } from "./types.ts";
 
 /**
@@ -341,24 +341,37 @@ export const fetchBundleFile = async (slug: string, path: string): Promise<strin
   return body.content;
 };
 
-/** What the claim accordion shows per fixture: prompt summary + answer-key presence (IA §C rule 2). */
+/** What the claim accordion shows per fixture: prompt summary + answer-key presence (IA §C rule 2), plus the full inspectable body for the inline fold (2026-08-11: fixtures drafted via chat must be readable from the Eval tab). */
 export type FixtureGlance = {
   readonly purpose: string | null;
   readonly summary: string | null;
   readonly hasAnswerKey: boolean;
   readonly checkCount: number;
   readonly fixtureClass: string | null;
+  /** The whole prompt body (leading purpose comment stripped -- `purpose` carries it); `null` = nothing authored. */
+  readonly body: string | null;
+  /** The authored answer key's full text; `null` when none (or blank). */
+  readonly answerKey: string | null;
+  /** The authored grading checks, verbatim. */
+  readonly checks: ReadonlyArray<string>;
 };
 
-/** `GET /api/bundles/:slug/fixtures/:case` -> the accordion's fixture line. Fetched lazily on first claim expand. */
+/** `GET /api/bundles/:slug/fixtures/:case` -> the accordion's fixture line + inspectable body. Fetched lazily on first expand. */
 export const fetchFixtureGlance = async (slug: string, caseName: string): Promise<FixtureGlance> => {
   const detail = await getFixtureDetail(slug, caseName);
+  const answerKey =
+    detail.grading !== null && detail.grading.answerKey !== null && detail.grading.answerKey.trim().length > 0
+      ? detail.grading.answerKey
+      : null;
   return {
     purpose: fixturePurpose(detail.promptMd),
     summary: promptSummary(detail),
-    hasAnswerKey: detail.grading !== null && detail.grading.answerKey !== null && detail.grading.answerKey.trim().length > 0,
+    hasAnswerKey: answerKey !== null,
     checkCount: detail.grading?.checks.length ?? 0,
     fixtureClass: detail.class,
+    body: fixtureBodyText(detail),
+    answerKey,
+    checks: detail.grading?.checks ?? [],
   };
 };
 
