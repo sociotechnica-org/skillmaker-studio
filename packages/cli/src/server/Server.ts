@@ -34,8 +34,11 @@ import {
   listUndisposedCrates,
   publishBundle,
   publishToInstallTargets,
+  machineHome,
   readMachineConfig,
+  readMachineSettings,
   readRememberedInstallTargets,
+  resolveRunChoices,
   resolveInstallDir,
   recordSkillVersion,
   removeMachineProject,
@@ -2161,8 +2164,8 @@ const handleTriggerRun = async (
     return jsonResponse({ error: `fixture "${caseName}" has no prompt.md (bundle "${slug}")` }, 409);
   }
 
-  let provider = "claude-code";
-  let model: string | undefined;
+  let explicitProvider: string | undefined;
+  let explicitModel: string | undefined;
   const rawText = await request.text();
   if (rawText.length > 0) {
     let body: unknown;
@@ -2176,14 +2179,26 @@ const handleTriggerRun = async (
       if (typeof rawProvider !== "string") {
         return jsonResponse({ error: "provider must be a string" }, 400);
       }
-      provider = rawProvider;
+      explicitProvider = rawProvider;
     }
     const rawModel = (body as TriggerRunRequestBody).model;
     if (rawModel !== undefined && typeof rawModel !== "string") {
       return jsonResponse({ error: "model must be a string" }, 400);
     }
-    model = typeof rawModel === "string" && rawModel.length > 0 ? rawModel : undefined;
+    explicitModel = typeof rawModel === "string" && rawModel.length > 0 ? rawModel : undefined;
   }
+  // Machine-level defaults (R9): explicit body fields win, then
+  // ~/.skillmaker-studio/settings.json defaults, then built-ins. Malformed
+  // settings only warn; the run proceeds on built-ins.
+  const machineSettings = readMachineSettings(machineHome());
+  for (const warning of machineSettings.warnings) {
+    console.warn(`skillmaker serve: WARNING: ${warning}`);
+  }
+  const choices = resolveRunChoices(machineSettings.defaults, {
+    ...(explicitProvider !== undefined ? { provider: explicitProvider } : {}),
+    ...(explicitModel !== undefined ? { model: explicitModel } : {}),
+  });
+  const provider = choices.provider;
   if (config.providers[provider] === undefined) {
     return jsonResponse({ error: `provider "${provider}" is not configured in skillmaker.config.json` }, 400);
   }
@@ -2200,7 +2215,8 @@ const handleTriggerRun = async (
     provider,
     actor,
     runId,
-    ...(model !== undefined ? { model } : {}),
+    ...(choices.model !== undefined ? { model: choices.model } : {}),
+    ...(choices.timeoutMs !== undefined ? { timeoutMs: choices.timeoutMs } : {}),
   }).pipe(
     Effect.provide(Layer.provide(JournalLayer(journalPath), BunServices.layer)),
     Effect.provide(BunServices.layer),

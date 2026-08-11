@@ -18,6 +18,9 @@ import {
   IndexService,
   IndexServiceLayer,
   JournalLayer,
+  machineHome,
+  readMachineSettings,
+  resolveRunChoices,
   runFixture,
   type RunFixtureResult,
   Workspace,
@@ -39,7 +42,6 @@ export interface RunOptions {
   readonly permissive: boolean;
 }
 
-const DEFAULT_PROVIDER = "claude-code";
 
 export const runRun = Effect.fn("runRun")(function* (
   cwd: string,
@@ -77,7 +79,20 @@ export const runRun = Effect.fn("runRun")(function* (
 
   const path = yield* Path;
   const journalPath = path.join(resolved.root, ".skillmaker", "events.jsonl");
-  const provider = options.provider ?? DEFAULT_PROVIDER;
+
+  // Machine-level defaults (R9): explicit flags win, then
+  // ~/.skillmaker-studio/settings.json defaults, then built-ins. A
+  // malformed settings file only warns -- built-ins apply, the run proceeds.
+  const machineSettings = readMachineSettings(machineHome());
+  for (const warning of machineSettings.warnings) {
+    process.stderr.write(`skillmaker run: WARNING: ${warning}\n`);
+  }
+  const choices = resolveRunChoices(machineSettings.defaults, {
+    ...(options.provider !== undefined ? { provider: options.provider } : {}),
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
+  const provider = choices.provider;
   const actor = yield* resolveUserActor();
 
   let updateCount = 0;
@@ -120,8 +135,8 @@ export const runRun = Effect.fn("runRun")(function* (
       fixtureCase: options.fixture,
       provider,
       actor,
-      ...(options.model !== undefined ? { model: options.model } : {}),
-      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(choices.model !== undefined ? { model: choices.model } : {}),
+      ...(choices.timeoutMs !== undefined ? { timeoutMs: choices.timeoutMs } : {}),
       permissive: options.permissive,
       onProgress,
     }).pipe(Effect.provide(JournalLayer(journalPath))),
