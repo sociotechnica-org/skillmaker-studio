@@ -117,6 +117,7 @@ reads the skill file via its native Read/shell tool, detected by a
 a pass/fail verdict — and the *n* · pass-rate · confidence-interval
 measurements built on top of graded runs — is covered in
 [Grading and measurements](/evals/grading-and-measurements/). Coverage
-authoring (fixtures, risk maps) works independently of any run; see
+authoring (fixtures, and claims in a bundle-root `evals.json` or a
+legacy risk map) works independently of any run; see
 [Fixtures and risk maps](/evals/fixtures-and-risk-maps/).
 :::

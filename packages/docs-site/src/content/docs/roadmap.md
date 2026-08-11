@@ -27,6 +27,13 @@ where the rest of this site documents merged, runnable features, not here:
   (`stations.json`) and the build log.
 - **Publishing** — [`skillmaker publish`](/cli/publish/), git-dir and
   marketplace targets.
+- **The two-audience publish door, in the viewer too.** `skillmaker
+  publish <slug> --to user|project` installs a recorded version's
+  `output/` where an agent actually reads it (`~/.claude/skills/` or the
+  project's `.claude/skills/`), remembers the audience in `bundle.json`,
+  and supports revert to an older snapshot via `--version <hash>`. The
+  viewer's Publish tab drives the same core through live Publish/Revert
+  buttons — they are no longer disabled.
 - **The skillbook** — [`skillmaker book build`](/cli/book-build/), and
   [Publishing and the skillbook](/concepts/publishing-and-the-skillbook/)
   for how the two relate.
@@ -51,8 +58,8 @@ where the rest of this site documents merged, runnable features, not here:
   ships prebuilt binaries for macOS arm64/x64, Linux x64, and Windows x64
   (Windows is new and lightly tested). See [Install](/getting-started/install/).
 - **William ships inside the product.** Station skills
-  (`william-research-a-skill`, `william-draft-skill-md`) are packaged with
-  the CLI and resolve as a fallback when the workspace has no copy of its
+  (`william-research-a-skill`, `design-skill`, `william-draft-skill-md`)
+  are packaged with the CLI and resolve as a fallback when the workspace has no copy of its
   own — no more hand-carrying the William bundles into every workspace.
   See [The Skill Bundle](/concepts/skill-bundle/#stationsjson--per-bundle-work-config).
 - **Version content snapshots.** `skillmaker version record` snapshots the
@@ -83,10 +90,6 @@ where the rest of this site documents merged, runnable features, not here:
   updating the shell's per-workspace picker/claim logic for the
   machine-level project registry and an in-app reconnect for the
   "attached-but-dead server" limitation noted there.
-- **The viewer's Publish tab.** The Publish tab's Publish/Revert buttons
-  are intentionally disabled while the UI publish flow is redesigned
-  around the version snapshot store; [`skillmaker publish`](/cli/publish/)
-  is the working door today.
 - **Iteration ergonomics: a `runs list` command and grading at volume.**
   Story 6's friction log found real pain grading 8+ runs in a row: no
   `skillmaker runs list` (run ids currently live only in dir names, and

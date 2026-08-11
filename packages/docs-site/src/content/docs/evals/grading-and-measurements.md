@@ -134,4 +134,8 @@ pinned version and provider.
 [Running fixtures](/evals/running-fixtures/) for how runs are produced in
 the first place, and
 [Coverage vs. validation](/evals/coverage-vs-validation/) for the honesty
-law this all serves.
+law this all serves. Measurements are the **validation** axis; the
+**coverage** axis comes from the bundle's claims source — a bundle-root
+`evals.json` when present, else the legacy `evals/risk-map.md` (one wins,
+never merged) — see
+[Fixtures and risk maps](/evals/fixtures-and-risk-maps/).

@@ -4,8 +4,10 @@ description: The fixture kit, risk families, and how to author coverage.
 ---
 
 An eval **fixture** is one task case a skill gets tested against. A
-**risk map** is the authored coverage axis over a bundle's failure modes —
-which risks exist, and which fixtures buy coverage for them.
+bundle's **claims** — its authored failure modes, and which fixtures buy
+coverage for them — come from one of two sources: a bundle-root
+`evals.json` (the structured claims artifact, preferred when present) or
+the legacy `evals/risk-map.md`. One source wins, never a merge.
 
 ## Fixture classes
 
@@ -53,7 +55,8 @@ evals/fixtures/golden-basic/
 ```
 
 `--class` defaults to `golden` if omitted; `--risks` is a comma-separated
-list of risk-map ids (e.g. `IN-1,RE-2`).
+list of claim ids (e.g. `IN-1,RE-2`) — ids may come from either claims
+source, `evals.json` failure hypotheses or legacy risk-map rows.
 
 :::note[The prompt lives in `prompt.md`, not `case.json`]
 Earlier drafts of the data model put the task prompt in a `case.json`
@@ -93,10 +96,52 @@ answer key is grading-only and is never
 copied into the agent's run workspace; adversarial fixtures may plant
 untrusted-input attacks under `files/`.
 
-## Risk maps
+## evals.json — the structured claims source
 
-`evals/risk-map.md` is the authored coverage axis for a bundle — a plain
-markdown table, no results column:
+`evals.json` at the bundle root is the claims artifact the design step
+authors. When it exists and parses, it is the bundle's claims source and
+any `evals/risk-map.md` is ignored — the two are never merged. Shape:
+
+```jsonc
+{
+  "failureHypotheses": [
+    {
+      "id": "IN-1",
+      "failure": "An observable description of how the skill could go wrong.",
+      "probability": "High",        // High | Medium | Low (optional)
+      "impact": "Medium",            // High | Medium | Low (optional)
+      "mustNever": "The skill must never ...",   // optional
+      "proofSpecs": [
+        { "name": "refusal-thin-input", "setup": "...", "expectedBehavior": "..." }
+      ]
+    }
+  ]
+}
+```
+
+Each hypothesis `id` bands into the same five risk families as risk-map
+ids (checked at read time, warning-only). A hypothesis's `proofSpecs`
+name the fixture cases meant to prove it — intentions, not necessarily
+existing fixtures.
+
+Unlike a risk map, `evals.json` has **no authored coverage column**:
+coverage is **derived** by matching each proof-spec `name` against the
+bundle's actual fixture case directories. All specs realized as fixtures
+→ `covered`; some → `partial`; none (or no specs at all) → honestly a
+`gap` — a proof spec is an intention until a fixture exists.
+
+Tolerance follows the same law as the risk-map parser: a missing
+`evals.json` is fine (no warning); a file that exists but isn't the
+expected envelope (not JSON, or `failureHypotheses` not an array) is
+unusable — a warning, and reads fall back to the legacy risk map;
+per-hypothesis defects are warnings that skip the defective entry, never
+a whole-file failure.
+
+## Risk maps (legacy fallback)
+
+`evals/risk-map.md` is the legacy authored coverage axis — a plain
+markdown table, no results column. It is read only when the bundle has
+no usable `evals.json`, and `skillmaker new` no longer scaffolds it:
 
 ```markdown
 ---
