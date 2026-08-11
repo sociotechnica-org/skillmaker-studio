@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "devDependencies": {
+    "@playwright/test": "1.60.0",
     "@types/bun": "^1.3.14",
     "typescript": "^7.0.2"
   },
@@ -18,6 +19,7 @@
     "build:dist": "./scripts/build-dist.sh",
     "build:desktop": "./scripts/build-dist.sh && ./scripts/prepare-desktop-sidecar.sh && bun run --filter @skillmaker/desktop build",
     "test": "bun test packages",
-    "test:e2e": "bun test test/e2e"
+    "test:e2e": "bun test test/e2e",
+    "test:playwright": "bun test/playwright/run.ts"
   }
 }
