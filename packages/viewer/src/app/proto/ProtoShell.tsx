@@ -111,8 +111,7 @@ export default function ProtoShell() {
             newProjectOpen={newProjectOpen}
             onNewProjectOpenChange={setNewProjectOpen}
             boardLabel="Status"
-            // the spine says which piece each skill writes
-            groupByTag={["job", "method", "prompt", "evals", "import"]}
+            showStage={false}
           />
         </div>
         {sidebarOpen && (

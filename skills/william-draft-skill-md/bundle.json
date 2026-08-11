@@ -4,8 +4,7 @@
   "name": "William Draft Skill Md",
   "oneLiner": "Drafts output/SKILL.md from a bundle's design.md -- the drafting station's default agent.",
   "tags": [
-    "william",
-    "prompt"
+    "william"
   ],
   "created": "2026-07-11",
   "targets": [

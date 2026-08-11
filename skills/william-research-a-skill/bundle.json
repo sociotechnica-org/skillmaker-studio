@@ -4,8 +4,7 @@
   "name": "William Research A Skill",
   "oneLiner": "Researches a skill's topic and writes research/notes.md before anyone drafts design.md or SKILL.md.",
   "tags": [
-    "william",
-    "method"
+    "william"
   ],
   "created": "2026-07-11",
   "targets": [

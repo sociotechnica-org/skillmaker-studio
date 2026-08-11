@@ -20,7 +20,7 @@ export function Sidebar({
   newProjectOpen,
   onNewProjectOpenChange,
   boardLabel = "Board",
-  groupByTag = null,
+  showStage = true,
 }: {
   readonly center: CenterView;
   readonly onNavigate: (view: CenterView) => void;
@@ -34,13 +34,13 @@ export function Sidebar({
    */
   readonly boardLabel?: string;
   /**
-   * Group each project's skills under these tags instead of listing them
-   * flat. The /prototype fork passes the four pieces, so the spine says
-   * which part of a skill each one writes. `null` (default) keeps the
-   * shipping flat list, and any skill whose tags match none of the given
-   * groups falls through to an "other" bucket rather than vanishing.
+   * Show each skill's stage badge. The /prototype fork turns it OFF: stage
+   * and the Status page's "Live" column were two nouns competing to answer
+   * one question, and the badge was the one that lied (a bundle can sit at
+   * stage `published` having never been installed anywhere). Defaults true,
+   * so the shipping shell is unchanged.
    */
-  readonly groupByTag?: ReadonlyArray<string> | null;
+  readonly showStage?: boolean;
 }) {
   // Placeholder until the live fetch lands; astro dev without the API keeps
   // rendering data.ts's PROJECTS (fetchProjects resolves null there).
@@ -132,7 +132,7 @@ export function Sidebar({
             active={project.slug === activeProject}
             open={openProjects[project.name] ?? false}
             expanded={showAll[project.name] ?? false}
-            groupByTag={groupByTag}
+            showStage={showStage}
             center={center}
             running={runningSlugs}
             onToggle={() => {
@@ -244,7 +244,7 @@ function ProjectSection({
   active,
   open,
   expanded,
-  groupByTag,
+  showStage,
   center,
   running,
   onToggle,
@@ -257,7 +257,7 @@ function ProjectSection({
   readonly active: boolean;
   readonly open: boolean;
   readonly expanded: boolean;
-  readonly groupByTag: ReadonlyArray<string> | null;
+  readonly showStage: boolean;
   readonly center: CenterView;
   /** Slugs with something running right now (presence sweep). */
   readonly running: ReadonlySet<string>;
@@ -266,22 +266,8 @@ function ProjectSection({
   readonly onOpenSkill: (slug: string) => void;
   readonly onNewSkill: () => void;
 }) {
-  const grouped = groupByTag !== null;
-  const visible = grouped || expanded ? project.skills : project.skills.slice(0, VISIBLE_SKILLS);
-  const hidden = grouped ? 0 : project.skills.length - VISIBLE_SKILLS;
-
-  /** Skills bucketed by the first matching tag; unmatched land in "other". */
-  const buckets: ReadonlyArray<readonly [string, ReadonlyArray<Project["skills"][number]>]> =
-    groupByTag === null
-      ? []
-      : [...groupByTag, "other"].map((tag) => [
-          tag,
-          project.skills.filter((skill) =>
-            tag === "other"
-              ? !(skill.tags ?? []).some((t) => groupByTag.includes(t))
-              : (skill.tags ?? []).includes(tag),
-          ),
-        ]);
+  const visible = expanded ? project.skills : project.skills.slice(0, VISIBLE_SKILLS);
+  const hidden = project.skills.length - VISIBLE_SKILLS;
 
   return (
     <div className="mb-1">
@@ -320,35 +306,17 @@ function ProjectSection({
         }`}
       >
         <div className="overflow-hidden">
-          {!grouped && visible.map((skill) => (
+          {visible.map((skill) => (
             <SkillRow
               key={skill.slug}
               skill={skill}
+              showStage={showStage}
               project={project}
               center={center}
               running={running}
               onOpenSkill={onOpenSkill}
             />
           ))}
-
-          {grouped &&
-            buckets.map(([tag, skills]) =>
-              skills.length === 0 ? null : (
-                <div key={tag} className="pb-1">
-                  <p className="pl-8 pt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{tag}</p>
-                  {skills.map((skill) => (
-                    <SkillRow
-                      key={skill.slug}
-                      skill={skill}
-                      project={project}
-                      center={center}
-                      running={running}
-                      onOpenSkill={onOpenSkill}
-                    />
-                  ))}
-                </div>
-              ),
-            )}
 
           {hidden > 0 && (
             <button
@@ -366,18 +334,20 @@ function ProjectSection({
 }
 
 /**
- * One skill in the spine. Extracted so the flat list and the tag-grouped
- * list render the identical row -- the grouping changes what's around a
- * row, never the row itself.
+ * One skill in the spine. Extracted during the tag-grouping experiment and
+ * kept after it was reverted: the row is easier to read as its own thing,
+ * and whatever the spine eventually groups by will want exactly this seam.
  */
 function SkillRow({
   skill,
+  showStage,
   project,
   center,
   running,
   onOpenSkill,
 }: {
   readonly skill: Project["skills"][number];
+  readonly showStage: boolean;
   readonly project: Project;
   readonly center: CenterView;
   readonly running: ReadonlySet<string>;
@@ -396,7 +366,7 @@ function SkillRow({
       {skill.awaitingReview === true && (
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Awaiting review" />
       )}
-      <StageBadge stage={skill.stage} />
+      {showStage && <StageBadge stage={skill.stage} />}
       {running.has(skill.slug) && (
         <span
           className="h-3 w-3 shrink-0 animate-spin rounded-full border border-amber-500 border-t-transparent"

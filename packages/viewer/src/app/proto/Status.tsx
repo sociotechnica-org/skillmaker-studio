@@ -143,16 +143,15 @@ export function ProtoStatus({ onOpenSkill }: { readonly onOpenSkill: (project: P
     <div className="p-6">
       <h1 className="font-display text-2xl">Status</h1>
       <p className="max-w-2xl pb-5 pt-1 text-sm leading-relaxed text-ink-muted">
-        Where each skill stands — what&rsquo;s out there, whether it&rsquo;s current, and what it&rsquo;s proven on. Work lives in
-        Tasks; this is state.
+        Where each skill stands. Work lives in Tasks; this is state.
       </p>
 
       <div className="overflow-hidden rounded border border-border bg-surface">
         <div className="flex items-baseline gap-3 border-b border-border px-3 py-2">
           <span className={`${LABEL} flex-1`}>Skill</span>
-          <span className={`${LABEL} w-56 shrink-0`}>Out there</span>
-          <span className={`${LABEL} w-40 shrink-0`}>Here</span>
-          <span className={`${LABEL} w-44 shrink-0`}>Proven</span>
+          <span className={`${LABEL} w-56 shrink-0`}>Live</span>
+          <span className={`${LABEL} w-40 shrink-0`}>Version</span>
+          <span className={`${LABEL} w-44 shrink-0`}>Evidence</span>
         </div>
 
         {rows.map((r) => (
@@ -170,17 +169,17 @@ export function ProtoStatus({ onOpenSkill }: { readonly onOpenSkill: (project: P
               <span className="block truncate text-[11px] text-ink-muted">{r.project.name}</span>
             </span>
 
-            {/* OUT THERE — the published copy, and whether it still matches */}
+            {/* LIVE — is it installed where an agent reads it, and current */}
             <span className="w-56 shrink-0">
               <OutThere row={r} />
             </span>
 
-            {/* HERE — have I moved since the last recorded version */}
+            {/* VERSION — have the working files moved since the last stamp */}
             <span className="w-40 shrink-0">
               <Here row={r} />
             </span>
 
-            {/* PROVEN — evidence, honestly empty when there is none */}
+            {/* EVIDENCE — honestly empty when there is none */}
             <span className="w-44 shrink-0">
               {r.provenOn.length === 0 ? (
                 <span className="text-[12px] text-ink-muted">not measured</span>
@@ -214,7 +213,10 @@ export function ProtoStatus({ onOpenSkill }: { readonly onOpenSkill: (project: P
 
 function OutThere({ row }: { readonly row: Standing }) {
   if (row.installedAt === null) {
-    return <span className="text-[12px] text-ink-muted">never published</span>;
+    // "not live" rather than "never published": a bundle can sit at stage
+    // `published` having never been installed anywhere, and this column is
+    // about the world, not the ladder.
+    return <span className="text-[12px] text-ink-muted">not live</span>;
   }
   const tone =
     row.installedDrift === "installed-edited"
@@ -224,10 +226,10 @@ function OutThere({ row }: { readonly row: Standing }) {
         : "text-emerald-700";
   const word =
     row.installedDrift === "installed-edited"
-      ? "edited out there"
+      ? "live · edited since"
       : row.installedDrift === "not-installed"
-        ? "missing"
-        : "in sync";
+        ? "gone from its target"
+        : "live";
   return (
     <>
       <span className={`block text-[12px] ${tone}`}>
@@ -241,11 +243,11 @@ function OutThere({ row }: { readonly row: Standing }) {
 
 function Here({ row }: { readonly row: Standing }) {
   const label: Record<NonNullable<Live>, string> = {
-    "no-version": "no version recorded",
-    "in-sync": "matches last version",
-    "design-changed": "design changed",
-    "output-hand-edited": "prompt hand-edited",
-    both: "design + prompt changed",
+    "no-version": "never stamped",
+    "in-sync": "matches",
+    "design-changed": "design moved since",
+    "output-hand-edited": "prompt moved since",
+    both: "design + prompt moved since",
   };
   if (row.liveDrift === null) return <span className="text-[12px] text-ink-muted">—</span>;
   const moved = row.liveDrift !== "in-sync";
