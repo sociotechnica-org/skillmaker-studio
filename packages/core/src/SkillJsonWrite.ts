@@ -15,7 +15,10 @@
  *   skill.json bundle: appends the `evals.cases[]` entry and wires the
  *   hypothesis->case edges (`--risks` ids MUST already exist in
  *   `design.failureHypotheses` -- the write door enforces the join the old
- *   files never did).
+ *   files never did). Also `case plan`'s door, called WITHOUT a materials
+ *   scaffold: an entry with prose `setup`/`expectedBehavior` and no
+ *   `evals/cases/<name>/` dir is a PLANNED case (the old proof spec);
+ *   `case add` later realizes it.
  * - `addClaimToSkillJson` -- `claims add`'s door: appends a failure
  *   hypothesis (the eval-writer skill's future write path).
  * - `writeCaseMaterialsScaffold` -- `evals/cases/<name>/` materials
@@ -120,6 +123,10 @@ export interface AddCaseInput {
   readonly klass: FixtureClass;
   /** Claim ids the case buys coverage for -- each MUST exist in `design.failureHypotheses` (the door refuses dangling ids). */
   readonly risks: ReadonlyArray<string>;
+  /** Prose: the input state or request that exposes the risk (the old proofSpec.setup) -- `case plan`'s design-conversation field. */
+  readonly setup?: string;
+  /** Prose: what passing looks like (the old proofSpec.expectedBehavior). */
+  readonly expectedBehavior?: string;
   /** Harvest provenance, stamped on the case entry (the old case.json `source`). */
   readonly source?: FixtureSourceRecord;
 }
@@ -189,6 +196,8 @@ export const addCaseToSkillJson = Effect.fn("SkillJsonWrite.addCaseToSkillJson")
     cases.push({
       name: input.caseName,
       class: input.klass,
+      ...(input.setup !== undefined ? { setup: input.setup } : {}),
+      ...(input.expectedBehavior !== undefined ? { expectedBehavior: input.expectedBehavior } : {}),
       ...(input.source !== undefined ? { source: input.source } : {}),
     });
   }
