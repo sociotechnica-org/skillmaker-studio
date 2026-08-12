@@ -134,6 +134,51 @@ describe("addClaimToSkillJson / addCaseToSkillJson — the write doors", () => {
     );
   });
 
+  test("a planned case (case plan's door): prose setup/expectedBehavior persist, no materials dir involved", async () => {
+    await withTempDir((dir) =>
+      Effect.gen(function* () {
+        const bundleDir = join(dir, "b");
+        writeNewSkillJson(bundleDir);
+        yield* addClaimToSkillJson(bundleDir, { id: "OUT-3", failure: "pads suggestions" });
+
+        const outcome = yield* addCaseToSkillJson(bundleDir, {
+          caseName: "nothing-worth-writing",
+          klass: "empty",
+          risks: ["OUT-3"],
+          setup: "Provide transcripts with no distinctive and safe public insight.",
+          expectedBehavior: "The skill explicitly returns no suggestions.",
+        });
+        expect(outcome.kind).toBe("added");
+
+        const parsed = parseSkillJsonSync(join(bundleDir, "skill.json"));
+        expect(parsed.cases[0]).toMatchObject({
+          name: "nothing-worth-writing",
+          class: "empty",
+          setup: "Provide transcripts with no distinctive and safe public insight.",
+          expectedBehavior: "The skill explicitly returns no suggestions.",
+        });
+        expect(parsed.hypotheses[0]?.cases).toEqual(["nothing-worth-writing"]);
+        // Planned = no evals/cases/<name>/ dir; this door never scaffolds one.
+        expect(existsSync(join(bundleDir, "evals", "cases", "nothing-worth-writing"))).toBe(false);
+
+        // Re-planning is idempotent: entry kept untouched, edges deduped.
+        const again = yield* addCaseToSkillJson(bundleDir, {
+          caseName: "nothing-worth-writing",
+          klass: "empty",
+          risks: ["OUT-3"],
+          setup: "different prose that must NOT overwrite",
+        });
+        expect(again.kind).toBe("realized");
+        const reparsed = parseSkillJsonSync(join(bundleDir, "skill.json"));
+        expect(reparsed.cases.length).toBe(1);
+        expect(reparsed.cases[0]?.setup).toBe(
+          "Provide transcripts with no distinctive and safe public insight.",
+        );
+        expect(reparsed.hypotheses[0]?.cases).toEqual(["nothing-worth-writing"]);
+      }),
+    );
+  });
+
   test("case add appends the entry and wires the hypothesis->case edge (deduped)", async () => {
     await withTempDir((dir) =>
       Effect.gen(function* () {

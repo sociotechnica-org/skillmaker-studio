@@ -7,6 +7,7 @@ import { type CliResult, ok, usageError } from "./CliResult.ts";
 import { runAdopt, runAdoptFromManifest, runAdoptTriage } from "./commands/Adopt.ts";
 import { runAdvance } from "./commands/Advance.ts";
 import { runBookBuild } from "./commands/BookBuild.ts";
+import { runCasePlan } from "./commands/CasePlan.ts";
 import { runClaimsAdd } from "./commands/ClaimsAdd.ts";
 import { runFixtureAdd } from "./commands/FixtureAdd.ts";
 import { runFixtureHarvest } from "./commands/FixtureHarvest.ts";
@@ -46,6 +47,7 @@ Commands:
   status <slug>     Show one Skill Bundle's identity, state, and event history
   reindex           Rebuild .skillmaker/studio.db from files + the journal
   case add <slug> <case>      Scaffold one eval case (skill.json bundles: entry in skill.json + evals/cases/<case>/; legacy bundles: evals/fixtures/<case>/). Alias: fixture add
+  case plan <slug>            Plan one eval case on a skill.json bundle: entry in skill.json with prose setup/expectedBehavior, NO materials dir (--name required; case add realizes it later). Alias: fixture plan
   case harvest <slug> <case>  Turn a skill.field_report event into an eval case (--from-report <event-id> required, issue #68). Alias: fixture harvest
   claims add <slug>           Add a failure hypothesis (a claim) to a skill.json bundle's design.failureHypotheses (--id and --failure required)
   run <slug>        Run a fixture case through an ACP provider (data-model.md §2.8)
@@ -122,9 +124,12 @@ Options:
   --priority <n>    (todo add) lower = more urgent; defaults by kind
   --pin             (todo add) pin the todo (exempt from the sweep)
   --all             (todo list) include swept todos
-  --class <class>   (case/fixture add) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
+  --class <class>   (case/fixture add, case plan) golden | refusal | empty | rerun | hard-case | trigger; defaults to golden
                     (case/fixture harvest) same enum; defaults to hard-case
-  --risks <ids>     (case/fixture add) comma-separated claim ids, e.g. IN-1,RE-2; on a skill.json bundle each id must exist in design.failureHypotheses
+  --risks <ids>     (case/fixture add, case plan) comma-separated claim ids, e.g. IN-1,RE-2; on a skill.json bundle each id must exist in design.failureHypotheses
+  --name <case>     (case plan) the planned case's kebab-case name (required); doubles as the future evals/cases/<name>/ dir name
+  --setup <prose>   (case plan) the input state or request that exposes the risk; optional
+  --expected-behavior <prose>  (case plan) what passing looks like, observably; optional
   --id <id>         (claims add) the claim id, e.g. IN-1 (required; IN|RE|OUT|ADV|CHN family prefix)
   --failure <text>  (claims add) the observable failure sentence (required)
   --must-never <text>  (claims add) the invariant the skill must never break; optional
@@ -180,6 +185,8 @@ const VALUE_FLAGS = new Set([
   "--label",
   "--class",
   "--risks",
+  "--setup",
+  "--expected-behavior",
   "--from-report",
   "--from-run",
   "--fixture",
@@ -336,6 +343,18 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
           commandLabel: `${command} add`,
         });
       }
+      if (subcommand === "plan") {
+        const slug = positionalAfter(argv, 2);
+        return yield* runCasePlan(cwd, slug, {
+          json,
+          name: flagValue(argv, "--name"),
+          klass: flagValue(argv, "--class"),
+          setup: flagValue(argv, "--setup"),
+          expectedBehavior: flagValue(argv, "--expected-behavior"),
+          risks: flagValue(argv, "--risks"),
+          commandLabel: `${command} plan`,
+        });
+      }
       if (subcommand === "harvest") {
         const [slug, caseName] = twoPositionalsAfter(argv, 2);
         const klass = flagValue(argv, "--class");
@@ -344,7 +363,7 @@ export const run = Effect.fn("Cli.run")(function* (argv: ReadonlyArray<string>, 
         return yield* runFixtureHarvest(cwd, slug, caseName, { json, klass, fromReport, fromIntake });
       }
       return usageError(
-        `skillmaker: unknown "${command}" subcommand "${String(subcommand)}"\n\nUsage: skillmaker ${command} add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker ${command} harvest <slug> <case> (--from-report <event-id> | --from-intake <intake-id>) [--class <class>]\n`,
+        `skillmaker: unknown "${command}" subcommand "${String(subcommand)}"\n\nUsage: skillmaker ${command} add <slug> <case> [--class <class>] [--risks IN-1,RE-2]\n       skillmaker ${command} plan <slug> --name <case> [--class <class>] [--setup <prose>] [--expected-behavior <prose>] [--risks IN-1,RE-2]\n       skillmaker ${command} harvest <slug> <case> (--from-report <event-id> | --from-intake <intake-id>) [--class <class>]\n`,
       );
     }
     case "claims": {
