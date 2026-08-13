@@ -87,7 +87,7 @@ one plateaus.*
 
 | Coping mechanism | It helps | Where it plateaus |
 |---|---|---|
-| Tighter prompts, sharper SKILL.md | Fewer weird runs this week | The instructions are tuned to a model that gets replaced on someone else's schedule |
+| Tighter prompts, sharper SKILL.md | Fewer weird runs this week | The tuning binds to a model that gets repriced, rate-limited, and retired on someone else's schedule — and none of it transfers |
 | Rerun it a few times, eyeball the output | Catches the obvious | Doesn't scale past a handful of skills; leaves no record anyone else can trust |
 | A hand-rolled eval harness in CI | Real engineering, honest intent | A side project someone owns forever — and it still doesn't know what a skill version is |
 | An eval bench in another tab | Real scores | Scores what you thought to ask, once, on a copy you now keep in sync |
@@ -112,11 +112,19 @@ Eyebrow: *the root cause*. H2: **Nobody has custody of the skill.**
 > green on what you thought to ask, and quietly not doing the job at
 > the level the job requires.
 >
-> Meanwhile the ground moves. Models change constantly. Should your
-> skill change with them? Did it already break? You don't just lack the
-> answer — without custody, you don't know what you'd need to know.
+> Meanwhile the ground moves. Models change constantly — repriced,
+> rate-limited, retired, replaced. Should your skill change with them?
+> Did it already break? Could a cheaper model now do the job? You don't
+> just lack the answers — without custody, you don't know what you'd
+> need to know.
+>
+> You've solved this before. GitHub gave code custody — versions,
+> diffs, receipts, one place the whole team trusts. Figma gave it to
+> design. Skills are still waiting for theirs: loose files, tuned by
+> feel, bound to a model you don't control.
 
-Kicker: *That's not a tooling gap. It's a custody gap.*
+Kicker: *That's not a tooling gap. It's a custody gap — and everything
+without custody, you're renting.*
 
 ### 5 · After state — the relief beat, symptom by symptom
 
@@ -133,6 +141,9 @@ skill.** Product name deliberately absent (experience terms only):
   tab you can't find.
 - *Fixes happen on an operating table.* Trail back to why, change the
   process — not just the prompt — and re-measure on the spot.
+- *Switching models becomes a decision, not a rewrite.* A cheaper model
+  passes your evals — you graduate, receipts in hand. A better one
+  ships — you know by lunch whether it's safe to move.
 
 ### 6 · Product — supply sentence + the bench contrast
 
@@ -141,7 +152,9 @@ commercial-grade skills live.**
 
 > Skillmaker Studio is where commercial-grade skills live — designed,
 > versioned, measured in real agent sessions, and repaired when they
-> drift. One surface, plain English, on the repo you already have.
+> drift. One surface, plain English, on the repo you already have,
+> against the agents you already run — Claude Code and Codex today; a
+> provider is a config line, not a partnership.
 
 Then the existing contrast block as an h3 ("The score is the easy
 part.") with the five-row table and the scoped Braintrust honesty line
@@ -168,11 +181,19 @@ re-captured from the real CLI before any public deploy (PR #11 set the
 real-output standard). The rebuilt block is labeled in-source with a
 TODO comment until then.
 
-### 8 · Situations — the fan-out (unchanged this pass)
+### 8 · Situations — the fan-out (+ the model-market pair)
 
-Already does the "other times you have this pull" job. A later pass may
-add the two workshop fan-out lines (first commercial-grade skill due; a
-teammate's version wearing your skill's name).
+Already does the "other times you have this pull" job. This pass adds
+the two felt model-market situations (per the ownership addendum's
+rule: the macro bet never appears on the page, only its felt symptoms):
+
+- *The model your skills were tuned for just got a deprecation date.*
+- *The invoice doubled, and nobody can say which skills actually need
+  frontier pricing.*
+
+A later pass may still add the two workshop fan-out lines (first
+commercial-grade skill due; a teammate's version wearing your skill's
+name).
 
 ### 9 · Receipts — evidence only
 
@@ -251,3 +272,51 @@ seam, the first-timer side door. The insight section (4) is the one the
 framework warns must come from voice-of-customer, not a copywriter —
 if the out-loud test returns polite nods, section 4 is what gets
 rewritten first.
+
+## Ownership addendum (2026-08-11)
+
+The custody spine gains a second consequence, not a second cause.
+Custody has so far played only defense — drift caught, blame resolved,
+weirdness surfaced on your terms. The same custody plays offense: a
+skill with versions and per-model receipts is *portable* — safe to
+move when the model market moves (repricing, rate limits,
+deprecations, a cheaper model that now passes). One root cause, two
+payoffs: quality today, ownership tomorrow. This pass touches §3 row
+one, §4, §5, §6, and §8; the hero, credibility bar, and CTA structure
+are deliberately untouched — the felt symptom still opens the page.
+
+**Mapping to the live page.** The promoted infomercial (`/`, since
+2026-07-16) compresses this spine, so the pass lands there as: the
+lineup already carries the model suspects (§3's job); THE SECRET gains
+the GitHub grammar and the renting kicker (§4's job — the doc already
+ruled the secret is the compressed insight); the growth-program door
+already carries graduation (§5's job); the felt model-market symptoms
+land as a new objection, "We're all-in on one model anyway" (§8's
+job). Round 12 in `index.astro`'s header records the same.
+
+Rulings:
+
+1. **GitHub is grammar, not category.** "GitHub gave code custody"
+   appears inside §4 as compression of the same beat — a handle the
+   buyer can repeat in a meeting — never as a category claim ("GitHub
+   for agents") anywhere on the page. The category claim invites the
+   platform comparison and the platform fight; the grammar does the
+   cause-unaware → aha work in one breath and widens the audience
+   without a new spine.
+2. **The macro bet never appears on the page.** The thesis (subsidies
+   end, spend explodes, price dispersion widens, model-shopping
+   becomes procurement) is sales-conversation and pull-bets material.
+   The page sells only the felt symptoms: a deprecation date, a
+   doubled invoice, tuning that doesn't transfer. Same discipline as
+   the no-roadmap ruling, applied to futures instead of features.
+3. **Neutrality is claimed only as shipped.** Two providers are live
+   (`skillmaker.config.json`: `claude-code`, `codex`); §6's "a
+   provider is a config line, not a partnership" is the honest form of
+   the claim. It strengthens when an open-weight provider lands; it is
+   not written as if that had happened.
+4. **Candidate closer, untested:** *Own the skills. Rent the models.*
+   Sits behind the ruled FinalCta kicker until it beats it out loud.
+
+The out-loud test still governs, and §4 first: if the GitHub grammar
+draws polite nods instead of the "huh — right" it exists for, it dies
+before the rest of the reveal does.
