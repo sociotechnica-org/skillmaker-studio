@@ -1,8 +1,9 @@
 # sms-feature: implement a Skillmaker Studio feature end to end.
 #
 # Adapted from alexandria-internal's ax-feature workflow. Backend copied
-# from there (api backend, OpenAI). Models per director ruling on PR
-# #188: gpt-5.6-terra medium is the run default (implement, handoff);
+# from there (api backend, OpenAI). Models per director rulings (PR
+# #188, 2026-08-11): gpt-5.6-terra medium is the run default (handoff);
+# implement overrides to gpt-5.6-sol medium (post-#208-autopsy trial);
 # scope and the combined ReviewJudge override to gpt-5.6-sol high in
 # workflow.fabro -- think hard at the gates, run lean in the loop.
 # Graph reshaped 2026-08-04 after the first batch cycled expensively:
